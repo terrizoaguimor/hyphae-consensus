@@ -112,6 +112,61 @@
   real seeded evidence and abstained. Runbook:
   `scripts/hyphae-container/README.md`.
 
+## 2026-10-26 (night) — independent audit and fix round (schema 1.1)
+
+- An independent read-only audit (`docs/reviews/2026-10-26-claude-opus-review.md`)
+  found policy holes, an unverifiable log, silent mode substitution in the
+  console, unauthenticated approval, a blind revision step, and overstated docs.
+  An earlier session implemented the policy, schema 1.1, hash-chain, and console
+  fixes; a headless run then finished and verified the rest from
+  `docs/reviews/2026-10-26-claude-fix-brief.md`. Report:
+  `docs/reviews/2026-10-26-claude-fix-report.md`.
+- **Two defects surfaced while verifying the earlier fixes.** Both are fixed
+  with regression tests.
+  1. The live Hyphae tool-error envelope says "corruption" only in
+     `error.category`. The adapter kept only `message` ("native durable state
+     is invalid"), so the live corruption signal would still have degraded to
+     `unavailable`, and audit finding 11 was not actually fixed live. The
+     category is now kept, and live records come back `invalid` → `blocked`.
+  2. The policy ranks an invalid proof above abstention, but the state machine
+     rejected `blocked` in the Abstained state. The orchestrator then appended
+     a record that failed replay, and on restart the console refused to start.
+     Once (1) was fixed, every live run where the Evaluator abstains would have
+     hit this. Fixes: `blocked` is allowed from Abstained (never an upgrade);
+     every event is validated before it is persisted; startup recovery reports
+     unreplayable runs instead of aborting.
+- Also: console snapshots report a corrupt log line (500) instead of skipping
+  it; `/decision` checks the override rule against the owning log; the
+  per-run evidence cap is strict and recorded; simulated proofs say
+  `SIMULATED` in every verification record; the evaluate example is now a
+  conformance check (no baseline claim, no "UNSAFE" timeout); Hyphae
+  container scripts are pinned to LF line endings.
+- Gates: `cargo fmt`, `cargo clippy --workspace --all-targets` (0 warnings),
+  `cargo test --workspace` → 67 passed + 2 ignored live tests (56 at handoff);
+  schemas regenerated for 1.1; evaluate 7/7.
+- Console smoke test against the real binary over HTTP. Page fields, the 400 on
+  silent substitution, invalid proof → blocked, 401 without the token, 400 for
+  an override without a note, 200 with both, idempotent retry, receipt
+  `head_hash`, and SSE replay all behaved; a hand-edited log was refused at
+  startup.
+- **Live battery** (`docs/evaluation.md`): 12 Meta + Hyphae runs, 33 calls →
+  9 blocked, 1 abstained, 2 failed safely on 60 s timeouts, 0 supported. The
+  Evaluator abstained in every completed run. The Critic flagged the stored
+  constraint in 5 of 11 critiques. A planted "SYSTEM OVERRIDE" memory
+  (`injection-lab` project) was treated as contradicting evidence, not obeyed.
+  Isolation held for `other-repo`. Three supplementary `meta + fake` runs
+  (simulated proofs, labeled) also abstained 3/3, so live `supported` is
+  currently out of reach for model-behavior reasons as well as the upstream
+  proof failure.
+- **Corrections to earlier entries.** In the evening `meta + fake` run, the
+  "valid integrity" the Evaluator mentioned was simulated (`fake-verifier`).
+  The "honest degradation (integrity `unavailable`)" described above was
+  replaced: a corruption report now blocks.
+- Left to the owner: repository license; pushing; running Hyphae's
+  `agent doctor` / `recover` on the container store (the error says
+  `retry: after-recovery`, but those commands can mutate the store); and the
+  design options in `docs/evaluation.md` §3.
+
 ## Backlog
 
 **Must have:** M2 Meta adapter (structured output vs. `schemas/`, timeouts/retries/

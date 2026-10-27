@@ -6,29 +6,31 @@ Meta Global AI Developer Hackathon 2026 · Indie Developer track · Push the Fro
 Development window: October 26 – November 4, 2026 · Owner: Mario (independent developer)
 
 Hyphae Consensus coordinates three Meta-AI agent roles — **Proposer**, **Critic**, and
-**Evidence Evaluator** — that propose solutions to software-engineering problems, challenge
-each other's assumptions, retrieve evidence from a verifiable memory backend, check
-integrity proofs, revise conclusions, and present an auditable recommendation for explicit
-human authorization. Models never decide outcomes and nothing is executed before a human
-approves.
+**Evidence Evaluator** — that propose solutions to software-engineering problems,
+challenge each other's assumptions, and revise conclusions. The **runtime** (not a
+model) retrieves evidence from a verifiable memory backend and checks its integrity
+proofs; the **Evaluator** judges relevance and factual corroboration per claim; a fixed,
+deterministic runtime policy turns those judgments and the proof statuses into an
+auditable recommendation; and only a **human** authorizes. No model writes the outcome
+or can approve, but the Evaluator's judgments are the policy's main input, so "models
+never decide" holds in form, not in substance. Nothing is executed before a human
+approves (the executor is deferred: approval records a decision only).
 
-> **Status: M1–M3 + console complete (2026-10-26).** Typed contracts, deterministic
-> state machine, crash-safe event log, Meta Model API adapter
-> (structured output, tested against a local fake server), Hyphae MCP read-only adapter
-> + offline proof verifier (tested against in-memory/scripted transports), Axum/SSE
-> operator console, synthetic demo repository, and a 7-case baseline-vs-consensus
-> protocol evaluation. **Live status:** Meta and Hyphae both verified end-to-end;
-> Hyphae runs its pinned Linux build in a local Docker container because the
-> Windows build's Agent Memory surface does not start on this host. Meta verified against the real
-> API (one full console run; the live Evaluator abstained — see
-> `docs/evaluation.md`). The Hyphae live probe passes against the container; one
-> full Meta+Hyphae run retrieved real evidence and abstained. Upstream Windows
-> 4.0.0 Agent Memory surface, which fails to start on this machine even via its
-> official `agent setup` (evidence in `docs/journal.md`), and upstream
-> `recall(prove=true)` currently fails while plain recall works, so integrity is
-> reported `unavailable` live; the adapter is tested
-> against scripted transports and the gated probe runs unchanged once upstream
-> starts. Demo modes are labeled (`fake` vs live) everywhere.
+> **Status (2026-10-26, after an independent audit and fix round; schema 1.1).**
+> Typed contracts, deterministic state machine, hash-chained crash-safe event log,
+> Meta Model API adapter, Hyphae MCP read-only adapter + offline proof verifier,
+> Axum/SSE operator console, synthetic demo repository, a 7-case scripted protocol
+> conformance check, and a live battery. **Live status:** 12 runs with the real Meta
+> API (`muse-wonder-1.0`) and real Hyphae Agent Memory: 9 blocked, 1 abstained, 2
+> failed safely on model timeouts, 0 supported (`docs/evaluation.md`). Hyphae runs
+> its pinned Linux build in a local Docker container, because the Windows build's
+> Agent Memory surface does not start on this host (`docs/journal.md`). Upstream
+> `recall(prove=true)` currently answers every request with a corruption error while
+> plain recall works; the runtime treats that as an invalid proof, so every live run
+> that retrieves evidence is **blocked**, and no valid Hyphae proof has been observed
+> live. Separately, the live Evaluator abstained in every completed run, so the
+> revision loop has only been exercised with scripted doubles. Demo modes are labeled
+> everywhere (`fake` with simulated proofs vs. live).
 
 ## Competition boundary: pre-existing vs. newly developed work
 
@@ -65,8 +67,8 @@ forked, or modified by this project.
   tools only) plus `hyphae proof verify` integrity checking
   (`crates/consensus-api/src/hyphae.rs`, ADR-0003).
 - Operator console (Axum + SSE replay), synthetic demo repository (`demo-repo/`),
-  adversarial integration tests, and the baseline-vs-consensus evaluation
-  (`docs/evaluation.md`).
+  adversarial integration tests, a scripted protocol conformance check, and a live
+  Meta + Hyphae battery (`docs/evaluation.md`).
 
 **Licensing of this repository: undecided.** No license is granted by this repository
 until the owner explicitly selects one. Hyphae is consumed only via its public
@@ -76,10 +78,11 @@ interfaces; no Hyphae code is redistributed here.
 
 The event log, state machine, orchestration, receipts, and human-authorization recording
 are fully operational without Hyphae. When the memory backend is unreachable, evidence
-retrieval fails per-claim, an `evidence_unavailable` event is recorded, affected evidence
-carries `integrity_status: unavailable`, and the recommendation is capped at
-`insufficient_evidence` or `abstained` — never `supported`. Uncertainty is surfaced,
-never converted into confidence.
+retrieval fails per claim and an `evidence_unavailable` event records the reason. No
+evidence is retrieved, so no verification record exists at all, and with no checked
+evidence the policy can never return `supported`: the run ends `insufficient_evidence`,
+`contested` (unresolved Critic items), or `abstained`, depending on the Evaluator.
+Uncertainty is surfaced, never converted into confidence.
 
 ## Integrity proofs: what they do and do not establish
 
@@ -87,8 +90,13 @@ A valid Hyphae proof establishes that a recalled record matches its anchored sna
 under Hyphae's documented assumptions. It does **not** establish that the content is
 true, relevant, or complete, or that a model reasoned from it. This is why
 `EvidenceVerification` keeps integrity, factual corroboration, and relevance as three
-independent fields, and why a `supported` recommendation requires corroborated claims
-*and* valid proofs on every cited record.
+independent fields. A `supported` recommendation requires **every** claim to be
+corroborated by at least one record that the claim itself cites, a valid proof on
+every cited record, no contradicting record (cited or not), no Critic item the
+Evaluator still judges unresolved, and no invalid proof anywhere in the retrieved set. By default the proof anchor comes
+from the same server response as the proof, which shows internal consistency only;
+pin an out-of-band anchor with `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` to verify against a
+trusted one.
 
 ## Workspace layout
 
@@ -96,7 +104,7 @@ independent fields, and why a `supported` recommendation requires corroborated c
 |---|---|
 | `crates/consensus-domain` | Typed contracts only; no I/O |
 | `crates/consensus-runtime` | State machine, event log, orchestration, policy, ports, fakes |
-| `crates/consensus-api` | Operator entry point (M1: scripted demo binary) |
+| `crates/consensus-api` | Meta + Hyphae adapters, Axum/SSE operator console, scripted CLI demo |
 | `crates/consensus-tests` | Deterministic integration and adversarial scenarios |
 
 Architecture decisions: `docs/adr/0001-m1-architecture.md`. Threat model:
@@ -110,17 +118,21 @@ MSVC build tools on Windows (see the
 The toolchain is pinned in `rust-toolchain.toml`.
 
 ```powershell
-cargo test --workspace                                        # 42 tests, deterministic
-cargo run -p consensus-domain --example write_schemas         # regenerate schemas/
-cargo run -p consensus-tests --example evaluate               # baseline vs consensus battery
+cargo test --workspace                                        # 67 tests (+2 ignored live), deterministic
+cargo run -p consensus-domain --example write_schemas         # regenerate schemas/ (1.1)
+cargo run -p consensus-tests --example evaluate               # scripted protocol conformance check
 cargo run -p consensus-api -- serve                           # operator console → http://127.0.0.1:8787/
 cargo run -p consensus-api                                    # scripted CLI demo (alternative)
 cargo run -p consensus-api -- --approve                       # record approval (no execution occurs)
 ```
 
-Live modes (console `model=meta` / `memory=hyphae`, and the gated tests) read
-credentials from the environment — see `.env.example`. Without them the API
-returns an explicit configuration error instead of silently falling back.
+The console prints a per-process **operator token** at startup; the decision panel
+needs it to record an approval or rejection, and approving a `blocked` or `abstained`
+run additionally requires a note. Live modes (console `model=meta` / `memory=hyphae`,
+and the gated tests) read credentials from the environment — see `.env.example` and
+`scripts/hyphae-container/README.md`. Without them the API returns an explicit
+configuration error instead of silently falling back; `model=fake` with a non-fake
+memory is rejected rather than ignored.
 
 The demo persists events to `demo-run/events.jsonl` (git-ignored). Re-running replays
 the log instead of calling models again; delete `demo-run/` for a fresh run.
@@ -131,12 +143,21 @@ committed to this repository.
 
 ## Safety invariants (enforced in code, covered by tests)
 
-- No self-approval: only a human actor can record an authorization decision.
+- No self-approval: only a human actor can record an authorization decision, and the
+  console requires the operator token printed at startup (a typed name is a label, not
+  authentication).
 - No execution before approval: the executor is deferred through M3; approval currently
   only records the decision.
-- Bounded debate: at most 2 revision rounds, plus a no-progress exit.
+- Bounded debate and cost: at most 2 revision rounds plus a no-progress exit measured
+  per Critic item; at most 9 model calls and 20 distinct evidence records per run, and
+  at most 12 claims per proposal from the Meta adapter. There is no token budget.
+- Tamper-evident history: events are SHA-256 hash-chained and verified on open; replay
+  recomputes every recommendation and rejects a forged one; receipts carry the chain
+  head. The chain is unsigned, so it is evident, not proof, against a full rewrite.
 - Replay never repeats external effects: replay is read-only state reconstruction.
-- Retrieved memory is untrusted data, never instructions (prompt-injection scenario in
-  `crates/consensus-tests/tests/m1_scenarios.rs`).
+- Retrieved memory and other models' outputs are untrusted data, never instructions:
+  they are delimited, escaped, and truncated in prompts, and no model output can
+  authorize. That is a mitigation, not a guarantee. The scripted injection test is a
+  *policy* test; prompt-level behavior was observed live (`docs/evaluation.md`).
 - Agents receive read-only memory access by contract; writes are a separate
   runtime-service trait (`MemoryAdmin`) that agent-facing code cannot reach.

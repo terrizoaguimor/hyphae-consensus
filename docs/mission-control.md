@@ -9,7 +9,8 @@ Status: initial operator UI delivered; live streaming and true Hyphae proof inte
 - Replaces the legacy single-page console with a high-density, responsive dark operator dashboard.
 - Preserves the existing Axum API routes and payload contracts; no backend or Hyphae Core modifications.
 - Shows all three logical roles, persisted event timeline, orthogonal evidence statuses, recommendation, human authorization, model telemetry and receipts.
-- Exposes explicit `fake`/`meta` model and `fake`/`offline`/`hyphae` memory modes.
+- Exposes explicit `fake`/`meta` model and `fake`/`offline`/`hyphae` memory modes, plus a scripted-scenario selector for `model=fake` (reference, offline, invalid proof, hostile memory, abstention) labeled "simulated proofs".
+- Decision panel: operator-token field (the token is printed by the server at startup) and a decision note, required to approve a blocked or abstained run; the idempotency key is stable per run.
 - Renders remote model and evidence content through `textContent` / DOM node creation instead of HTML interpolation.
 - Labels SSE replay as persisted replay; does not claim live streaming.
 - Preserves record-only approval; no executor is introduced.
@@ -17,16 +18,16 @@ Status: initial operator UI delivered; live streaming and true Hyphae proof inte
 ## Verification
 
 - JavaScript extracted from `console.html` passes Node.js `vm.Script` syntax parsing.
-- UI has **not** yet been exercised against a running Rust server in the contributor's Windows environment.
-- No live API, Hyphae or Meta calls were made for this UI change.
+- 2026-10-26 (audit-fix round): HTTP smoke test against the real `consensus-api serve` binary on Windows (temp event log). The page is served with the scenario selector, token, and note fields. Over HTTP: `fake+hyphae` → 400; the `invalid-proof` scenario → `blocked`; a decision with no or a wrong token → 401; approving `blocked` without a note → 400; with token + note → 200; retrying the same key appends nothing; receipt and SSE replay work; `retry`/`offline`/`injection`/`abstain` scenarios reach their documented outcomes; a hand-edited log is refused at startup (`hash chain broken`).
+- That smoke test drove the API the page calls; it did **not** automate clicks in a real browser. Live `meta`/`hyphae` runs were driven through the same API (see `docs/evaluation.md`).
 
 ## Existing backend constraints
 
 1. `POST /api/runs` blocks until the orchestration finishes and returns the completed run; it does not issue an early run ID.
 2. `GET /api/runs/{id}/events` replays persisted events and ends with `replay_complete`. It is not a real-time subscription.
 3. The event-log mutex is currently held by `execute_run` during the full orchestration; concurrent human/stream operations are constrained.
-4. `memory=hyphae` remains blocked by the upstream Windows 4.0.0 Agent Memory initialization failure documented in `docs/journal.md`.
-5. Authentication is not implemented. The operator API binds to loopback by default and **must not be exposed publicly** until authorization and CSRF protections exist.
+4. `memory=hyphae` works through the pinned Linux build in a local Docker container (`scripts/hyphae-container/`); the Windows 4.0.0 Agent Memory surface still does not start on this host. Upstream proof generation currently fails with a corruption error, so live runs that retrieve evidence end `blocked` (ADR-0003).
+5. Only `/decision` is authenticated, by a per-process operator token printed at startup. Run creation, listing, and receipts are unauthenticated, and there is no CSRF protection. The operator API binds to loopback by default and **must not be exposed publicly**.
 
 ## Next: actual streaming contract
 

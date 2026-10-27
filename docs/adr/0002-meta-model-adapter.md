@@ -9,6 +9,10 @@ Date: 2026-10-26 · Status: accepted · Scope: milestone M2
    `response_format: {type: "json_schema", json_schema: {name, schema, strict}}`.
    The Responses API equivalent (`text.format`) is not interchangeable and is not
    used. Source: https://dev.meta.ai/docs/structured-output (read 2026-10-26).
+   The request sends `strict: false`, so the API is **not** relied on to
+   enforce the schema: conformance is enforced on our side by deserializing
+   every response into the typed draft (serde), and any mismatch is
+   `MalformedOutput`.
 
 2. **Drafts, not domain documents.** The model fills small draft schemas
    (`DraftProposal`, `DraftChallenge`, `DraftEvaluation`, `DraftRevision`)
@@ -32,17 +36,40 @@ Date: 2026-10-26 · Status: accepted · Scope: milestone M2
    names appear in Meta ecosystem documentation). Held in memory only; `Debug`
    redacts it; it never reaches argv, logs, events, or receipts.
 
-6. **Prompt-injection posture.** Retrieved evidence is embedded inside explicit
-   `UNTRUSTED_EVIDENCE` delimiters with instructions to treat it as data. Role
-   prompts forbid asserting outcomes or approvals.
+6. **Prompt-injection posture (defense in depth, not a boundary).** Retrieved
+   evidence is embedded inside `<UNTRUSTED_EVIDENCE>` delimiters and the
+   previous role's output inside `<UNTRUSTED_PROPOSAL>`, with instructions to
+   treat both as data. Delimiter look-alikes inside untrusted text are
+   neutralized (`</UNTRUSTED…` → `< /UNTRUSTED…`) so a record cannot close
+   its own block; each evidence record is truncated to 2,000 characters;
+   Critic item descriptions and Evaluator notes are escaped the same way.
+   Role prompts forbid asserting outcomes or approvals. None of this makes a
+   model injection-proof: the hard boundary is that no model output can
+   authorize, and the residual risk is a manipulated Evaluator (see the
+   threat model and the live injection case in `docs/evaluation.md`).
 
 7. **Sync boundary.** The adapter uses `reqwest::blocking`; the orchestrator
    stays synchronous and the HTTP console runs it on a blocking thread.
 
+8. **Per-item challenge tracking (schema 1.1).** The adapter assigns an id to
+   every Critic item. The Evaluator reports `unresolved_items` and the
+   revision reports `addressed_items` by item id; ids not in the current
+   challenge are dropped. The revision prompt carries the Critic's items,
+   the Evaluator's per-claim notes (with relevant/contradicting ids), and
+   the delimited evidence, so the Proposer sees what it is asked to fix.
+
+9. **Bounded drafts.** A proposal or revision with no claims, or more than
+   12, is `MalformedOutput`: claims drive one memory recall each per round.
+
 ## Verification
 
-Unit/integration tests run against a local fake HTTP server speaking the
-documented envelope (happy path + exact request-field assertion, malformed
-content, persistent-500 retry counting, id filtering). The live test
-`live_meta_propose` is `#[ignore]`d and requires `CONSENSUS_LIVE_TESTS=1` plus a
-real key; it has not been run in this environment (no credential available).
+Tests run against a local fake HTTP server speaking the documented
+envelope: happy path + exact request-field assertion, malformed content,
+persistent-500 retry counting, id filtering, delimiter-breakout escaping +
+truncation (asserted on the captured prompt), revise-prompt contents +
+item-id filtering, and the claim-count bound. The live test
+`live_meta_propose` (`#[ignore]`d; requires `CONSENSUS_LIVE_TESTS=1` plus a
+key) **has been run and passes** against the real API: first on
+2026-10-26 (evening), and again in the audit-fix round
+(`muse-wonder-1.0`, request `chatcmpl-01a17b9a-a9a0-75f7-8828-0158895f7e61`,
+13 s). Full live runs are recorded in `docs/evaluation.md`.

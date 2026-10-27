@@ -80,3 +80,40 @@ model or Hyphae dependency.
   compatibility probe is deferred until one is approved and installed.
 - The synchronous orchestrator will need an async boundary in M2; ports were kept
   small so this change stays local to the runtime crate.
+
+## Amendment — 2026-10-26 audit-fix round (schema 1.1)
+
+An independent audit (`docs/reviews/2026-10-26-claude-opus-review.md`) found
+gaps in decisions 2, 3, and 5. Changes, each covered by tests:
+
+- **Decision 2, stated precisely.** Models never *write* the outcome field,
+  but the Evaluator's per-claim judgments (`corroborated`, relevance,
+  contradictions, `unresolved_items`) are the policy's main inputs. The
+  Critic affects the outcome only through the Evaluator's per-item
+  unresolved judgment. "Models never decide" was true in form only.
+- **Decision 3, policy (in priority order).** (1) An invalid proof
+  *anywhere in the retrieved set* → `blocked`, even if no claim cites the
+  record, and even when the Evaluator abstained. (2) Abstain → `abstained`.
+  (3) A contradicted record among cited *or contradicting* evidence, or any
+  unresolved challenge item → `contested`. (4) Any uncorroborated claim,
+  any corroborated claim citing no evidence of its own, cited evidence not
+  integrity-`valid`, or no checked evidence → `insufficient_evidence`.
+  (5) Otherwise `supported`. A corruption signal from the backend's proof
+  generation counts as an invalid proof.
+- **Decision 4.** Challenge items carry ids; progress is measured per item,
+  so the second revision round is reachable. An abstained run may be
+  `blocked` (invalid proofs outrank abstention) but never upgraded.
+- **Decision 5.** Every 1.1 record carries a SHA-256 hash-chain link
+  (`prev_hash`/`hash`) validated on open; 1.0 records remain readable as a
+  legacy prefix. Replay recomputes the recommendation from the recorded
+  evaluation and verifications and rejects a stored kind that does not
+  match. The orchestrator validates each event against the state machine
+  *before* appending it, and a failed append is rolled back. Decision
+  idempotency keys are scoped per run. On startup, runs left
+  mid-deliberation by a dead process are closed as
+  `Failed{stage:"interrupted"}`; a run whose history fails replay is
+  reported and left untouched instead of blocking startup.
+- **Limit.** The chain is tamper-*evident*, not tamper-proof: it is not
+  signed, so someone with write access can rewrite and re-hash the whole
+  file. Detection then relies on comparing against a previously exported
+  receipt's `head_hash`.

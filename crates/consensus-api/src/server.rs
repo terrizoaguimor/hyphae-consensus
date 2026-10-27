@@ -20,7 +20,7 @@
 //! `/decision` requires the per-process operator token printed at
 //! startup; approving a blocked or abstained run requires a note.
 
-use crate::config::{HyphaeConfig, MetaConfig};
+use crate::config::{run_limits_from_env, HyphaeConfig, MetaConfig};
 use crate::hyphae::{connect_from_config, HyphaeProofVerifier, SystemCommandRunner};
 use crate::meta::MetaModelClient;
 use axum::extract::{Path, State};
@@ -37,7 +37,7 @@ use consensus_runtime::orchestrator::{
 };
 use consensus_runtime::scenarios::retry_constraint_scenario;
 use consensus_runtime::state_machine::RunAggregate;
-use consensus_runtime::EventLog;
+use consensus_runtime::{EventLog, RunLimits};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -55,6 +55,8 @@ pub struct AppState {
     /// Random per-process token required on /decision. Printed once at
     /// startup; a name in a form field is a label, not authentication.
     decision_token: String,
+    /// Per-run limits (`CONSENSUS_MAX_RUN_TOKENS`) applied to every run.
+    limits: RunLimits,
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,11 +200,12 @@ fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn health() -> Json<serde_json::Value> {
+async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true,
         "meta_configured": MetaConfig::from_env().is_some(),
         "hyphae_configured": HyphaeConfig::from_env().is_some(),
+        "max_run_tokens": state.limits.max_run_tokens,
         "executor": "deferred (approval records only; no external mutation)",
     }))
 }
@@ -347,6 +350,7 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                 verifier: s.verifier,
                 clock: SystemClock,
                 ids: UuidIdGen,
+                limits: state.limits,
             };
             orch.run(&mut log, s.input)
         }
@@ -378,6 +382,7 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                         verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
                         clock: SystemClock,
                         ids: UuidIdGen,
+                        limits: state.limits,
                     };
                     orch.run(&mut log, input)
                 }
@@ -388,6 +393,7 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                         verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
                         clock: SystemClock,
                         ids: UuidIdGen,
+                        limits: state.limits,
                     };
                     orch.run(&mut log, input)
                 }
@@ -406,6 +412,7 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                         verifier,
                         clock: SystemClock,
                         ids: UuidIdGen,
+                        limits: state.limits,
                     };
                     orch.run(&mut log, input)
                 }
@@ -546,6 +553,8 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let log_path = PathBuf::from(
         std::env::var("CONSENSUS_EVENT_LOG").unwrap_or_else(|_| "demo-run/events.jsonl".into()),
     );
+    // Fail loudly on a bad cap rather than silently running uncapped.
+    let limits = run_limits_from_env()?;
     let mut log = EventLog::open(&log_path)?;
     if log.recovered_truncated_tail {
         eprintln!(
@@ -575,10 +584,15 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         owner: Arc::new(Mutex::new(log)),
         log_path,
         decision_token: decision_token.clone(),
+        limits,
     };
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     println!("Hyphae Consensus console: http://{bind}/");
     println!("Executor deferred: approval records decisions only.");
+    println!(
+        "Per-run token cap: {} (CONSENSUS_MAX_RUN_TOKENS)",
+        limits.max_run_tokens
+    );
     println!("Operator decision token (required by /decision): {decision_token}");
     axum::serve(listener, build_router(state)).await?;
     Ok(())
@@ -598,6 +612,7 @@ mod tests {
             owner: Arc::new(Mutex::new(log)),
             log_path,
             decision_token: "test-token".into(),
+            limits: RunLimits::default(),
         }
     }
 

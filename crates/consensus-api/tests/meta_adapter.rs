@@ -405,3 +405,109 @@ fn live_meta_propose() {
         inv.model, inv.request_id
     );
 }
+
+fn draft_challenge(description: &str) -> String {
+    serde_json::json!({"items": [
+        {"kind": "constraint_conflict", "claim_id": "claim-1",
+         "description": "Raising retries to 10 violates the stored 3-attempt cap", "evidence_refs": []},
+        {"kind": "constraint_conflict", "claim_id": "claim-1",
+         "description": description, "evidence_refs": []}
+    ]})
+    .to_string()
+}
+
+#[test]
+fn label_only_challenge_items_are_malformed() {
+    // Live L02 (2026-10-26): every description was a bare category label.
+    // One such item makes the whole critique malformed (never trimmed).
+    let proposal = one_claim_proposal("Raise retries to 10");
+    for degenerate in [
+        "constraint_conflict",
+        "ConstraintConflict",
+        "Unsupported claim.",
+        "missing regression tests",
+        "  ",
+        "Too risky",
+    ] {
+        let server = serve(vec![(200, envelope(&draft_challenge(degenerate)))]);
+        let mut c = client(server.base_url);
+        match c.critique(&proposal, &RoleContext::default()) {
+            Err(ModelError::MalformedOutput(msg)) => {
+                assert!(msg.contains("item 2 of 2"), "{msg}")
+            }
+            other => panic!("{degenerate:?}: expected MalformedOutput, got {other:?}"),
+        }
+    }
+    // A substantive objection passes.
+    let server = serve(vec![(
+        200,
+        envelope(&draft_challenge("No test covers the jitter requirement")),
+    )]);
+    let mut c = client(server.base_url);
+    let (challenge, _) = c.critique(&proposal, &RoleContext::default()).unwrap();
+    assert_eq!(challenge.items.len(), 2);
+}
+
+#[test]
+fn empty_claim_statement_is_malformed() {
+    let draft = r#"{"summary":"s","plan_steps":[],"claims":[{"statement":"Cap retries at 3"},{"statement":"   "}],"assumptions":[],"uncertainties":[]}"#;
+    let server = serve(vec![(200, envelope(draft))]);
+    let mut c = client(server.base_url);
+    match c.propose(&task()) {
+        Err(ModelError::MalformedOutput(msg)) => assert!(msg.contains("claim 2"), "{msg}"),
+        other => panic!("expected MalformedOutput, got {other:?}"),
+    }
+}
+
+#[test]
+fn prompts_ask_for_record_checkable_claims_and_evidence_based_judgment() {
+    let server = serve(vec![(200, envelope(DRAFT_PROPOSAL))]);
+    let mut c = client(server.base_url.clone());
+    c.propose(&task()).unwrap();
+    let prompt = user_prompt(&server.last_body.lock().unwrap());
+    assert!(prompt.contains("checkable against the project's stored records"));
+    assert!(prompt.contains("under assumptions or uncertainties"));
+
+    let draft_eval =
+        r#"{"assessments":[],"unresolved_items":[],"abstain":false,"abstain_reason":null}"#;
+    let server = serve(vec![(200, envelope(draft_eval))]);
+    let mut c = client(server.base_url.clone());
+    let proposal = one_claim_proposal("Cap retries at 3 attempts with jitter");
+    let challenge = Challenge {
+        schema_version: SCHEMA_VERSION.into(),
+        id: ChallengeId::new("chal-1"),
+        run_id: RunId::new("run-1"),
+        target_proposal: ProposalId::new("prop-1"),
+        items: vec![],
+        created_at: "2026-10-26T00:00:00Z".into(),
+    };
+    c.evaluate(&proposal, &challenge, &RoleContext::default())
+        .unwrap();
+    let prompt = user_prompt(&server.last_body.lock().unwrap());
+    assert!(prompt.contains("integrity is Valid directly states what the claim asserts"));
+    assert!(prompt.contains("not by abstaining"));
+    assert!(prompt.contains("cannot corroborate anything"));
+
+    // After an abstention the reviser sees the Evaluator's reason.
+    let draft = r#"{"summary":"Cap retries","plan_steps":[],"claims":[{"statement":"Retries are capped at 3 attempts with jitter"}],"assumptions":[],"uncertainties":[],"addressed_items":[]}"#;
+    let server = serve(vec![(200, envelope(draft))]);
+    let mut c = client(server.base_url.clone());
+    let evaluation = Evaluation {
+        schema_version: SCHEMA_VERSION.into(),
+        run_id: RunId::new("run-1"),
+        target_proposal: ProposalId::new("prop-1"),
+        assessments: vec![],
+        unresolved_items: vec![],
+        abstain: true,
+        abstain_reason: Some("no record states the attempt cap".into()),
+        created_at: "2026-10-26T00:00:00Z".into(),
+    };
+    c.revise(&proposal, &challenge, &evaluation, &RoleContext::default())
+        .unwrap();
+    let prompt = user_prompt(&server.last_body.lock().unwrap());
+    assert!(
+        prompt.contains("The Evaluator abstained: no record states the attempt cap"),
+        "{prompt}"
+    );
+    assert!(prompt.contains("checkable against the project's stored records"));
+}

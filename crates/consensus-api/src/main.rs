@@ -15,7 +15,7 @@ use consensus_domain::*;
 use consensus_runtime::clock::{SequentialIdGen, SystemClock};
 use consensus_runtime::orchestrator::{build_receipt, record_human_decision, Orchestrator};
 use consensus_runtime::scenarios::retry_constraint_scenario;
-use consensus_runtime::EventLog;
+use consensus_runtime::{EventLog, RunLimits};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -66,6 +66,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 verifier: s.verifier,
                 clock,
                 ids: SequentialIdGen::new(),
+                limits: RunLimits::default(),
             };
             let agg = orch.run(&mut log, s.input)?;
             println!("[run] completed at state {:?} (started {now})", agg.state);

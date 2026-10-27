@@ -9,7 +9,9 @@
 //!
 //! Proof verification shells out to the documented offline verifier:
 //! `hyphae proof verify --proof <FILE> --witness <FILE> --anchor <HEX>`.
-//! Exit status maps to `IntegrityStatus` only; nothing here judges truth.
+//! Its exit status and report map to `IntegrityStatus` only; nothing here
+//! judges truth. A proven recall returns one proof for its whole result,
+//! which this adapter attaches to every record of that recall.
 //!
 //! The exact JSON field names inside tool results are validated at
 //! connect time (`tools/list`) and parsed defensively; final field-level
@@ -317,12 +319,14 @@ impl<T: McpTransport> MemoryClient for HyphaeMemoryClient<T> {
         query: &str,
         limit: usize,
     ) -> Result<Vec<EvidenceReference>, MemoryError> {
-        // Proofs are requested first. Some deployments fail proof
-        // generation while plain recall works (observed on the pinned
-        // 4.0.0 build). The unproven records are still returned, but each
-        // carries the failure reason in `proof_error`: the runtime treats
-        // a corruption-class reason as `Invalid` (Blocked) and any other
-        // as `Unavailable`. It never upgrades to verified.
+        // Proofs are requested first. Proof generation can fail while
+        // plain recall works (seen live on the pinned 4.0.0 build while
+        // the daemon's socket sat inside its data directory: the witness
+        // bundler rejects the special file and Hyphae reports its generic
+        // `corruption` code). The unproven records are still returned, but
+        // each carries the failure reason in `proof_error`: the runtime
+        // treats a corruption-class reason as `Invalid` (Blocked) and any
+        // other as `Unavailable`. It never upgrades to verified.
         let proven = self.call_tool(
             "hyphae_memory_recall",
             json!({"project": project.as_str(), "query": query, "limit": limit, "prove": true}),
@@ -346,12 +350,36 @@ impl<T: McpTransport> MemoryClient for HyphaeMemoryClient<T> {
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
+        // A proven recall carries ONE sealed proof for the whole ordered
+        // result (`proof: {proof_path, witness_path, anchor_hex}`), not one
+        // per record: every record of this recall is covered by it.
+        let shared = value.get("proof").filter(|p| p.is_object());
+        let shared_field = |keys: &[&str]| {
+            shared.and_then(|p| {
+                keys.iter()
+                    .find_map(|k| p.get(k).and_then(Value::as_str))
+                    .map(str::to_string)
+            })
+        };
+        let shared_proof = shared_field(&["proof_path", "proof_file"]);
+        let shared_witness = shared_field(&["witness_path", "witness_file"]);
+        let shared_anchor = shared_field(&["anchor_hex", "anchor", "anchor_digest"]);
         Ok(items
             .iter()
             .map(|i| {
                 let mut rec = self.map_record(project, i);
+                if rec.proof_file.is_none() && shared_proof.is_some() {
+                    rec.proof_file = shared_proof.clone();
+                    rec.witness_file = shared_witness.clone();
+                    rec.anchor = rec.anchor.or_else(|| shared_anchor.clone());
+                }
                 if rec.proof_file.is_none() {
-                    rec.proof_error = proof_error.clone();
+                    // Never silently unproven: either the proven call failed
+                    // (its reason travels on), or it "succeeded" without
+                    // artifacts, which is recorded as such.
+                    rec.proof_error = proof_error
+                        .clone()
+                        .or_else(|| Some("recall(prove=true) returned no proof artifacts".into()));
                 }
                 rec
             })
@@ -367,39 +395,63 @@ impl<T: McpTransport> MemoryClient for HyphaeMemoryClient<T> {
     }
 }
 
+/// Exit status and captured output of one external command.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommandOutput {
+    pub code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
 /// Runs external verification commands; injectable for tests.
 pub trait CommandRunner {
-    /// Returns (exit_code, stderr) or a spawn/transport error string.
-    fn run(&mut self, argv: &[String]) -> Result<(i32, String), String>;
+    /// Returns the command's output, or a spawn/transport error string.
+    fn run(&mut self, argv: &[String]) -> Result<CommandOutput, String>;
 }
 
 pub struct SystemCommandRunner;
 
 impl CommandRunner for SystemCommandRunner {
-    fn run(&mut self, argv: &[String]) -> Result<(i32, String), String> {
+    fn run(&mut self, argv: &[String]) -> Result<CommandOutput, String> {
         let (program, args) = argv.split_first().ok_or_else(|| "empty argv".to_string())?;
         let out = Command::new(program)
             .args(args)
             .output()
             .map_err(|e| format!("spawn {program}: {e}"))?;
-        Ok((
-            out.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&out.stderr).to_string(),
-        ))
+        Ok(CommandOutput {
+            code: out.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+        })
     }
 }
 
 /// Integrity-only verifier backed by `hyphae proof verify`.
+///
+/// `Valid` requires exit 0 AND the verifier's own report saying
+/// `status: verified` with semantic re-execution: the recall was re-run
+/// against the witness and reproduced the sealed result. That one proof
+/// covers every record of the recall, so each distinct proof is verified
+/// once per run and the result reused. Failures are classified from the
+/// structured error's `category`: `corruption` (tampered or inconsistent
+/// artifacts) and `invalid-request` (e.g. an anchor the proof does not
+/// match) are `Invalid`; everything else is a `VerificationError`.
 ///
 /// Trust note: by default the anchor is taken from the same recall
 /// response that delivered the proof, so verification then proves
 /// internal consistency against that server-supplied anchor. Operators
 /// can pin `expected_anchor` (obtained out-of-band); records anchored
 /// elsewhere are then reported `Invalid` without invoking the verifier.
+/// The record text handed to models is the MCP response's rendering of
+/// the proven result; the proof seals that text, but this verifier does
+/// not byte-compare it (the artifacts stay inside the Hyphae host).
 pub struct HyphaeProofVerifier<R: CommandRunner> {
     pub binary: String,
     pub runner: R,
     pub expected_anchor: Option<String>,
+    /// Results by (proof, witness, anchor): records of one recall share
+    /// one proof, which needs checking only once.
+    verified: std::collections::HashMap<(String, String, String), ProofCheck>,
 }
 
 impl<R: CommandRunner> HyphaeProofVerifier<R> {
@@ -408,7 +460,108 @@ impl<R: CommandRunner> HyphaeProofVerifier<R> {
             binary,
             runner,
             expected_anchor: None,
+            verified: std::collections::HashMap::new(),
         }
+    }
+
+    /// `error.category` of the verifier's structured failure report,
+    /// e.g. `{"error":{"category":"corruption",...},"exit_class":9}`.
+    fn failure_category(stderr: &str) -> Option<String> {
+        stderr.lines().find_map(|line| {
+            serde_json::from_str::<Value>(line.trim())
+                .ok()?
+                .get("error")?
+                .get("category")?
+                .as_str()
+                .map(str::to_string)
+        })
+    }
+
+    fn check_artifacts(&mut self, proof: &str, witness: &str, anchor: &str) -> ProofCheck {
+        let argv: Vec<String> = vec![
+            self.binary.clone(),
+            "proof".into(),
+            "verify".into(),
+            "--proof".into(),
+            proof.to_string(),
+            "--witness".into(),
+            witness.to_string(),
+            "--anchor".into(),
+            anchor.to_string(),
+        ];
+        let checked = |status, detail: String| ProofCheck {
+            status,
+            verifier: Some("hyphae proof verify".into()),
+            verified_anchor: Some(anchor.to_string()),
+            detail: Some(detail),
+        };
+        let out = match self.runner.run(&argv) {
+            Ok(out) => out,
+            Err(e) => return checked(IntegrityStatus::VerificationError, e),
+        };
+        if out.code == 0 {
+            let report: Option<Value> = serde_json::from_str(out.stdout.trim()).ok();
+            let field = |key: &str| {
+                report
+                    .as_ref()
+                    .and_then(|r| r.get(key))
+                    .and_then(Value::as_str)
+                    .unwrap_or("?")
+                    .to_string()
+            };
+            let reexecuted = report
+                .as_ref()
+                .and_then(|r| r.get("semantic_reexecution_performed"))
+                .and_then(Value::as_bool)
+                == Some(true);
+            if field("status") == "verified" && reexecuted {
+                return checked(
+                    IntegrityStatus::Valid,
+                    format!(
+                        "offline verifier re-executed the recall against the witness and accepted the proof (scope {}, kind {}, result digest {}); the proof covers the whole recall result this record belongs to",
+                        field("scope"),
+                        field("kind"),
+                        field("result_digest")
+                    ),
+                );
+            }
+            // Exit 0 without a verified re-execution report proves nothing.
+            return checked(
+                IntegrityStatus::VerificationError,
+                format!(
+                    "verifier exited 0 without a verified semantic re-execution report: {}",
+                    out.stdout.chars().take(300).collect::<String>()
+                ),
+            );
+        }
+        // Only a verifier rejection is Invalid. Transport/usage failures
+        // (docker 125-127, missing files, I/O) are infrastructure errors,
+        // never proof that a record was tampered with.
+        let category = Self::failure_category(&out.stderr);
+        let rejection = match category.as_deref() {
+            Some(c) => c == "corruption" || c == "invalid-request",
+            None => {
+                let lower = out.stderr.to_lowercase();
+                lower.contains("mismatch")
+                    || lower.contains("invalid")
+                    || lower.contains("corrupt")
+                    || lower.contains("digest")
+            }
+        };
+        let status = if rejection && !(125..=127).contains(&out.code) {
+            IntegrityStatus::Invalid
+        } else {
+            IntegrityStatus::VerificationError
+        };
+        checked(
+            status,
+            format!(
+                "verifier exited {} (category {}): {}",
+                out.code,
+                category.as_deref().unwrap_or("unknown"),
+                out.stderr.chars().take(300).collect::<String>()
+            ),
+        )
     }
 }
 
@@ -438,56 +591,13 @@ impl<R: CommandRunner> ProofVerifier for HyphaeProofVerifier<R> {
                 };
             }
         }
-        let argv: Vec<String> = vec![
-            self.binary.clone(),
-            "proof".into(),
-            "verify".into(),
-            "--proof".into(),
-            proof.clone(),
-            "--witness".into(),
-            witness.clone(),
-            "--anchor".into(),
-            anchor.clone(),
-        ];
-        match self.runner.run(&argv) {
-            Ok((0, _)) => ProofCheck {
-                status: IntegrityStatus::Valid,
-                verifier: Some("hyphae proof verify".into()),
-                verified_anchor: Some(anchor.clone()),
-                detail: Some("offline verifier accepted proof against anchor".into()),
-            },
-            Ok((code, stderr)) => {
-                // Only a verifier rejection is Invalid. Transport/usage
-                // failures (docker 125-127, unknown flags, missing
-                // files) are infrastructure errors, never proof that a
-                // record was tampered with.
-                let lower = stderr.to_lowercase();
-                let rejection = lower.contains("mismatch")
-                    || lower.contains("invalid")
-                    || lower.contains("corrupt")
-                    || lower.contains("digest");
-                let status = if rejection && !(125..=127).contains(&code) {
-                    IntegrityStatus::Invalid
-                } else {
-                    IntegrityStatus::VerificationError
-                };
-                ProofCheck {
-                    status,
-                    verifier: Some("hyphae proof verify".into()),
-                    verified_anchor: Some(anchor.clone()),
-                    detail: Some(format!(
-                        "verifier exited {code}: {}",
-                        stderr.chars().take(300).collect::<String>()
-                    )),
-                }
-            }
-            Err(e) => ProofCheck {
-                status: IntegrityStatus::VerificationError,
-                verifier: Some("hyphae proof verify".into()),
-                verified_anchor: Some(anchor.clone()),
-                detail: Some(e),
-            },
+        let key = (proof.clone(), witness.clone(), anchor.clone());
+        if let Some(done) = self.verified.get(&key) {
+            return done.clone();
         }
+        let check = self.check_artifacts(proof, witness, anchor);
+        self.verified.insert(key, check.clone());
+        check
     }
 }
 

@@ -135,6 +135,10 @@ pub struct EventLog {
     by_id: HashMap<EventId, u64>,
     /// True when open() discarded an incomplete final record.
     pub recovered_truncated_tail: bool,
+    /// Test-only fault injection: the next append writes this many bytes
+    /// of its record, then fails as a mid-record I/O error would.
+    #[cfg(test)]
+    fail_next_append_after: Option<usize>,
 }
 
 impl EventLog {
@@ -235,6 +239,8 @@ impl EventLog {
             events,
             by_id,
             recovered_truncated_tail: recovered,
+            #[cfg(test)]
+            fail_next_append_after: None,
         })
     }
 
@@ -290,6 +296,13 @@ impl EventLog {
         line.push('\n');
         let prev_len = self.file.metadata()?.len();
         let written = (|| -> std::io::Result<()> {
+            #[cfg(test)]
+            if let Some(cut) = self.fail_next_append_after.take() {
+                self.file
+                    .write_all(&line.as_bytes()[..cut.min(line.len())])?;
+                self.file.flush()?;
+                return Err(std::io::Error::other("injected mid-record write failure"));
+            }
             self.file.write_all(line.as_bytes())?;
             self.file.flush()?;
             self.file.sync_all()
@@ -411,6 +424,42 @@ mod tests {
         assert_eq!(log.append(fail_event(&run, "e2")).unwrap(), 2);
         let agg = log.rebuild(&run).unwrap();
         assert_eq!(agg.state, RunState::Failed);
+    }
+
+    #[test]
+    fn failed_mid_record_append_rolls_back_and_log_stays_valid() {
+        let path = temp_log("rollback.jsonl");
+        let run = RunId::new("run-1");
+        let mut log = EventLog::open(&path).unwrap();
+        log.append(task_event(&run, "e1")).unwrap();
+        let committed = std::fs::read(&path).unwrap();
+
+        // The write dies 40 bytes into the second record.
+        log.fail_next_append_after = Some(40);
+        let err = log.append(fail_event(&run, "e2")).unwrap_err();
+        assert!(err.to_string().contains("injected"), "{err}");
+        assert_eq!(log.len(), 1);
+        assert!(!log.contains(&EventId::new("e2")), "event must be absent");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            committed,
+            "partial bytes rolled back"
+        );
+
+        // A fresh open sees a clean, fully valid log: no torn tail to
+        // recover, and the chain still verifies.
+        let reopened = EventLog::open(&path).unwrap();
+        assert!(!reopened.recovered_truncated_tail);
+        assert_eq!(reopened.len(), 1);
+        assert!(!reopened.contains(&EventId::new("e2")));
+        drop(reopened);
+
+        // The same handle keeps working: the retry commits as sequence 2.
+        assert_eq!(log.append(fail_event(&run, "e2")).unwrap(), 2);
+        drop(log);
+        let log = EventLog::open(&path).unwrap();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log.rebuild(&run).unwrap().state, RunState::Failed);
     }
 
     #[test]

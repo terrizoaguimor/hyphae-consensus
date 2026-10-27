@@ -29,8 +29,10 @@ pub enum TransitionError {
     RunMismatch,
     #[error("duplicate task creation for run")]
     DuplicateTask,
-    #[error("abstained runs may only receive an abstained or blocked recommendation")]
+    #[error("abstained runs may only receive an abstained, blocked, or contested recommendation")]
     AbstainKindMismatch,
+    #[error("a revision may follow an abstention only while challenge items remain unresolved")]
+    AbstainedWithoutOpenItems,
     #[error("stored recommendation {stored:?} does not match derived {derived:?}")]
     RecommendationMismatch {
         stored: RecommendationKind,
@@ -161,7 +163,21 @@ impl RunAggregate {
                 revision,
                 invocation,
             } => {
-                self.require(&[RunState::Evaluated], "revision_submitted")?;
+                self.require(
+                    &[RunState::Evaluated, RunState::Abstained],
+                    "revision_submitted",
+                )?;
+                // Schema 1.2: an abstention that still lists unresolved
+                // items may be answered by a revision; one with nothing
+                // unresolved ends deliberation.
+                if self.state == RunState::Abstained
+                    && self
+                        .last_evaluation
+                        .as_ref()
+                        .is_none_or(|e| e.unresolved_items.is_empty())
+                {
+                    return Err(TransitionError::AbstainedWithoutOpenItems);
+                }
                 if self.revision_round >= MAX_REVISION_ROUNDS {
                     return Err(TransitionError::RoundLimit);
                 }
@@ -175,25 +191,34 @@ impl RunAggregate {
                     &[RunState::Evaluated, RunState::Abstained],
                     "recommendation_issued",
                 )?;
-                // An invalid proof outranks abstention in the policy, so an
-                // abstained run may still be Blocked — but never upgraded.
+                // An invalid proof and (since 1.2) a recorded contradiction
+                // outrank abstention in the policy, so an abstained run may
+                // still be Blocked or Contested — but never upgraded.
                 if self.state == RunState::Abstained
                     && !matches!(
                         recommendation.kind,
-                        RecommendationKind::Abstained | RecommendationKind::Blocked
+                        RecommendationKind::Abstained
+                            | RecommendationKind::Blocked
+                            | RecommendationKind::Contested
                     )
                 {
                     return Err(TransitionError::AbstainKindMismatch);
                 }
                 // Schema 1.1+: never trust the stored kind — recompute it
                 // from the tracked evaluation + this round's verification
-                // records, exactly as the orchestrator derived it. A log
-                // edited to upgrade its own outcome fails replay. Legacy
-                // records predate the current policy and skip recompute.
-                if event.schema_version == SCHEMA_VERSION {
+                // records with the rules of the record's own schema
+                // version, exactly as the orchestrator derived it. A log
+                // edited to upgrade its own outcome fails replay. Pre-1.1
+                // records predate recomputation and skip it.
+                if let Some(policy) =
+                    crate::policy::PolicyVersion::for_schema(&event.schema_version)
+                {
                     if let Some(eval) = &self.last_evaluation {
-                        let derived =
-                            crate::policy::derive_recommendation(eval, &self.round_verifications);
+                        let derived = crate::policy::derive_recommendation_with(
+                            policy,
+                            eval,
+                            &self.round_verifications,
+                        );
                         if derived != recommendation.kind {
                             return Err(TransitionError::RecommendationMismatch {
                                 stored: recommendation.kind,
@@ -451,6 +476,183 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(agg.state, RunState::AwaitingHumanApproval);
+    }
+
+    /// Task, proposal, challenge, and an abstaining evaluation that
+    /// lists `unresolved` items; the aggregate ends in `Abstained`.
+    fn to_abstained(unresolved: &[&str], schema: &str) -> (RunAggregate, RunId) {
+        let run = RunId::new("run-1");
+        let mut agg = RunAggregate::new(run.clone());
+        let agent = |role| Actor::Agent { role };
+        let at = |seq, actor, payload| {
+            let mut e = ev(&run, seq, actor, payload);
+            e.schema_version = schema.into();
+            e
+        };
+        agg.apply(&at(
+            1,
+            Actor::Human { id: "mario".into() },
+            EventPayload::TaskCreated { task: task(&run) },
+        ))
+        .unwrap();
+        agg.apply(&at(
+            2,
+            agent(AgentRole::Proposer),
+            EventPayload::ProposalSubmitted {
+                proposal: proposal(&run),
+                invocation: invocation(),
+            },
+        ))
+        .unwrap();
+        agg.apply(&at(
+            3,
+            agent(AgentRole::Critic),
+            EventPayload::ChallengeSubmitted {
+                challenge: Challenge {
+                    schema_version: schema.into(),
+                    id: ChallengeId::new("chal-1"),
+                    run_id: run.clone(),
+                    target_proposal: ProposalId::new("prop-1"),
+                    items: vec![],
+                    created_at: "2026-10-26T00:00:00Z".into(),
+                },
+                invocation: invocation(),
+            },
+        ))
+        .unwrap();
+        agg.apply(&at(
+            4,
+            agent(AgentRole::EvidenceEvaluator),
+            EventPayload::EvaluationSubmitted {
+                evaluation: Evaluation {
+                    schema_version: schema.into(),
+                    run_id: run.clone(),
+                    target_proposal: ProposalId::new("prop-1"),
+                    assessments: vec![ClaimAssessment {
+                        claim_id: ClaimId::new("c1"),
+                        corroborated: false,
+                        relevant_evidence: vec![],
+                        contradicting_evidence: vec![EvidenceId::new("ev1")],
+                        note: "conflicts with the stored cap".into(),
+                    }],
+                    unresolved_items: unresolved.iter().map(|s| s.to_string()).collect(),
+                    abstain: true,
+                    abstain_reason: Some("insufficient".into()),
+                    created_at: "2026-10-26T00:00:00Z".into(),
+                },
+                invocation: invocation(),
+            },
+        ))
+        .unwrap();
+        assert_eq!(agg.state, RunState::Abstained);
+        (agg, run)
+    }
+
+    fn revision_event(run: &RunId) -> ConsensusEvent {
+        ev(
+            run,
+            5,
+            Actor::Agent {
+                role: AgentRole::Proposer,
+            },
+            EventPayload::RevisionSubmitted {
+                revision: Revision {
+                    schema_version: SCHEMA_VERSION.into(),
+                    proposal: proposal(run),
+                    supersedes: ProposalId::new("prop-1"),
+                    addressed_items: vec!["i1".into()],
+                },
+                invocation: invocation(),
+            },
+        )
+    }
+
+    #[test]
+    fn revision_after_abstention_requires_open_items() {
+        let (mut agg, run) = to_abstained(&["i1"], SCHEMA_VERSION);
+        agg.apply(&revision_event(&run)).unwrap();
+        assert_eq!(agg.state, RunState::Revised);
+        assert_eq!(agg.revision_round, 1);
+
+        let (mut agg, run) = to_abstained(&[], SCHEMA_VERSION);
+        assert_eq!(
+            agg.apply(&revision_event(&run)).unwrap_err(),
+            TransitionError::AbstainedWithoutOpenItems
+        );
+    }
+
+    fn contradicted_verification(schema: &str) -> EventPayload {
+        EventPayload::EvidenceVerified {
+            verification: EvidenceVerification {
+                schema_version: schema.into(),
+                evidence_id: EvidenceId::new("ev1"),
+                integrity_status: IntegrityStatus::Valid,
+                factual_status: FactualStatus::Contradicted,
+                relevance_status: RelevanceStatus::Relevant,
+                verifier: Some("test".into()),
+                verified_anchor: None,
+                detail: None,
+                checked_at: "2026-10-26T00:00:00Z".into(),
+            },
+        }
+    }
+
+    fn recommendation(kind: RecommendationKind, schema: &str) -> EventPayload {
+        EventPayload::RecommendationIssued {
+            recommendation: Recommendation {
+                schema_version: schema.into(),
+                kind,
+                rationale: "r".into(),
+                unresolved_assumptions: vec![],
+                issued_at: "2026-10-26T00:00:00Z".into(),
+            },
+        }
+    }
+
+    #[test]
+    fn replay_rederives_each_run_with_its_recorded_rules() {
+        // A 1.1 run (abstained over a recorded contradiction) must keep
+        // replaying under the 1.1 order, and stays tamper-checked.
+        for (schema, stored, derived) in [
+            (
+                "1.1",
+                RecommendationKind::Abstained,
+                RecommendationKind::Abstained,
+            ),
+            (
+                SCHEMA_VERSION,
+                RecommendationKind::Contested,
+                RecommendationKind::Contested,
+            ),
+            (
+                "1.1",
+                RecommendationKind::Contested,
+                RecommendationKind::Abstained,
+            ),
+            (
+                SCHEMA_VERSION,
+                RecommendationKind::Abstained,
+                RecommendationKind::Contested,
+            ),
+        ] {
+            let (mut agg, run) = to_abstained(&[], schema);
+            let mut verified = ev(&run, 5, Actor::Runtime, contradicted_verification(schema));
+            verified.schema_version = schema.into();
+            agg.apply(&verified).unwrap();
+            let mut issued = ev(&run, 6, Actor::Runtime, recommendation(stored, schema));
+            issued.schema_version = schema.into();
+            let result = agg.apply(&issued);
+            if stored == derived {
+                result.unwrap();
+                assert_eq!(agg.state, RunState::AwaitingHumanApproval);
+            } else {
+                assert_eq!(
+                    result.unwrap_err(),
+                    TransitionError::RecommendationMismatch { stored, derived },
+                    "schema {schema}"
+                );
+            }
+        }
     }
 
     #[test]

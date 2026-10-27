@@ -4,9 +4,11 @@
 //!
 //! Model or memory failures never panic and never fabricate progress:
 //! model errors fail the run with a recorded reason; memory unavailability
-//! degrades evidence (see README offline statement). Human approval is
-//! recorded by [`record_human_decision`] and triggers no execution in
-//! M1-M3 — the `ExecutorPort` is never invoked here.
+//! degrades evidence (see README offline statement); a run whose model
+//! calls cross the per-run token cap ([`RunLimits`]) fails with stage
+//! `token_budget`. Human approval is recorded by [`record_human_decision`]
+//! and triggers no execution in M1-M3 — the `ExecutorPort` is never
+//! invoked here.
 
 use crate::clock::{Clock, IdGen};
 use crate::event_log::{EventLog, EventLogError};
@@ -32,6 +34,57 @@ pub enum OrchestratorError {
 /// per round, with claims capped by the model adapter.
 pub const MAX_EVIDENCE_PER_RUN: usize = 20;
 
+/// Default per-run token cap (input + output, all model calls). The
+/// 2026-10-26 live calls averaged about 4k tokens each, so a full 9-call
+/// run at that rate needs roughly a quarter of this.
+pub const DEFAULT_MAX_RUN_TOKENS: u64 = 150_000;
+
+/// Per-run resource limits, enforced by the runtime for any `ModelClient`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunLimits {
+    /// Cap on reported input + output tokens across one run's model calls.
+    /// Checked after every call: the run fails at the first call that
+    /// crosses it, so it can overshoot by at most that one call.
+    pub max_run_tokens: u64,
+}
+
+impl Default for RunLimits {
+    fn default() -> Self {
+        Self {
+            max_run_tokens: DEFAULT_MAX_RUN_TOKENS,
+        }
+    }
+}
+
+/// Running token account for one run.
+struct TokenBudget {
+    cap: u64,
+    used: u64,
+    calls: u32,
+}
+
+impl TokenBudget {
+    /// Charges one call. Returns the failure reason when the run must
+    /// stop: the cap is crossed, or the call reported no usage, which
+    /// would make the cap unenforceable (never assumed to be zero).
+    fn charge(&mut self, stage: &str, invocation: &ModelInvocation) -> Option<String> {
+        self.calls += 1;
+        let (Some(input), Some(output)) = (invocation.input_tokens, invocation.output_tokens)
+        else {
+            return Some(format!(
+                "token budget cannot be enforced: the {stage} call reported no token usage"
+            ));
+        };
+        self.used = self.used.saturating_add(input).saturating_add(output);
+        (self.used > self.cap).then(|| {
+            format!(
+                "token budget exceeded after the {stage} call: {} tokens used across {} model calls, cap {} (CONSENSUS_MAX_RUN_TOKENS)",
+                self.used, self.calls, self.cap
+            )
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskInput {
     pub project_id: ProjectId,
@@ -46,6 +99,7 @@ pub struct Orchestrator<M, Mem, V, C, I> {
     pub verifier: V,
     pub clock: C,
     pub ids: I,
+    pub limits: RunLimits,
 }
 
 impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
@@ -76,11 +130,21 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             EventPayload::TaskCreated { task: task.clone() },
         )?;
 
+        // Every model call is charged against the run's token cap. The
+        // call's document is recorded first (its tokens were spent and
+        // belong in the receipt); then an exhausted budget fails the run.
+        let mut budget = TokenBudget {
+            cap: self.limits.max_run_tokens,
+            used: 0,
+            calls: 0,
+        };
+
         // Stage 1: proposal.
         let (mut proposal, inv) = match self.model.propose(&task) {
             Ok(v) => v,
             Err(e) => return self.fail(log, agg, "propose", &e.to_string()),
         };
+        let over_budget = budget.charge("propose", &inv);
         self.emit(
             log,
             &mut agg,
@@ -92,6 +156,9 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                 invocation: inv,
             },
         )?;
+        if let Some(reason) = over_budget {
+            return self.fail(log, agg, "token_budget", &reason);
+        }
 
         let mut seen_evidence: HashSet<EvidenceId> = HashSet::new();
         let mut prev_unresolved: Option<usize> = None;
@@ -188,6 +255,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                 Ok(v) => v,
                 Err(e) => return self.fail(log, agg, "critique", &e.to_string()),
             };
+            let over_budget = budget.charge("critique", &inv);
             self.emit(
                 log,
                 &mut agg,
@@ -199,11 +267,15 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     invocation: inv,
                 },
             )?;
+            if let Some(reason) = over_budget {
+                return self.fail(log, agg, "token_budget", &reason);
+            }
 
             let (evaluation, inv) = match self.model.evaluate(&proposal, &challenge, &ctx) {
                 Ok(v) => v,
                 Err(e) => return self.fail(log, agg, "evaluate", &e.to_string()),
             };
+            let over_budget = budget.charge("evaluate", &inv);
             self.emit(
                 log,
                 &mut agg,
@@ -215,6 +287,9 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     invocation: inv,
                 },
             )?;
+            if let Some(reason) = over_budget {
+                return self.fail(log, agg, "token_budget", &reason);
+            }
 
             // Combined verification records: integrity from the verifier,
             // factual/relevance from the evaluation. Never cross-derived.
@@ -277,8 +352,11 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
 
             let no_progress = prev_unresolved.map(|p| unresolved >= p).unwrap_or(false);
             prev_unresolved = Some(unresolved);
-            let should_revise = !evaluation.abstain
-                && final_kind != RecommendationKind::Blocked
+            // Unresolved items drive revision. Since schema 1.2 that holds
+            // after an abstention too (bounded by the same round limit and
+            // no-progress exit); an abstention with nothing unresolved, or
+            // a blocked result, ends deliberation.
+            let should_revise = final_kind != RecommendationKind::Blocked
                 && unresolved > 0
                 && !no_progress
                 && agg.revision_round < MAX_REVISION_ROUNDS;
@@ -290,6 +368,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                 Ok(v) => v,
                 Err(e) => return self.fail(log, agg, "revise", &e.to_string()),
             };
+            let over_budget = budget.charge("revise", &inv);
             self.emit(
                 log,
                 &mut agg,
@@ -301,6 +380,9 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     invocation: inv,
                 },
             )?;
+            if let Some(reason) = over_budget {
+                return self.fail(log, agg, "token_budget", &reason);
+            }
             proposal = revision.proposal;
         };
 

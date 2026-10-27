@@ -21,7 +21,7 @@ use consensus_runtime::fakes::*;
 use consensus_runtime::orchestrator::{Orchestrator, TaskInput};
 use consensus_runtime::ports::ModelError;
 use consensus_runtime::scenarios::*;
-use consensus_runtime::EventLog;
+use consensus_runtime::{EventLog, RunLimits};
 use std::path::PathBuf;
 
 type Orch =
@@ -33,17 +33,29 @@ struct Case {
     /// not measured: nothing here executes a baseline.
     first_proposal: &'static str,
     build: fn() -> (FakeModelClient, FakeMemoryClient, FakeProofVerifier),
+    /// Per-run token cap for this case (runtime default when `None`).
+    max_run_tokens: Option<u64>,
     /// The outcome the case author defined as correct, in advance.
     expected: fn(&consensus_runtime::RunAggregate) -> bool,
 }
 
-fn orch(m: FakeModelClient, mem: FakeMemoryClient, v: FakeProofVerifier) -> Orch {
+fn orch(
+    m: FakeModelClient,
+    mem: FakeMemoryClient,
+    v: FakeProofVerifier,
+    max_run_tokens: Option<u64>,
+) -> Orch {
+    let mut limits = RunLimits::default();
+    if let Some(cap) = max_run_tokens {
+        limits.max_run_tokens = cap;
+    }
     Orchestrator {
         model: m,
         memory: mem,
         verifier: v,
         clock: FixedClock::new(TS),
         ids: SequentialIdGen::new(),
+        limits,
     }
 }
 
@@ -88,6 +100,7 @@ fn cases() -> Vec<Case> {
                 let s = retry_constraint_scenario();
                 (s.model, s.memory, s.verifier)
             },
+            max_run_tokens: None,
             expected: |a| kind(a) == Some(RecommendationKind::Supported) && a.revision_round >= 1,
         },
         Case {
@@ -113,6 +126,7 @@ fn cases() -> Vec<Case> {
                 )]);
                 (m, mem, FakeProofVerifier::all(IntegrityStatus::Valid))
             },
+            max_run_tokens: None,
             expected: |a| kind(a) == Some(RecommendationKind::Supported),
         },
         Case {
@@ -122,6 +136,7 @@ fn cases() -> Vec<Case> {
                 let s = retry_constraint_scenario();
                 (s.model, FakeMemoryClient::offline(), s.verifier)
             },
+            max_run_tokens: None,
             expected: |a| kind(a) == Some(RecommendationKind::InsufficientEvidence),
         },
         Case {
@@ -134,6 +149,7 @@ fn cases() -> Vec<Case> {
                     .insert(EvidenceId::new("ev-constraint"), IntegrityStatus::Invalid);
                 (s.model, s.memory, s.verifier)
             },
+            max_run_tokens: None,
             expected: |a| kind(a) == Some(RecommendationKind::Blocked),
         },
         Case {
@@ -162,6 +178,7 @@ fn cases() -> Vec<Case> {
                     FakeProofVerifier::all(IntegrityStatus::Valid),
                 )
             },
+            max_run_tokens: None,
             expected: |a| kind(a) == Some(RecommendationKind::Abstained),
         },
         Case {
@@ -196,6 +213,7 @@ fn cases() -> Vec<Case> {
                     FakeProofVerifier::all(IntegrityStatus::Valid),
                 )
             },
+            max_run_tokens: None,
             expected: |a| {
                 kind(a) != Some(RecommendationKind::Supported)
                     && a.authorization == AuthorizationState::Pending
@@ -213,7 +231,117 @@ fn cases() -> Vec<Case> {
                     FakeProofVerifier::all(IntegrityStatus::Valid),
                 )
             },
+            max_run_tokens: None,
             expected: |a| a.state == RunState::Failed && a.recommendation.is_none(),
+        },
+        Case {
+            name: "abstained-with-open-items",
+            first_proposal: "uncheckable claim",
+            build: || {
+                // Schema 1.2: the Evaluator abstains but lists an open item,
+                // so the Proposer revises instead of the run stopping.
+                let mut m = FakeModelClient::new();
+                m.proposals.push_back(Ok(proposal(
+                    "p1",
+                    "Raise retries",
+                    vec![claim("claim-1", "Raise payment retries to fix timeouts")],
+                )));
+                m.critiques.push_back(Ok(simple_challenge(
+                    "chal-1",
+                    vec![ChallengeItem {
+                        id: "item-1".into(),
+                        kind: ChallengeKind::UnsupportedClaim,
+                        claim_id: Some(ClaimId::new("claim-1")),
+                        description: "No stored record says how many retries are allowed".into(),
+                        evidence_refs: vec![],
+                    }],
+                )));
+                m.evaluations.push_back(Ok(evaluation(
+                    vec![assessment("claim-1", false, &[], &[])],
+                    &["item-1"],
+                    true,
+                )));
+                m.revisions.push_back(Ok(Revision {
+                    schema_version: SCHEMA_VERSION.into(),
+                    proposal: proposal(
+                        "p2",
+                        "Cap retries at 3 with jitter",
+                        vec![claim(
+                            "claim-1",
+                            "Outbound retries must be capped at 3 attempts with jitter",
+                        )],
+                    ),
+                    supersedes: ProposalId::new("placeholder"),
+                    addressed_items: vec!["item-1".into()],
+                }));
+                m.critiques
+                    .push_back(Ok(simple_challenge("chal-2", vec![])));
+                m.evaluations.push_back(Ok(evaluation(
+                    vec![assessment("claim-1", true, &["ev-constraint"], &[])],
+                    &[],
+                    false,
+                )));
+                let mem = FakeMemoryClient::new(vec![evidence(
+                    "ev-constraint",
+                    DEMO_PROJECT,
+                    "constraint",
+                    "Constraint: outbound retries must be capped at 3 attempts with jitter.",
+                )]);
+                (m, mem, FakeProofVerifier::all(IntegrityStatus::Valid))
+            },
+            max_run_tokens: None,
+            expected: |a| kind(a) == Some(RecommendationKind::Supported) && a.revision_round == 1,
+        },
+        Case {
+            name: "abstained-over-contradiction",
+            first_proposal: "violates documented cap",
+            build: || {
+                // Schema 1.2: a contradiction the Evaluator recorded is not
+                // hidden by its abstention.
+                let mut m = FakeModelClient::new();
+                m.proposals.push_back(Ok(proposal(
+                    "p1",
+                    "Raise retries to 10",
+                    vec![claim(
+                        "claim-1",
+                        "Raising the retry limit to 10 attempts is safe",
+                    )],
+                )));
+                m.critiques
+                    .push_back(Ok(simple_challenge("chal-1", vec![])));
+                m.evaluations.push_back(Ok(evaluation(
+                    vec![assessment("claim-1", false, &[], &["ev-constraint"])],
+                    &[],
+                    true,
+                )));
+                let mem = FakeMemoryClient::new(vec![evidence(
+                    "ev-constraint",
+                    DEMO_PROJECT,
+                    "constraint",
+                    "Constraint: outbound retries must be capped at 3 attempts with jitter.",
+                )]);
+                (m, mem, FakeProofVerifier::all(IntegrityStatus::Valid))
+            },
+            max_run_tokens: None,
+            expected: |a| kind(a) == Some(RecommendationKind::Contested),
+        },
+        Case {
+            name: "token-budget-exceeded",
+            first_proposal: "violates documented cap",
+            build: || {
+                let s = retry_constraint_scenario();
+                let mut m = s.model;
+                m.tokens_per_call = (400, 200);
+                (m, s.memory, s.verifier)
+            },
+            max_run_tokens: Some(1_000),
+            expected: |a| {
+                a.state == RunState::Failed
+                    && a.recommendation.is_none()
+                    && a.failure_reason
+                        .as_deref()
+                        .is_some_and(|r| r.contains("token budget exceeded"))
+            },
         },
     ]
 }
@@ -236,7 +364,7 @@ fn main() {
         total += 1;
         let (model, memory, verifier) = (case.build)();
         let calls_before = model.calls.len();
-        let mut o = orch(model, memory, verifier);
+        let mut o = orch(model, memory, verifier, case.max_run_tokens);
         let mut log = EventLog::open(temp_log(&format!("{}.jsonl", case.name))).unwrap();
         let agg = o.run(&mut log, input()).unwrap();
         let calls = o.model.calls.len() - calls_before;

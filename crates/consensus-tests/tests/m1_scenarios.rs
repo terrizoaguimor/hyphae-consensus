@@ -10,7 +10,7 @@ use consensus_runtime::orchestrator::{
 };
 use consensus_runtime::ports::{MemoryClient, ModelError};
 use consensus_runtime::scenarios::*;
-use consensus_runtime::EventLog;
+use consensus_runtime::{EventLog, RunLimits};
 use std::path::PathBuf;
 
 type TestOrchestrator =
@@ -35,6 +35,7 @@ fn orchestrator(
         verifier,
         clock: FixedClock::new(TS),
         ids: SequentialIdGen::new(),
+        limits: RunLimits::default(),
     }
 }
 
@@ -241,6 +242,8 @@ fn evaluator_abstention_produces_abstained_recommendation() {
         agg.recommendation.unwrap().kind,
         RecommendationKind::Abstained
     );
+    // Nothing unresolved: the abstention ends deliberation.
+    assert_eq!(orch.model.calls, ["propose", "critique", "evaluate"]);
 }
 
 #[test]
@@ -634,6 +637,7 @@ fn reusing_an_idempotency_key_across_runs_records_both_decisions() {
             verifier: s.verifier,
             clock: FixedClock::new(TS),
             ids: UuidIdGen,
+            limits: RunLimits::default(),
         };
         runs.push(orch.run(&mut log, s.input).unwrap().run_id);
     }
@@ -799,4 +803,172 @@ fn evidence_cap_is_strict_recorded_and_retrieval_is_runtime_attributed() {
         EventPayload::EvidenceUnavailable { reason, .. } if reason.contains("per-run cap")
     )));
     assert_eq!(agg.verifications.len(), MAX_EVIDENCE_PER_RUN);
+}
+
+fn constraint_record() -> EvidenceReference {
+    evidence(
+        "ev-constraint",
+        DEMO_PROJECT,
+        "constraint",
+        "Constraint: outbound retries must be capped at 3 attempts with jitter.",
+    )
+}
+
+fn challenge_item(id: &str, claim_id: &str, description: &str) -> ChallengeItem {
+    ChallengeItem {
+        id: id.into(),
+        kind: ChallengeKind::UnsupportedClaim,
+        claim_id: Some(ClaimId::new(claim_id)),
+        description: description.into(),
+        evidence_refs: vec![],
+    }
+}
+
+#[test]
+fn revision_follows_abstention_with_open_items_and_can_reach_supported() {
+    // Schema 1.2: an abstention that still lists unresolved items is
+    // answered by a revision (live, every run abstained and stopped).
+    let mut model = FakeModelClient::new();
+    model.proposals.push_back(Ok(proposal(
+        "p1",
+        "Raise retries",
+        vec![claim("c1", "Raise payment retries to fix timeouts")],
+    )));
+    let mut chal = empty_challenge("chal-1");
+    chal.items = vec![challenge_item(
+        "item-1",
+        "c1",
+        "No stored record says how many retries are allowed",
+    )];
+    model.critiques.push_back(Ok(chal));
+    model.evaluations.push_back(Ok(evaluation(
+        vec![assessment("c1", false, &[], &[])],
+        &["item-1"],
+        true,
+    )));
+    model.revisions.push_back(Ok(Revision {
+        schema_version: SCHEMA_VERSION.into(),
+        proposal: proposal(
+            "p2",
+            "Cap retries at 3 with jitter",
+            vec![claim(
+                "c1",
+                "Outbound retries must be capped at 3 attempts with jitter",
+            )],
+        ),
+        supersedes: ProposalId::new("placeholder"),
+        addressed_items: vec!["item-1".into()],
+    }));
+    model.critiques.push_back(Ok(empty_challenge("chal-2")));
+    model.evaluations.push_back(Ok(evaluation(
+        vec![assessment("c1", true, &["ev-constraint"], &[])],
+        &[],
+        false,
+    )));
+    let mut log = EventLog::open(temp_log("abstain-revise.jsonl")).unwrap();
+    let mut orch = orchestrator(
+        model,
+        FakeMemoryClient::new(vec![constraint_record()]),
+        FakeProofVerifier::all(IntegrityStatus::Valid),
+    );
+    let agg = orch.run(&mut log, input()).unwrap();
+    assert_eq!(
+        orch.model.calls,
+        ["propose", "critique", "evaluate", "revise", "critique", "evaluate"]
+    );
+    assert_eq!(agg.revision_round, 1);
+    assert_eq!(
+        agg.recommendation.as_ref().unwrap().kind,
+        RecommendationKind::Supported
+    );
+    assert_eq!(agg.authorization, AuthorizationState::Pending);
+    assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg);
+}
+
+#[test]
+fn abstention_does_not_hide_a_recorded_contradiction() {
+    // Live S02 shape: the Evaluator lists the stored cap as contradicting
+    // the claim, then abstains. Since 1.2 the run reports `contested`.
+    let model = one_claim_model(evaluation(
+        vec![assessment("c1", false, &[], &["ev-constraint"])],
+        &[],
+        true,
+    ));
+    let mut log = EventLog::open(temp_log("abstain-contradiction.jsonl")).unwrap();
+    let mut orch = orchestrator(
+        model,
+        FakeMemoryClient::new(vec![constraint_record()]),
+        FakeProofVerifier::all(IntegrityStatus::Valid),
+    );
+    let agg = orch.run(&mut log, input()).unwrap();
+    assert_eq!(
+        agg.recommendation.as_ref().unwrap().kind,
+        RecommendationKind::Contested
+    );
+    assert_eq!(
+        agg.verifications[0].factual_status,
+        FactualStatus::Contradicted
+    );
+    assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg);
+}
+
+fn retry_model_with_tokens(per_call: (u64, u64)) -> FakeModelClient {
+    let mut model = retry_constraint_scenario().model;
+    model.tokens_per_call = per_call;
+    model
+}
+
+#[test]
+fn token_budget_exceeded_fails_run_safely_with_recorded_reason() {
+    // 600 tokens per call against a 1,000-token cap: the critique call
+    // crosses it. Its document is recorded, then the run fails.
+    let s = retry_constraint_scenario();
+    let mut log = EventLog::open(temp_log("token-budget.jsonl")).unwrap();
+    let mut orch = orchestrator(retry_model_with_tokens((400, 200)), s.memory, s.verifier);
+    orch.limits = RunLimits {
+        max_run_tokens: 1_000,
+    };
+    let agg = orch.run(&mut log, s.input).unwrap();
+    assert_eq!(agg.state, RunState::Failed);
+    assert!(agg.recommendation.is_none());
+    assert_eq!(orch.model.calls, ["propose", "critique"]);
+    let reason = agg.failure_reason.clone().unwrap();
+    assert!(reason.contains("token budget exceeded"), "{reason}");
+    assert!(reason.contains("1200 tokens"), "{reason}");
+    let last = log.events_for(&agg.run_id).last().unwrap();
+    assert!(matches!(
+        &last.payload,
+        EventPayload::RunFailed { stage, .. } if stage == "token_budget"
+    ));
+    // The receipt still accounts for both calls that were made.
+    let receipt = build_receipt(&log, &agg.run_id, TS.into()).unwrap();
+    assert_eq!(receipt.model_invocations.len(), 2);
+    assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg);
+
+    // The same run fits under the default cap.
+    let s = retry_constraint_scenario();
+    let mut log = EventLog::open(temp_log("token-budget-ok.jsonl")).unwrap();
+    let mut orch = orchestrator(retry_model_with_tokens((400, 200)), s.memory, s.verifier);
+    let agg = orch.run(&mut log, s.input).unwrap();
+    assert_eq!(
+        agg.recommendation.unwrap().kind,
+        RecommendationKind::Supported
+    );
+}
+
+#[test]
+fn missing_token_usage_fails_closed() {
+    // A provider that reports no usage would make the cap unenforceable.
+    let s = retry_constraint_scenario();
+    let mut model = s.model;
+    model.omit_usage = true;
+    let mut log = EventLog::open(temp_log("token-usage-missing.jsonl")).unwrap();
+    let mut orch = orchestrator(model, s.memory, s.verifier);
+    let agg = orch.run(&mut log, s.input).unwrap();
+    assert_eq!(agg.state, RunState::Failed);
+    assert_eq!(orch.model.calls, ["propose"]);
+    assert!(agg
+        .failure_reason
+        .unwrap()
+        .contains("reported no token usage"));
 }

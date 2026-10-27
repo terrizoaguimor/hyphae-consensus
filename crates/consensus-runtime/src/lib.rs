@@ -17,5 +17,5 @@ pub mod state_machine;
 
 pub use clock::{Clock, FixedClock, IdGen, SequentialIdGen, SystemClock, UuidIdGen};
 pub use event_log::{EventLog, EventLogError};
-pub use orchestrator::{Orchestrator, OrchestratorError, TaskInput};
+pub use orchestrator::{Orchestrator, OrchestratorError, RunLimits, TaskInput};
 pub use state_machine::{RunAggregate, TransitionError, MAX_REVISION_ROUNDS};

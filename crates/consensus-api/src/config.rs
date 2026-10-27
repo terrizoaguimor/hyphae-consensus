@@ -2,7 +2,50 @@
 //! written to the event log; key material stays in memory only (Meta) or
 //! in a restricted file referenced by path (Hyphae).
 
+use consensus_runtime::RunLimits;
 use std::time::Duration;
+
+/// Per-call model timeout when `CONSENSUS_MODEL_TIMEOUT_SECS` is unset.
+/// 2 of 12 live runs on 2026-10-26 hit the earlier 60 s default.
+pub const DEFAULT_MODEL_TIMEOUT_SECS: u64 = 120;
+
+/// `CONSENSUS_MODEL_TIMEOUT_SECS` in whole seconds; unset or unparseable
+/// values use the default.
+pub fn parse_model_timeout(value: Option<&str>) -> Duration {
+    Duration::from_secs(
+        value
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(DEFAULT_MODEL_TIMEOUT_SECS),
+    )
+}
+
+/// Per-run limits from `CONSENSUS_MAX_RUN_TOKENS` (positive integer).
+/// Unset means the runtime default; an invalid value is an error, never
+/// silently replaced by the default.
+pub fn run_limits_from_env() -> Result<RunLimits, String> {
+    match std::env::var("CONSENSUS_MAX_RUN_TOKENS") {
+        Err(std::env::VarError::NotPresent) => parse_max_run_tokens(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            Err("CONSENSUS_MAX_RUN_TOKENS is not valid Unicode".into())
+        }
+        Ok(value) => parse_max_run_tokens(Some(&value)),
+    }
+}
+
+pub fn parse_max_run_tokens(value: Option<&str>) -> Result<RunLimits, String> {
+    let Some(value) = value else {
+        return Ok(RunLimits::default());
+    };
+    value
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|tokens| *tokens > 0)
+        .map(|max_run_tokens| RunLimits { max_run_tokens })
+        .ok_or_else(|| {
+            format!("CONSENSUS_MAX_RUN_TOKENS must be a positive integer, got {value:?}")
+        })
+}
 
 #[derive(Clone)]
 pub struct MetaConfig {
@@ -45,11 +88,10 @@ impl MetaConfig {
                 .unwrap_or_else(|_| "https://api.meta.ai/v1".into()),
             api_key,
             model: std::env::var("CONSENSUS_MODEL").unwrap_or_else(|_| "muse-wonder-1.0".into()),
-            timeout: Duration::from_secs(
+            timeout: parse_model_timeout(
                 std::env::var("CONSENSUS_MODEL_TIMEOUT_SECS")
                     .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(60),
+                    .as_deref(),
             ),
             max_retries: 2,
         })
@@ -133,5 +175,30 @@ impl HyphaeConfig {
             }
         }
         argv
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_timeout_defaults_to_120_seconds_and_keeps_the_override() {
+        assert_eq!(parse_model_timeout(None), Duration::from_secs(120));
+        assert_eq!(parse_model_timeout(Some("45")), Duration::from_secs(45));
+        assert_eq!(parse_model_timeout(Some("soon")), Duration::from_secs(120));
+    }
+
+    #[test]
+    fn run_token_cap_is_configurable_and_never_silently_defaulted() {
+        assert_eq!(parse_max_run_tokens(None), Ok(RunLimits::default()));
+        assert_eq!(
+            parse_max_run_tokens(Some(" 5000 ")).map(|l| l.max_run_tokens),
+            Ok(5000)
+        );
+        for bad in ["0", "-1", "lots", ""] {
+            let err = parse_max_run_tokens(Some(bad)).unwrap_err();
+            assert!(err.contains("CONSENSUS_MAX_RUN_TOKENS"), "{err}");
+        }
     }
 }

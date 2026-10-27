@@ -2,24 +2,63 @@
 //! and the verification records — the single place where evidence becomes
 //! a recommendation kind. Models never write this value.
 //!
-//! Rules, in priority order:
+//! Rules, in priority order (schema 1.2, current):
 //! 1. Any invalid proof anywhere in the retrieved set -> Blocked.
-//! 2. Evaluator abstained -> Abstained.
-//! 3. Any contradicted fact among cited or contradicting evidence, or
-//!    any unresolved challenge -> Contested.
-//! 4. Any uncorroborated claim, any corroborated claim citing no
+//! 2. Any contradicted fact among cited or contradicting evidence ->
+//!    Contested, even when the Evaluator abstained: abstention must not
+//!    hide a contradiction the Evaluator itself recorded.
+//! 3. Evaluator abstained -> Abstained.
+//! 4. Any unresolved challenge -> Contested.
+//! 5. Any uncorroborated claim, any corroborated claim citing no
 //!    evidence of its own, any cited supporting evidence whose integrity
 //!    is not Valid (unavailable / error / unchecked), or no checked
 //!    evidence at all -> InsufficientEvidence.
-//! 5. Otherwise -> Supported.
+//! 6. Otherwise -> Supported.
 //!
-//! Note rule 4: a Valid proof with uncorroborated content still lands in
+//! Schema 1.1 ranked abstention (3) above every contradiction (2); runs
+//! recorded under 1.1 are re-derived with that order on replay, so old
+//! logs keep replaying and stay tamper-checked ([`PolicyVersion`]).
+//!
+//! Note rule 5: a Valid proof with uncorroborated content still lands in
 //! InsufficientEvidence. Integrity never upgrades factuality.
 
 use consensus_domain::*;
 use std::collections::HashSet;
 
+/// Which rule order applies. Replay re-derives a recorded recommendation
+/// with the rules it was issued under, selected by event schema version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicyVersion {
+    /// Schema 1.1: abstention outranks every contradiction.
+    V1_1,
+    /// Schema 1.2: a recorded contradiction outranks abstention.
+    V1_2,
+}
+
+impl PolicyVersion {
+    pub const CURRENT: Self = Self::V1_2;
+
+    /// Rules for a recorded schema version. `None` for pre-1.1 records,
+    /// which predate replay recomputation and are not re-derived.
+    pub fn for_schema(version: &str) -> Option<Self> {
+        match version {
+            "1.1" => Some(Self::V1_1),
+            "1.2" => Some(Self::V1_2),
+            _ => None,
+        }
+    }
+}
+
+/// Derives the recommendation under the current rules.
 pub fn derive_recommendation(
+    evaluation: &Evaluation,
+    verifications: &[EvidenceVerification],
+) -> RecommendationKind {
+    derive_recommendation_with(PolicyVersion::CURRENT, evaluation, verifications)
+}
+
+pub fn derive_recommendation_with(
+    version: PolicyVersion,
     evaluation: &Evaluation,
     verifications: &[EvidenceVerification],
 ) -> RecommendationKind {
@@ -49,15 +88,17 @@ pub fn derive_recommendation(
     {
         return RecommendationKind::Blocked;
     }
+    let contradicted = verifications
+        .iter()
+        .filter(|v| considered.contains(&v.evidence_id))
+        .any(|v| v.factual_status == FactualStatus::Contradicted);
+    if contradicted && version == PolicyVersion::V1_2 {
+        return RecommendationKind::Contested;
+    }
     if evaluation.abstain {
         return RecommendationKind::Abstained;
     }
-    if verifications
-        .iter()
-        .filter(|v| considered.contains(&v.evidence_id))
-        .any(|v| v.factual_status == FactualStatus::Contradicted)
-        || !evaluation.unresolved_items.is_empty()
-    {
+    if contradicted || !evaluation.unresolved_items.is_empty() {
         return RecommendationKind::Contested;
     }
     let any_uncorroborated = evaluation.assessments.iter().any(|a| !a.corroborated);
@@ -235,6 +276,57 @@ mod tests {
             FactualStatus::Corroborated,
         )];
         assert_eq!(derive_recommendation(&e, &v), RecommendationKind::Abstained);
+    }
+
+    #[test]
+    fn recorded_contradiction_outranks_abstention() {
+        // Live S02 (2026-10-26): the Evaluator listed the stored cap as
+        // contradicting a 10-attempt claim, then abstained, and the 1.1
+        // order reported `abstained`, hiding the contradiction.
+        let e = evaluation(vec![assessment("c1", false, &[], &["ev1"])], &[], true);
+        let v = vec![verification(
+            "ev1",
+            IntegrityStatus::Valid,
+            FactualStatus::Contradicted,
+        )];
+        assert_eq!(derive_recommendation(&e, &v), RecommendationKind::Contested);
+        // Runs recorded under 1.1 keep their original derivation.
+        assert_eq!(
+            derive_recommendation_with(PolicyVersion::V1_1, &e, &v),
+            RecommendationKind::Abstained
+        );
+        // An invalid proof still outranks both.
+        let mut blocked = v.clone();
+        blocked.push(verification(
+            "ev2",
+            IntegrityStatus::Invalid,
+            FactualStatus::NotAssessed,
+        ));
+        assert_eq!(
+            derive_recommendation(&e, &blocked),
+            RecommendationKind::Blocked
+        );
+    }
+
+    #[test]
+    fn abstention_with_open_items_but_no_contradiction_stays_abstained() {
+        // Unresolved items alone do not outrank abstention (unchanged);
+        // the orchestrator may answer them with a revision instead.
+        let e = evaluation(vec![assessment("c1", false, &[], &[])], &["i1"], true);
+        assert_eq!(
+            derive_recommendation(&e, &[]),
+            RecommendationKind::Abstained
+        );
+    }
+
+    #[test]
+    fn policy_version_follows_recorded_schema() {
+        assert_eq!(PolicyVersion::for_schema("1.1"), Some(PolicyVersion::V1_1));
+        assert_eq!(
+            PolicyVersion::for_schema(SCHEMA_VERSION),
+            Some(PolicyVersion::CURRENT)
+        );
+        assert_eq!(PolicyVersion::for_schema("1.0"), None);
     }
 
     #[test]

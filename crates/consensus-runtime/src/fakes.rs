@@ -15,6 +15,10 @@ pub struct FakeModelClient {
     pub evaluations: VecDeque<Result<Evaluation, ModelError>>,
     pub revisions: VecDeque<Result<Revision, ModelError>>,
     pub calls: Vec<String>,
+    /// Reported (input, output) tokens per call; (0, 0) by default.
+    pub tokens_per_call: (u64, u64),
+    /// Report no usage at all, like a provider that omits it.
+    pub omit_usage: bool,
 }
 
 impl FakeModelClient {
@@ -23,6 +27,7 @@ impl FakeModelClient {
     }
 
     fn invocation(&self, stage: &str) -> ModelInvocation {
+        let (input, output) = self.tokens_per_call;
         ModelInvocation {
             provider: "fake".into(),
             // Mirrors the production model identity so receipt plumbing is
@@ -30,8 +35,8 @@ impl FakeModelClient {
             model: "muse-wonder-1.0".into(),
             request_id: Some(format!("fake-{stage}-{}", self.calls.len())),
             latency_ms: Some(1),
-            input_tokens: Some(0),
-            output_tokens: Some(0),
+            input_tokens: (!self.omit_usage).then_some(input),
+            output_tokens: (!self.omit_usage).then_some(output),
         }
     }
 

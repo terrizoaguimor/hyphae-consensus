@@ -353,7 +353,7 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                 ids: UuidIdGen,
                 limits: state.limits,
             };
-            orch.run(&mut log, s.input)
+            orch.run(&mut *log, s.input)
         }
         ("fake", other) => {
             return Err(bad(&format!(
@@ -385,7 +385,7 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                         ids: UuidIdGen,
                         limits: state.limits,
                     };
-                    orch.run(&mut log, input)
+                    orch.run(&mut *log, input)
                 }
                 "offline" => {
                     let mut orch = Orchestrator {
@@ -396,7 +396,7 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                         ids: UuidIdGen,
                         limits: state.limits,
                     };
-                    orch.run(&mut log, input)
+                    orch.run(&mut *log, input)
                 }
                 "hyphae" => {
                     let hcfg = HyphaeConfig::from_env().ok_or_else(|| {
@@ -415,7 +415,7 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                         ids: UuidIdGen,
                         limits: state.limits,
                     };
-                    orch.run(&mut log, input)
+                    orch.run(&mut *log, input)
                 }
                 other => return Err(bad(&format!("unknown memory mode: {other}"))),
             }

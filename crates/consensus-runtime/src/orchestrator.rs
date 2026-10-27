@@ -12,9 +12,11 @@
 //! invoked here.
 
 use crate::clock::{Clock, IdGen};
+use crate::control::RunControl;
 use crate::event_log::{EventLog, EventLogError};
 use crate::policy::{derive_recommendation, rationale_for};
 use crate::ports::*;
+use crate::sink::EventSink;
 use crate::state_machine::{RunAggregate, TransitionError, MAX_REVISION_ROUNDS};
 use consensus_domain::*;
 use std::collections::{HashMap, HashSet};
@@ -106,30 +108,91 @@ pub struct Orchestrator<M, Mem, V, C, I> {
 impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
     Orchestrator<M, Mem, V, C, I>
 {
-    pub fn run(
+    /// Creates and deliberates one run in a single call, with a run id
+    /// from `ids` and a control that is never cancelled and has no
+    /// deadline: [`create_task`](Self::create_task) followed by
+    /// [`deliberate`](Self::deliberate).
+    pub fn run<S: EventSink>(
         &mut self,
-        log: &mut EventLog,
+        sink: &mut S,
         input: TaskInput,
     ) -> Result<RunAggregate, OrchestratorError> {
         let run_id = RunId::new(self.ids.next("run"));
+        let (agg, task) = self.create_task(sink, run_id, input)?;
+        self.deliberate(sink, agg, &task, &RunControl::new())
+    }
+
+    /// Records `TaskCreated` for a new run and returns the run's
+    /// aggregate and task, ready for [`deliberate`](Self::deliberate).
+    /// Makes no model or memory call.
+    ///
+    /// `run_id` must not already have events in `sink`. The event is
+    /// validated against a fresh aggregate, and [`EventLog`] does not
+    /// replay a run's stored events before appending, so a reused id can
+    /// record a second task for that run and make it fail replay.
+    pub fn create_task<S: EventSink>(
+        &mut self,
+        sink: &mut S,
+        run_id: RunId,
+        input: TaskInput,
+    ) -> Result<(RunAggregate, Task), OrchestratorError> {
         let mut agg = RunAggregate::new(run_id.clone());
         let task = Task {
             schema_version: SCHEMA_VERSION.into(),
             id: TaskId::new(self.ids.next("task")),
-            run_id: run_id.clone(),
+            run_id,
             project_id: input.project_id.clone(),
             title: input.title,
             description: input.description,
             created_at: self.clock.now(),
         };
         self.emit(
-            log,
+            sink,
             &mut agg,
             Actor::Human {
                 id: input.submitted_by.clone(),
             },
             EventPayload::TaskCreated { task: task.clone() },
         )?;
+        Ok((agg, task))
+    }
+
+    /// Deliberates a run made by [`create_task`](Self::create_task):
+    /// proposal, evidence retrieval and integrity checks, critique,
+    /// evaluation, bounded revisions, then the runtime-issued
+    /// recommendation, which leaves the run awaiting a human decision.
+    ///
+    /// `control` is checked before every model call, before every memory
+    /// recall and before the recommendation. Once it is tripped, the next
+    /// checkpoint ends the run with `RunFailed` (stage `cancelled`,
+    /// `shutdown` or `deadline`). A call already in progress is not
+    /// interrupted: its outcome is handled as usual first (its document
+    /// recorded and charged, or the run failed at that call's stage).
+    ///
+    /// `agg` must be the run of `task`, still in state `Created`.
+    /// Anything else is refused before any model call is made.
+    pub fn deliberate<S: EventSink>(
+        &mut self,
+        sink: &mut S,
+        mut agg: RunAggregate,
+        task: &Task,
+        control: &RunControl,
+    ) -> Result<RunAggregate, OrchestratorError> {
+        // A model call spends tokens even if its document is then refused,
+        // so a wrong starting point is refused here, before the first call.
+        if task.run_id != agg.run_id {
+            return Err(TransitionError::RunMismatch.into());
+        }
+        if agg.state.is_terminal() {
+            return Err(TransitionError::Terminal { state: agg.state }.into());
+        }
+        if agg.state != RunState::Created || agg.task.is_none() {
+            return Err(TransitionError::InvalidTransition {
+                state: agg.state,
+                event: "proposal_submitted",
+            }
+            .into());
+        }
 
         // Every model call is charged against the run's token cap. The
         // call's document is recorded first (its tokens were spent and
@@ -141,13 +204,16 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         };
 
         // Stage 1: proposal.
-        let (mut proposal, inv) = match self.model.propose(&task) {
+        if let Some(stop) = control.check() {
+            return self.fail(sink, agg, stop.stage(), &stop.reason("propose call"));
+        }
+        let (mut proposal, inv) = match self.model.propose(task) {
             Ok(v) => v,
-            Err(e) => return self.fail(log, agg, "propose", &e.to_string()),
+            Err(e) => return self.fail(sink, agg, "propose", &e.to_string()),
         };
         let over_budget = budget.charge("propose", &inv);
         self.emit(
-            log,
+            sink,
             &mut agg,
             Actor::Agent {
                 role: AgentRole::Proposer,
@@ -158,7 +224,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             },
         )?;
         if let Some(reason) = over_budget {
-            return self.fail(log, agg, "token_budget", &reason);
+            return self.fail(sink, agg, "token_budget", &reason);
         }
 
         let mut seen_evidence: HashSet<EvidenceId> = HashSet::new();
@@ -172,6 +238,9 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             let mut evidence: Vec<EvidenceReference> = Vec::new();
             let mut capped = 0usize;
             for claim in &proposal.claims {
+                if let Some(stop) = control.check() {
+                    return self.fail(sink, agg, stop.stage(), &stop.reason("memory recall"));
+                }
                 match self.memory.recall(&task.project_id, &claim.statement, 5) {
                     Ok(records) => {
                         for rec in records {
@@ -185,7 +254,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                             }
                             if seen_evidence.insert(rec.id.clone()) {
                                 self.emit(
-                                    log,
+                                    sink,
                                     &mut agg,
                                     Actor::Runtime,
                                     EventPayload::EvidenceRetrieved {
@@ -200,7 +269,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     }
                     Err(e) => {
                         self.emit(
-                            log,
+                            sink,
                             &mut agg,
                             Actor::Runtime,
                             EventPayload::EvidenceUnavailable {
@@ -214,7 +283,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             if capped > 0 {
                 // The cap degrades evidence; it must never do so silently.
                 self.emit(
-                    log,
+                    sink,
                     &mut agg,
                     Actor::Runtime,
                     EventPayload::EvidenceUnavailable {
@@ -252,13 +321,16 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                 integrity: checks.iter().map(|(k, v)| (k.clone(), v.status)).collect(),
             };
 
+            if let Some(stop) = control.check() {
+                return self.fail(sink, agg, stop.stage(), &stop.reason("critique call"));
+            }
             let (challenge, inv) = match self.model.critique(&proposal, &ctx) {
                 Ok(v) => v,
-                Err(e) => return self.fail(log, agg, "critique", &e.to_string()),
+                Err(e) => return self.fail(sink, agg, "critique", &e.to_string()),
             };
             let over_budget = budget.charge("critique", &inv);
             self.emit(
-                log,
+                sink,
                 &mut agg,
                 Actor::Agent {
                     role: AgentRole::Critic,
@@ -269,16 +341,19 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                 },
             )?;
             if let Some(reason) = over_budget {
-                return self.fail(log, agg, "token_budget", &reason);
+                return self.fail(sink, agg, "token_budget", &reason);
             }
 
+            if let Some(stop) = control.check() {
+                return self.fail(sink, agg, stop.stage(), &stop.reason("evaluate call"));
+            }
             let (evaluation, inv) = match self.model.evaluate(&proposal, &challenge, &ctx) {
                 Ok(v) => v,
-                Err(e) => return self.fail(log, agg, "evaluate", &e.to_string()),
+                Err(e) => return self.fail(sink, agg, "evaluate", &e.to_string()),
             };
             let over_budget = budget.charge("evaluate", &inv);
             self.emit(
-                log,
+                sink,
                 &mut agg,
                 Actor::Agent {
                     role: AgentRole::EvidenceEvaluator,
@@ -289,7 +364,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                 },
             )?;
             if let Some(reason) = over_budget {
-                return self.fail(log, agg, "token_budget", &reason);
+                return self.fail(sink, agg, "token_budget", &reason);
             }
 
             // Combined verification records: integrity from the verifier,
@@ -338,7 +413,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     checked_at: self.clock.now(),
                 };
                 self.emit(
-                    log,
+                    sink,
                     &mut agg,
                     Actor::Runtime,
                     EventPayload::EvidenceVerified {
@@ -364,14 +439,17 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             if !should_revise {
                 break (final_kind, evaluation, all_verifications);
             }
+            if let Some(stop) = control.check() {
+                return self.fail(sink, agg, stop.stage(), &stop.reason("revise call"));
+            }
             let (revision, inv) = match self.model.revise(&proposal, &challenge, &evaluation, &ctx)
             {
                 Ok(v) => v,
-                Err(e) => return self.fail(log, agg, "revise", &e.to_string()),
+                Err(e) => return self.fail(sink, agg, "revise", &e.to_string()),
             };
             let over_budget = budget.charge("revise", &inv);
             self.emit(
-                log,
+                sink,
                 &mut agg,
                 Actor::Agent {
                     role: AgentRole::Proposer,
@@ -382,11 +460,14 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                 },
             )?;
             if let Some(reason) = over_budget {
-                return self.fail(log, agg, "token_budget", &reason);
+                return self.fail(sink, agg, "token_budget", &reason);
             }
             proposal = revision.proposal;
         };
 
+        if let Some(stop) = control.check() {
+            return self.fail(sink, agg, stop.stage(), &stop.reason("recommendation"));
+        }
         let recommendation = Recommendation {
             schema_version: SCHEMA_VERSION.into(),
             kind: final_kind,
@@ -395,7 +476,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             issued_at: self.clock.now(),
         };
         self.emit(
-            log,
+            sink,
             &mut agg,
             Actor::Runtime,
             EventPayload::RecommendationIssued { recommendation },
@@ -403,9 +484,9 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         Ok(agg)
     }
 
-    fn emit(
+    fn emit<S: EventSink>(
         &mut self,
-        log: &mut EventLog,
+        sink: &mut S,
         agg: &mut RunAggregate,
         actor: Actor,
         payload: EventPayload,
@@ -420,21 +501,22 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         // Validate before persisting: the log must never hold a record
         // that replay would reject (that would poison the whole run).
         agg.clone().apply(&new.clone().into_sequenced(0))?;
-        let seq = log.append(new)?;
-        let stored = &log.all_events()[(seq - 1) as usize];
-        agg.apply(stored)?;
+        // Apply the record as the sink stored it (sequence, chain hash;
+        // the original record when the event id was already stored).
+        let stored = sink.append(new)?;
+        agg.apply(&stored)?;
         Ok(())
     }
 
-    fn fail(
+    fn fail<S: EventSink>(
         &mut self,
-        log: &mut EventLog,
+        sink: &mut S,
         mut agg: RunAggregate,
         stage: &str,
         reason: &str,
     ) -> Result<RunAggregate, OrchestratorError> {
         self.emit(
-            log,
+            sink,
             &mut agg,
             Actor::Runtime,
             EventPayload::RunFailed {
@@ -560,4 +642,381 @@ pub fn build_receipt(
         generated_at,
         proof_limitations: RunReceipt::DEFAULT_LIMITATIONS.into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clock::{FixedClock, SequentialIdGen};
+    use crate::control::CancelReason;
+    use crate::fakes::{FakeMemoryClient, FakeModelClient, FakeProofVerifier};
+    use crate::scenarios::{retry_constraint_scenario, TS};
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    type TestOrchestrator<M, Mem> =
+        Orchestrator<M, Mem, FakeProofVerifier, FixedClock, SequentialIdGen>;
+
+    fn temp_log(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("hyphae-consensus-orch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join(name);
+        let _ = std::fs::remove_file(&p);
+        p
+    }
+
+    fn orchestrator<M: ModelClient, Mem: MemoryClient>(
+        model: M,
+        memory: Mem,
+        verifier: FakeProofVerifier,
+    ) -> TestOrchestrator<M, Mem> {
+        Orchestrator {
+            model,
+            memory,
+            verifier,
+            clock: FixedClock::new(TS),
+            ids: SequentialIdGen::new(),
+            limits: RunLimits::default(),
+        }
+    }
+
+    /// `create_task` with a run id drawn first from the orchestrator's
+    /// own generator, exactly as `run` does.
+    fn create<M: ModelClient, Mem: MemoryClient>(
+        orch: &mut TestOrchestrator<M, Mem>,
+        log: &mut EventLog,
+        input: TaskInput,
+    ) -> (RunAggregate, Task) {
+        let run_id = RunId::new(orch.ids.next("run"));
+        orch.create_task(log, run_id, input).unwrap()
+    }
+
+    /// Creates the reference run, then deliberates it under a `control`
+    /// that is already tripped, so no model call may be made.
+    fn deliberate_tripped(name: &str, control: &RunControl) -> (RunAggregate, EventLog) {
+        let s = retry_constraint_scenario();
+        let mut log = EventLog::open(temp_log(name)).unwrap();
+        let mut orch = orchestrator(s.model, s.memory, s.verifier);
+        let (agg, task) = create(&mut orch, &mut log, s.input);
+        let agg = orch.deliberate(&mut log, agg, &task, control).unwrap();
+        assert!(orch.model.calls.is_empty(), "{:?}", orch.model.calls);
+        (agg, log)
+    }
+
+    /// (stage, reason) of the log's last record, which must be RunFailed.
+    fn failure(log: &EventLog) -> (&str, &str) {
+        match &log.all_events().last().expect("a record").payload {
+            EventPayload::RunFailed { stage, reason } => (stage.as_str(), reason.as_str()),
+            other => panic!("expected RunFailed last, got {other:?}"),
+        }
+    }
+
+    /// Exactly TaskCreated, then RunFailed with `stage` and `reason`.
+    fn assert_stopped_before_propose(
+        agg: &RunAggregate,
+        log: &EventLog,
+        stage: &str,
+        reason: &str,
+    ) {
+        let events = log.all_events();
+        assert_eq!(events.len(), 2, "{events:#?}");
+        assert!(matches!(
+            events[0].payload,
+            EventPayload::TaskCreated { .. }
+        ));
+        assert_eq!(failure(log), (stage, reason));
+        assert_eq!(agg.state, RunState::Failed);
+        assert_eq!(agg.failure_reason.as_deref(), Some(reason));
+        assert_eq!(&log.rebuild(&agg.run_id).unwrap(), agg, "replays");
+    }
+
+    #[test]
+    fn cancel_before_propose_records_only_task_and_failure() {
+        let control = RunControl::new();
+        assert!(control.cancel(CancelReason::Owner));
+        let (agg, log) = deliberate_tripped("cancel-before-propose.jsonl", &control);
+        assert_stopped_before_propose(
+            &agg,
+            &log,
+            "cancelled",
+            "cancelled by the run's owner before the propose call",
+        );
+    }
+
+    #[test]
+    fn expired_deadline_fails_the_run_with_stage_deadline() {
+        let control = RunControl::with_deadline(Instant::now());
+        let (agg, log) = deliberate_tripped("deadline-expired.jsonl", &control);
+        assert_stopped_before_propose(
+            &agg,
+            &log,
+            "deadline",
+            "run deadline passed before the propose call",
+        );
+    }
+
+    #[test]
+    fn shutdown_is_recorded_with_stage_shutdown() {
+        let control = RunControl::new();
+        control.cancel(CancelReason::Shutdown);
+        let (agg, log) = deliberate_tripped("shutdown.jsonl", &control);
+        assert_stopped_before_propose(
+            &agg,
+            &log,
+            "shutdown",
+            "stopped by shutdown before the propose call",
+        );
+    }
+
+    /// The scripted fake, plus an owner's cancel that arrives while its
+    /// `cancel_during`-th call (1-based) is in flight.
+    struct CancellingModel {
+        inner: FakeModelClient,
+        control: RunControl,
+        cancel_during: usize,
+    }
+
+    impl CancellingModel {
+        fn after_call(&self) {
+            if self.inner.calls.len() == self.cancel_during {
+                self.control.cancel(CancelReason::Owner);
+            }
+        }
+    }
+
+    impl ModelClient for CancellingModel {
+        fn propose(&mut self, task: &Task) -> Result<(Proposal, ModelInvocation), ModelError> {
+            let out = self.inner.propose(task);
+            self.after_call();
+            out
+        }
+        fn critique(
+            &mut self,
+            proposal: &Proposal,
+            ctx: &RoleContext,
+        ) -> Result<(Challenge, ModelInvocation), ModelError> {
+            let out = self.inner.critique(proposal, ctx);
+            self.after_call();
+            out
+        }
+        fn evaluate(
+            &mut self,
+            proposal: &Proposal,
+            challenge: &Challenge,
+            ctx: &RoleContext,
+        ) -> Result<(Evaluation, ModelInvocation), ModelError> {
+            let out = self.inner.evaluate(proposal, challenge, ctx);
+            self.after_call();
+            out
+        }
+        fn revise(
+            &mut self,
+            proposal: &Proposal,
+            challenge: &Challenge,
+            evaluation: &Evaluation,
+            ctx: &RoleContext,
+        ) -> Result<(Revision, ModelInvocation), ModelError> {
+            let out = self.inner.revise(proposal, challenge, evaluation, ctx);
+            self.after_call();
+            out
+        }
+    }
+
+    #[test]
+    fn cancel_during_a_model_call_is_honored_at_the_next_checkpoint() {
+        // Reference calls: propose, critique, evaluate (two items open),
+        // revise, critique, evaluate (nothing open).
+        for (cancel_during, next_checkpoint) in [
+            (1, "memory recall"),
+            (2, "evaluate call"),
+            (3, "revise call"),
+            (4, "memory recall"),
+            (5, "evaluate call"),
+            (6, "recommendation"),
+        ] {
+            let s = retry_constraint_scenario();
+            let control = RunControl::new();
+            let model = CancellingModel {
+                inner: s.model,
+                control: control.clone(),
+                cancel_during,
+            };
+            let name = format!("cancel-during-call-{cancel_during}.jsonl");
+            let mut log = EventLog::open(temp_log(&name)).unwrap();
+            let mut orch = orchestrator(model, s.memory, s.verifier);
+            let (agg, task) = create(&mut orch, &mut log, s.input);
+            let agg = orch.deliberate(&mut log, agg, &task, &control).unwrap();
+
+            // The call in flight completed and its document was recorded;
+            // no later call was made.
+            assert_eq!(orch.model.inner.calls.len(), cancel_during);
+            assert_eq!(agg.invocations.len(), cancel_during, "{name}");
+            let reason = format!("cancelled by the run's owner before the {next_checkpoint}");
+            assert_eq!(failure(&log), ("cancelled", reason.as_str()), "{name}");
+            assert_eq!(agg.state, RunState::Failed);
+            assert!(agg.recommendation.is_none());
+            assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "{name} replays");
+        }
+    }
+
+    /// The seeded fake memory, plus an owner's cancel that arrives while
+    /// the first recall is in flight.
+    struct CancellingMemory {
+        inner: FakeMemoryClient,
+        control: RunControl,
+        recalls: usize,
+    }
+
+    impl MemoryClient for CancellingMemory {
+        fn recall(
+            &mut self,
+            project: &ProjectId,
+            query: &str,
+            limit: usize,
+        ) -> Result<Vec<EvidenceReference>, MemoryError> {
+            self.recalls += 1;
+            let out = self.inner.recall(project, query, limit);
+            self.control.cancel(CancelReason::Owner);
+            out
+        }
+        fn status(&mut self) -> Result<MemoryStatus, MemoryError> {
+            self.inner.status()
+        }
+    }
+
+    #[test]
+    fn cancel_during_a_memory_recall_is_honored_before_the_next_recall() {
+        let s = retry_constraint_scenario();
+        let control = RunControl::new();
+        let memory = CancellingMemory {
+            inner: s.memory,
+            control: control.clone(),
+            recalls: 0,
+        };
+        let mut log = EventLog::open(temp_log("cancel-during-recall.jsonl")).unwrap();
+        let mut orch = orchestrator(s.model, memory, s.verifier);
+        let (agg, task) = create(&mut orch, &mut log, s.input);
+        let agg = orch.deliberate(&mut log, agg, &task, &control).unwrap();
+
+        // The proposal has two claims; the second recall never ran.
+        assert_eq!(orch.memory.recalls, 1);
+        assert_eq!(orch.model.calls, ["propose"]);
+        assert_eq!(
+            failure(&log),
+            (
+                "cancelled",
+                "cancelled by the run's owner before the memory recall"
+            )
+        );
+        assert_eq!(agg.state, RunState::Failed);
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "replays");
+    }
+
+    #[test]
+    fn create_task_then_deliberate_matches_run_for_the_reference_scenario() {
+        let reference = |name: &str, split: Option<RunControl>| {
+            let s = retry_constraint_scenario();
+            let path = temp_log(name);
+            let mut log = EventLog::open(&path).unwrap();
+            let mut orch = orchestrator(s.model, s.memory, s.verifier);
+            let agg = match split {
+                None => orch.run(&mut log, s.input).unwrap(),
+                Some(control) => {
+                    let (agg, task) = create(&mut orch, &mut log, s.input);
+                    orch.deliberate(&mut log, agg, &task, &control).unwrap()
+                }
+            };
+            let events = log.all_events().to_vec();
+            drop(log);
+            (agg, events, orch.model.calls, std::fs::read(&path).unwrap())
+        };
+        let via_run = reference("reference-run.jsonl", None);
+        assert_eq!(via_run.0.state, RunState::AwaitingHumanApproval);
+        assert_eq!(
+            via_run.0.recommendation.as_ref().map(|r| r.kind),
+            Some(RecommendationKind::Supported)
+        );
+        assert_eq!(
+            via_run.2,
+            ["propose", "critique", "evaluate", "revise", "critique", "evaluate"]
+        );
+
+        // Same aggregate, same records (ids, timestamps, chain hashes) and
+        // the same bytes on disk. A deadline not yet reached changes nothing.
+        let split = reference("reference-split.jsonl", Some(RunControl::new()));
+        assert_eq!(split, via_run);
+        let later = RunControl::with_deadline(Instant::now() + Duration::from_secs(3600));
+        let split = reference("reference-split-deadline.jsonl", Some(later));
+        assert_eq!(split, via_run);
+    }
+
+    #[test]
+    fn deliberate_refuses_a_run_that_is_not_freshly_created() {
+        let s = retry_constraint_scenario();
+        let mut log = EventLog::open(temp_log("refuse.jsonl")).unwrap();
+        let mut orch = orchestrator(s.model, s.memory, s.verifier);
+        let (created, task) = create(&mut orch, &mut log, s.input.clone());
+        let awaiting = orch
+            .deliberate(&mut log, created.clone(), &task, &RunControl::new())
+            .unwrap();
+        assert_eq!(awaiting.state, RunState::AwaitingHumanApproval);
+        let calls = orch.model.calls.len();
+        let cancelled = RunControl::new();
+        cancelled.cancel(CancelReason::Owner);
+
+        // A second deliberation, even under a tripped control, must leave
+        // a run that awaits its human decision untouched.
+        let len = log.len();
+        let err = orch
+            .deliberate(&mut log, awaiting.clone(), &task, &cancelled)
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                OrchestratorError::Transition(TransitionError::InvalidTransition {
+                    state: RunState::AwaitingHumanApproval,
+                    ..
+                })
+            ),
+            "{err}"
+        );
+        assert_eq!(log.len(), len);
+        assert_eq!(log.rebuild(&awaiting.run_id).unwrap(), awaiting);
+
+        // A task that belongs to another run.
+        let mut other = task.clone();
+        other.run_id = RunId::new("run-other");
+        let err = orch
+            .deliberate(&mut log, created, &other, &RunControl::new())
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                OrchestratorError::Transition(TransitionError::RunMismatch)
+            ),
+            "{err}"
+        );
+        assert_eq!(log.len(), len);
+
+        // A run that already ended.
+        let (fresh, task) = create(&mut orch, &mut log, s.input);
+        let failed = orch.deliberate(&mut log, fresh, &task, &cancelled).unwrap();
+        assert_eq!(failed.state, RunState::Failed);
+        let len = log.len();
+        let err = orch
+            .deliberate(&mut log, failed, &task, &RunControl::new())
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                OrchestratorError::Transition(TransitionError::Terminal {
+                    state: RunState::Failed
+                })
+            ),
+            "{err}"
+        );
+        assert_eq!(log.len(), len);
+        assert_eq!(orch.model.calls.len(), calls, "no model call was made");
+    }
 }

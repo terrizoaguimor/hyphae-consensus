@@ -90,6 +90,7 @@ fn decision(run_id: &RunId, approved: bool) -> NewEvent {
                 decided_at: TS.into(),
                 idempotency_key: key.into(),
                 note: None,
+                authority: None,
             },
         },
     }

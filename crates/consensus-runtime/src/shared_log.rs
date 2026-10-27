@@ -322,6 +322,7 @@ mod tests {
                     title: "t".into(),
                     description: "d".into(),
                     created_at: TS.into(),
+                    mode: None,
                 },
             },
         }
@@ -336,6 +337,8 @@ mod tests {
             payload: EventPayload::RunFailed {
                 reason: format!("stopped at {stage}"),
                 stage: stage.into(),
+                code: None,
+                invocation: None,
             },
         }
     }
@@ -355,6 +358,7 @@ mod tests {
                     decided_at: TS.into(),
                     idempotency_key: key.into(),
                     note: None,
+                    authority: None,
                 },
             },
         }
@@ -902,6 +906,7 @@ mod tests {
                                 payload: EventPayload::EvidenceUnavailable {
                                     query: "q".into(),
                                     reason: "offline".into(),
+                                    code: None,
                                 },
                             };
                             // Evidence events need a proposal first; until

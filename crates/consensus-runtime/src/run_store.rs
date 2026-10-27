@@ -88,7 +88,7 @@ use crate::orchestrator::mark_interrupted_runs;
 use crate::shared_log::{names_another_run, EventPublisher, SharedRunLog};
 use crate::state_machine::RunAggregate;
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
-use consensus_domain::{ConsensusEvent, EventId, RunId, RunState, READABLE_SCHEMA_VERSIONS};
+use consensus_domain::{ConsensusEvent, RunId, RunState};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -119,8 +119,6 @@ const HEAD_MISSING: &str =
     "the event log is shorter than the head the run index recorded: records were removed";
 const AFTER_TERMINAL: &str =
     "records follow the terminal head the run index recorded: the log was extended by hand";
-/// Chain anchor of a run log's first record, as in [`EventLog`].
-const LOG_GENESIS: &str = "genesis";
 
 /// Why [`parse_run_id`] refused a string. The input itself is not kept:
 /// it is untrusted and may be anything.
@@ -2042,135 +2040,12 @@ fn check_recorded_head(bytes: &[u8], indexed: &IndexedRun) -> Result<(), &'stati
 }
 
 /// Verifies a run log from its bytes alone, never opening the file for
-/// writing: the checks [`EventLog::open`] makes (readable schema
-/// versions, sequences from 1 without gaps, unique event ids, the hash
-/// chain from genesis, with its pre-1.1 legacy prefix rule), except that
-/// a torn final record is refused instead of cut. A complete final record
-/// without its newline is accepted, as `EventLog::open` accepts it.
-///
-/// This restates the event log's rules for a read that must not write;
-/// a test holds it to `EventLog::open` record for record. Once the event
-/// log offers a read-only open, that should replace it.
+/// writing: [`crate::event_log::verify_bytes`], the same checks as
+/// [`EventLog::open_read_only`] (a torn final record is refused, never
+/// cut). One implementation, so a read here can never accept what the
+/// event log refuses.
 fn verify_log_bytes(bytes: &[u8]) -> Result<Vec<ConsensusEvent>, EventLogError> {
-    let mut events: Vec<ConsensusEvent> = Vec::new();
-    let mut ids: BTreeSet<EventId> = BTreeSet::new();
-    if bytes.is_empty() {
-        return Ok(events);
-    }
-    let ends_with_newline = bytes.last() == Some(&b'\n');
-    let text = String::from_utf8_lossy(bytes);
-    let lines: Vec<&str> = text.split('\n').collect();
-    for (idx, line) in lines.iter().enumerate() {
-        let line_no = idx + 1;
-        let trimmed = line.trim_end_matches('\r');
-        let is_last_chunk = idx == lines.len() - 1;
-        if trimmed.is_empty() {
-            if is_last_chunk {
-                break;
-            }
-            return Err(EventLogError::Corrupt {
-                line: line_no,
-                detail: "empty line inside log".into(),
-            });
-        }
-        let ev = match serde_json::from_str::<ConsensusEvent>(trimmed) {
-            Ok(ev) => ev,
-            Err(e) if is_last_chunk && !ends_with_newline => {
-                return Err(EventLogError::Corrupt {
-                    line: line_no,
-                    detail: format!(
-                        "incomplete final record (a torn write), which a read never repairs: {e}"
-                    ),
-                });
-            }
-            Err(e) => {
-                return Err(EventLogError::Corrupt {
-                    line: line_no,
-                    detail: e.to_string(),
-                });
-            }
-        };
-        if !READABLE_SCHEMA_VERSIONS.contains(&ev.schema_version.as_str()) {
-            return Err(EventLogError::SchemaVersion {
-                line: line_no,
-                found: ev.schema_version.clone(),
-            });
-        }
-        let expected = events.len() as u64 + 1;
-        if ev.sequence != expected {
-            return Err(EventLogError::SequenceGap {
-                line: line_no,
-                expected,
-                found: ev.sequence,
-            });
-        }
-        if !ids.insert(ev.event_id.clone()) {
-            return Err(EventLogError::DuplicateStoredId { line: line_no });
-        }
-        if let Some(detail) = chain_link_problem(events.last(), &ev)? {
-            return Err(EventLogError::HashChain {
-                line: line_no,
-                detail,
-            });
-        }
-        events.push(ev);
-    }
-    Ok(events)
-}
-
-/// Why `ev` breaks the event log's chain after `prev` (None: the log's
-/// first record), or None when it links. Records without a hash are a
-/// legacy (pre-1.1) prefix only: schema "1.0", no `prev_hash`, and no
-/// chained record before them.
-fn chain_link_problem(
-    prev: Option<&ConsensusEvent>,
-    ev: &ConsensusEvent,
-) -> Result<Option<String>, serde_json::Error> {
-    if ev.hash.is_empty() {
-        if ev.schema_version != "1.0" {
-            return Ok(Some(format!(
-                "schema {} record without chain hash",
-                ev.schema_version
-            )));
-        }
-        if !ev.prev_hash.is_empty() {
-            return Ok(Some("legacy record carries a prev_hash".into()));
-        }
-        if prev.is_some_and(|p| !p.hash.is_empty()) {
-            return Ok(Some("unhashed record after hash-chain start".into()));
-        }
-        return Ok(None);
-    }
-    let expected = match prev {
-        None => LOG_GENESIS.to_string(),
-        Some(p) if p.hash.is_empty() => format!("pre-1.1:{}", p.sequence),
-        Some(p) => p.hash.clone(),
-    };
-    if ev.prev_hash != expected {
-        return Ok(Some(format!(
-            "prev_hash mismatch: stored {:?}, expected {expected:?}",
-            ev.prev_hash
-        )));
-    }
-    let computed = event_hash(ev)?;
-    if computed != ev.hash {
-        return Ok(Some(format!(
-            "hash mismatch: stored {}, computed {computed}",
-            ev.hash
-        )));
-    }
-    Ok(None)
-}
-
-/// SHA-256 over (`prev_hash` || canonical JSON of the record with `hash`
-/// blanked), lowercase hex: how the event log hashes a record.
-fn event_hash(event: &ConsensusEvent) -> Result<String, serde_json::Error> {
-    let mut blanked = event.clone();
-    blanked.hash.clear();
-    let mut hasher = Sha256::new();
-    hasher.update(event.prev_hash.as_bytes());
-    hasher.update(serde_json::to_vec(&blanked)?);
-    Ok(hex(&hasher.finalize()))
+    crate::event_log::verify_bytes(bytes)
 }
 
 /// Event ids for the records recovery writes: `inner`'s ids, with a
@@ -2548,6 +2423,7 @@ mod tests {
                     title: "t".into(),
                     description: "d".into(),
                     created_at: T0.into(),
+                    mode: None,
                 },
             },
         }
@@ -2572,6 +2448,15 @@ mod tests {
                     latency_ms: None,
                     input_tokens: Some(0),
                     output_tokens: Some(0),
+                    finish_reason: None,
+                    reasoning_tokens: None,
+                    max_completion_tokens: None,
+                    schema_name: None,
+                    schema_sha256: None,
+                    prompt_sha256: None,
+                    reasoning_effort: None,
+                    safety_identifier_sent: None,
+                    attempts: None,
                 },
             },
         }
@@ -2586,6 +2471,8 @@ mod tests {
             payload: EventPayload::RunFailed {
                 reason: "boom".into(),
                 stage: "propose".into(),
+                code: None,
+                invocation: None,
             },
         }
     }
@@ -2605,6 +2492,7 @@ mod tests {
                     decided_at: T0.into(),
                     idempotency_key: approved.to_string(),
                     note: None,
+                    authority: None,
                 },
             },
         }
@@ -4089,7 +3977,8 @@ mod tests {
         assert!(
             matches!(
                 read,
-                Err(RunStoreError::Log(EventLogError::Corrupt { line: 3, .. }))
+                // TornTail: the shared verifier's error for a torn write.
+                Err(RunStoreError::Log(EventLogError::TornTail { line: 3, .. }))
             ),
             "{read:?}"
         );
@@ -4164,8 +4053,10 @@ mod tests {
             }),
             (
                 "an unknown schema version",
+                // The current version, whatever it is: a hard-coded "1.2"
+                // stopped matching anything once new runs were 1.3.
                 text.replacen(
-                    "\"schema_version\":\"1.2\"",
+                    &format!("\"schema_version\":\"{SCHEMA_VERSION}\""),
                     "\"schema_version\":\"9.9\"",
                     1,
                 ),
@@ -4196,7 +4087,9 @@ mod tests {
         let torn = format!("{text}{}", &lines[1][..40]);
         let read = verify_log_bytes(torn.as_bytes());
         assert!(
-            matches!(read, Err(EventLogError::Corrupt { line, .. }) if line == lines.len() + 1),
+            // The shared verifier reports a torn tail as TornTail, the event
+            // log's own error for exactly this condition (was Corrupt).
+            matches!(read, Err(EventLogError::TornTail { line, .. }) if line == lines.len() + 1),
             "{read:?}"
         );
         std::fs::write(&path, &torn).unwrap();

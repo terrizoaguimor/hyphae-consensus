@@ -380,6 +380,20 @@ fn parse(bytes: &[u8]) -> Result<Parsed, EventLogError> {
     })
 }
 
+/// Verifies a log from its bytes alone, with exactly the checks of
+/// [`EventLog::open_read_only`]: readable schema versions, gap-free
+/// sequences, unique event ids, the hash chain (no chained record
+/// labelled 1.0) and no schema downgrade within a run. A torn final
+/// record is [`EventLogError::TornTail`], never cut; a complete final
+/// record without its newline is accepted. Nothing is written.
+pub fn verify_bytes(bytes: &[u8]) -> Result<Vec<ConsensusEvent>, EventLogError> {
+    let Parsed { events, tail, .. } = parse(bytes)?;
+    if let Tail::Torn { line, detail, .. } = tail {
+        return Err(EventLogError::TornTail { line, detail });
+    }
+    Ok(events)
+}
+
 /// Whether a handle may append.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Access {

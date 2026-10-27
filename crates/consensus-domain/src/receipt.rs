@@ -243,14 +243,13 @@ pub struct Deliberation {
     /// kind stay in `unevaluated_items` only.
     pub missing_tests: Vec<OpenItem>,
     pub revisions: Vec<ReceiptRevision>,
-    /// Items raised in rounds before the final one that no later
-    /// evaluation judged again: none of them lists the item as unresolved
-    /// or gives it an explicit verdict (protocol 1.3). Before protocol 1.3
+    /// Items raised in rounds before the final one that the final
+    /// evaluation does not list as unresolved and that no later evaluation
+    /// resolves with an explicit verdict (protocol 1.3). Before protocol 1.3
     /// each evaluation judged only the items of its own round's challenge,
     /// so no later round judged these again. Computed from the records for
-    /// every protocol, never from a schema label: a protocol that carries
-    /// open items forward leaves this empty only when a later evaluation
-    /// actually judges each earlier item.
+    /// every protocol, never from a schema label: every earlier item is an
+    /// open item, resolved later with a reason, or listed here.
     pub earlier_round_objections_never_rejudged: Vec<UnrejudgedObjection>,
 }
 

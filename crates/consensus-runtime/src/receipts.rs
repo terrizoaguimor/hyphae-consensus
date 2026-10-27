@@ -79,8 +79,9 @@ pub enum ReceiptError {
     },
 }
 
-/// Authority of a decision recorded before schema 1.3, which carried
-/// none. It is never read as operator authority.
+/// Authority shown for a decision recorded without one: every record
+/// before schema 1.3, and a 1.3 record whose route set none. It is never
+/// read as operator authority.
 pub const UNSPECIFIED_AUTHORITY: &str = "unspecified";
 
 /// Schema versions recorded before protocol 1.3, under which each
@@ -559,15 +560,18 @@ impl History {
         }
     }
 
-    /// Items raised before the final round that no later evaluation judged
-    /// again: none of them lists the item, either as unresolved or with an
-    /// explicit verdict (protocol 1.3). Before protocol 1.3 no later round
-    /// saw earlier items again. This is read from the records whatever the
-    /// run's protocol: a label claiming carry-forward proves nothing.
+    /// Items raised before the final round that nothing accounts for: the
+    /// final evaluation does not list them as unresolved (they would be
+    /// open items), and no later evaluation resolves them with an explicit
+    /// verdict (protocol 1.3). An earlier evaluation that left an item
+    /// unresolved does not count: nothing after it carried the item to the
+    /// policy. Before protocol 1.3 no later round saw earlier items again.
+    /// This is read from the records whatever the run's protocol: a label
+    /// claiming carry-forward proves nothing.
     fn unrejudged(&self) -> Vec<UnrejudgedObjection> {
-        if self.evaluations.is_empty() {
+        let Some(last) = self.evaluations.last() else {
             return Vec::new();
-        }
+        };
         let final_round = self.rounds();
         let mut out = Vec::new();
         for (round, challenge) in &self.challenges {
@@ -578,7 +582,7 @@ impl History {
             let own = &self.evaluations[*round as usize - 1];
             let later = &self.evaluations[*round as usize..];
             for item in &challenge.items {
-                if later.iter().any(|e| judges(e, challenge, item)) {
+                if lists(last, challenge, item) || later.iter().any(|e| resolves(e, item)) {
                     continue;
                 }
                 out.push(UnrejudgedObjection {
@@ -595,15 +599,14 @@ impl History {
     }
 }
 
-/// Whether `evaluation` judges `item`: lists it as unresolved, or gives it
-/// an explicit verdict (protocol 1.3).
-fn judges(evaluation: &Evaluation, challenge: &Challenge, item: &ChallengeItem) -> bool {
-    lists(evaluation, challenge, item)
-        || (!item.id.is_empty()
-            && evaluation
-                .item_verdicts
-                .iter()
-                .any(|v| v.item_id == item.id))
+/// Whether `evaluation` closes `item` with an explicit `resolved` verdict
+/// (protocol 1.3).
+fn resolves(evaluation: &Evaluation, item: &ChallengeItem) -> bool {
+    !item.id.is_empty()
+        && evaluation
+            .item_verdicts
+            .iter()
+            .any(|v| v.item_id == item.id && v.status == ItemStatus::Resolved)
 }
 
 /// Whether `evaluation` lists `item` as unresolved. Pre-1.1 items carry no
@@ -1928,5 +1931,144 @@ mod tests {
         let again: RunReceiptV2 =
             serde_json::from_value(serde_json::to_value(&back).unwrap()).unwrap();
         assert_eq!(again, back);
+    }
+
+    /// The reference task over three rounds, valid under protocol 1.3:
+    /// round 2 keeps item-1 open, resolves item-2 and raises item-3, and
+    /// clears the carried contradiction; round 3 resolves item-1 and item-3.
+    fn three_round_scenario() -> Scenario {
+        use crate::scenarios::{assessment, cleared, judged, verdict};
+        let mut s = retry_constraint_scenario();
+        let reference = std::mem::take(&mut s.model);
+        let mut m = FakeModelClient::new();
+        m.proposals = reference.proposals.clone();
+        m.critiques.push_back(reference.critiques[0].clone());
+        m.evaluations.push_back(reference.evaluations[0].clone());
+        m.revisions.push_back(reference.revisions[0].clone());
+        let mut second = reference.critiques[1].clone().unwrap();
+        second.items.push(ChallengeItem {
+            id: "item-3".into(),
+            kind: ChallengeKind::MissingTest,
+            claim_id: Some(ClaimId::new("claim-2")),
+            description: "No test covers the jittered backoff".into(),
+            evidence_refs: vec![],
+        });
+        m.critiques.push_back(Ok(second));
+        let corroborated = || {
+            vec![
+                assessment("claim-1", true, &["ev-fact"], &[]),
+                assessment("claim-2", true, &["ev-constraint"], &[]),
+            ]
+        };
+        m.evaluations.push_back(Ok(Evaluation {
+            cleared_contradictions: vec![cleared("ev-constraint", "the cap is now 3")],
+            ..judged(
+                corroborated(),
+                vec![
+                    verdict("item-1", ItemStatus::Unresolved, "not yet shown"),
+                    verdict("item-2", ItemStatus::Resolved, "claim-1 is a correlation"),
+                    verdict("item-3", ItemStatus::Unresolved, "no test yet"),
+                ],
+                false,
+            )
+        }));
+        let mut revision = reference.revisions[0].clone().unwrap();
+        revision.proposal.id = ProposalId::new("prop-3");
+        revision.addressed_items = vec!["item-1".into(), "item-3".into()];
+        m.revisions.push_back(Ok(revision));
+        let mut third = reference.critiques[1].clone().unwrap();
+        third.id = ChallengeId::new("chal-3");
+        m.critiques.push_back(Ok(third));
+        m.evaluations.push_back(Ok(judged(
+            corroborated(),
+            vec![
+                verdict("item-1", ItemStatus::Resolved, "capped at 3 with jitter"),
+                verdict("item-3", ItemStatus::Resolved, "a test covers the backoff"),
+            ],
+            false,
+        )));
+        s.model = m;
+        s
+    }
+
+    fn never_ids(r: &RunReceiptV2) -> Vec<(&str, u32)> {
+        r.deliberation
+            .earlier_round_objections_never_rejudged
+            .iter()
+            .map(|o| (o.id.as_str(), o.raised_in_round))
+            .collect()
+    }
+
+    #[test]
+    fn only_the_final_listing_or_a_later_resolution_accounts_for_an_objection() {
+        let (log, run) = run("three-rounds.jsonl", three_round_scenario());
+        let all = events(&log, &run);
+        // Protocol 1.3: item-2, resolved in round 2, and item-1 and item-3,
+        // resolved in round 3, were all judged again.
+        let r = build_receipt_v2(&all, TS.into()).unwrap();
+        assert_eq!(r.deliberation.rounds, 3);
+        assert_eq!(
+            r.recommendation.as_ref().map(|rec| rec.kind),
+            Some(RecommendationKind::Supported)
+        );
+        assert!(never_ids(&r).is_empty());
+
+        // As schema 1.2 recorded it: round 2 listed item-1 as unresolved
+        // and round 3, the final one, never judged it. A listing before the
+        // final evaluation reaches no policy, so item-1 must stay listed.
+        let old = build_receipt_v2(&recorded_under("1.2", &all), TS.into()).unwrap();
+        assert!(old.deliberation.open_items.is_empty());
+        assert_eq!(
+            never_ids(&old),
+            [("item-1", 1), ("item-2", 1), ("item-3", 2)]
+        );
+
+        // A pre-1.3 Critic that reused "item-1" in round 2: round 2's
+        // listing names its own item, never round 1's.
+        let mut reused = recorded_under("1.2", &all);
+        let (mut challenges, mut evaluations) = (0, 0);
+        for e in &mut reused {
+            match &mut e.payload {
+                EventPayload::ChallengeSubmitted { challenge, .. } => {
+                    challenges += 1;
+                    if challenges == 2 {
+                        challenge.items[0].id = "item-1".into();
+                    }
+                }
+                EventPayload::EvaluationSubmitted { evaluation, .. } => {
+                    evaluations += 1;
+                    if evaluations == 2 {
+                        evaluation.unresolved_items = vec!["item-1".into()];
+                    }
+                }
+                _ => {}
+            }
+        }
+        rehash(&mut reused);
+        let r = build_receipt_v2(&reused, TS.into()).unwrap();
+        assert_eq!(never_ids(&r), [("item-1", 1), ("item-2", 1), ("item-1", 2)]);
+    }
+
+    #[test]
+    fn a_1_3_receipt_names_cited_evidence_no_proof_checked() {
+        // Protocol 1.3 still lets cited evidence go unchecked: retrieved,
+        // cited, but never given a valid proof.
+        let mut s = retry_constraint_scenario();
+        s.verifier = FakeProofVerifier::all(IntegrityStatus::NotChecked);
+        let (log, run) = run("unchecked.jsonl", s);
+        let r = receipt(&log, &run);
+        let trace = r.policy_trace.as_ref().unwrap();
+        assert_eq!(trace.kind, RecommendationKind::InsufficientEvidence);
+        assert_eq!(
+            trace.reasons,
+            [TraceReason::CitedEvidenceNotValid {
+                evidence_ids: vec![EvidenceId::new("ev-fact"), EvidenceId::new("ev-constraint")]
+            }]
+        );
+        assert_eq!(r.verifications.len(), 4);
+        assert!(r
+            .verifications
+            .iter()
+            .all(|v| v.verification.integrity_status == IntegrityStatus::NotChecked));
     }
 }

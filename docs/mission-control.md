@@ -26,7 +26,7 @@ Status: initial operator UI delivered; live streaming and true Hyphae proof inte
 1. `POST /api/runs` blocks until the orchestration finishes and returns the completed run; it does not issue an early run ID.
 2. `GET /api/runs/{id}/events` replays persisted events and ends with `replay_complete`. It is not a real-time subscription.
 3. The event-log mutex is currently held by `execute_run` during the full orchestration; concurrent human/stream operations are constrained.
-4. `memory=hyphae` works through the pinned Linux build in a local Docker container (`scripts/hyphae-container/`); the Windows 4.0.0 Agent Memory surface still does not start on this host. Upstream proof generation currently fails with a corruption error, so live runs that retrieve evidence end `blocked` (ADR-0003).
+4. `memory=hyphae` works through the pinned Linux build in a local Docker container (`scripts/hyphae-container/`); the Windows 4.0.0 Agent Memory surface still does not start on this host. Since 2026-10-27 proofs verify live; the daemon must listen outside its data directory and the store must stay below about 3.9 MB, or proven recall fails (ADR-0003).
 5. Only `/decision` is authenticated, by a per-process operator token printed at startup. Run creation, listing, and receipts are unauthenticated, and there is no CSRF protection. The operator API binds to loopback by default and **must not be exposed publicly**.
 
 ## Next: actual streaming contract

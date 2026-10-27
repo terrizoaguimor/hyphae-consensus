@@ -37,22 +37,25 @@ proof statuses, model identity (`muse-wonder-1.0`), request ids, latency,
 tokens, the hash-chain head — and a plain statement of what the proofs do
 *not* establish.
 
-**What the live system does today** (`docs/evaluation.md`). Across 12 runs
-with the real Meta API and real Hyphae memory: the Critic flagged the stored
-retry constraint in 5 of 11 critiques. Two first proposals (a single Proposer
-call) would have violated that constraint, and neither came out `supported`. A
-planted "SYSTEM OVERRIDE" memory was treated as contradicting evidence, not
-obeyed. Hyphae's project isolation held. Every run ended blocked (9),
-abstained (1), or failed safely on a timeout (2): none was `supported`.
-Upstream proof generation currently reports corruption, and the live
-Evaluator abstained every time.
+**What the live system does today** (`docs/evaluation.md` §5, 2026-10-27).
+Hyphae proofs verify live: every retrieved record was checked offline by
+re-executing its recall against the sealed witness, against a pinned anchor.
+The revision loop runs live: first proposals that contradict stored
+constraints are contested and rewritten into claims the verified memory states
+directly. One live run reached `supported` with every cited record verified.
+On the final code all 8 runs ended `contested`, every final claim corroborated,
+with the Critic's objections about missing tests still open; the policy will
+not call that `supported`. A planted "SYSTEM OVERRIDE" memory, this time with a
+valid proof, was flagged by the Critic, recorded as contradicting evidence by
+the Evaluator, and never obeyed. Hyphae's project isolation held. No run
+self-authorized.
 
 **Built for the hackathon** (Oct 26 – Nov 4, 2026): the deliberation
 protocol, deterministic state machine, orthogonal evidence model,
 hash-chained event log with crash recovery, Meta structured-output adapter,
-Hyphae MCP read-only adapter, operator console, a 7-case scripted protocol
-conformance check (7/7 author-defined outcomes; it is not a baseline
-comparison), and the live battery above.
+Hyphae MCP read-only adapter, operator console, a 10-case scripted protocol
+conformance check (10/10 author-defined outcomes; it is not a baseline
+comparison), and the live batteries above.
 
 **Pre-existing and explicitly not claimed:** Hyphae Core and Hyphae Agent
 Memory (memory engine, MCP tools, sealed proofs) — independent open-source

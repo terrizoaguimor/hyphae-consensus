@@ -8,11 +8,14 @@ container environment in `scripts/hyphae-container/README.md`) in the
 server environment before starting. Record the fake-mode cut first as the
 guaranteed take, and label it on screen as scripted with simulated proofs.
 
-Live expectation, stated before recording: with the pinned Hyphae build,
-proof generation fails upstream with a corruption error, so a live
-`meta + hyphae` run that retrieves evidence ends **Blocked**. That is the
-honest live result. Segments 2–4 (revision → Supported) exist only in the
-scripted cut; never present them as live.
+Live expectation, stated before recording (2026-10-27): Hyphae proofs verify
+live, and the revision loop runs live. With the final code every live
+`meta + hyphae` run in the last battery ended **Contested**: the revised claims
+were corroborated by verified memory, but the Critic's objections (mostly
+missing tests) stayed open. One earlier live run (R06 in `docs/evaluation.md`
+§5.2) reached **Supported**; show its receipt, not a re-run, if you claim it.
+Segment 4's flip to Supported is guaranteed only in the scripted cut; never
+present a scripted run as live.
 
 | # | Time | Screen | Narration beats |
 |---|---|---|---|
@@ -22,7 +25,7 @@ scripted cut; never present them as live.
 | 4 | 1:10–1:30 | Revision + second evaluation | Proposer revises to the compliant fix. Recommendation flips to **Supported**: the runtime's fixed policy aggregates the Evaluator's per-claim judgments and the proof statuses; no model writes or votes on the outcome. |
 | 5 | 1:30–1:55 | Authorization panel | State waits at AwaitingHumanApproval. Approve on camera; stress that approval is *recorded only* — no code changes, no execution. Download the run receipt; zoom into model identity (`muse-wonder-1.0`), proof statuses, and the limitations line. |
 | 6 | 1:55–2:25 | Failure gallery (scenario selector, three quick runs) | Memory offline → InsufficientEvidence. Invalid proof → Blocked (approving it now demands an override note). Hostile memory → not supported, still pending; say it is a *policy* demo, because the scripted model never reads the text. Then cut to the live hostile-memory run from `docs/evaluation.md`. "Uncertainty is surfaced, never averaged into confidence." |
-| 7 | 2:25–2:45 | Terminal: `cargo test` + evaluate table + live table | 67 tests; scripted conformance 7/7 (author-defined outcomes, not a baseline: say so); then the live Meta + Hyphae battery table exactly as recorded. |
+| 7 | 2:25–2:45 | Terminal: `cargo test` + evaluate table + live table | 89 tests; scripted conformance 10/10 (author-defined outcomes, not a baseline: say so); then the live Meta + Hyphae battery tables exactly as recorded, including the contested final battery. |
 | 8 | 2:45–3:00 | README boundary section | Close on honesty: Hyphae is pre-existing and pinned; the consensus layer is the new work; proofs attest integrity, not truth. |
 
 Reproducibility: every screen above is produced by committed code and

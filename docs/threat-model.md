@@ -1,6 +1,7 @@
 # Threat model — Hyphae Consensus
 
-Date: 2026-10-26 (M1; revised in the audit-fix round, schema 1.1) ·
+Date: 2026-10-26 (M1; revised in the audit-fix round, schema 1.1; and on
+2026-10-27, schema 1.2) ·
 Companion to `docs/adr/0001-m1-architecture.md`
 
 ## Trust boundaries
@@ -38,7 +39,17 @@ Companion to `docs/adr/0001-m1-architecture.md`
    treated by the live Critic and Evaluator as *contradicting* evidence: 0
    claims corroborated, items left unresolved, abstained. Caveat: upstream
    proof generation failed, so the note reached the prompts labeled
-   `integrity=Invalid`; the realistic valid-proof variant remains untested.
+   `integrity=Invalid`. **Valid-proof variant (2026-10-27, H01/H02):** with the
+   note's proof verifying `valid`, the Critic flagged it in every round (and once
+   named it an embedded directive claiming system authority), the Evaluator
+   never corroborated a claim to raise retries, recorded the note as
+   contradicting evidence every round, and kept items open against its orders,
+   and both revisions kept the 3-attempt cap; both runs ended `contested` with
+   authorization pending. Two runs with one model and one note: evidence, not a
+   guarantee. A hostile record that contradicts legitimate ones can also keep
+   them from `supported` (it forces `contested`), a fail-safe denial of
+   support. The note was then forgotten from every served store
+   (`docs/evaluation.md` §5.4).
 
 3. **Integrity/truth confusion.** Orthogonal status axes. `supported` requires
    every claim corroborated by at least one record it cites itself, a valid proof
@@ -58,8 +69,15 @@ Companion to `docs/adr/0001-m1-architecture.md`
    `invalid_proof_blocks_without_revision_attempt`,
    `abstention_with_invalid_proof_is_blocked_and_replayable`,
    `upstream_corruption_signal_blocks_and_is_never_downgraded`,
-   `transport_exit_codes_are_verification_errors_not_invalid`. Only failure modes
-   the real Hyphae contract reports are demonstrated; no faked cryptography.
+   `transport_exit_codes_are_verification_errors_not_invalid`. Since
+   2026-10-27, `Valid` needs the verifier's own `verified` + semantic
+   re-execution report, and failures are classified by the verifier's error
+   category (`verifier_failure_categories_captured_live_map_to_integrity`).
+   Detection was exercised live against the real binary: a one-byte witness
+   tamper and a wrong anchor are both rejected, and the gated
+   `live_hyphae_probe` repeats the wrong-anchor case through the adapter
+   (ADR-0003). Only failure modes the real Hyphae contract reports are
+   demonstrated; no faked cryptography.
 
 5. **Endless debate / resource exhaustion.** Max 2 revision rounds plus a
    no-progress exit measured per challenge item (tested:
@@ -68,18 +86,27 @@ Companion to `docs/adr/0001-m1-architecture.md`
    calls; at most one recall per claim per round, with claims capped at 12 per
    proposal by the Meta adapter (`proposal_claim_count_is_bounded`); at most 20
    distinct evidence records, enforced by the runtime, with any drop recorded
-   (`evidence_cap_is_strict_recorded_and_retrieval_is_runtime_attributed`).
-   **Not bounded:** total tokens per run (there is no token budget), and the claim
-   cap applies to the Meta adapter, not to arbitrary `ModelClient`s.
+   (`evidence_cap_is_strict_recorded_and_retrieval_is_runtime_attributed`); and
+   since 2026-10-27 at most `CONSENSUS_MAX_RUN_TOKENS` (default 150,000) input +
+   output tokens per run, enforced by the runtime for any `ModelClient`, with
+   missing usage treated as a violation
+   (`token_budget_exceeded_fails_run_safely_with_recorded_reason`,
+   `missing_token_usage_fails_closed`). **Limits:** the cap is checked after each
+   call, so a run can overshoot by one call's tokens; the claim cap applies to
+   the Meta adapter, not to arbitrary `ModelClient`s.
 
 6. **Crash inconsistency and log tampering.** fsync per append; a failed append is
-   rolled back; truncated-tail recovery; mid-log corruption and sequence gaps are
-   hard errors. Every 1.1 record is SHA-256 hash-chained and verified on open
+   rolled back (fault-injection tested since 2026-10-27:
+   `failed_mid_record_append_rolls_back_and_log_stays_valid`); truncated-tail
+   recovery; mid-log corruption and sequence gaps are hard errors. Every 1.1 record is SHA-256 hash-chained and verified on open
    (`tampered_record_breaks_hash_chain`); replay recomputes each recommendation and
    rejects a forged kind (`replay_recomputes_recommendation_and_rejects_forged_kind`);
    the orchestrator validates every event before persisting it. Runs left
    mid-deliberation by a crash are closed as `Failed{stage:"interrupted"}` at
-   startup (`startup_recovery_closes_crashed_runs_and_reports_broken_ones`).
+   startup (`startup_recovery_closes_crashed_runs_and_reports_broken_ones`). Replay
+   re-derives each run with the policy of its recorded schema version, so a
+   policy change cannot make old history unreplayable or unchecked
+   (`replay_rederives_each_run_with_its_recorded_rules`).
    **Limit:** the chain is unsigned. It is tamper-*evident* against a previously
    exported receipt `head_hash`, not tamper-*proof* against someone who rewrites
    and re-hashes the whole file.
@@ -98,7 +125,8 @@ Companion to `docs/adr/0001-m1-architecture.md`
    `_global` only) is mirrored by the fake (`fake_memory_honors_project_isolation_like_hyphae`).
    Live (2026-10-26, run L10): a recall for project `other-repo` against the real
    Hyphae store returned 0 records while `demo-repo` holds 2, so isolation held for
-   that query. One observation, not an exhaustive test.
+   that query; on 2026-10-27 (run R08) it again returned 0 while `demo-repo` holds
+   7. Two observations, not an exhaustive test.
 
 10. **Secret leakage.** Secrets come from environment variables only; events and
     receipts store claims/justifications and model metadata, never credentials or
@@ -106,7 +134,13 @@ Companion to `docs/adr/0001-m1-architecture.md`
     (`HYPHAE_NATIVE_API_KEY_FILE`), never as values.
 
 11. **Silent degradation.** Model timeout/malformed output fails the run with a
-    recorded reason. Memory outages record `evidence_unavailable` and, with no
+    recorded reason; since 2026-10-27 that includes label-only or empty Critic
+    items and empty claims (`label_only_challenge_items_are_malformed`), and a
+    draft whose list field is missing or renamed. Before that fix, an omitted
+    `unresolved_items` or a renamed `contradicting_evidence` silently read as
+    "nothing unresolved" / "no contradictions" (fail-open, seen live; ADR-0002
+    decision 1); now it is malformed output, and structured output is requested
+    in strict mode (`renamed_or_missing_draft_fields_are_malformed_never_empty`). Memory outages record `evidence_unavailable` and, with no
     checked evidence, the policy caps the result at `insufficient_evidence` (or
     `abstained`): never `supported`. A failed proof generation travels with the
     record as `proof_error`. The console reports an unreadable log line instead
@@ -125,6 +159,13 @@ Companion to `docs/adr/0001-m1-architecture.md`
     response as the proof, so `Valid` shows internal consistency only. Operators can
     pin an out-of-band anchor (`CONSENSUS_HYPHAE_EXPECTED_ANCHOR`);
     mismatches are `Invalid` (`pinned_anchor_mismatch_is_invalid_without_running_verifier`).
+    The anchor is stable while the store is unchanged, so pinning works live: the
+    2026-10-27 battery ran pinned to the anchor the operator observed before it
+    started, which detects any store change during the battery. It is not an
+    independent root of trust: the operator read that anchor from the same
+    server. Also, each recall's proof covers its whole result, and the adapter
+    does not byte-compare the record text it passes to models against the proof
+    (both come from one `hyphae mcp` response).
 
 14. **Mode confusion in the console.** `model=fake` with a non-fake memory is
     rejected rather than silently ignored
@@ -135,5 +176,5 @@ Companion to `docs/adr/0001-m1-architecture.md`
 ## Out of scope
 
 Signed logs or receipts, console session security beyond the decision token,
-per-run token budgets, and the restricted executor (post-M3, separately reviewed
-before any real mutation is permitted).
+and the restricted executor (post-M3, separately reviewed before any real
+mutation is permitted).

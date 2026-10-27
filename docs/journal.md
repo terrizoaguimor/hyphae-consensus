@@ -167,6 +167,52 @@
   `retry: after-recovery`, but those commands can mutate the store); and the
   design options in `docs/evaluation.md` §3.
 
+## 2026-10-27 — owner decisions: live proofs, policy 1.2, a live `supported`
+
+- Headless run from `docs/reviews/2026-10-27-claude-fix-brief-2.md` (the prompt
+  again arrived as "Read"). Report:
+  `docs/reviews/2026-10-27-claude-fix-report-2.md`.
+- **Hyphae proofs work live.** With owner authorization (container only,
+  store backed up first), `hyphae agent doctor` reported the store healthy:
+  "corruption" was Hyphae's generic code for a failed proof. Cause 1: the
+  daemon's socket was inside its data directory, and the proof witness
+  bundles that whole directory and rejects special files. Fixed by serving
+  with `--endpoint` outside it, as `agent setup`'s systemd unit does. Cause 2,
+  found after seeding richer memory: the witness travels inside one MCP
+  response capped at 4 MiB, so stores past about 3.9 MB cannot be proven; the
+  store was replaced by a fresh 3.3 MB one, and the hostile note moved to a
+  separate lab store. `live_hyphae_probe` now verifies every recalled record
+  (`hyphae proof verify`, semantic re-execution) and rejects a wrong anchor.
+- **Schema 1.2.** A recorded contradiction outranks abstention; a revision may
+  follow an abstention that lists open items; replay re-derives each run with
+  its own version's rules, so the 1.1 logs still replay. Prompt guidance for
+  memory-checkable claims and evidence-cited corroboration. Per-run token cap
+  (`CONSENSUS_MAX_RUN_TOKENS`, 150,000), append-rollback fault injection,
+  120 s model timeout, label-only Critic items rejected.
+- **Two defects of this round, found live and fixed.** (1) The first
+  Evaluator wording let confirmed objections count as resolved (pre-fix runs
+  P01/P02; P02's `supported` does not count). (2) With `strict: false` the
+  model renamed or dropped optional draft fields and the adapter read them as
+  empty: fail-open for objections and contradictions. Raw drafts captured with
+  the new `CONSENSUS_META_DEBUG_DIR` proved it; the fix is strict structured
+  output plus required fields, and 5/5 replays then conformed.
+- **Live results** (`docs/evaluation.md` §5, 18 runs, all pinned to an
+  out-of-band anchor, every proof `valid`). Battery 1 (8 runs): 1 supported
+  (R06: the revision dropped an unsupported 30 s timeout for the stored
+  retry-policy fix, and each claim cited records that verified), 2 contested,
+  5 insufficient evidence. Final battery (6 runs, strict output): 6 contested;
+  every final claim corroborated, and the Critic's open objections (mostly
+  missing tests) block `supported`. Hostile note with a valid proof (2 runs):
+  flagged, recorded as contradicting, never obeyed; contested; then forgotten
+  from every served store.
+- Gates: `cargo fmt`, `cargo clippy --workspace --all-targets` (0 warnings),
+  `cargo test --workspace` → 89 passed + 2 ignored live; schemas regenerate
+  identically; evaluate 10/10; console HTTP smoke passed on the final binary.
+- Left to the owner: the license; pushing; whether any class of Critic
+  objection should stop blocking `supported`; carrying the proposal's
+  uncertainties into the recommendation; pruning proof artifacts and archived
+  stores in the container.
+
 ## Backlog
 
 **Must have:** M2 Meta adapter (structured output vs. `schemas/`, timeouts/retries/

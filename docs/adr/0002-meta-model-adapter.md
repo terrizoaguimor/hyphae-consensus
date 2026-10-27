@@ -9,10 +9,21 @@ Date: 2026-10-26 · Status: accepted · Scope: milestone M2
    `response_format: {type: "json_schema", json_schema: {name, schema, strict}}`.
    The Responses API equivalent (`text.format`) is not interchangeable and is not
    used. Source: https://dev.meta.ai/docs/structured-output (read 2026-10-26).
-   The request sends `strict: false`, so the API is **not** relied on to
-   enforce the schema: conformance is enforced on our side by deserializing
-   every response into the typed draft (serde), and any mismatch is
-   `MalformedOutput`.
+   **Amended 2026-10-27:** the request sends `strict: true` with the schema
+   rewritten to the strict form (every property required, no additional
+   properties). Until then it sent `strict: false` with optional list fields,
+   and raw drafts captured live showed the Evaluator renaming or dropping
+   them in 4 of 5 calls (`refs`, `relevant_evidence_ids`,
+   `contradicting_evidence_ids`, no `unresolved_items` at all, plus invented
+   keys such as `recommendation`). Serde defaulted those to empty lists, so a
+   dropped field read as "nothing unresolved" or "no contradictions":
+   fail-open. Replaying the same recorded inputs with the strict request, 5 of
+   5 drafts used exactly the schema keys. The API is still not trusted to
+   enforce anything: every list field is required in our typed draft, a
+   missing or renamed field is `MalformedOutput`, and unknown extra keys are
+   ignored (they cannot reach a decision). `CONSENSUS_META_DEBUG_DIR`
+   (opt-in) keeps each raw draft for audit, and the `replay_evaluate` example
+   re-asks a recorded Evaluator question.
 
 2. **Drafts, not domain documents.** The model fills small draft schemas
    (`DraftProposal`, `DraftChallenge`, `DraftEvaluation`, `DraftRevision`)
@@ -26,7 +37,8 @@ Date: 2026-10-26 · Status: accepted · Scope: milestone M2
    can only lower support, never raise it). Unparseable payloads are
    `MalformedOutput` and fail the run with a recorded reason.
 
-4. **Failure semantics.** Per-call timeout (default 60 s, env-configurable);
+4. **Failure semantics.** Per-call timeout (default 120 s since 2026-10-27,
+   previously 60 s; `CONSENSUS_MODEL_TIMEOUT_SECS` overrides it);
    429/5xx retried with bounded backoff (default 2 retries) then `Unavailable`;
    transport timeouts map to `ModelError::Timeout`. Latency and token usage are
    recorded in `ModelInvocation`; `model` preserves the exact identity echoed by
@@ -61,15 +73,42 @@ Date: 2026-10-26 · Status: accepted · Scope: milestone M2
 9. **Bounded drafts.** A proposal or revision with no claims, or more than
    12, is `MalformedOutput`: claims drive one memory recall each per round.
 
+10. **Degenerate output is malformed (2026-10-27).** A claim with an empty
+    statement, or a Critic item whose description is empty, shorter than
+    three words, or made only of category words (live run L02 returned bare
+    labels such as `constraint_conflict` for all 9 items), makes the whole
+    document `MalformedOutput`; nothing is silently trimmed. The Critic prompt
+    states the rule.
+
+11. **Prompt guidance (2026-10-27, owner decision).** The Proposer is asked
+    for claims that the project's stored records could confirm or contradict
+    (a concrete value, rule, or fact), with expectations and guesses moved to
+    assumptions or uncertainties, which the recommendation carries to the
+    human as unresolved. The Evaluator corroborates a claim only when a
+    retrieved record with integrity `Valid` directly states it, cites that
+    record, treats non-`Valid` records as unable to corroborate anything,
+    reports an unsettled claim per claim instead of abstaining, and abstains
+    only when the evidence cannot be assessed at all. A Critic objection stays
+    in `unresolved_items` while it still applies to the proposal as written,
+    including when the evidence confirms it (a first wording, "resolved when
+    the evidence settles it", let live run R01 report a confirmed objection as
+    resolved; it was replaced before the battery). A revision after an
+    abstention shows the reviser the Evaluator's reason. None of this changes
+    the policy: `supported` still needs every claim corroborated by its own
+    `Valid` evidence, no contradiction, and no unresolved item.
+
 ## Verification
 
 Tests run against a local fake HTTP server speaking the documented
 envelope: happy path + exact request-field assertion, malformed content,
 persistent-500 retry counting, id filtering, delimiter-breakout escaping +
 truncation (asserted on the captured prompt), revise-prompt contents +
-item-id filtering, and the claim-count bound. The live test
+item-id filtering, the claim-count bound, label-only and empty-item
+rejection, and the presence of the guidance above in each role's prompt. The live test
 `live_meta_propose` (`#[ignore]`d; requires `CONSENSUS_LIVE_TESTS=1` plus a
 key) **has been run and passes** against the real API: first on
 2026-10-26 (evening), and again in the audit-fix round
 (`muse-wonder-1.0`, request `chatcmpl-01a17b9a-a9a0-75f7-8828-0158895f7e61`,
-13 s). Full live runs are recorded in `docs/evaluation.md`.
+13 s), and on 2026-10-27 with the new prompts
+(`chatcmpl-01a17c1b-9061-7231-a59c-07ebb1cecf91`, 20 s). Full live runs are
+recorded in `docs/evaluation.md`.

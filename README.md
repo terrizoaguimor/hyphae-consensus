@@ -16,21 +16,27 @@ or can approve, but the Evaluator's judgments are the policy's main input, so "m
 never decide" holds in form, not in substance. Nothing is executed before a human
 approves (the executor is deferred: approval records a decision only).
 
-> **Status (2026-10-26, after an independent audit and fix round; schema 1.1).**
+> **Status (2026-10-27, owner-decision round; schema 1.2).**
 > Typed contracts, deterministic state machine, hash-chained crash-safe event log,
-> Meta Model API adapter, Hyphae MCP read-only adapter + offline proof verifier,
-> Axum/SSE operator console, synthetic demo repository, a 7-case scripted protocol
-> conformance check, and a live battery. **Live status:** 12 runs with the real Meta
-> API (`muse-wonder-1.0`) and real Hyphae Agent Memory: 9 blocked, 1 abstained, 2
-> failed safely on model timeouts, 0 supported (`docs/evaluation.md`). Hyphae runs
+> Meta Model API adapter (strict structured output), Hyphae MCP read-only adapter +
+> offline proof verifier, Axum/SSE operator console, synthetic demo repository, a
+> 10-case scripted protocol conformance check, and live batteries. **Live status:**
+> Hyphae proofs now verify end to end. `hyphae proof verify` re-executes each recall
+> against its sealed witness, checked against an operator-pinned anchor. The earlier
+> "corruption" answers were never data corruption: the daemon's socket sat inside
+> its data directory, and later the store outgrew the 4 MiB MCP response that
+> carries the witness (ADR-0003). Across 18 live runs on 2026-10-27 (real Meta API,
+> `muse-wonder-1.0`, and real Hyphae memory), one reached `supported` with every
+> cited record verified (R06). Two defects in this round's own changes surfaced
+> live and were fixed. On the final code all 8 runs ended `contested`: every
+> final-round claim was corroborated by verified memory, but the Critic's
+> objections about missing tests and unproven risks stay open, and the unchanged
+> policy grants `supported` only when none is open. A hostile note with a valid
+> proof was treated as contradicting data, never as instructions
+> (`docs/evaluation.md` §5). Hyphae runs
 > its pinned Linux build in a local Docker container, because the Windows build's
-> Agent Memory surface does not start on this host (`docs/journal.md`). Upstream
-> `recall(prove=true)` currently answers every request with a corruption error while
-> plain recall works; the runtime treats that as an invalid proof, so every live run
-> that retrieves evidence is **blocked**, and no valid Hyphae proof has been observed
-> live. Separately, the live Evaluator abstained in every completed run, so the
-> revision loop has only been exercised with scripted doubles. Demo modes are labeled
-> everywhere (`fake` with simulated proofs vs. live).
+> Agent Memory surface does not start on this host (`docs/journal.md`). Demo modes
+> are labeled everywhere (`fake` with simulated proofs vs. live).
 
 ## Competition boundary: pre-existing vs. newly developed work
 
@@ -93,10 +99,13 @@ true, relevant, or complete, or that a model reasoned from it. This is why
 independent fields. A `supported` recommendation requires **every** claim to be
 corroborated by at least one record that the claim itself cites, a valid proof on
 every cited record, no contradicting record (cited or not), no Critic item the
-Evaluator still judges unresolved, and no invalid proof anywhere in the retrieved set. By default the proof anchor comes
-from the same server response as the proof, which shows internal consistency only;
-pin an out-of-band anchor with `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` to verify against a
-trusted one.
+Evaluator still judges unresolved, and no invalid proof anywhere in the retrieved
+set. A recorded contradiction outranks an abstention (`contested`, schema 1.2), so
+abstaining cannot hide it. `Valid` means `hyphae proof verify` re-executed the
+recall against its sealed witness and reproduced the result; one proof covers a
+whole recall. By default the proof anchor comes from the same server response as
+the proof, which shows internal consistency only; pin an out-of-band anchor with
+`CONSENSUS_HYPHAE_EXPECTED_ANCHOR` to verify against a trusted one.
 
 ## Workspace layout
 
@@ -118,8 +127,8 @@ MSVC build tools on Windows (see the
 The toolchain is pinned in `rust-toolchain.toml`.
 
 ```powershell
-cargo test --workspace                                        # 67 tests (+2 ignored live), deterministic
-cargo run -p consensus-domain --example write_schemas         # regenerate schemas/ (1.1)
+cargo test --workspace                                        # 89 tests (+2 ignored live), deterministic
+cargo run -p consensus-domain --example write_schemas         # regenerate schemas/ (1.2)
 cargo run -p consensus-tests --example evaluate               # scripted protocol conformance check
 cargo run -p consensus-api -- serve                           # operator console → http://127.0.0.1:8787/
 cargo run -p consensus-api                                    # scripted CLI demo (alternative)
@@ -149,8 +158,11 @@ committed to this repository.
 - No execution before approval: the executor is deferred through M3; approval currently
   only records the decision.
 - Bounded debate and cost: at most 2 revision rounds plus a no-progress exit measured
-  per Critic item; at most 9 model calls and 20 distinct evidence records per run, and
-  at most 12 claims per proposal from the Meta adapter. There is no token budget.
+  per Critic item (a revision may also follow an abstention that still lists
+  unresolved items); at most 9 model calls, 20 distinct evidence records, and
+  `CONSENSUS_MAX_RUN_TOKENS` (default 150,000) input + output tokens per run, enforced
+  by the runtime; at most 12 claims per proposal from the Meta adapter. A run that
+  crosses the token cap fails with stage `token_budget`.
 - Tamper-evident history: events are SHA-256 hash-chained and verified on open; replay
   recomputes every recommendation and rejects a forged one; receipts carry the chain
   head. The chain is unsigned, so it is evident, not proof, against a full rewrite.

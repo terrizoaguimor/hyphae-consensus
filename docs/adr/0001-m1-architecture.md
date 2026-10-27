@@ -117,3 +117,40 @@ gaps in decisions 2, 3, and 5. Changes, each covered by tests:
   signed, so someone with write access can rewrite and re-hash the whole
   file. Detection then relies on comparing against a previously exported
   receipt's `head_hash`.
+
+## Amendment — 2026-10-27 owner decisions (schema 1.2)
+
+The owner decided the open design items from the 2026-10-26 fix report. Each
+change has tests; record shapes are unchanged, so the JSON Schemas regenerate
+identically.
+
+- **Decision 3, policy order (1.2).** (1) An invalid proof anywhere in the
+  retrieved set → `blocked`. (2) **New:** a contradicted record among cited or
+  contradicting evidence → `contested`, even when the Evaluator abstained: an
+  abstention must not hide a contradiction the Evaluator itself recorded (live
+  run S02 on 2026-10-26 did exactly that). (3) Abstain → `abstained`. (4) Any
+  unresolved challenge item → `contested`. (5) `insufficient_evidence` as
+  before. (6) Otherwise `supported`. Rules 1 and 3–6 keep their 1.1 meaning;
+  only the contradiction moved above abstention.
+- **Decision 4, revision after abstention.** An abstention that still lists
+  unresolved items may be answered by a revision, bounded by the same 2-round
+  limit and per-item no-progress exit. An abstention with nothing unresolved,
+  or a `blocked` result, still ends deliberation. The state machine enforces
+  the same rule (`AbstainedWithoutOpenItems`), and an abstained run may now
+  receive `abstained`, `blocked`, or `contested`, never an upgrade.
+- **Replay stays version-faithful.** Replay re-derives each recorded
+  recommendation with the rules of the record's own schema version
+  (`PolicyVersion::for_schema`): 1.1 runs keep the 1.1 order, so the
+  2026-10-26 logs still replay and stay tamper-checked, and 1.2 runs use the
+  new order. Checked against both local logs (`demo-run/events.jsonl`,
+  `demo-run/live-battery-2026-10-26.jsonl`): every run replays.
+- **Bounded cost.** A per-run token cap (`CONSENSUS_MAX_RUN_TOKENS`, default
+  150,000 input + output tokens) is enforced by the runtime after every model
+  call, for any `ModelClient`. Crossing it, or a call that reports no usage,
+  fails the run with stage `token_budget`; the call that crossed it is still
+  recorded, so the receipt accounts for every token. A run can overshoot by
+  at most that one call.
+- **Append rollback is now tested.** A test-only seam makes the next append
+  write part of its record and fail; the test shows the file is rolled back
+  byte-for-byte, the event is absent, a fresh open sees a valid log with no
+  torn tail, and the same handle commits the retry.

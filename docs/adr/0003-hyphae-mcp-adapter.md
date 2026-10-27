@@ -34,14 +34,22 @@ Date: 2026-10-26 · Status: accepted · Scope: milestone M3
    is an error, and its `category` is kept in the message. Field-level
    confirmation against a real binary is the gated `live_hyphae_probe` test
    (isolated deployment only).
-3. **Proof mapping** (`hyphae proof verify`): exit 0 → `Valid`; nonzero
-   with a verifier rejection (stderr mentions mismatch/invalid/corrupt/
-   digest) → `Invalid`; transport or usage failures (exit 125–127 from
-   `docker exec`, unknown flags, missing files) → `VerificationError`, never
-   `Invalid`, so infrastructure faults cannot masquerade as tampering;
-   spawn failure → `VerificationError`; missing artifacts → `Unavailable`
-   without invoking the verifier. `CommandRunner` is a trait so tests
-   assert argv and mapping without pretending to run cryptography.
+3. **Proof mapping** (`hyphae proof verify`, amended 2026-10-27): `Valid`
+   requires exit 0 **and** the verifier's JSON report saying
+   `status: verified` with `semantic_reexecution_performed: true` (the
+   recall was re-run against the witness and reproduced the sealed result);
+   exit 0 without that report is a `VerificationError`. A nonzero exit is
+   classified by the structured error's `category` on stderr: `corruption`
+   (tampered or inconsistent artifacts, exit 9 live) and `invalid-request`
+   (an anchor the proof does not match, exit 2 live) → `Invalid`; `io`
+   (missing file, exit 11 live) and every other category →
+   `VerificationError`; unstructured stderr falls back to the earlier
+   keyword check. Exit 125–127 from `docker exec` and spawn failures are
+   always `VerificationError`, so infrastructure faults cannot masquerade
+   as tampering; missing artifacts → `Unavailable` without invoking the
+   verifier. `CommandRunner` captures stdout and stderr and is a trait, so
+   tests assert argv and mapping (with outputs captured live) without
+   pretending to run cryptography.
 4. **Isolation discipline**: no test or demo may point at the owner's primary
    Agent Memory data. The live probe requires `CONSENSUS_LIVE_TESTS=1` plus an
    explicitly configured isolated endpoint/key file. It **has been run and
@@ -53,25 +61,65 @@ Date: 2026-10-26 · Status: accepted · Scope: milestone M3
    returned record with `proof_error` (the upstream reason, category
    included). The runtime maps a corruption-class reason to `Invalid`
    (→ `blocked`) and any other to `Unavailable`; it never verifies such a
-   record. Live, the pinned build currently answers every proven recall
-   with `{category: "corruption", message: "native durable state is
-   invalid", retry: "after-recovery"}` while plain recall works, so every
-   live run that retrieves evidence is **blocked**. This is the fail-closed
-   reading of the backend's own corruption report, not a verdict that the
-   records were tampered with.
+   record. A proven call that returns no artifacts is recorded the same way
+   (`proof_error`, → `Unavailable`).
 6. **Anchor trust.** By default the anchor comes from the same recall
    response that delivers the proof, so a `Valid` result proves internal
    consistency against a server-supplied anchor, not against an
    independently trusted one. Operators can pin an anchor obtained
    out-of-band (`CONSENSUS_HYPHAE_EXPECTED_ANCHOR`); records anchored
-   elsewhere are then `Invalid` without running the verifier.
+   elsewhere are then `Invalid` without running the verifier. Live, the
+   anchor is stable while the store does not change: every proof over an
+   unchanged store shares it, and a write or a new checkpoint (including
+   `agent backup`) changes it. The 2026-10-27 battery ran pinned to the
+   anchor the operator observed before it started.
+7. **One proof per recall (2026-10-27).** A proven recall returns a single
+   sealed proof for its whole ordered result
+   (`proof: {proof_path, witness_path, anchor_hex}` at the top level), not
+   one per record. The adapter attaches it to every record of that recall;
+   the verifier checks each distinct proof once per run and reuses the
+   result. The proof file seals each memory's envelope (including its text),
+   but the adapter does not byte-compare the text it hands to models against
+   the proof: both come from the same `hyphae mcp` response, the same trust
+   class as decision 6.
 
-## Adversarial proof case (still undemonstrated live)
+## Why live proofs failed, and the fix (2026-10-27)
 
-Corrupt a proof/witness file or present a mismatched anchor to
-`hyphae proof verify` on an isolated instance, and show the run degrade to
-`blocked`. This needs working proof generation, which the pinned build does
-not provide today (decision 5), so only the status *mapping* is tested;
-no cryptographic detection is claimed. What *is* demonstrated live is the
-corruption-signal path: real backend error → `proof_error` → `Invalid` →
-`blocked`.
+Every proven recall had answered `{category: "corruption", message: "native
+durable state is invalid", retry: "after-recovery"}` while plain recall
+worked. With owner authorization, recovery and diagnostics ran inside the
+container only (procedure and every mutating command in
+`docs/reviews/2026-10-27-claude-fix-report-2.md`). `hyphae agent doctor`
+reported the store **healthy**: it was not corrupt. Reading Hyphae's source
+at the pinned commit (read-only) showed that `corruption` is the generic code
+for *any* proof-generation failure and for an oversized response. Two causes
+were then isolated:
+
+1. **Socket inside the data directory.** The container daemon had been
+   started as `hyphae serve --data-dir D` (the operate hint `agent setup`
+   prints), so its socket was `D/hyphae.sock`. Proof generation bundles the
+   whole data directory into the witness and rejects special files. Fix:
+   serve with `--endpoint` outside `D`, exactly as the systemd unit written by
+   `agent setup` does (`scripts/hyphae-container/serve.sh`). Proofs verified
+   immediately afterwards.
+2. **Store size versus the 4 MiB response cap.** The proof carries the
+   complete directory witness inline, and `hyphae mcp` caps each response at
+   4 MiB. After new memories were seeded, the store passed about 3.9 MB and
+   every proven recall failed again, reported once more as `corruption`. On a
+   restored copy, proofs kept working through three new stores and failed
+   after the next, whatever the content. The available roles cannot `vacuum`,
+   so the store was replaced by a fresh one with only the needed records
+   (about 3.3 MB), and the hostile-note case moved to a separate isolated lab
+   store. Keep stores small (`hyphae_store_bytes`).
+
+## Adversarial proof case (demonstrated 2026-10-27)
+
+With proofs working, the verifier's detection was exercised against the real
+binary in the container: the verified recall proof checks out against its own
+anchor (exit 0, `semantic_reexecution`); one flipped witness byte is rejected
+(exit 9, `corruption` → `Invalid`); a different anchor is rejected (exit 2,
+`invalid-request` → `Invalid`); a missing file is an infrastructure error
+(exit 11, `io` → `VerificationError`). The gated `live_hyphae_probe` repeats
+the anchor case end to end through this adapter on every run. The full
+pipeline consequence (an `Invalid` record → `blocked`) is the tested policy
+path (`invalid_proof_blocks_without_revision_attempt`).

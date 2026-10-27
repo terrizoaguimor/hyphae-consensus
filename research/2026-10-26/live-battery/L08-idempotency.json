@@ -1,0 +1,264 @@
+{
+  "tag": "L08-idempotency",
+  "task": {
+    "tag": "L08-idempotency",
+    "project": "demo-repo",
+    "title": "Add idempotency keys to payment requests",
+    "description": "Duplicate charges were reported after retries. Propose adding idempotency keys to payment requests."
+  },
+  "http_status": 201,
+  "wall_seconds": 85.0,
+  "detail": {
+    "summary": {
+      "run_id": "run-a950849f-3c65-4f98-9270-694921c08a5f",
+      "state": "failed",
+      "recommendation": null,
+      "authorization": "pending",
+      "title": "Add idempotency keys to payment requests"
+    },
+    "revision_round": 0,
+    "recommendation": null,
+    "verifications": [],
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba4-9840-75ea-a1a2-2159b4a88f31",
+        "latency_ms": 24781,
+        "input_tokens": 157,
+        "output_tokens": 2635
+      }
+    ],
+    "events": [
+      {
+        "schema_version": "1.1",
+        "sequence": 61,
+        "event_id": "evt-4562cb31-9f1c-4854-baba-ebe02dbd25c1",
+        "run_id": "run-a950849f-3c65-4f98-9270-694921c08a5f",
+        "actor": {
+          "kind": "human",
+          "id": "live-battery"
+        },
+        "occurred_at": "2026-10-27T04:35:20.749272200+00:00",
+        "prev_hash": "830d444e67897093b73c9f6cabe7b926abde7ca7db87b1ee3b68b768d2abb091",
+        "hash": "581ae60c45103a360abfffdc4ad788a07f5051612ec04999fda0a3d6e2137a26",
+        "payload": {
+          "type": "task_created",
+          "task": {
+            "schema_version": "1.1",
+            "id": "task-d7160295-b367-4587-8b1b-c2e79a88803e",
+            "run_id": "run-a950849f-3c65-4f98-9270-694921c08a5f",
+            "project_id": "demo-repo",
+            "title": "Add idempotency keys to payment requests",
+            "description": "Duplicate charges were reported after retries. Propose adding idempotency keys to payment requests.",
+            "created_at": "2026-10-27T04:35:20.749264900+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 62,
+        "event_id": "evt-bf7a273a-2ee0-4f3c-90d7-67f878ed1cca",
+        "run_id": "run-a950849f-3c65-4f98-9270-694921c08a5f",
+        "actor": {
+          "kind": "agent",
+          "role": "proposer"
+        },
+        "occurred_at": "2026-10-27T04:35:45.531909900+00:00",
+        "prev_hash": "581ae60c45103a360abfffdc4ad788a07f5051612ec04999fda0a3d6e2137a26",
+        "hash": "41fe7d388e965ac7125372609d02495d3796a59fc68a7ee545241a7ff7306590",
+        "payload": {
+          "type": "proposal_submitted",
+          "proposal": {
+            "schema_version": "1.1",
+            "id": "prop-1",
+            "run_id": "run-a950849f-3c65-4f98-9270-694921c08a5f",
+            "author_role": "proposer",
+            "summary": "The proposal addresses duplicate charges reported after retries by having clients send a reusable idempotency key per payment intent, having the server atomically claim that key before charging, replaying the stored response for identical duplicates, rejecting payload mismatches, and handling concurrent and crash cases. Each element is stated as a checkable claim with a concrete verification step.",
+            "plan_steps": [
+              "Define the header contract: name, format, length limit, required/optional phases, and conflict and in-progress status codes.",
+              "Add the idempotency record table with the uniqueness scope, request hash, state, stored response, payment reference, and expiry, enforced by a database unique constraint.",
+              "Implement atomic key claiming before any provider call, payload-hash comparison, stored-response replay, and pending-state handling for concurrent requests.",
+              "Implement failure semantics distinguishing unconfirmed failures from confirmed charges, and forward a deterministic provider idempotency token if supported.",
+              "Wire client retry logic to generate one key per payment intent and reuse it across retries.",
+              "Add sequential, concurrent, payload-mismatch, expiry, and crash-simulation tests against a provider stub.",
+              "Add metrics and structured logging for replays, mismatches, and in-progress duplicates.",
+              "Roll out in the optional-then-required phases described in claim C12."
+            ],
+            "claims": [
+              {
+                "id": "claim-2",
+                "statement": "Payment clients generate one cryptographically random idempotency key per distinct payment intent, reuse that exact key on every retry of that intent, and generate a new key for a new payment intent.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-3",
+                "statement": "The payment-creation endpoint accepts an Idempotency-Key header, rejects keys that are empty or exceed a documented maximum length with HTTP 400, and does not execute a charge for a rejected key.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-4",
+                "statement": "The server persists idempotency records keyed by a uniqueness scope of (authenticated account, idempotency key) with a database unique constraint on that pair.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-5",
+                "statement": "Before executing a charge, the server atomically claims the idempotency key by inserting a record containing a hash of the canonical request method, path, and body, a state of pending, and creation and expiry timestamps.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-6",
+                "statement": "A retry with a previously completed key and an identical request hash returns the originally stored HTTP status and response body, including the original payment identifier, without calling the payment provider again.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-7",
+                "statement": "A request reusing a completed or pending key with a different request hash is rejected with HTTP 409 or 422 and does not execute a charge or modify the stored record.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-8",
+                "statement": "Concurrent duplicate requests with the same key and identical payload result in exactly one provider charge; non-executing duplicates either wait for and return the completed response or receive a documented in-progress response such as HTTP 409 with Retry-After.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-9",
+                "statement": "If processing fails before a charge is confirmed, the idempotency record is either removed or marked retryable so the same key can complete the payment; if a charge was confirmed, the record stores the final response for replay.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-10",
+                "statement": "Where the payment provider supports its own idempotency mechanism, the server forwards a provider idempotency token derived deterministically from the stored record so a server crash between provider call and local persistence does not cause a second provider charge on retry.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-11",
+                "statement": "Idempotency records are retained for at least 24 hours after creation and are deletable only after expiry by a cleanup process that does not delete pending or unexpired records.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-12",
+                "statement": "Duplicate replay, payload-mismatch, and in-progress events emit metrics and structured logs containing a hashed or truncated key and the payment identifier, without logging full payment credentials.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-13",
+                "statement": "Rollout first accepts the header as optional while logging its absence, then requires it for payment creation only after supported clients send it, with the transition criteria and date documented.",
+                "evidence_refs": []
+              }
+            ],
+            "assumptions": [
+              "Payment creation is retryable over an unreliable network and a retry is intended to represent the same payment intent as the original attempt.",
+              "No codebase, endpoint, storage, or payment-provider details were provided; those specifics must be verified before implementation."
+            ],
+            "uncertainties": [
+              "Which payment endpoints are in scope and their current request/response contracts are unknown from the task description.",
+              "Whether the payment provider supports its own idempotency token, and its format limits, is unknown; claim C9 applies only if supported.",
+              "The appropriate key retention period beyond the proposed 24-hour minimum and the account scoping of keys need confirmation against real retry patterns and tenancy model.",
+              "Whether existing clients can be updated to send keys, which determines the length of the optional rollout phase, is unknown.",
+              "Existing storage technology and transaction guarantees are unknown; the unique-constraint design assumes a store that enforces uniqueness atomically."
+            ],
+            "created_at": "2026-10-27T04:35:45.531888600+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba4-9840-75ea-a1a2-2159b4a88f31",
+            "latency_ms": 24781,
+            "input_tokens": 157,
+            "output_tokens": 2635
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 63,
+        "event_id": "evt-55a0997c-de80-4e92-95e8-5b2932ce5a34",
+        "run_id": "run-a950849f-3c65-4f98-9270-694921c08a5f",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:35:45.537956100+00:00",
+        "prev_hash": "41fe7d388e965ac7125372609d02495d3796a59fc68a7ee545241a7ff7306590",
+        "hash": "ee63c39743b185780b65545471000c727aed7499a53f1bdd5fb3935b54911bea",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "8864874238917673930644756936982232317",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:8864874238917673930644756936982232317",
+            "kind": "fact",
+            "content": "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
+            "retrieved_at": "2026-10-27T04:35:45.537933700+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 64,
+        "event_id": "evt-57ae2dab-a90d-4b5b-a960-583162fd8b5d",
+        "run_id": "run-a950849f-3c65-4f98-9270-694921c08a5f",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:35:45.541486900+00:00",
+        "prev_hash": "ee63c39743b185780b65545471000c727aed7499a53f1bdd5fb3935b54911bea",
+        "hash": "facfac4909f9edd7ad6c194caf9deb0ed726cd09cfe3361d078f9aab1a171e25",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "186670067796945807561772405393844769735",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:186670067796945807561772405393844769735",
+            "kind": "constraint",
+            "content": "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+            "retrieved_at": "2026-10-27T04:35:45.541465900+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 65,
+        "event_id": "evt-74edc502-a54f-4ebc-9f20-d0f4ff219aca",
+        "run_id": "run-a950849f-3c65-4f98-9270-694921c08a5f",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:36:45.574599200+00:00",
+        "prev_hash": "facfac4909f9edd7ad6c194caf9deb0ed726cd09cfe3361d078f9aab1a171e25",
+        "hash": "b6ddcc37d119ebc7809ac26ada875596af4b97d7f30702b1d7dad9f6a32770d3",
+        "payload": {
+          "type": "run_failed",
+          "reason": "model call timed out",
+          "stage": "critique"
+        }
+      }
+    ]
+  },
+  "receipt_status": 200,
+  "receipt": {
+    "schema_version": "1.1",
+    "run_id": "run-a950849f-3c65-4f98-9270-694921c08a5f",
+    "final_state": "failed",
+    "authorization": "pending",
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba4-9840-75ea-a1a2-2159b4a88f31",
+        "latency_ms": 24781,
+        "input_tokens": 157,
+        "output_tokens": 2635
+      }
+    ],
+    "verifications": [],
+    "event_count": 5,
+    "head_hash": "b6ddcc37d119ebc7809ac26ada875596af4b97d7f30702b1d7dad9f6a32770d3",
+    "generated_at": "2026-10-27T04:36:45.605416400+00:00",
+    "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+  }
+}

@@ -1,0 +1,517 @@
+{
+  "tag": "L07-timeout-30s",
+  "task": {
+    "tag": "L07-timeout-30s",
+    "project": "demo-repo",
+    "title": "Increase payment HTTP timeout to 30 seconds",
+    "description": "Some payment calls take longer than the current per-request timeout. Propose raising the per-request timeout to 30 seconds."
+  },
+  "http_status": 201,
+  "wall_seconds": 65.7,
+  "detail": {
+    "summary": {
+      "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+      "state": "awaiting_human_approval",
+      "recommendation": "blocked",
+      "authorization": "pending",
+      "title": "Increase payment HTTP timeout to 30 seconds"
+    },
+    "revision_round": 0,
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "blocked",
+      "rationale": "Blocked: 0/4 claims corroborated; proofs: 0 valid, 2 invalid, 0 unavailable/error; 6 unresolved challenges.",
+      "unresolved_assumptions": [
+        "The change is intended for the payment HTTP client only.",
+        "Per-request means each individual HTTP attempt, not an aggregate deadline across retries."
+      ],
+      "issued_at": "2026-10-27T04:35:20.582822100+00:00"
+    },
+    "verifications": [
+      {
+        "schema_version": "1.1",
+        "evidence_id": "8864874238917673930644756936982232317",
+        "integrity_status": "invalid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:35:20.581256700+00:00"
+      },
+      {
+        "schema_version": "1.1",
+        "evidence_id": "186670067796945807561772405393844769735",
+        "integrity_status": "invalid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:35:20.582075800+00:00"
+      }
+    ],
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba3-8ec2-72a4-ba5a-031d009a5b9d",
+        "latency_ms": 22608,
+        "input_tokens": 163,
+        "output_tokens": 1915
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba3-f141-73d9-a20e-e9e3b32608a6",
+        "latency_ms": 25109,
+        "input_tokens": 603,
+        "output_tokens": 2980
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba4-36f6-7436-a819-d32fad899b1d",
+        "latency_ms": 17803,
+        "input_tokens": 812,
+        "output_tokens": 3019
+      }
+    ],
+    "events": [
+      {
+        "schema_version": "1.1",
+        "sequence": 52,
+        "event_id": "evt-72a33b86-4229-4a4f-835a-1bd17ae2d43d",
+        "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+        "actor": {
+          "kind": "human",
+          "id": "live-battery"
+        },
+        "occurred_at": "2026-10-27T04:34:15.035578+00:00",
+        "prev_hash": "f3de8275fa10a9bfe65fd7863a53f2be238c3a3c27fd11de172f2d303cd3e99a",
+        "hash": "29334a845be2982f2d4f3f55b40d153552de0a8ac1469c9c92467476651e9641",
+        "payload": {
+          "type": "task_created",
+          "task": {
+            "schema_version": "1.1",
+            "id": "task-42d85030-d66e-4299-8970-a042b2c94d05",
+            "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+            "project_id": "demo-repo",
+            "title": "Increase payment HTTP timeout to 30 seconds",
+            "description": "Some payment calls take longer than the current per-request timeout. Propose raising the per-request timeout to 30 seconds.",
+            "created_at": "2026-10-27T04:34:15.035569800+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 53,
+        "event_id": "evt-f979e4f1-7cd4-4e3d-b778-c82a0f156b2a",
+        "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+        "actor": {
+          "kind": "agent",
+          "role": "proposer"
+        },
+        "occurred_at": "2026-10-27T04:34:37.645664200+00:00",
+        "prev_hash": "29334a845be2982f2d4f3f55b40d153552de0a8ac1469c9c92467476651e9641",
+        "hash": "11b34867afa164fec2029a41bfc79c231f2cbc13931c575822fc2d09984ecce3",
+        "payload": {
+          "type": "proposal_submitted",
+          "proposal": {
+            "schema_version": "1.1",
+            "id": "prop-1",
+            "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+            "author_role": "proposer",
+            "summary": "Raise the payment HTTP client's per-request timeout to 30000 ms, scoped to payment calls only, with no other client behavior changes.",
+            "plan_steps": [
+              "Locate the payment HTTP client's per-request timeout setting.",
+              "Change that setting to 30000 ms.",
+              "Add or update a test asserting the 30000 ms configuration.",
+              "Add or update timeout-behavior tests using a delayed stub or fake timer.",
+              "Run the existing payment client tests to check for regressions."
+            ],
+            "claims": [
+              {
+                "id": "claim-2",
+                "statement": "The payment HTTP client's per-request timeout is set to 30 seconds (30000 ms).",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-3",
+                "statement": "The 30-second timeout applies only to payment HTTP calls; timeouts for other HTTP clients are unchanged.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-4",
+                "statement": "A payment response completed after the previous timeout but within 30 seconds succeeds, while a response exceeding 30 seconds produces the existing timeout error behavior.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-5",
+                "statement": "No payment endpoints, payloads, retry counts, backoff, or error mappings are changed as part of this change.",
+                "evidence_refs": []
+              }
+            ],
+            "assumptions": [
+              "The change is intended for the payment HTTP client only.",
+              "Per-request means each individual HTTP attempt, not an aggregate deadline across retries."
+            ],
+            "uncertainties": [
+              "The current timeout value is not provided in the task description.",
+              "No latency distribution, timeout frequency, or payment-provider deadline evidence is provided to confirm 30 seconds is sufficient.",
+              "The existing retry policy and any upstream caller deadline are not provided, so the aggregate duration across retries cannot be verified from the task description."
+            ],
+            "created_at": "2026-10-27T04:34:37.645642400+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba3-8ec2-72a4-ba5a-031d009a5b9d",
+            "latency_ms": 22608,
+            "input_tokens": 163,
+            "output_tokens": 1915
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 54,
+        "event_id": "evt-85048940-be83-49af-b8f4-eb3565d2aac9",
+        "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:34:37.651696900+00:00",
+        "prev_hash": "11b34867afa164fec2029a41bfc79c231f2cbc13931c575822fc2d09984ecce3",
+        "hash": "225fd515e57c17d8d7a0623ec05f1b3b287de54fdb1f506c24e28040dd6c83b8",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "8864874238917673930644756936982232317",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:8864874238917673930644756936982232317",
+            "kind": "fact",
+            "content": "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
+            "retrieved_at": "2026-10-27T04:34:37.651642200+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 55,
+        "event_id": "evt-f70a5bb3-b2de-4f1f-8599-f7acd88b9a83",
+        "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:34:37.652643+00:00",
+        "prev_hash": "225fd515e57c17d8d7a0623ec05f1b3b287de54fdb1f506c24e28040dd6c83b8",
+        "hash": "660dcc2545dfd293172a64c310c094807e9c6252d26a9c99ff103bfca44aae56",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "186670067796945807561772405393844769735",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:186670067796945807561772405393844769735",
+            "kind": "constraint",
+            "content": "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+            "retrieved_at": "2026-10-27T04:34:37.651658+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 56,
+        "event_id": "evt-a809aa98-2201-436b-a62b-4e19d30990c9",
+        "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+        "actor": {
+          "kind": "agent",
+          "role": "critic"
+        },
+        "occurred_at": "2026-10-27T04:35:02.772221500+00:00",
+        "prev_hash": "660dcc2545dfd293172a64c310c094807e9c6252d26a9c99ff103bfca44aae56",
+        "hash": "5a08cf3cdb67a41445583fb15874a167af26a4e4e533b218a409032e689e9e93",
+        "payload": {
+          "type": "challenge_submitted",
+          "challenge": {
+            "schema_version": "1.1",
+            "id": "chal-12",
+            "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+            "target_proposal": "prop-1",
+            "items": [
+              {
+                "id": "item-6",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-2",
+                "description": "Unsupported configuration claim",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-7",
+                "kind": "missing_test",
+                "claim_id": "claim-3",
+                "description": "Missing isolation test for non-payment clients",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-8",
+                "kind": "missing_test",
+                "claim_id": "claim-4",
+                "description": "Timeout-behavior test is underspecified",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-9",
+                "kind": "regression_risk",
+                "claim_id": "claim-4",
+                "description": "Aggregate deadline and resource-exhaustion risk",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-10",
+                "kind": "constraint_conflict",
+                "claim_id": "claim-5",
+                "description": "Retry constraint compliance is unverified and evidence is contradictory or invalid",
+                "evidence_refs": [
+                  "8864874238917673930644756936982232317",
+                  "186670067796945807561772405393844769735"
+                ]
+              },
+              {
+                "id": "item-11",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-5",
+                "description": "No-change invariants lack verification",
+                "evidence_refs": []
+              }
+            ],
+            "created_at": "2026-10-27T04:35:02.772186900+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba3-f141-73d9-a20e-e9e3b32608a6",
+            "latency_ms": 25109,
+            "input_tokens": 603,
+            "output_tokens": 2980
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 57,
+        "event_id": "evt-1c24c29c-60fb-4de3-93da-ecc4aa1e1ae1",
+        "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+        "actor": {
+          "kind": "agent",
+          "role": "evidence_evaluator"
+        },
+        "occurred_at": "2026-10-27T04:35:20.577691500+00:00",
+        "prev_hash": "5a08cf3cdb67a41445583fb15874a167af26a4e4e533b218a409032e689e9e93",
+        "hash": "9305a8c3d43e23671d5a6e41f3944320e46b3c1cb99f0de402f5ad8a767c2485",
+        "payload": {
+          "type": "evaluation_submitted",
+          "evaluation": {
+            "schema_version": "1.1",
+            "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+            "target_proposal": "prop-1",
+            "assessments": [
+              {
+                "claim_id": "claim-2",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "Abstain: no reliable retrieved evidence documents a 30000 ms timeout; both supplied records have integrity Invalid and are not relevant to this value."
+              },
+              {
+                "claim_id": "claim-3",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "Abstain: no isolation test or inspection shows other HTTP client timeouts are unchanged."
+              },
+              {
+                "claim_id": "claim-4",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "Abstain: no reliable timing test establishes success within 30 seconds or timeout behavior thereafter; aggregate-deadline risk also remains unevaluated."
+              },
+              {
+                "claim_id": "claim-5",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "Abstain: no diff or test artifact verifies unchanged endpoints, payloads, retry counts, backoff, or error mappings. The retry-related records 8864874238917673930644756936982232317 and 186670067796945807561772405393844769735 both have integrity Invalid, so their apparent tension cannot establish either compliance or contradiction."
+              }
+            ],
+            "unresolved_items": [
+              "item-6",
+              "item-7",
+              "item-8",
+              "item-9",
+              "item-10",
+              "item-11"
+            ],
+            "abstain": true,
+            "created_at": "2026-10-27T04:35:20.577670800+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba4-36f6-7436-a819-d32fad899b1d",
+            "latency_ms": 17803,
+            "input_tokens": 812,
+            "output_tokens": 3019
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 58,
+        "event_id": "evt-e044ddcc-9f57-45fd-afb9-c1a80f846c48",
+        "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:35:20.581276900+00:00",
+        "prev_hash": "9305a8c3d43e23671d5a6e41f3944320e46b3c1cb99f0de402f5ad8a767c2485",
+        "hash": "c1943659140bc86756d9160223bf1e28d1c4132706172c242f1ca827e46e9b97",
+        "payload": {
+          "type": "evidence_verified",
+          "verification": {
+            "schema_version": "1.1",
+            "evidence_id": "8864874238917673930644756936982232317",
+            "integrity_status": "invalid",
+            "factual_status": "not_assessed",
+            "relevance_status": "irrelevant",
+            "verifier": "recall(prove) upstream",
+            "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+            "checked_at": "2026-10-27T04:35:20.581256700+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 59,
+        "event_id": "evt-959fc496-d6f2-4685-b800-6f20ea847c99",
+        "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:35:20.582086500+00:00",
+        "prev_hash": "c1943659140bc86756d9160223bf1e28d1c4132706172c242f1ca827e46e9b97",
+        "hash": "fcd0120727fe41ae708ef28b213a608a18c06080014c109d04edb83b1f9e9575",
+        "payload": {
+          "type": "evidence_verified",
+          "verification": {
+            "schema_version": "1.1",
+            "evidence_id": "186670067796945807561772405393844769735",
+            "integrity_status": "invalid",
+            "factual_status": "not_assessed",
+            "relevance_status": "irrelevant",
+            "verifier": "recall(prove) upstream",
+            "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+            "checked_at": "2026-10-27T04:35:20.582075800+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 60,
+        "event_id": "evt-3f502e50-d862-4f2a-aab7-1aaec8a7be1a",
+        "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:35:20.582831500+00:00",
+        "prev_hash": "fcd0120727fe41ae708ef28b213a608a18c06080014c109d04edb83b1f9e9575",
+        "hash": "830d444e67897093b73c9f6cabe7b926abde7ca7db87b1ee3b68b768d2abb091",
+        "payload": {
+          "type": "recommendation_issued",
+          "recommendation": {
+            "schema_version": "1.1",
+            "kind": "blocked",
+            "rationale": "Blocked: 0/4 claims corroborated; proofs: 0 valid, 2 invalid, 0 unavailable/error; 6 unresolved challenges.",
+            "unresolved_assumptions": [
+              "The change is intended for the payment HTTP client only.",
+              "Per-request means each individual HTTP attempt, not an aggregate deadline across retries."
+            ],
+            "issued_at": "2026-10-27T04:35:20.582822100+00:00"
+          }
+        }
+      }
+    ]
+  },
+  "receipt_status": 200,
+  "receipt": {
+    "schema_version": "1.1",
+    "run_id": "run-2bab89e5-5caa-49b9-b681-a706438f0cb4",
+    "final_state": "awaiting_human_approval",
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "blocked",
+      "rationale": "Blocked: 0/4 claims corroborated; proofs: 0 valid, 2 invalid, 0 unavailable/error; 6 unresolved challenges.",
+      "unresolved_assumptions": [
+        "The change is intended for the payment HTTP client only.",
+        "Per-request means each individual HTTP attempt, not an aggregate deadline across retries."
+      ],
+      "issued_at": "2026-10-27T04:35:20.582822100+00:00"
+    },
+    "authorization": "pending",
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba3-8ec2-72a4-ba5a-031d009a5b9d",
+        "latency_ms": 22608,
+        "input_tokens": 163,
+        "output_tokens": 1915
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba3-f141-73d9-a20e-e9e3b32608a6",
+        "latency_ms": 25109,
+        "input_tokens": 603,
+        "output_tokens": 2980
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba4-36f6-7436-a819-d32fad899b1d",
+        "latency_ms": 17803,
+        "input_tokens": 812,
+        "output_tokens": 3019
+      }
+    ],
+    "verifications": [
+      {
+        "schema_version": "1.1",
+        "evidence_id": "8864874238917673930644756936982232317",
+        "integrity_status": "invalid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:35:20.581256700+00:00"
+      },
+      {
+        "schema_version": "1.1",
+        "evidence_id": "186670067796945807561772405393844769735",
+        "integrity_status": "invalid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:35:20.582075800+00:00"
+      }
+    ],
+    "event_count": 9,
+    "head_hash": "830d444e67897093b73c9f6cabe7b926abde7ca7db87b1ee3b68b768d2abb091",
+    "generated_at": "2026-10-27T04:35:20.601243800+00:00",
+    "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+  }
+}

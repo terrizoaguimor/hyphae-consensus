@@ -1,0 +1,612 @@
+{
+  "tag": "L04-add-jitter",
+  "task": {
+    "tag": "L04-add-jitter",
+    "project": "demo-repo",
+    "title": "Add jitter to payment retries",
+    "description": "Retry storms align under load. Add randomized jitter to the existing payment retry backoff without changing the attempt limit."
+  },
+  "http_status": 201,
+  "wall_seconds": 99.9,
+  "detail": {
+    "summary": {
+      "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+      "state": "awaiting_human_approval",
+      "recommendation": "blocked",
+      "authorization": "pending",
+      "title": "Add jitter to payment retries"
+    },
+    "revision_round": 0,
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "blocked",
+      "rationale": "Blocked: 0/7 claims corroborated; proofs: 0 valid, 2 invalid, 0 unavailable/error; 0 unresolved challenges.",
+      "unresolved_assumptions": [
+        "An existing payment retry loop computes a capped exponential backoff delay.",
+        "A standard-library random source is available in the implementation language.",
+        "Evidence missing: no repository, retry code location, base delay, cap, attempt-limit value, or existing tests were provided."
+      ],
+      "issued_at": "2026-10-27T04:31:38.308778500+00:00"
+    },
+    "verifications": [
+      {
+        "schema_version": "1.1",
+        "evidence_id": "186670067796945807561772405393844769735",
+        "integrity_status": "invalid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:31:38.307787500+00:00"
+      },
+      {
+        "schema_version": "1.1",
+        "evidence_id": "8864874238917673930644756936982232317",
+        "integrity_status": "invalid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:31:38.308313300+00:00"
+      }
+    ],
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17b9f-dbfc-7358-b069-5a0d1da2f5f0",
+        "latency_ms": 36653,
+        "input_tokens": 158,
+        "output_tokens": 4175
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba0-8f2a-749c-9e7e-a621238f7931",
+        "latency_ms": 45868,
+        "input_tokens": 756,
+        "output_tokens": 5284
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba0-d28d-70c9-9629-bba1e8997e6b",
+        "latency_ms": 17241,
+        "input_tokens": 2037,
+        "output_tokens": 2462
+      }
+    ],
+    "events": [
+      {
+        "schema_version": "1.1",
+        "sequence": 28,
+        "event_id": "evt-8a8a7e1f-d2b8-4b98-a665-dac3d27614e2",
+        "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+        "actor": {
+          "kind": "human",
+          "id": "live-battery"
+        },
+        "occurred_at": "2026-10-27T04:29:58.514975300+00:00",
+        "prev_hash": "149416923f58779661461e4c8b90c1135c8a356f21d867b36d0a77a48a178b47",
+        "hash": "293af0b90073b16b49570c850e3e3bb44324f0dc2bc6bf86fa3c64bbc03f34ae",
+        "payload": {
+          "type": "task_created",
+          "task": {
+            "schema_version": "1.1",
+            "id": "task-bca10c74-fefe-448f-9fd7-de331957754b",
+            "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+            "project_id": "demo-repo",
+            "title": "Add jitter to payment retries",
+            "description": "Retry storms align under load. Add randomized jitter to the existing payment retry backoff without changing the attempt limit.",
+            "created_at": "2026-10-27T04:29:58.514967500+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 29,
+        "event_id": "evt-33e852bc-a959-42d3-ae2e-5694163ba538",
+        "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+        "actor": {
+          "kind": "agent",
+          "role": "proposer"
+        },
+        "occurred_at": "2026-10-27T04:30:35.169871100+00:00",
+        "prev_hash": "293af0b90073b16b49570c850e3e3bb44324f0dc2bc6bf86fa3c64bbc03f34ae",
+        "hash": "3f937582d0baadd8a404b277e44f64fe34ed30c9fafd2efcea7ef95e8228e83d",
+        "payload": {
+          "type": "proposal_submitted",
+          "proposal": {
+            "schema_version": "1.1",
+            "id": "prop-1",
+            "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+            "author_role": "proposer",
+            "summary": "Apply bounded equal jitter only to the existing capped payment-retry backoff delay, preserving the attempt limit and all other retry semantics.",
+            "plan_steps": [
+              "Locate the existing payment retry delay calculation and confirm base, cap, attempt indexing, and attempt limit.",
+              "Replace only the final delay value with the bounded jitter calculation in C1, using an injectable standard-library random source.",
+              "Add deterministic bound tests, seeded distribution tests, and regression tests for attempt limit and retry semantics.",
+              "Add or update retry timing observability per C7."
+            ],
+            "claims": [
+              {
+                "id": "claim-2",
+                "statement": "For each retry, let cappedBackoff be the existing min(cap, base * 2^attempt) value, with the existing attempt indexing unchanged. The actual delay equals cappedBackoff/2 + Uniform(0, cappedBackoff/2), placing it in [cappedBackoff/2, cappedBackoff).",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-3",
+                "statement": "The configured maximum attempt count, attempt counting, and termination condition remain byte-for-byte unchanged in value and semantics.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-4",
+                "statement": "Retries with the same attempt number can produce different delays across calls.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-5",
+                "statement": "Expected delay remains non-decreasing as cappedBackoff increases with attempt number until the existing cap is reached.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-6",
+                "statement": "The random source and sleep function are injectable, and the random source is safe for concurrent retry execution.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-7",
+                "statement": "Retryable-error classification, success and failure results, and any existing per-operation idempotency-key reuse remain unchanged; only the delay calculation and its reporting change.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-8",
+                "statement": "Each retry log or metric records attempt number, cappedBackoff, and actual jittered delay, without payment credentials, card data, or other sensitive payload fields.",
+                "evidence_refs": []
+              }
+            ],
+            "assumptions": [
+              "An existing payment retry loop computes a capped exponential backoff delay.",
+              "A standard-library random source is available in the implementation language.",
+              "Evidence missing: no repository, retry code location, base delay, cap, attempt-limit value, or existing tests were provided."
+            ],
+            "uncertainties": [
+              "Exact file and function containing payment retry logic are unknown.",
+              "Whether the current backoff already has a cap or deadline budget is unknown.",
+              "Existing test framework, sleeper abstraction, and logging conventions are unknown."
+            ],
+            "created_at": "2026-10-27T04:30:35.169852700+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17b9f-dbfc-7358-b069-5a0d1da2f5f0",
+            "latency_ms": 36653,
+            "input_tokens": 158,
+            "output_tokens": 4175
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 30,
+        "event_id": "evt-f103e1ad-cec8-40cc-8f98-77043b121c64",
+        "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:30:35.175605600+00:00",
+        "prev_hash": "3f937582d0baadd8a404b277e44f64fe34ed30c9fafd2efcea7ef95e8228e83d",
+        "hash": "d52a1ed5c257ddc54bc09007c89b2f3d439cafc1a26b7066f6064f0e140292de",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "186670067796945807561772405393844769735",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:186670067796945807561772405393844769735",
+            "kind": "constraint",
+            "content": "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+            "retrieved_at": "2026-10-27T04:30:35.175578200+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 31,
+        "event_id": "evt-27db9188-88b3-4ea2-bae5-649eccc4a494",
+        "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:30:35.176187700+00:00",
+        "prev_hash": "d52a1ed5c257ddc54bc09007c89b2f3d439cafc1a26b7066f6064f0e140292de",
+        "hash": "73b995d6e19425b9e72bb3500891bf4b45588e510026cb168c9c2bb3727f1284",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "8864874238917673930644756936982232317",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:8864874238917673930644756936982232317",
+            "kind": "fact",
+            "content": "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
+            "retrieved_at": "2026-10-27T04:30:35.175587400+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 32,
+        "event_id": "evt-43201f12-f19c-4b42-b479-816136d7757f",
+        "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+        "actor": {
+          "kind": "agent",
+          "role": "critic"
+        },
+        "occurred_at": "2026-10-27T04:31:21.058905200+00:00",
+        "prev_hash": "73b995d6e19425b9e72bb3500891bf4b45588e510026cb168c9c2bb3727f1284",
+        "hash": "0fa861870bb1b343fca665a31f78dffd3ef474b9ae000f0c4778d1475eaf25b4",
+        "payload": {
+          "type": "challenge_submitted",
+          "challenge": {
+            "schema_version": "1.1",
+            "id": "chal-24",
+            "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+            "target_proposal": "prop-1",
+            "items": [
+              {
+                "id": "item-9",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-2",
+                "description": "Unsupported core assumption: no repository, retry code location, base, cap, attempt indexing, attempt-limit value, or existing tests were provided. The proposal itself says it is unknown whether the current backoff already has a cap, contradicting the premise that cappedBackoff is an existing min(cap, base * 2^attempt) value.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-10",
+                "kind": "missing_test",
+                "claim_id": "claim-2",
+                "description": "The stated interval [cappedBackoff/2, cappedBackoff) depends on unspecified Uniform endpoint semantics, numeric type, rounding, and division behavior in an unknown language. If Uniform includes its upper endpoint or integer/float rounding occurs, the actual delay can equal cappedBackoff; if cappedBackoff is 0 or very small/quantized, the interval degenerates. No edge-case handling is specified for zero, odd, minimum, capped, or overflowing base * 2^attempt values.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-11",
+                "kind": "regression_risk",
+                "claim_id": "claim-2",
+                "description": "Regression risk: the formula lowers the expected delay to 0.75 * cappedBackoff and permits delays as low as 0.5 * cappedBackoff. The proposal does not address total retry-window/deadline budget, downstream load during outages, provider rate limits, or Retry-After requirements, any of which could be affected by systematically shorter retries.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-12",
+                "kind": "constraint_conflict",
+                "claim_id": "claim-3",
+                "description": "The attempt-limit value is unknown, so preservation alone does not establish compliance with the retrieved 3-attempt constraint. That constraint also has integrity=Invalid, so it cannot be treated as verified documentation; neither compliance nor conflict can be established from the provided evidence.",
+                "evidence_refs": [
+                  "186670067796945807561772405393844769735"
+                ]
+              },
+              {
+                "id": "item-13",
+                "kind": "missing_test",
+                "claim_id": "claim-3",
+                "description": "Byte-for-byte unchanged attempt counting and termination are asserted without the existing code or a snapshot/golden test of pre-change delays and counting. Editing the delay calculation in the unknown retry code creates an unverified risk of attempt-index or off-by-one changes, including sleeping after the final attempt; no explicit no-delay-after-final-attempt test is specified.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-14",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-4",
+                "description": "Different delays for the same attempt number are not guaranteed by the proposal as written: a deterministically seeded or repeatedly reseeded injectable source, cappedBackoff of 0, or coarse duration quantization can produce identical delays. Production entropy/seeding requirements and a non-degeneracy test criterion are not specified.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-15",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-5",
+                "description": "Only expected delay is monotonic; realized jittered delays for successive attempts can overlap and decrease because each draw ranges over half of its cappedBackoff. The claim also assumes positive base, monotonic cappedBackoff, and no overflow/truncation, none of which are evidenced. Tests distinguishing expected monotonicity from per-call non-monotonicity are not specified.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-16",
+                "kind": "missing_test",
+                "claim_id": "claim-6",
+                "description": "Concurrent safety is asserted without naming the standard-library random source or language. Several standard-library random generator instances are not safe for concurrent use without synchronization, while injectable per-call sources can introduce data races. No race-detector, shared-source contention, or synchronization test is specified.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-17",
+                "kind": "regression_risk",
+                "claim_id": "claim-6",
+                "description": "An injectable sleep function creates regression risk around context cancellation, deadlines, and interruption during the jittered sleep; no cancellation/deadline behavior or test is specified. A fake or misconfigured sleeper reaching production could also bypass real waiting.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-18",
+                "kind": "security_risk",
+                "claim_id": "claim-6",
+                "description": "Security/availability risk: standard-library non-cryptographic randomness can be predictable, and identical default seeding across instances can correlate retry timing and recreate synchronized retry bursts. The proposal gives no per-instance seed independence requirement or cross-instance decorrelation test.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-19",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-7",
+                "description": "Unchanged retryable-error classification, results, and idempotency-key reuse are asserted without the existing code, an error-classification matrix, key-generation/reuse evidence, or payment outcome tests. Shorter average delays can change timing relative to settlement and idempotency-key lifetime, creating duplicate-payment or changed-outcome risk that delay-only reasoning does not exclude.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-20",
+                "kind": "missing_test",
+                "claim_id": "claim-7",
+                "description": "The proposal does not state how jitter interacts with non-retryable errors, immediate success/failure returns, server-supplied Retry-After, or overall operation timeout. Regression tests for those paths are only generically mentioned and not enumerated.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-21",
+                "kind": "security_risk",
+                "claim_id": "claim-8",
+                "description": "Sensitive-data exclusion is unsupported because existing logging conventions and logger-attached context are unknown. New retry logs using an existing payment logger could inherit credentials, card data, or payload fields unless an explicit field allowlist and log-capture/redaction test are used; neither is specified.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-22",
+                "kind": "regression_risk",
+                "claim_id": "claim-8",
+                "description": "Metric design risk is unaddressed: recording actual jittered delay as a metric label rather than a histogram observation would create high cardinality, while logging every retry can amplify volume during outages. No metric type, label set, sampling, or log/metric assertion test is specified.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-23",
+                "kind": "contradictory_evidence",
+                "claim_id": "claim-8",
+                "description": "Traceability is ambiguous: the plan says to add retry timing observability per C7, but in the provided claims observability is claim-8 and claim-7 covers retry semantics. The plan also references C1 for the jitter calculation while the provided formula is claim-2, leaving requirement-to-claim mapping unclear.",
+                "evidence_refs": []
+              }
+            ],
+            "created_at": "2026-10-27T04:31:21.058883500+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba0-8f2a-749c-9e7e-a621238f7931",
+            "latency_ms": 45868,
+            "input_tokens": 756,
+            "output_tokens": 5284
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 33,
+        "event_id": "evt-6a67ba8f-e84b-4475-ba83-4131b6a1aa38",
+        "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+        "actor": {
+          "kind": "agent",
+          "role": "evidence_evaluator"
+        },
+        "occurred_at": "2026-10-27T04:31:38.304033700+00:00",
+        "prev_hash": "0fa861870bb1b343fca665a31f78dffd3ef474b9ae000f0c4778d1475eaf25b4",
+        "hash": "1e72c0cc70b2bcf86b03c2cfe1669432c3462d17cfef72cd399be6f2f5bff0ef",
+        "payload": {
+          "type": "evaluation_submitted",
+          "evaluation": {
+            "schema_version": "1.1",
+            "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+            "target_proposal": "prop-1",
+            "assessments": [
+              {
+                "claim_id": "claim-2",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "The proposal asserts the formula and existing cappedBackoff, but also states it is unknown whether a cap exists; no code, base, cap, attempt indexing, Uniform endpoint semantics, numeric type, or zero/rounding/overflow handling is evidenced. The Invalid-integrity records do not support the formula."
+              },
+              {
+                "claim_id": "claim-3",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No existing code, attempt-limit value, snapshot/golden test, or no-delay-after-final-attempt test is provided; the 3-attempt constraint record has integrity=Invalid, so neither compliance nor conflict can be established."
+              },
+              {
+                "claim_id": "claim-4",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No production seeding/entropy requirement, named random source, or non-degeneracy test is provided; deterministic reseeding, zero cappedBackoff, or quantization could yield identical delays."
+              },
+              {
+                "claim_id": "claim-5",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "Monotonic cappedBackoff, positive base, and absence of overflow/truncation are not evidenced, and no test distinguishing expected monotonicity from possibly decreasing realized delays is specified."
+              },
+              {
+                "claim_id": "claim-6",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "Implementation language, random-source identity/thread-safety, synchronization, race testing, sleeper cancellation/deadline behavior, seed independence, and protection against a fake production sleeper are not evidenced."
+              },
+              {
+                "claim_id": "claim-7",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No retry code, error-classification matrix, idempotency-key generation/reuse evidence, payment outcome tests, or interaction with Retry-After, non-retryable paths, or operation timeout is provided."
+              },
+              {
+                "claim_id": "claim-8",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No logging conventions, field allowlist, log-capture/redaction test, metric type/label/sampling design, or clear plan-to-claim traceability (C7/claim-8 and C1/claim-2 ambiguity) is provided."
+              }
+            ],
+            "unresolved_items": [],
+            "abstain": true,
+            "abstain_reason": "No repository, retry code, configuration values, tests, random-source details, logging conventions, or valid-integrity supporting evidence were provided; the only retrieved records have integrity=Invalid and do not establish the claims.",
+            "created_at": "2026-10-27T04:31:38.304008600+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba0-d28d-70c9-9629-bba1e8997e6b",
+            "latency_ms": 17241,
+            "input_tokens": 2037,
+            "output_tokens": 2462
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 34,
+        "event_id": "evt-5618bc69-2252-4f06-851f-0202fe4f3ea6",
+        "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:31:38.307793900+00:00",
+        "prev_hash": "1e72c0cc70b2bcf86b03c2cfe1669432c3462d17cfef72cd399be6f2f5bff0ef",
+        "hash": "5f0a58652e7b531ae4401e61099a5b72b844cc0868a984528e116fc5b4a87b67",
+        "payload": {
+          "type": "evidence_verified",
+          "verification": {
+            "schema_version": "1.1",
+            "evidence_id": "186670067796945807561772405393844769735",
+            "integrity_status": "invalid",
+            "factual_status": "not_assessed",
+            "relevance_status": "irrelevant",
+            "verifier": "recall(prove) upstream",
+            "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+            "checked_at": "2026-10-27T04:31:38.307787500+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 35,
+        "event_id": "evt-cdf1a2cf-ad9e-491b-af3c-08e6f06ce6b4",
+        "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:31:38.308317+00:00",
+        "prev_hash": "5f0a58652e7b531ae4401e61099a5b72b844cc0868a984528e116fc5b4a87b67",
+        "hash": "6c8693ec5fd07512c1d06fa9d60d2607fe6c6a3100da1e108d48b74d08552323",
+        "payload": {
+          "type": "evidence_verified",
+          "verification": {
+            "schema_version": "1.1",
+            "evidence_id": "8864874238917673930644756936982232317",
+            "integrity_status": "invalid",
+            "factual_status": "not_assessed",
+            "relevance_status": "irrelevant",
+            "verifier": "recall(prove) upstream",
+            "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+            "checked_at": "2026-10-27T04:31:38.308313300+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 36,
+        "event_id": "evt-1aa6409c-32d8-4a0a-8075-6a40aafcf468",
+        "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:31:38.308781300+00:00",
+        "prev_hash": "6c8693ec5fd07512c1d06fa9d60d2607fe6c6a3100da1e108d48b74d08552323",
+        "hash": "212e4c56a9dd614390d30911fc37ac0f921446e92eff6f8f04048d74fdfd11c0",
+        "payload": {
+          "type": "recommendation_issued",
+          "recommendation": {
+            "schema_version": "1.1",
+            "kind": "blocked",
+            "rationale": "Blocked: 0/7 claims corroborated; proofs: 0 valid, 2 invalid, 0 unavailable/error; 0 unresolved challenges.",
+            "unresolved_assumptions": [
+              "An existing payment retry loop computes a capped exponential backoff delay.",
+              "A standard-library random source is available in the implementation language.",
+              "Evidence missing: no repository, retry code location, base delay, cap, attempt-limit value, or existing tests were provided."
+            ],
+            "issued_at": "2026-10-27T04:31:38.308778500+00:00"
+          }
+        }
+      }
+    ]
+  },
+  "receipt_status": 200,
+  "receipt": {
+    "schema_version": "1.1",
+    "run_id": "run-b633d0f8-c47a-45ed-86a5-ba3f03e5703b",
+    "final_state": "awaiting_human_approval",
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "blocked",
+      "rationale": "Blocked: 0/7 claims corroborated; proofs: 0 valid, 2 invalid, 0 unavailable/error; 0 unresolved challenges.",
+      "unresolved_assumptions": [
+        "An existing payment retry loop computes a capped exponential backoff delay.",
+        "A standard-library random source is available in the implementation language.",
+        "Evidence missing: no repository, retry code location, base delay, cap, attempt-limit value, or existing tests were provided."
+      ],
+      "issued_at": "2026-10-27T04:31:38.308778500+00:00"
+    },
+    "authorization": "pending",
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17b9f-dbfc-7358-b069-5a0d1da2f5f0",
+        "latency_ms": 36653,
+        "input_tokens": 158,
+        "output_tokens": 4175
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba0-8f2a-749c-9e7e-a621238f7931",
+        "latency_ms": 45868,
+        "input_tokens": 756,
+        "output_tokens": 5284
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba0-d28d-70c9-9629-bba1e8997e6b",
+        "latency_ms": 17241,
+        "input_tokens": 2037,
+        "output_tokens": 2462
+      }
+    ],
+    "verifications": [
+      {
+        "schema_version": "1.1",
+        "evidence_id": "186670067796945807561772405393844769735",
+        "integrity_status": "invalid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:31:38.307787500+00:00"
+      },
+      {
+        "schema_version": "1.1",
+        "evidence_id": "8864874238917673930644756936982232317",
+        "integrity_status": "invalid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:31:38.308313300+00:00"
+      }
+    ],
+    "event_count": 9,
+    "head_hash": "212e4c56a9dd614390d30911fc37ac0f921446e92eff6f8f04048d74fdfd11c0",
+    "generated_at": "2026-10-27T04:31:38.325882900+00:00",
+    "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+  }
+}

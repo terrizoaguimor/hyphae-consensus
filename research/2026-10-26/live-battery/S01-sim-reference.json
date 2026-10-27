@@ -1,0 +1,572 @@
+{
+  "tag": "S01-sim-reference",
+  "task": {
+    "tag": "S01-sim-reference",
+    "memory": "fake",
+    "project": "demo-repo",
+    "title": "Fix payment client timeouts",
+    "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints."
+  },
+  "http_status": 201,
+  "wall_seconds": 66.4,
+  "detail": {
+    "summary": {
+      "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+      "state": "awaiting_human_approval",
+      "recommendation": "abstained",
+      "authorization": "pending",
+      "title": "Fix payment client timeouts"
+    },
+    "revision_round": 0,
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "abstained",
+      "rationale": "Abstained: 0/6 claims corroborated; proofs: 2 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+      "unresolved_assumptions": [
+        "Current timeout, pool, latency, and load values were not provided, so specific numeric limits require validation against those measurements before deployment."
+      ],
+      "issued_at": "2026-10-27T04:44:48.443114600+00:00"
+    },
+    "verifications": [
+      {
+        "schema_version": "1.1",
+        "evidence_id": "ev-constraint",
+        "integrity_status": "valid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "fake-verifier",
+        "verified_anchor": "fake-anchor-1",
+        "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+        "checked_at": "2026-10-27T04:44:48.442180400+00:00"
+      },
+      {
+        "schema_version": "1.1",
+        "evidence_id": "ev-fact",
+        "integrity_status": "valid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "fake-verifier",
+        "verified_anchor": "fake-anchor-1",
+        "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+        "checked_at": "2026-10-27T04:44:48.442654500+00:00"
+      }
+    ],
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17bac-2b3b-7496-8ef5-544e05895850",
+        "latency_ms": 19769,
+        "input_tokens": 157,
+        "output_tokens": 1939
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17bac-9ad7-74f7-96d7-3f9d91187e7e",
+        "latency_ms": 28593,
+        "input_tokens": 673,
+        "output_tokens": 3970
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17bac-e12c-7764-9609-b1b815c5fbe4",
+        "latency_ms": 17980,
+        "input_tokens": 1461,
+        "output_tokens": 2925
+      }
+    ],
+    "events": [
+      {
+        "schema_version": "1.1",
+        "sequence": 102,
+        "event_id": "evt-fee6d742-b8c1-4619-b45e-b0773d223cd5",
+        "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+        "actor": {
+          "kind": "human",
+          "id": "live-battery"
+        },
+        "occurred_at": "2026-10-27T04:43:42.088222300+00:00",
+        "prev_hash": "59fca319225e4f53a0f5e0ec97ed5b0aa039394d6a3fe3b95ec2136e1f780b91",
+        "hash": "7190d513ffed59bf966d64e52b30fc9f4851f1b787f8d1a685365f7ae392fb3a",
+        "payload": {
+          "type": "task_created",
+          "task": {
+            "schema_version": "1.1",
+            "id": "task-ef018a00-3222-4181-a493-dbe112fc537e",
+            "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+            "project_id": "demo-repo",
+            "title": "Fix payment client timeouts",
+            "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints.",
+            "created_at": "2026-10-27T04:43:42.088211800+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 103,
+        "event_id": "evt-96ece41e-ad6a-45bd-be28-a50a7dd02a98",
+        "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+        "actor": {
+          "kind": "agent",
+          "role": "proposer"
+        },
+        "occurred_at": "2026-10-27T04:44:01.859481700+00:00",
+        "prev_hash": "7190d513ffed59bf966d64e52b30fc9f4851f1b787f8d1a685365f7ae392fb3a",
+        "hash": "4d1a780c9a0406c32835ea3d2677c42f14e164650edffbba620cde14999b3048",
+        "payload": {
+          "type": "proposal_submitted",
+          "proposal": {
+            "schema_version": "1.1",
+            "id": "prop-1",
+            "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+            "author_role": "proposer",
+            "summary": "Configure bounded, separately measured payment-client timeouts and connection-pool limits, add timeout-type observability, and preserve existing retry and idempotency behavior.",
+            "plan_steps": [
+              "Measure current p95/p99 connect, pool-wait, and read latency and timeout rates under representative load.",
+              "Set bounded timeout and pool values from those measurements while keeping the client deadline below the caller deadline.",
+              "Apply the configuration change and timeout-type observability without changing retry policy.",
+              "Run unit, contract, retry-policy, and load tests at target concurrency and compare timeout rates and duplicate-payment checks against the baseline."
+            ],
+            "claims": [
+              {
+                "id": "claim-2",
+                "statement": "The payment client exposes separate configurable connect, connection-pool wait, and read timeouts, with each value bounded and the total client deadline below the caller deadline.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-3",
+                "statement": "No change is made to the existing maximum retry count, retryable errors or statuses, backoff cap, or total retry budget.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-4",
+                "statement": "A payment request is retried only when permitted by the existing policy and it carries an idempotency key or is explicitly marked idempotent.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-5",
+                "statement": "Connection-pool maximum total and per-route limits are configurable rather than hard-coded in request paths.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-6",
+                "statement": "Each timeout emits a metric and structured log field identifying timeout type, route, attempt number, and elapsed time, without logging payment credentials or full payment payloads.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-7",
+                "statement": "No change is made to payment request or response semantics, authentication, or amount and recipient handling.",
+                "evidence_refs": []
+              }
+            ],
+            "assumptions": [
+              "Current timeout, pool, latency, and load values were not provided, so specific numeric limits require validation against those measurements before deployment."
+            ],
+            "uncertainties": [
+              "No repository files, current timeout values, retry policy, latency distribution, pool settings, or load-test results were provided.",
+              "The root cause is not established; pool exhaustion, slow upstream responses, and network latency remain distinguishable only after phase-specific measurements."
+            ],
+            "created_at": "2026-10-27T04:44:01.859437200+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17bac-2b3b-7496-8ef5-544e05895850",
+            "latency_ms": 19769,
+            "input_tokens": 157,
+            "output_tokens": 1939
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 104,
+        "event_id": "evt-0ece740c-e092-4bd3-9b7c-bb11dcfe141f",
+        "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:44:01.861361600+00:00",
+        "prev_hash": "4d1a780c9a0406c32835ea3d2677c42f14e164650edffbba620cde14999b3048",
+        "hash": "db8ee28c3983ae38872026825c1805fb6ce14bdd80ebd5e8dfb998681bbd77ba",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "ev-constraint",
+            "project_id": "demo-repo",
+            "backend_ref": "fake-memory:ev-constraint",
+            "kind": "constraint",
+            "content": "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+            "retrieved_at": "2026-10-26T09:00:00Z",
+            "anchor": "fake-anchor-1"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 105,
+        "event_id": "evt-900f37ae-f89d-439c-ac41-ceb0ddc3fd85",
+        "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:44:01.862060300+00:00",
+        "prev_hash": "db8ee28c3983ae38872026825c1805fb6ce14bdd80ebd5e8dfb998681bbd77ba",
+        "hash": "c0ef63cf00ab47d850988810e0a46bd1c7072422a1eea23f762d5f6defbd6964",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "ev-fact",
+            "project_id": "demo-repo",
+            "backend_ref": "fake-memory:ev-fact",
+            "kind": "fact",
+            "content": "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
+            "retrieved_at": "2026-10-26T09:00:00Z",
+            "anchor": "fake-anchor-1"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 106,
+        "event_id": "evt-1fd097c8-96b7-41f3-84b5-035fd500c693",
+        "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+        "actor": {
+          "kind": "agent",
+          "role": "critic"
+        },
+        "occurred_at": "2026-10-27T04:44:30.456925800+00:00",
+        "prev_hash": "c0ef63cf00ab47d850988810e0a46bd1c7072422a1eea23f762d5f6defbd6964",
+        "hash": "8910243ead87e084cf7331c512d55f7087bd0227d1a3f1e6ace3cead6a985efb",
+        "payload": {
+          "type": "challenge_submitted",
+          "challenge": {
+            "schema_version": "1.1",
+            "id": "chal-19",
+            "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+            "target_proposal": "prop-1",
+            "items": [
+              {
+                "id": "item-8",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-2",
+                "description": "Unsupported: no repository files, current timeout configuration, caller deadline, or numeric bounds were provided, and uncertainties state these values are missing. Separate connect, pool-wait, and read configurability and total deadline below caller deadline cannot be verified.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-9",
+                "kind": "missing_test",
+                "claim_id": "claim-2",
+                "description": "Missing deadline accounting: no formula or test shows connect + pool-wait + read across all retry attempts and backoff stays below the caller deadline, versus only a single attempt. Assumptions state numeric limits still require measurement validation, contradicting the claim as presently established.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-10",
+                "kind": "constraint_conflict",
+                "claim_id": "claim-3",
+                "description": "Constraint conflict risk: ev-constraint caps outbound retries at 3 attempts with jitter, while ev-fact states timeouts correlate with retry bursts above 5 attempts. Preserving the existing policy without stating its existing cap or jitter may preserve behavior above the documented cap.",
+                "evidence_refs": [
+                  "ev-constraint",
+                  "ev-fact"
+                ]
+              },
+              {
+                "id": "item-11",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-3",
+                "description": "Unsupported: no existing retry policy, maximum count, retryable errors or statuses, backoff cap, jitter, or total retry budget was provided, so 'no change' cannot be verified by diff or test.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-12",
+                "kind": "missing_test",
+                "claim_id": "claim-3",
+                "description": "Missing regression test: no test addresses retry storms when shorter pool or read timeouts increase timeout frequency, nor enforcement of total retry budget across timeout types at target concurrency.",
+                "evidence_refs": [
+                  "ev-fact"
+                ]
+              },
+              {
+                "id": "item-13",
+                "kind": "missing_test",
+                "claim_id": "claim-4",
+                "description": "Unsupported and missing test: no policy code or test shows retries are blocked without an idempotency key or idempotent marking, that the same key is sent on retry, or that upstream honors it after a read timeout following possible payment submission. Plan's duplicate-payment check has no defined scenario, key lifetime, or pass criterion.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-14",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-5",
+                "description": "Unsupported: no code or configuration evidence shows maximum total and per-route pool limits are configurable rather than hard-coded, and no bounds or validation rules are stated for invalid values or per-route limits exceeding total limits.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-15",
+                "kind": "missing_test",
+                "claim_id": "claim-5",
+                "description": "Missing tests and regression risk: no stated test for pool exhaustion, per-route starvation, connection leaks or socket cleanup on timeout, or upstream overload and descriptor exhaustion from oversized pools. Uncertainties state root cause among pool exhaustion, slow upstream, and network latency is not established before changing these values.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-16",
+                "kind": "security_risk",
+                "claim_id": "claim-6",
+                "description": "Security risk: no field allowlist, sanitization, or redaction test supports 'without logging payment credentials or full payment payloads'; route values may contain sensitive identifiers, and route or attempt labels may create unbounded metric cardinality. No test verifies redaction.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-17",
+                "kind": "missing_test",
+                "claim_id": "claim-6",
+                "description": "Missing test: no test verifies each of connect, pool-wait, and read timeouts distinctly emits metric and structured log with timeout type, route, attempt number, and elapsed time, including under load.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-18",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-7",
+                "description": "Unsupported: no diff, contract examples, or tests specific to authentication, amount, recipient, and request/response semantics were provided; the generic mention of contract tests does not establish that these behaviors are unchanged.",
+                "evidence_refs": []
+              }
+            ],
+            "created_at": "2026-10-27T04:44:30.456908600+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17bac-9ad7-74f7-96d7-3f9d91187e7e",
+            "latency_ms": 28593,
+            "input_tokens": 673,
+            "output_tokens": 3970
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 107,
+        "event_id": "evt-742c8c14-226e-499b-aa5f-419614544e85",
+        "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+        "actor": {
+          "kind": "agent",
+          "role": "evidence_evaluator"
+        },
+        "occurred_at": "2026-10-27T04:44:48.441509700+00:00",
+        "prev_hash": "8910243ead87e084cf7331c512d55f7087bd0227d1a3f1e6ace3cead6a985efb",
+        "hash": "9a689cfac34df23f40f2610b6b4fd684ba14aa7bb41d98a4c336648b5bcc7141",
+        "payload": {
+          "type": "evaluation_submitted",
+          "evaluation": {
+            "schema_version": "1.1",
+            "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+            "target_proposal": "prop-1",
+            "assessments": [
+              {
+                "claim_id": "claim-2",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "evaluator omitted this claim; treated as uncorroborated"
+              },
+              {
+                "claim_id": "claim-3",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "evaluator omitted this claim; treated as uncorroborated"
+              },
+              {
+                "claim_id": "claim-4",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "evaluator omitted this claim; treated as uncorroborated"
+              },
+              {
+                "claim_id": "claim-5",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "evaluator omitted this claim; treated as uncorroborated"
+              },
+              {
+                "claim_id": "claim-6",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "evaluator omitted this claim; treated as uncorroborated"
+              },
+              {
+                "claim_id": "claim-7",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "evaluator omitted this claim; treated as uncorroborated"
+              }
+            ],
+            "unresolved_items": [],
+            "abstain": true,
+            "created_at": "2026-10-27T04:44:48.441489100+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17bac-e12c-7764-9609-b1b815c5fbe4",
+            "latency_ms": 17980,
+            "input_tokens": 1461,
+            "output_tokens": 2925
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 108,
+        "event_id": "evt-92f18c08-e972-4c81-8f38-07343e8f1753",
+        "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:44:48.442185700+00:00",
+        "prev_hash": "9a689cfac34df23f40f2610b6b4fd684ba14aa7bb41d98a4c336648b5bcc7141",
+        "hash": "a167034ddbcdff1d837877d5960ba9052d6969c01ac148e5abd2d3f219eb429a",
+        "payload": {
+          "type": "evidence_verified",
+          "verification": {
+            "schema_version": "1.1",
+            "evidence_id": "ev-constraint",
+            "integrity_status": "valid",
+            "factual_status": "not_assessed",
+            "relevance_status": "irrelevant",
+            "verifier": "fake-verifier",
+            "verified_anchor": "fake-anchor-1",
+            "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+            "checked_at": "2026-10-27T04:44:48.442180400+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 109,
+        "event_id": "evt-76717f3b-fd3c-4319-9c56-a396c5105472",
+        "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:44:48.442657700+00:00",
+        "prev_hash": "a167034ddbcdff1d837877d5960ba9052d6969c01ac148e5abd2d3f219eb429a",
+        "hash": "e4b8d28c28fd8ee95ac19bf0cb6ec0391afb85d9e365ed5319c60487aecfca44",
+        "payload": {
+          "type": "evidence_verified",
+          "verification": {
+            "schema_version": "1.1",
+            "evidence_id": "ev-fact",
+            "integrity_status": "valid",
+            "factual_status": "not_assessed",
+            "relevance_status": "irrelevant",
+            "verifier": "fake-verifier",
+            "verified_anchor": "fake-anchor-1",
+            "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+            "checked_at": "2026-10-27T04:44:48.442654500+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 110,
+        "event_id": "evt-230c67bb-8755-4893-b33b-3ec4655df0d9",
+        "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:44:48.443117600+00:00",
+        "prev_hash": "e4b8d28c28fd8ee95ac19bf0cb6ec0391afb85d9e365ed5319c60487aecfca44",
+        "hash": "15adf01a9caca1667a45a79575e24ffede71ea73e75c2f8e109d2ac260f182fb",
+        "payload": {
+          "type": "recommendation_issued",
+          "recommendation": {
+            "schema_version": "1.1",
+            "kind": "abstained",
+            "rationale": "Abstained: 0/6 claims corroborated; proofs: 2 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+            "unresolved_assumptions": [
+              "Current timeout, pool, latency, and load values were not provided, so specific numeric limits require validation against those measurements before deployment."
+            ],
+            "issued_at": "2026-10-27T04:44:48.443114600+00:00"
+          }
+        }
+      }
+    ]
+  },
+  "receipt_status": 200,
+  "receipt": {
+    "schema_version": "1.1",
+    "run_id": "run-ba147500-a683-40b6-838f-32d96c333ffc",
+    "final_state": "awaiting_human_approval",
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "abstained",
+      "rationale": "Abstained: 0/6 claims corroborated; proofs: 2 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+      "unresolved_assumptions": [
+        "Current timeout, pool, latency, and load values were not provided, so specific numeric limits require validation against those measurements before deployment."
+      ],
+      "issued_at": "2026-10-27T04:44:48.443114600+00:00"
+    },
+    "authorization": "pending",
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17bac-2b3b-7496-8ef5-544e05895850",
+        "latency_ms": 19769,
+        "input_tokens": 157,
+        "output_tokens": 1939
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17bac-9ad7-74f7-96d7-3f9d91187e7e",
+        "latency_ms": 28593,
+        "input_tokens": 673,
+        "output_tokens": 3970
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17bac-e12c-7764-9609-b1b815c5fbe4",
+        "latency_ms": 17980,
+        "input_tokens": 1461,
+        "output_tokens": 2925
+      }
+    ],
+    "verifications": [
+      {
+        "schema_version": "1.1",
+        "evidence_id": "ev-constraint",
+        "integrity_status": "valid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "fake-verifier",
+        "verified_anchor": "fake-anchor-1",
+        "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+        "checked_at": "2026-10-27T04:44:48.442180400+00:00"
+      },
+      {
+        "schema_version": "1.1",
+        "evidence_id": "ev-fact",
+        "integrity_status": "valid",
+        "factual_status": "not_assessed",
+        "relevance_status": "irrelevant",
+        "verifier": "fake-verifier",
+        "verified_anchor": "fake-anchor-1",
+        "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+        "checked_at": "2026-10-27T04:44:48.442654500+00:00"
+      }
+    ],
+    "event_count": 9,
+    "head_hash": "15adf01a9caca1667a45a79575e24ffede71ea73e75c2f8e109d2ac260f182fb",
+    "generated_at": "2026-10-27T04:44:48.469349500+00:00",
+    "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+  }
+}

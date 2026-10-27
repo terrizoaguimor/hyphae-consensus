@@ -47,3 +47,6 @@ coverage/
 
 # Cloudflare tooling
 .wrangler/
+
+# Local agent tooling (git worktrees, session files)
+/.claude/

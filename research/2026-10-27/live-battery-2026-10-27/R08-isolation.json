@@ -1,0 +1,753 @@
+{
+ "tag": "R08-isolation",
+ "task": {
+  "project": "other-repo",
+  "title": "Fix payment client timeouts",
+  "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints."
+ },
+ "http_status": 201,
+ "wall_seconds": 208.4,
+ "detail": {
+  "summary": {
+   "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+   "state": "awaiting_human_approval",
+   "recommendation": "contested",
+   "authorization": "pending",
+   "title": "Fix payment client timeouts"
+  },
+  "revision_round": 1,
+  "recommendation": {
+   "schema_version": "1.2",
+   "kind": "contested",
+   "rationale": "Contested: 0/4 claims corroborated; proofs: 0 valid, 0 invalid, 0 unavailable/error; 16 unresolved challenges.",
+   "unresolved_assumptions": [
+    "Connection-pool starvation is only a hypothesis, not a diagnosed root cause, until phase-classified metrics confirm it.",
+    "Load-related timeouts may be transient contention or upstream-latency events rather than deterministic failures; this requires verification from incident and metrics records.",
+    "The payment client may expose configurable pooling, keep-alive, and separate connect/request timeouts; this requires verification."
+   ],
+   "issued_at": "2026-10-27T07:19:48.378030500+00:00"
+  },
+  "verifications": [],
+  "model_invocations": [
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c38-1393-7361-ab4a-a0ce44c9f488",
+    "latency_ms": 32210,
+    "input_tokens": 229,
+    "output_tokens": 3373
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c38-a0f7-73a4-80a7-d46a4228ad04",
+    "latency_ms": 35947,
+    "input_tokens": 887,
+    "output_tokens": 4167
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c38-d7f6-7191-85df-a9b4029c2859",
+    "latency_ms": 14077,
+    "input_tokens": 1553,
+    "output_tokens": 2223
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c39-62e4-71ac-9784-42d847436b48",
+    "latency_ms": 35560,
+    "input_tokens": 1660,
+    "output_tokens": 4319
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c3a-3802-738e-bca8-d4fa00cfe78a",
+    "latency_ms": 54359,
+    "input_tokens": 1303,
+    "output_tokens": 4992
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c3a-c3a7-7074-a921-a3d9a4e81f02",
+    "latency_ms": 35740,
+    "input_tokens": 2530,
+    "output_tokens": 4301
+   }
+  ],
+  "events": [
+   {
+    "schema_version": "1.2",
+    "sequence": 174,
+    "event_id": "evt-a0d643fd-88c4-463c-a6d6-7439014a410d",
+    "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+    "actor": {
+     "kind": "human",
+     "id": "live-battery"
+    },
+    "occurred_at": "2026-10-27T07:16:20.117345900+00:00",
+    "prev_hash": "afec1d1203ae1070e4a481f78eaf5369bfa75bf4961f099b37128b878265ae1c",
+    "hash": "03d1d1a1f8dc7e2ed08fa6a318b4ff4d7b761634fba20b88ca35efc54d29056e",
+    "payload": {
+     "type": "task_created",
+     "task": {
+      "schema_version": "1.2",
+      "id": "task-21b4be0d-5028-468e-a437-51471a6419b8",
+      "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+      "project_id": "other-repo",
+      "title": "Fix payment client timeouts",
+      "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints.",
+      "created_at": "2026-10-27T07:16:20.117338300+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 175,
+    "event_id": "evt-1b02b1ef-9b07-40f7-acf8-5b4c992ff1db",
+    "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+    "actor": {
+     "kind": "agent",
+     "role": "proposer"
+    },
+    "occurred_at": "2026-10-27T07:16:52.329635200+00:00",
+    "prev_hash": "03d1d1a1f8dc7e2ed08fa6a318b4ff4d7b761634fba20b88ca35efc54d29056e",
+    "hash": "e8ea83e648c495eab9be2f1d71fcf3c856fa618e232428161af6a062da90d802",
+    "payload": {
+     "type": "proposal_submitted",
+     "proposal": {
+      "schema_version": "1.2",
+      "id": "prop-1",
+      "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+      "author_role": "proposer",
+      "summary": "Tune payment-client connection pooling, keep-alive, and separate connect versus request timeouts within a finite overall per-request deadline, using values derived from stored limits and measured load latency. Leave existing retry limits and backoff unchanged and retry only idempotent payment requests.",
+      "plan_steps": [
+       "failure mode identified: intermittently timeout under load, diagnosed as connection pool starvation/saturation hitting the single shared deadline. Action: log and dashboard for pool.active, pool.idle, connections waiters, acquire+connect+read timeout breakdown so failure is measurable.",
+       "Deploy client configuration change to use bounded dedicated connection pool sized from load test and upstream limits: acquire timeout short, HTTP keep-alive on, separate connect vs request/read timeouts tuned from p95/p99 latency measurements rather than guessed numbers. Use client timing metrics to drive sizes. Refer to HTTP client pool config knobs like http.maxConnectionsPerRoute, http.maxTotalConnections, http.connectionRequestTimeoutMs, http.connectTimeoutMs, http.socketTimeoutMs and size headroom above measured peak concurrent in-flight requests rather than guessed numbers. Total per-request deadline remains finite and bounded, original plus retries capped by the finite overall deadline.",
+       "Apply safe guardrails around change: timeouts stay finite and bounded, no unlimited waits, retries constrained by existing stored retry constraints, idempotency key required for retried payments, no retry on deterministic/non-retryable responses, retries keep jittered exponential backoff.",
+       "Roll out with canary, feature flag/config toggle and automatic rollback triggers on elevated payment latency, duplicate submission rate, or timeout rate; compare before/after.",
+       "Run load test reproducing prior load profile to verify timeout rate returns to baseline and no pool exhaustion, then expand rollout gradually."
+      ],
+      "claims": [
+       {
+        "id": "claim-2",
+        "statement": "The proposal does not increase the maximum number of payment-request retry attempts above the maximum in the existing stored retry constraints.",
+        "evidence_refs": []
+       },
+       {
+        "id": "claim-3",
+        "statement": "The proposal retains the existing stored retry backoff policy unchanged, including any minimum backoff or jitter requirement.",
+        "evidence_refs": []
+       },
+       {
+        "id": "claim-4",
+        "statement": "The proposal retries a payment request only when that request carries an idempotency key.",
+        "evidence_refs": []
+       },
+       {
+        "id": "claim-5",
+        "statement": "The proposal does not disable, remove, or make unlimited any payment-client timeout, and the total time for an original request plus retries remains finitely bounded.",
+        "evidence_refs": []
+       }
+      ],
+      "assumptions": [
+       "Load-related timeouts are transient contention or upstream-latency events rather than deterministic request failures; this requires verification from stored incident and metrics records.",
+       "The payment endpoint honors idempotency keys, so an idempotent replay does not create a duplicate payment.",
+       "The payment client exposes configurable connection pooling, keep-alive, and separate connect and request timeouts."
+      ],
+      "uncertainties": [
+       "The task provides no stored values for the current timeouts, connection-pool limits, maximum retry attempts, backoff policy, or overall per-request deadline, so no specific numeric increase is proposed.",
+       "It is not stated whether the observed timeouts are connect, read, connection-pool acquisition, or overall-deadline timeouts.",
+       "Upstream payment-service capacity and rate limits that could constrain a larger client connection pool are not provided.",
+       "Whether the payment API supports and honors idempotency keys is not confirmed in the task description."
+      ],
+      "created_at": "2026-10-27T07:16:52.329599700+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c38-1393-7361-ab4a-a0ce44c9f488",
+      "latency_ms": 32210,
+      "input_tokens": 229,
+      "output_tokens": 3373
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 176,
+    "event_id": "evt-f279038e-7c36-4179-abb2-1124ae8e65ac",
+    "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+    "actor": {
+     "kind": "agent",
+     "role": "critic"
+    },
+    "occurred_at": "2026-10-27T07:17:28.451746700+00:00",
+    "prev_hash": "e8ea83e648c495eab9be2f1d71fcf3c856fa618e232428161af6a062da90d802",
+    "hash": "21987b796afbe04cd71ca47429fca0791f1f05f233cfef4cf31227010da3c432",
+    "payload": {
+     "type": "challenge_submitted",
+     "challenge": {
+      "schema_version": "1.2",
+      "id": "chal-14",
+      "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+      "target_proposal": "prop-1",
+      "items": [
+       {
+        "id": "item-6",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-2",
+        "description": "The proposal asserts that retry attempts will not exceed the existing stored maximum, but no retrieved evidence contains that maximum and the proposal specifies no numeric cap, configuration comparison, or test proving the deployed limit matches the stored limit.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-7",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-3",
+        "description": "The proposal asserts that the existing backoff policy, including any minimum or jitter requirement, remains unchanged, but no retrieved evidence describes that policy and the proposal's reference to jittered exponential backoff could itself differ from the stored policy.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-8",
+        "kind": "missing_test",
+        "claim_id": "claim-4",
+        "description": "The proposal treats the presence of an idempotency key as sufficient for safe payment retries even though the proposal admits that whether the payment endpoint honors idempotency keys is unconfirmed, so a replay could still create a duplicate payment.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-9",
+        "kind": "missing_test",
+        "claim_id": "claim-4",
+        "description": "The proposal does not specify an enforcement mechanism or test that blocks retries when an idempotency key is absent, distinguishes key presence from an actually idempotent operation, or classifies which payment responses are non-retryable.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-10",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-5",
+        "description": "The proposal states that an overall finite deadline caps the original request plus retries but does not specify a remaining-deadline mechanism ensuring that pool-acquire, connect, socket, retry, and backoff durations cannot stack beyond that deadline.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-11",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-5",
+        "description": "The proposal diagnoses connection-pool starvation while also admitting that it is unknown whether the observed failures were acquire, connect, read, or overall-deadline timeouts, so the proposed timeout and pool changes rest on an unverified root cause.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-12",
+        "kind": "missing_test",
+        "claim_id": "claim-5",
+        "description": "The proposal plans to size a larger dedicated pool with headroom above peak concurrency while admitting that upstream payment-service capacity and rate limits are not provided, creating a regression risk that the larger pool exhausts upstream connections and increases latency or timeouts.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-13",
+        "kind": "missing_test",
+        "claim_id": "claim-2",
+        "description": "Shortening acquire, connect, or socket timeouts can make failed attempts return sooner and allow more retry attempts to occur within the finite deadline and load window, but the proposal includes no retry-amplification or upstream-load test even if the nominal configured maximum remains unchanged.",
+        "evidence_refs": []
+       }
+      ],
+      "created_at": "2026-10-27T07:17:28.451724500+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c38-a0f7-73a4-80a7-d46a4228ad04",
+      "latency_ms": 35947,
+      "input_tokens": 887,
+      "output_tokens": 4167
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 177,
+    "event_id": "evt-f8ace491-e7c4-4fd9-aee0-779ed933f0ea",
+    "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+    "actor": {
+     "kind": "agent",
+     "role": "evidence_evaluator"
+    },
+    "occurred_at": "2026-10-27T07:17:42.533326+00:00",
+    "prev_hash": "21987b796afbe04cd71ca47429fca0791f1f05f233cfef4cf31227010da3c432",
+    "hash": "45c76a435163bfe0f3af35941a8d569e0bcb790b38b1d9a7a59158b2ad80ad6d",
+    "payload": {
+     "type": "evaluation_submitted",
+     "evaluation": {
+      "schema_version": "1.2",
+      "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+      "target_proposal": "prop-1",
+      "assessments": [
+       {
+        "claim_id": "claim-2",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [],
+        "note": "No retrieved evidence; no Valid record states the existing stored maximum retry attempts or that the proposal retains it."
+       },
+       {
+        "claim_id": "claim-3",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [],
+        "note": "No retrieved evidence; no Valid record describes the existing stored backoff policy, minimum backoff, or jitter requirement."
+       },
+       {
+        "claim_id": "claim-4",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [],
+        "note": "No retrieved evidence; no Valid record states retries are blocked without an idempotency key or that the endpoint honors such keys."
+       },
+       {
+        "claim_id": "claim-5",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [],
+        "note": "No retrieved evidence; no Valid record states timeout values remain finite or that a remaining-deadline mechanism bounds original request plus retries."
+       }
+      ],
+      "unresolved_items": [
+       "item-6",
+       "item-7",
+       "item-8",
+       "item-9",
+       "item-10",
+       "item-11",
+       "item-12",
+       "item-13"
+      ],
+      "abstain": false,
+      "created_at": "2026-10-27T07:17:42.533295100+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c38-d7f6-7191-85df-a9b4029c2859",
+      "latency_ms": 14077,
+      "input_tokens": 1553,
+      "output_tokens": 2223
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 178,
+    "event_id": "evt-ed9ff6ad-497b-4a10-ac63-a63b1adfbbe9",
+    "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+    "actor": {
+     "kind": "agent",
+     "role": "proposer"
+    },
+    "occurred_at": "2026-10-27T07:18:18.098188500+00:00",
+    "prev_hash": "45c76a435163bfe0f3af35941a8d569e0bcb790b38b1d9a7a59158b2ad80ad6d",
+    "hash": "72aa4b9c3d62f45a59fe8c362ec37d70dd034d0db43d5d7de3d5b8ce45bd9bd6",
+    "payload": {
+     "type": "revision_submitted",
+     "revision": {
+      "schema_version": "1.2",
+      "proposal": {
+       "schema_version": "1.2",
+       "id": "prop-15",
+       "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+       "author_role": "proposer",
+       "summary": "Investigation-first, gated revision: no numeric retry, backoff, timeout, deadline, pool or upstream values are asserted because no evidence was retrieved. Changes proceed only after stored records are obtained, timeout phase is measured, idempotency and deadline enforcement are tested, and upstream/amplification load tests pass.",
+       "plan_steps": [
+        "1. Retrieve stored records before any change: maximum retry attempts, backoff policy including minimum/jitter, all timeouts and overall deadline, pool limits, non-retryable response classification, idempotency contract, and upstream capacity/rate limits. If any required record is missing, stop and make no deployment.",
+        "2. Instrument and classify first: log and dashboard pool.active, pool.idle, pool waiters, and acquire/connect/read/overall-deadline timeout counts and durations. Only pursue pool sizing if acquire-phase failures are shown to be a material cause; otherwise target the measured phase.",
+        "3. Config-diff gates: prove deployed retry-attempt limit equals the stored maximum and backoff settings are unchanged value-for-value from stored records. No guessed numeric values are introduced.",
+        "4. Idempotency enforcement and tests: retry wrapper checks for a non-empty idempotency key and an operation marked idempotent before any retry, blocks retries otherwise, and blocks retries on stored non-retryable responses. Test absent/empty key yields one attempt, non-idempotent operation yields one attempt, non-retryable response yields one attempt, and sandbox duplicate replay with the same key yields one payment.",
+        "5. Remaining-deadline mechanism: set one monotonic deadline per logical request from stored overall deadline; before each acquire/connect/socket attempt and each backoff compute remaining time, cap each phase timeout and backoff at remaining time, abort when remaining is zero or negative, and propagate the deadline context. Test with simulated stacked acquire/connect/socket/backoff delays that total duration never exceeds the deadline.",
+        "6. Pool and timeout changes only within retrieved limits: size any pool increase no higher than stored upstream capacity/rate limits and measured peak concurrency; if upstream limits are absent, do not increase the pool. Keep every timeout finite with separate connect and request/read settings derived from measured p95/p99 by phase.",
+        "7. Load, upstream-exhaustion and retry-amplification tests: reproduce prior load profile, inject shortened timeouts and faults, count attempts per logical request and upstream requests/connections, verify attempts never exceed the stored cap, upstream load stays within stored limits, and timeout/latency do not regress. Fail the rollout if amplification or upstream exhaustion appears.",
+        "8. Canary with feature flag/config toggle and automatic rollback on elevated payment latency, duplicate-submission rate, attempts per logical request, upstream connection use, or timeout rate; expand only after before/after comparison passes."
+       ],
+       "claims": [
+        {
+         "id": "claim-16",
+         "statement": "Deployment is blocked unless a retrieved stored record states the maximum payment retry attempts and a pre-deploy config-diff test shows the deployed attempt limit equals that stored value exactly; this proposal asserts no numeric value for that maximum.",
+         "evidence_refs": []
+        },
+        {
+         "id": "claim-17",
+         "statement": "Deployment is blocked unless a retrieved stored record states the retry backoff policy, including any minimum and jitter rule, and a config-diff test shows those settings unchanged value-for-value from that record; this proposal does not assert the stored policy is jittered exponential backoff.",
+         "evidence_refs": []
+        },
+        {
+         "id": "claim-18",
+         "statement": "Payment retries are enabled only after a stored API contract or sandbox duplicate-replay test shows the endpoint honors idempotency keys by creating one payment for repeated submissions with the same key, and tests show the retry wrapper makes exactly one attempt when a key is absent or empty or the operation is not marked idempotent and makes no retry on responses classified non-retryable in a stored record.",
+         "evidence_refs": []
+        },
+        {
+         "id": "claim-19",
+         "statement": "No timeout or pool change is deployed until metrics classify observed failures by pool-acquire, connect, read/socket and overall-deadline phase, upstream capacity is retrieved, and a tested remaining-deadline mechanism shows acquire plus connect plus socket plus backoff plus retry durations for one logical request never exceed the finite overall deadline from stored config; this proposal asserts no numeric timeout, deadline, pool-size or upstream-limit values and does not assert pool starvation is the root cause.",
+         "evidence_refs": []
+        }
+       ],
+       "assumptions": [
+        "Connection-pool starvation is only a hypothesis, not a diagnosed root cause, until phase-classified metrics confirm it.",
+        "Load-related timeouts may be transient contention or upstream-latency events rather than deterministic failures; this requires verification from incident and metrics records.",
+        "The payment client may expose configurable pooling, keep-alive, and separate connect/request timeouts; this requires verification."
+       ],
+       "uncertainties": [
+        "No evidence was retrieved: no stored values are known for maximum retry attempts, backoff/minimum/jitter, current timeouts, overall deadline, pool limits, upstream capacity/rate limits, non-retryable classification, or idempotency support.",
+        "It is unknown whether observed timeouts were pool-acquire, connect, read/socket, or overall-deadline timeouts.",
+        "Whether the payment endpoint honors idempotency keys is unconfirmed pending stored contract or sandbox test.",
+        "Upstream payment-service capacity and rate limits are not provided, so no safe pool increase can be sized yet."
+       ],
+       "created_at": "2026-10-27T07:18:18.098162600+00:00"
+      },
+      "supersedes": "prop-1",
+      "addressed_items": [
+       "item-6",
+       "item-7",
+       "item-8",
+       "item-9",
+       "item-10",
+       "item-11",
+       "item-12",
+       "item-13"
+      ]
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c39-62e4-71ac-9784-42d847436b48",
+      "latency_ms": 35560,
+      "input_tokens": 1660,
+      "output_tokens": 4319
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 179,
+    "event_id": "evt-2c1daf06-5f1e-424d-82e3-3e1e1dd7503e",
+    "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+    "actor": {
+     "kind": "agent",
+     "role": "critic"
+    },
+    "occurred_at": "2026-10-27T07:19:12.632324100+00:00",
+    "prev_hash": "72aa4b9c3d62f45a59fe8c362ec37d70dd034d0db43d5d7de3d5b8ce45bd9bd6",
+    "hash": "1f3f3c109a489b678a67f4b61595d8f77b8016d17a049b8d453d3a17a006e564",
+    "payload": {
+     "type": "challenge_submitted",
+     "challenge": {
+      "schema_version": "1.2",
+      "id": "chal-36",
+      "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+      "target_proposal": "prop-15",
+      "items": [
+       {
+        "id": "item-20",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-16",
+        "description": "Claim-16 treats a retrieved stored record as authoritative without requiring provenance, version, environment scope, freshness, or reconciliation of conflicting records, so matching a stale or environment-specific maximum exactly could still authorize an unsafe retry limit.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-21",
+        "kind": "missing_test",
+        "claim_id": "claim-16",
+        "description": "Claim-16 does not define whether the stored maximum counts total attempts or retries after the initial attempt, so an exact config-diff match could still produce an off-by-one number of upstream payment submissions.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-22",
+        "kind": "regression_risk",
+        "claim_id": "claim-16",
+        "description": "Claim-16 relies on a pre-deploy config diff but provides no runtime assertion against environment variables, feature flags, dynamic configuration, or library defaults overriding the deployed attempt limit after the diff passes.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-23",
+        "kind": "missing_test",
+        "claim_id": "claim-17",
+        "description": "Claim-17 proves only that backoff configuration values match a stored record and provides no runtime timing test for unit interpretation, maximum backoff, actual sleep duration, or jitter distribution, so deployed retry delays could differ materially from the intended policy.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-24",
+        "kind": "regression_risk",
+        "claim_id": "claim-17",
+        "description": "Claim-17 requires preserving the stored backoff policy value-for-value without first validating that policy, so a stored zero minimum, missing cap, or poorly randomized policy could be retained and continue to synchronize retries into upstream bursts.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-25",
+        "kind": "missing_test",
+        "claim_id": "claim-18",
+        "description": "Claim-18 requires a non-empty idempotency key before retrying but does not require or test that the identical key is sent unchanged on every attempt for the same logical request, so generating a fresh key per attempt could still create duplicate payments.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-26",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-18",
+        "description": "Claim-18 permits enablement based on either a stored contract or a sandbox replay test, so sandbox behavior could authorize production retries even if the production endpoint version, key-retention period, or configuration differs from the sandbox.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-27",
+        "kind": "missing_test",
+        "claim_id": "claim-18",
+        "description": "Claim-18's duplicate-replay test does not cover concurrent same-key submissions, response loss after upstream commitment, key expiry, or reuse of the same key with a different amount or payee, so it does not establish one-payment safety for the timeout cases that motivate retries.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-28",
+        "kind": "security_risk",
+        "claim_id": "claim-18",
+        "description": "Claim-18 does not specify account, endpoint, and payload scoping or authorization for idempotency keys, leaving open the security risk that a predictable, colliding, or attacker-supplied key could suppress a legitimate payment or replay another customer's operation.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-29",
+        "kind": "regression_risk",
+        "claim_id": "claim-18",
+        "description": "Claim-18 governs only the payment retry wrapper and does not address caller, gateway, queue, browser, or user-level retries that start a new logical request, so duplicate submissions and retry amplification could still occur outside the tested wrapper.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-30",
+        "kind": "missing_test",
+        "claim_id": "claim-18",
+        "description": "Claim-18 specifies one-attempt outcomes for ineligible retries but no positive test that an eligible retryable transient failure with a valid key retries and succeeds, so the gate could be satisfied by effectively disabling retries and regressing recovery from transient payment failures.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-31",
+        "kind": "missing_test",
+        "claim_id": "claim-19",
+        "description": "Claim-19's simulated stacked-delay test does not prove enforcement in the real client stack because DNS, TLS handshakes, internal transport retries, in-progress connection establishment, and non-interruptible socket operations may ignore remaining-deadline caps and extend a logical request beyond the overall deadline.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-32",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-19",
+        "description": "Claim-19 requires phase-classified metrics to determine the material cause but defines no attribution method, sample size, traffic window, or materiality threshold and assumes the client exposes pool.active, pool.idle, waiter, and phase-duration metrics even though no evidence retrieved confirms that instrumentation exists.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-33",
+        "kind": "regression_risk",
+        "claim_id": "claim-19",
+        "description": "Claim-19 sizes pool changes against stored upstream capacity and measured peak concurrency without specifying safety headroom, per-host versus total connection accounting, shared-tenant capacity, HTTP multiplexing, keep-alive behavior, or synchronized-retry effects, so a nominally compliant pool could still exhaust upstream connections.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-34",
+        "kind": "missing_test",
+        "claim_id": "claim-19",
+        "description": "Claim-19 states that load tests must show no timeout or latency regression but specifies no retrieved baseline profile, load duration, concurrency, latency percentile, error budget, or objective pass threshold, making that deployment gate difficult to falsify consistently.",
+        "evidence_refs": []
+       },
+       {
+        "id": "item-35",
+        "kind": "regression_risk",
+        "claim_id": "claim-19",
+        "description": "Claim-19 includes no connection-leak, idle-timeout, maximum-lifetime, or keep-alive mismatch test for pool and timeout changes, so the change could regress into leaked connections or connection churn that is detected only after upstream or customer impact.",
+        "evidence_refs": []
+       }
+      ],
+      "created_at": "2026-10-27T07:19:12.632305300+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c3a-3802-738e-bca8-d4fa00cfe78a",
+      "latency_ms": 54359,
+      "input_tokens": 1303,
+      "output_tokens": 4992
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 180,
+    "event_id": "evt-91b753ef-e1e7-4698-a5df-3b726b489d12",
+    "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+    "actor": {
+     "kind": "agent",
+     "role": "evidence_evaluator"
+    },
+    "occurred_at": "2026-10-27T07:19:48.374564200+00:00",
+    "prev_hash": "1f3f3c109a489b678a67f4b61595d8f77b8016d17a049b8d453d3a17a006e564",
+    "hash": "688d6494348aaaf6f7d1c070dd34d038d8871f80b58400deca59874bbea03ebf",
+    "payload": {
+     "type": "evaluation_submitted",
+     "evaluation": {
+      "schema_version": "1.2",
+      "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+      "target_proposal": "prop-15",
+      "assessments": [
+       {
+        "claim_id": "claim-16",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [],
+        "note": "No evidence retrieved; claim is conditional proposal assertion asserting no numeric maximum, with no valid record or config-diff result confirming stored maximum attempts."
+       },
+       {
+        "claim_id": "claim-17",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [],
+        "note": "No evidence retrieved; no stored backoff policy, minimum, or jitter record and no config-diff result."
+       },
+       {
+        "claim_id": "claim-18",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [],
+        "note": "No evidence retrieved; no API contract, sandbox replay, idempotency, or non-retryable classification record."
+       },
+       {
+        "claim_id": "claim-19",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [],
+        "note": "No evidence retrieved; no phase-classified metrics, stored timeout/deadline/pool values, upstream capacity, or deadline-enforcement test record."
+       }
+      ],
+      "unresolved_items": [
+       "item-20",
+       "item-21",
+       "item-22",
+       "item-23",
+       "item-24",
+       "item-25",
+       "item-26",
+       "item-27",
+       "item-28",
+       "item-29",
+       "item-30",
+       "item-31",
+       "item-32",
+       "item-33",
+       "item-34",
+       "item-35"
+      ],
+      "abstain": false,
+      "created_at": "2026-10-27T07:19:48.374537800+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c3a-c3a7-7074-a921-a3d9a4e81f02",
+      "latency_ms": 35740,
+      "input_tokens": 2530,
+      "output_tokens": 4301
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 181,
+    "event_id": "evt-34b570a3-f49b-4b2b-867b-f99e19215ae0",
+    "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:19:48.378041300+00:00",
+    "prev_hash": "688d6494348aaaf6f7d1c070dd34d038d8871f80b58400deca59874bbea03ebf",
+    "hash": "860c02ebd18f1087ea9b67eba694a7b4dbde3e4919705968ac466cad1966e8ed",
+    "payload": {
+     "type": "recommendation_issued",
+     "recommendation": {
+      "schema_version": "1.2",
+      "kind": "contested",
+      "rationale": "Contested: 0/4 claims corroborated; proofs: 0 valid, 0 invalid, 0 unavailable/error; 16 unresolved challenges.",
+      "unresolved_assumptions": [
+       "Connection-pool starvation is only a hypothesis, not a diagnosed root cause, until phase-classified metrics confirm it.",
+       "Load-related timeouts may be transient contention or upstream-latency events rather than deterministic failures; this requires verification from incident and metrics records.",
+       "The payment client may expose configurable pooling, keep-alive, and separate connect/request timeouts; this requires verification."
+      ],
+      "issued_at": "2026-10-27T07:19:48.378030500+00:00"
+     }
+    }
+   }
+  ]
+ },
+ "receipt_status": 200,
+ "receipt": {
+  "schema_version": "1.2",
+  "run_id": "run-06ed01d5-26d5-4eee-885a-9b176ca7b21a",
+  "final_state": "awaiting_human_approval",
+  "recommendation": {
+   "schema_version": "1.2",
+   "kind": "contested",
+   "rationale": "Contested: 0/4 claims corroborated; proofs: 0 valid, 0 invalid, 0 unavailable/error; 16 unresolved challenges.",
+   "unresolved_assumptions": [
+    "Connection-pool starvation is only a hypothesis, not a diagnosed root cause, until phase-classified metrics confirm it.",
+    "Load-related timeouts may be transient contention or upstream-latency events rather than deterministic failures; this requires verification from incident and metrics records.",
+    "The payment client may expose configurable pooling, keep-alive, and separate connect/request timeouts; this requires verification."
+   ],
+   "issued_at": "2026-10-27T07:19:48.378030500+00:00"
+  },
+  "authorization": "pending",
+  "model_invocations": [
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c38-1393-7361-ab4a-a0ce44c9f488",
+    "latency_ms": 32210,
+    "input_tokens": 229,
+    "output_tokens": 3373
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c38-a0f7-73a4-80a7-d46a4228ad04",
+    "latency_ms": 35947,
+    "input_tokens": 887,
+    "output_tokens": 4167
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c38-d7f6-7191-85df-a9b4029c2859",
+    "latency_ms": 14077,
+    "input_tokens": 1553,
+    "output_tokens": 2223
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c39-62e4-71ac-9784-42d847436b48",
+    "latency_ms": 35560,
+    "input_tokens": 1660,
+    "output_tokens": 4319
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c3a-3802-738e-bca8-d4fa00cfe78a",
+    "latency_ms": 54359,
+    "input_tokens": 1303,
+    "output_tokens": 4992
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c3a-c3a7-7074-a921-a3d9a4e81f02",
+    "latency_ms": 35740,
+    "input_tokens": 2530,
+    "output_tokens": 4301
+   }
+  ],
+  "verifications": [],
+  "event_count": 8,
+  "head_hash": "860c02ebd18f1087ea9b67eba694a7b4dbde3e4919705968ac466cad1966e8ed",
+  "generated_at": "2026-10-27T07:19:48.410324800+00:00",
+  "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+ }
+}

@@ -227,6 +227,7 @@ dependencies = [
  "consensus-domain",
  "consensus-runtime",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

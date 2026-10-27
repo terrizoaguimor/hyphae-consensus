@@ -1,0 +1,348 @@
+{
+  "tag": "L06-burst-alert",
+  "task": {
+    "tag": "L06-burst-alert",
+    "project": "demo-repo",
+    "title": "Alert on payment retry bursts",
+    "description": "Operators want an alert when a payment request needs more than 5 retry attempts. Propose the alert and justify the threshold."
+  },
+  "http_status": 201,
+  "wall_seconds": 101.2,
+  "detail": {
+    "summary": {
+      "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+      "state": "failed",
+      "recommendation": null,
+      "authorization": "pending",
+      "title": "Alert on payment retry bursts"
+    },
+    "revision_round": 0,
+    "recommendation": null,
+    "verifications": [],
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba1-fb42-7190-a8c2-e468dd769071",
+        "latency_ms": 20423,
+        "input_tokens": 161,
+        "output_tokens": 2305
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba2-4bcf-7005-99e0-2f9256db32eb",
+        "latency_ms": 20617,
+        "input_tokens": 782,
+        "output_tokens": 2343
+      }
+    ],
+    "events": [
+      {
+        "schema_version": "1.1",
+        "sequence": 46,
+        "event_id": "evt-d177828c-380a-499e-b00d-8251836a9dcb",
+        "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+        "actor": {
+          "kind": "human",
+          "id": "live-battery"
+        },
+        "occurred_at": "2026-10-27T04:32:33.807631200+00:00",
+        "prev_hash": "ce9702840cd34f489cd25ab592f0552b39aaf8c9b5a85a25b83cae3a0591fb98",
+        "hash": "ba45011fcd3d06164b1be0166ab42c3e2595f5930eeb999147919d813f695f69",
+        "payload": {
+          "type": "task_created",
+          "task": {
+            "schema_version": "1.1",
+            "id": "task-5378249b-b2b8-48cb-bae7-64fe26b4364c",
+            "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+            "project_id": "demo-repo",
+            "title": "Alert on payment retry bursts",
+            "description": "Operators want an alert when a payment request needs more than 5 retry attempts. Propose the alert and justify the threshold.",
+            "created_at": "2026-10-27T04:32:33.807623500+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 47,
+        "event_id": "evt-add8a7a1-65db-419b-9d85-3f76729bb5a4",
+        "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+        "actor": {
+          "kind": "agent",
+          "role": "proposer"
+        },
+        "occurred_at": "2026-10-27T04:32:54.232218500+00:00",
+        "prev_hash": "ba45011fcd3d06164b1be0166ab42c3e2595f5930eeb999147919d813f695f69",
+        "hash": "c71e9d45a05c54b3d56d474e383c1e60078f405ec9e4e79a10e37f648ec30137",
+        "payload": {
+          "type": "proposal_submitted",
+          "proposal": {
+            "schema_version": "1.1",
+            "id": "prop-1",
+            "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+            "author_role": "proposer",
+            "summary": "The threshold is taken directly from the operator requirement in the task description. No production retry distribution, retry-policy maximum, baseline rate, or alert-history evidence was provided, so a statistical justification for 5 cannot be claimed from the available evidence; the threshold requires validation against historical data before production paging is relied on.",
+            "plan_steps": [
+              "Define or confirm a per-request retry count derived from retry events grouped by payment request ID.",
+              "Implement the alert rule with condition retry_count > 5, severity warning pending operator confirmation, and deduplication by request ID.",
+              "Add notification fields listed in claim C3 and link the notification to an operator runbook for retry-burst investigation.",
+              "Test the boundary cases 5 and 6 retries and the deduplication case in claims C1, C2, and C4.",
+              "Review historical retry distribution, if available, and tune severity, grouping, or rate-based aggregation before enabling production paging."
+            ],
+            "claims": [
+              {
+                "id": "claim-2",
+                "statement": "The alert condition is retry_count > 5 for a single payment request, so it first triggers on the 6th retry attempt for that request.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-3",
+                "statement": "The alert fires once per request ID on crossing the threshold, rather than once per retry after the threshold.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-4",
+                "statement": "Each alert notification contains request ID, service name, retry count, first and latest retry timestamps, and downstream error or reason if available.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-5",
+                "statement": "Alerts at or below 5 retries do not notify operators.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-6",
+                "statement": "The 5-retry threshold is not validated against normal retry behaviour until baseline data is reviewed.",
+                "evidence_refs": []
+              }
+            ],
+            "assumptions": [
+              "A per-request identifier exists to group retry events for the same payment request.",
+              "Retry events or a retry-count metric are emitted by the payment service and are queryable by the alerting system."
+            ],
+            "uncertainties": [
+              "Whether 'more than 5 retry attempts' means 6 retries after the initial attempt or 6 total attempts; the proposal interprets it as retry count > 5 and this needs operator confirmation.",
+              "What evaluation window, severity, notification channel, and aggregation across many simultaneous requests operators require; not specified in the task.",
+              "Whether the existing retry policy already caps retries at or below 5, which would make this alert unreachable unless the cap is higher or bypassed.",
+              "What false-positive rate the >5 threshold produces under normal load; no baseline data was provided."
+            ],
+            "created_at": "2026-10-27T04:32:54.232187800+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba1-fb42-7190-a8c2-e468dd769071",
+            "latency_ms": 20423,
+            "input_tokens": 161,
+            "output_tokens": 2305
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 48,
+        "event_id": "evt-ade5fe8d-e395-49b4-a470-451831ca7939",
+        "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:32:54.241007+00:00",
+        "prev_hash": "c71e9d45a05c54b3d56d474e383c1e60078f405ec9e4e79a10e37f648ec30137",
+        "hash": "2e666339a2b77968ab55a4b8904d2d265db5de55f4fd46a159a6b0e4a75dd25f",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "8864874238917673930644756936982232317",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:8864874238917673930644756936982232317",
+            "kind": "fact",
+            "content": "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
+            "retrieved_at": "2026-10-27T04:32:54.240978700+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 49,
+        "event_id": "evt-55801b33-f9a5-4fae-8878-36c1efe8b63b",
+        "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:32:54.241633400+00:00",
+        "prev_hash": "2e666339a2b77968ab55a4b8904d2d265db5de55f4fd46a159a6b0e4a75dd25f",
+        "hash": "bba072ab6b379c07d07fa7f0fe09d1a8b0e39102c7ad06f8fbdb9deb8ab84919",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "186670067796945807561772405393844769735",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:186670067796945807561772405393844769735",
+            "kind": "constraint",
+            "content": "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+            "retrieved_at": "2026-10-27T04:32:54.240987500+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 50,
+        "event_id": "evt-883b1496-aab0-4507-9506-f9890d0132cd",
+        "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+        "actor": {
+          "kind": "agent",
+          "role": "critic"
+        },
+        "occurred_at": "2026-10-27T04:33:14.871193400+00:00",
+        "prev_hash": "bba072ab6b379c07d07fa7f0fe09d1a8b0e39102c7ad06f8fbdb9deb8ab84919",
+        "hash": "770644a1cab8586f61a1786a63c9a2e0ba7ea64a4f2151e3045c6382debc26c7",
+        "payload": {
+          "type": "challenge_submitted",
+          "challenge": {
+            "schema_version": "1.1",
+            "id": "chal-17",
+            "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+            "target_proposal": "prop-1",
+            "items": [
+              {
+                "id": "item-7",
+                "kind": "contradictory_evidence",
+                "claim_id": "claim-2",
+                "description": "Off-by-one ambiguity unresolved: proposal notes uncertainty whether 'more than 5 retry attempts' means 6 retries after the initial attempt or 6 total attempts, so assertion that it first triggers on the 6th retry is not established.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-8",
+                "kind": "contradictory_evidence",
+                "claim_id": "claim-2",
+                "description": "Potential conflict with retry cap: retrieved constraint 186670067796945807561772405393844769735 asserts retries capped at 3 attempts, which would make retry_count > 5 unreachable, but its integrity is Invalid and the proposal does not verify the actual cap.",
+                "evidence_refs": [
+                  "186670067796945807561772405393844769735"
+                ]
+              },
+              {
+                "id": "item-9",
+                "kind": "missing_test",
+                "claim_id": "claim-2",
+                "description": "No evaluation window, counting method, or handling of duplicate/out-of-order/reset retry events is defined, so retry_count > 5 cannot be reliably implemented or boundary-tested as stated.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-10",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-3",
+                "description": "Once-per-request deduplication mechanism is unspecified: no crossing-state storage, persistence across evaluation windows/restarts, expiry, or re-arm behaviour is described or tested.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-11",
+                "kind": "missing_test",
+                "claim_id": "claim-3",
+                "description": "Per-request deduplication does not prevent notification flooding when many distinct request IDs cross simultaneously; no rate aggregation, grouping, or alert-storm test is provided despite this being listed as an open uncertainty.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-12",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-4",
+                "description": "Claim guarantees downstream error/reason in each notification but qualifies it as 'if available', so field presence is not guaranteed and no test covers its absence.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-13",
+                "kind": "security_risk",
+                "claim_id": "claim-4",
+                "description": "Security/privacy risk not addressed: request ID and downstream error details sent to a notification channel may expose payment identifiers or internal error data; no redaction, access control, or channel suitability is specified.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-14",
+                "kind": "missing_test",
+                "claim_id": "claim-5",
+                "description": "Boundary claim depends on unresolved counting interpretation and undefined window/reset semantics; only 5 vs 6 cases are mentioned, with no tests for counts 0-4 across windows, duplicates, or metric resets causing premature/late notification.",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-15",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-6",
+                "description": "Threshold lacks valid support: no baseline distribution was provided and the retrieved fact 8864874238917673930644756936982232317 about bursts above 5 has integrity Invalid, so false-positive rate and paging suitability remain unknown.",
+                "evidence_refs": [
+                  "8864874238917673930644756936982232317"
+                ]
+              },
+              {
+                "id": "item-16",
+                "kind": "missing_test",
+                "claim_id": "claim-2",
+                "description": "Test traceability is broken: plan references claims C1, C2, and C4 but supplied claim ids are claim-2 through claim-6 with no claim-1/C1 definition, so referenced boundary and deduplication coverage cannot be verified.",
+                "evidence_refs": []
+              }
+            ],
+            "created_at": "2026-10-27T04:33:14.871153900+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba2-4bcf-7005-99e0-2f9256db32eb",
+            "latency_ms": 20617,
+            "input_tokens": 782,
+            "output_tokens": 2343
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 51,
+        "event_id": "evt-f979142f-9bd5-49a4-b43e-1e3a3cdf7b24",
+        "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:34:14.889483500+00:00",
+        "prev_hash": "770644a1cab8586f61a1786a63c9a2e0ba7ea64a4f2151e3045c6382debc26c7",
+        "hash": "f3de8275fa10a9bfe65fd7863a53f2be238c3a3c27fd11de172f2d303cd3e99a",
+        "payload": {
+          "type": "run_failed",
+          "reason": "model call timed out",
+          "stage": "evaluate"
+        }
+      }
+    ]
+  },
+  "receipt_status": 200,
+  "receipt": {
+    "schema_version": "1.1",
+    "run_id": "run-bcb03d2a-7394-44a9-86ad-25e275bdbf08",
+    "final_state": "failed",
+    "authorization": "pending",
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba1-fb42-7190-a8c2-e468dd769071",
+        "latency_ms": 20423,
+        "input_tokens": 161,
+        "output_tokens": 2305
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba2-4bcf-7005-99e0-2f9256db32eb",
+        "latency_ms": 20617,
+        "input_tokens": 782,
+        "output_tokens": 2343
+      }
+    ],
+    "verifications": [],
+    "event_count": 6,
+    "head_hash": "f3de8275fa10a9bfe65fd7863a53f2be238c3a3c27fd11de172f2d303cd3e99a",
+    "generated_at": "2026-10-27T04:34:14.935699800+00:00",
+    "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+  }
+}

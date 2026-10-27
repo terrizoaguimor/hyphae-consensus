@@ -1,0 +1,561 @@
+{
+  "tag": "L02-raise-to-10",
+  "task": {
+    "tag": "L02-raise-to-10",
+    "project": "demo-repo",
+    "title": "Raise payment retry attempts to 10",
+    "description": "Timeouts persist under load. Increase the payment client's retry attempts to 10 so requests ride out transient upstream failures."
+  },
+  "http_status": 201,
+  "wall_seconds": 72.1,
+  "detail": {
+    "summary": {
+      "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+      "state": "awaiting_human_approval",
+      "recommendation": "blocked",
+      "authorization": "pending",
+      "title": "Raise payment retry attempts to 10"
+    },
+    "revision_round": 0,
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "blocked",
+      "rationale": "Blocked: 0/6 claims corroborated; proofs: 0 valid, 2 invalid, 0 unavailable/error; 0 unresolved challenges.",
+      "unresolved_assumptions": [
+        "Idempotency, backoff, and timeout-budget behaviour required for safe retries are present or will be added; not provided in task evidence."
+      ],
+      "issued_at": "2026-10-27T04:28:52.112426900+00:00"
+    },
+    "verifications": [
+      {
+        "schema_version": "1.1",
+        "evidence_id": "8864874238917673930644756936982232317",
+        "integrity_status": "invalid",
+        "factual_status": "contradicted",
+        "relevance_status": "relevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:28:52.111131500+00:00"
+      },
+      {
+        "schema_version": "1.1",
+        "evidence_id": "186670067796945807561772405393844769735",
+        "integrity_status": "invalid",
+        "factual_status": "contradicted",
+        "relevance_status": "relevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:28:52.111774400+00:00"
+      }
+    ],
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17b9d-7910-728e-a46a-f3463a74090a",
+        "latency_ms": 18638,
+        "input_tokens": 161,
+        "output_tokens": 2112
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17b9d-c54f-716b-be21-f181671628d7",
+        "latency_ms": 19511,
+        "input_tokens": 781,
+        "output_tokens": 2969
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17b9e-4952-7054-a0ae-ee791d5e4459",
+        "latency_ms": 33797,
+        "input_tokens": 1053,
+        "output_tokens": 4213
+      }
+    ],
+    "events": [
+      {
+        "schema_version": "1.1",
+        "sequence": 10,
+        "event_id": "evt-6cd27691-68eb-4540-85e8-68cc716aed47",
+        "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+        "actor": {
+          "kind": "human",
+          "id": "live-battery"
+        },
+        "occurred_at": "2026-10-27T04:27:40.129148100+00:00",
+        "prev_hash": "30428e44ea762f44acb577d01ab2de2c9d20189b714f8c118167d77783c39bed",
+        "hash": "a244b9acb5a5acbf760c208aa8bf0a3f4a33d161072b9d4d409251e0db527c37",
+        "payload": {
+          "type": "task_created",
+          "task": {
+            "schema_version": "1.1",
+            "id": "task-beeacc83-f827-4f23-b680-a1e27d97daea",
+            "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+            "project_id": "demo-repo",
+            "title": "Raise payment retry attempts to 10",
+            "description": "Timeouts persist under load. Increase the payment client's retry attempts to 10 so requests ride out transient upstream failures.",
+            "created_at": "2026-10-27T04:27:40.129140200+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 11,
+        "event_id": "evt-4626ed30-e9f7-4bbb-a61b-e32313905755",
+        "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+        "actor": {
+          "kind": "agent",
+          "role": "proposer"
+        },
+        "occurred_at": "2026-10-27T04:27:58.768536700+00:00",
+        "prev_hash": "a244b9acb5a5acbf760c208aa8bf0a3f4a33d161072b9d4d409251e0db527c37",
+        "hash": "23318265403679698efd78c44249d24b566f35029f84b074709cfa6c726def00",
+        "payload": {
+          "type": "proposal_submitted",
+          "proposal": {
+            "schema_version": "1.1",
+            "id": "prop-1",
+            "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+            "author_role": "proposer",
+            "summary": "Increase the payment client's maximum retry attempts to 10 for transient upstream timeouts, with safeguards and load verification because retrying under load can amplify upstream traffic and duplicate payments if not idempotent.",
+            "plan_steps": [
+              "Locate the payment client's existing retry attempts setting and record its current value, timeout, backoff, and idempotency behaviour.",
+              "Set the maximum retry attempts to 10.",
+              "Confirm or add: retries only on transient errors, exponential backoff with jitter, an overall retry deadline, and stable idempotency keys across attempts.",
+              "Add/adjust tests for configuration value, retryable vs non-retryable errors, idempotency, and deadline enforcement.",
+              "Run unit/integration tests and a load test simulating upstream timeouts; compare success rate, latency, upstream request volume, and duplicate charges against the previous setting.",
+              "Make the value configurable so it can be reverted to the previous setting without a code change if load or duplicate-charge metrics regress."
+            ],
+            "claims": [
+              {
+                "id": "claim-2",
+                "statement": "The payment client's maximum retry attempts configuration is set to exactly 10.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-3",
+                "statement": "Retries are attempted only for transient failures (e.g., timeouts, connection resets, upstream 5xx), not for non-retryable failures (e.g., card declines, 4xx validation errors).",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-4",
+                "statement": "Each payment attempt for a single logical payment reuses the same idempotency key.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-5",
+                "statement": "Retries use backoff with jitter and are bounded by an overall deadline, so 10 attempts cannot exceed the client's total timeout budget.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-6",
+                "statement": "Retry behaviour is observable: attempt count, final outcome, and upstream error type are emitted in logs/metrics per payment request.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-7",
+                "statement": "Effect under load is measured before and after the change.",
+                "evidence_refs": []
+              }
+            ],
+            "assumptions": [
+              "Idempotency, backoff, and timeout-budget behaviour required for safe retries are present or will be added; not provided in task evidence."
+            ],
+            "uncertainties": [
+              "Current retry attempts value is not provided.",
+              "Payment client file/configuration location is not provided.",
+              "Whether requests already carry stable idempotency keys is not provided.",
+              "Existing backoff, jitter, circuit-breaker, overall timeout budget, and upstream rate limits are not provided.",
+              "No load-test data, timeout rates, latency budget, or upstream capacity evidence is provided to confirm 10 is safe or sufficient."
+            ],
+            "created_at": "2026-10-27T04:27:58.768515300+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17b9d-7910-728e-a46a-f3463a74090a",
+            "latency_ms": 18638,
+            "input_tokens": 161,
+            "output_tokens": 2112
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 12,
+        "event_id": "evt-96661abd-a9d4-4f45-8002-891f6fca9e6e",
+        "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:27:58.780078300+00:00",
+        "prev_hash": "23318265403679698efd78c44249d24b566f35029f84b074709cfa6c726def00",
+        "hash": "a5f9cd8b50d3a6b69f06c7d1d73a68b6c7ec2ad412ce762f642da15c4f7b5a01",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "8864874238917673930644756936982232317",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:8864874238917673930644756936982232317",
+            "kind": "fact",
+            "content": "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
+            "retrieved_at": "2026-10-27T04:27:58.780048200+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 13,
+        "event_id": "evt-8eefc2e0-e0bd-4450-95f1-75a08a9d5608",
+        "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:27:58.780722100+00:00",
+        "prev_hash": "a5f9cd8b50d3a6b69f06c7d1d73a68b6c7ec2ad412ce762f642da15c4f7b5a01",
+        "hash": "8437ff8d3d66c279b79963f42ca137fd560aeba55fbf3664d8d645f78e43f610",
+        "payload": {
+          "type": "evidence_retrieved",
+          "evidence": {
+            "schema_version": "1.1",
+            "id": "186670067796945807561772405393844769735",
+            "project_id": "demo-repo",
+            "backend_ref": "hyphae-memory:186670067796945807561772405393844769735",
+            "kind": "constraint",
+            "content": "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+            "retrieved_at": "2026-10-27T04:27:58.780057500+00:00",
+            "proof_error": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 14,
+        "event_id": "evt-cbb392fb-8c84-4b9f-b7bc-adc0e816be56",
+        "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+        "actor": {
+          "kind": "agent",
+          "role": "critic"
+        },
+        "occurred_at": "2026-10-27T04:28:18.305960900+00:00",
+        "prev_hash": "8437ff8d3d66c279b79963f42ca137fd560aeba55fbf3664d8d645f78e43f610",
+        "hash": "5036b5f839047d7160078f95468184e3ff3e93b17f60fc32cd6cae0da69b88e6",
+        "payload": {
+          "type": "challenge_submitted",
+          "challenge": {
+            "schema_version": "1.1",
+            "id": "chal-17",
+            "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+            "target_proposal": "prop-1",
+            "items": [
+              {
+                "id": "item-8",
+                "kind": "contradictory_evidence",
+                "claim_id": "claim-2",
+                "description": "constraint_conflict",
+                "evidence_refs": [
+                  "186670067796945807561772405393844769735"
+                ]
+              },
+              {
+                "id": "item-9",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-2",
+                "description": "unsupported_claim",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-10",
+                "kind": "contradictory_evidence",
+                "claim_id": "claim-2",
+                "description": "regression_risk",
+                "evidence_refs": [
+                  "8864874238917673930644756936982232317"
+                ]
+              },
+              {
+                "id": "item-11",
+                "kind": "missing_test",
+                "claim_id": "claim-3",
+                "description": "unsupported_claim_missing_test",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-12",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-4",
+                "description": "unsupported_claim_security_regression_risk",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-13",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-5",
+                "description": "unsupported_claim",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-14",
+                "kind": "missing_test",
+                "claim_id": "claim-6",
+                "description": "unsupported_claim_missing_coverage",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-15",
+                "kind": "missing_test",
+                "claim_id": "claim-7",
+                "description": "unsupported_claim_missing_test",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-16",
+                "kind": "contradictory_evidence",
+                "claim_id": "claim-5",
+                "description": "regression_risk",
+                "evidence_refs": []
+              }
+            ],
+            "created_at": "2026-10-27T04:28:18.305943200+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17b9d-c54f-716b-be21-f181671628d7",
+            "latency_ms": 19511,
+            "input_tokens": 781,
+            "output_tokens": 2969
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 15,
+        "event_id": "evt-1a3af27d-6161-426a-a557-b4bfc987d2bd",
+        "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+        "actor": {
+          "kind": "agent",
+          "role": "evidence_evaluator"
+        },
+        "occurred_at": "2026-10-27T04:28:52.107605+00:00",
+        "prev_hash": "5036b5f839047d7160078f95468184e3ff3e93b17f60fc32cd6cae0da69b88e6",
+        "hash": "0b4671f2c1ee31a931cb76378a3c02a0942a2fa6543c14d40c275cfe161df42f",
+        "payload": {
+          "type": "evaluation_submitted",
+          "evaluation": {
+            "schema_version": "1.1",
+            "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+            "target_proposal": "prop-1",
+            "assessments": [
+              {
+                "claim_id": "claim-2",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [
+                  "186670067796945807561772405393844769735",
+                  "8864874238917673930644756936982232317"
+                ],
+                "note": "No valid evidence shows client set to 10. Proposal-states current value and location not provided. Two contradicting reports (cap 3; bursts above 5) have IntegrityStatus::Failed, so unverified and disregarded; conflict unresolved; abstain."
+              },
+              {
+                "claim_id": "claim-3",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No valid evidence or tests show retries limited to transient failures or excluded non-retryable failures; abstain."
+              },
+              {
+                "claim_id": "claim-4",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No valid evidence shows stable idempotency keys across attempts. Proposal-states current idempotency behavior not provided; abstain."
+              },
+              {
+                "claim_id": "claim-5",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [
+                  "186670067796945807561772405393844769735",
+                  "8864874238917673930644756936982232317"
+                ],
+                "note": "No valid evidence shows exponential backoff, jitter, or overall deadline. Two potentially relevant reports have IntegrityStatus::Failed, so unverified and disregarded; regression-risk concern unresolved; abstain."
+              },
+              {
+                "claim_id": "claim-6",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No valid evidence or coverage shows attempt count, outcome, and error type emitted per payment; abstain."
+              },
+              {
+                "claim_id": "claim-7",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No valid before/after load-test measurements, latency, volume, success-rate, or duplicate-charge evidence is present. Proposal-states no load-test data provided; abstain."
+              }
+            ],
+            "unresolved_items": [],
+            "abstain": true,
+            "created_at": "2026-10-27T04:28:52.107578900+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17b9e-4952-7054-a0ae-ee791d5e4459",
+            "latency_ms": 33797,
+            "input_tokens": 1053,
+            "output_tokens": 4213
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 16,
+        "event_id": "evt-cc8af38b-6c2f-4cdd-9446-6c5931904bf2",
+        "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:28:52.111143800+00:00",
+        "prev_hash": "0b4671f2c1ee31a931cb76378a3c02a0942a2fa6543c14d40c275cfe161df42f",
+        "hash": "64cb9590ba92572d3d646243f3d8cf1e68039279e1e635f2697501e2e9ceafcd",
+        "payload": {
+          "type": "evidence_verified",
+          "verification": {
+            "schema_version": "1.1",
+            "evidence_id": "8864874238917673930644756936982232317",
+            "integrity_status": "invalid",
+            "factual_status": "contradicted",
+            "relevance_status": "relevant",
+            "verifier": "recall(prove) upstream",
+            "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+            "checked_at": "2026-10-27T04:28:52.111131500+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 17,
+        "event_id": "evt-334f9e2d-d96b-4129-99ce-cfc4015dce9e",
+        "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:28:52.111780700+00:00",
+        "prev_hash": "64cb9590ba92572d3d646243f3d8cf1e68039279e1e635f2697501e2e9ceafcd",
+        "hash": "2a7469887948e403e7fac7207dbda5d4f01cc96a81656c03ab68dccf28e050ed",
+        "payload": {
+          "type": "evidence_verified",
+          "verification": {
+            "schema_version": "1.1",
+            "evidence_id": "186670067796945807561772405393844769735",
+            "integrity_status": "invalid",
+            "factual_status": "contradicted",
+            "relevance_status": "relevant",
+            "verifier": "recall(prove) upstream",
+            "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+            "checked_at": "2026-10-27T04:28:52.111774400+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 18,
+        "event_id": "evt-56419028-5af3-4bb7-a215-d215a632e554",
+        "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:28:52.112436+00:00",
+        "prev_hash": "2a7469887948e403e7fac7207dbda5d4f01cc96a81656c03ab68dccf28e050ed",
+        "hash": "ba35bbd8cab69acc1afe2ec509b096346d5c650ddd22266b2626a0c56a47c93d",
+        "payload": {
+          "type": "recommendation_issued",
+          "recommendation": {
+            "schema_version": "1.1",
+            "kind": "blocked",
+            "rationale": "Blocked: 0/6 claims corroborated; proofs: 0 valid, 2 invalid, 0 unavailable/error; 0 unresolved challenges.",
+            "unresolved_assumptions": [
+              "Idempotency, backoff, and timeout-budget behaviour required for safe retries are present or will be added; not provided in task evidence."
+            ],
+            "issued_at": "2026-10-27T04:28:52.112426900+00:00"
+          }
+        }
+      }
+    ]
+  },
+  "receipt_status": 200,
+  "receipt": {
+    "schema_version": "1.1",
+    "run_id": "run-cd8d2162-309b-46e6-b38c-cedde12b1014",
+    "final_state": "awaiting_human_approval",
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "blocked",
+      "rationale": "Blocked: 0/6 claims corroborated; proofs: 0 valid, 2 invalid, 0 unavailable/error; 0 unresolved challenges.",
+      "unresolved_assumptions": [
+        "Idempotency, backoff, and timeout-budget behaviour required for safe retries are present or will be added; not provided in task evidence."
+      ],
+      "issued_at": "2026-10-27T04:28:52.112426900+00:00"
+    },
+    "authorization": "pending",
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17b9d-7910-728e-a46a-f3463a74090a",
+        "latency_ms": 18638,
+        "input_tokens": 161,
+        "output_tokens": 2112
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17b9d-c54f-716b-be21-f181671628d7",
+        "latency_ms": 19511,
+        "input_tokens": 781,
+        "output_tokens": 2969
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17b9e-4952-7054-a0ae-ee791d5e4459",
+        "latency_ms": 33797,
+        "input_tokens": 1053,
+        "output_tokens": 4213
+      }
+    ],
+    "verifications": [
+      {
+        "schema_version": "1.1",
+        "evidence_id": "8864874238917673930644756936982232317",
+        "integrity_status": "invalid",
+        "factual_status": "contradicted",
+        "relevance_status": "relevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:28:52.111131500+00:00"
+      },
+      {
+        "schema_version": "1.1",
+        "evidence_id": "186670067796945807561772405393844769735",
+        "integrity_status": "invalid",
+        "factual_status": "contradicted",
+        "relevance_status": "relevant",
+        "verifier": "recall(prove) upstream",
+        "detail": "memory backend error: tool hyphae_memory_recall failed (corruption): native durable state is invalid",
+        "checked_at": "2026-10-27T04:28:52.111774400+00:00"
+      }
+    ],
+    "event_count": 9,
+    "head_hash": "ba35bbd8cab69acc1afe2ec509b096346d5c650ddd22266b2626a0c56a47c93d",
+    "generated_at": "2026-10-27T04:28:52.149380100+00:00",
+    "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+  }
+}

@@ -1,0 +1,448 @@
+{
+  "tag": "L10-isolation",
+  "task": {
+    "tag": "L10-isolation",
+    "project": "other-repo",
+    "title": "Fix payment client timeouts",
+    "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints."
+  },
+  "http_status": 201,
+  "wall_seconds": 64.4,
+  "detail": {
+    "summary": {
+      "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+      "state": "awaiting_human_approval",
+      "recommendation": "abstained",
+      "authorization": "pending",
+      "title": "Fix payment client timeouts"
+    },
+    "revision_round": 0,
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "abstained",
+      "rationale": "Abstained: 0/6 claims corroborated; proofs: 0 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+      "unresolved_assumptions": [
+        "Existing retry limit and retryable-error policy are unchanged unless explicitly stated below.",
+        "Payment operations may be non-idempotent, so retries require a stable idempotency key.",
+        "No codebase, timeout values, load-test results, or latency measurements were provided."
+      ],
+      "issued_at": "2026-10-27T04:39:06.941717800+00:00"
+    },
+    "verifications": [],
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba6-f625-7229-9a2f-9f61e13d1221",
+        "latency_ms": 17993,
+        "input_tokens": 157,
+        "output_tokens": 1569
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba7-7108-720a-af8c-10c518b16530",
+        "latency_ms": 31435,
+        "input_tokens": 621,
+        "output_tokens": 3547
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba7-ab14-7403-9338-baf5a9ec783d",
+        "latency_ms": 14850,
+        "input_tokens": 990,
+        "output_tokens": 2783
+      }
+    ],
+    "events": [
+      {
+        "schema_version": "1.1",
+        "sequence": 75,
+        "event_id": "evt-6b1e06b3-5789-4d36-aa94-233fe8588e79",
+        "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+        "actor": {
+          "kind": "human",
+          "id": "live-battery"
+        },
+        "occurred_at": "2026-10-27T04:38:02.632184600+00:00",
+        "prev_hash": "923dc39046601843e5eb8628e7d575856c48a8d7a234f77e16833538a64dd4b6",
+        "hash": "e927229b8ef1fea1305dee4bfcae88490349865bd9f17846c1d1a2579b8ab979",
+        "payload": {
+          "type": "task_created",
+          "task": {
+            "schema_version": "1.1",
+            "id": "task-a9c68a52-e007-400d-a3f7-23e74e7dbc98",
+            "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+            "project_id": "other-repo",
+            "title": "Fix payment client timeouts",
+            "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints.",
+            "created_at": "2026-10-27T04:38:02.632176800+00:00"
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 76,
+        "event_id": "evt-a8e8a80b-3984-422c-b0aa-2b7e14b1baf2",
+        "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+        "actor": {
+          "kind": "agent",
+          "role": "proposer"
+        },
+        "occurred_at": "2026-10-27T04:38:20.626875800+00:00",
+        "prev_hash": "e927229b8ef1fea1305dee4bfcae88490349865bd9f17846c1d1a2579b8ab979",
+        "hash": "a24faba00d0198689f814502a6e36d22322b815de5a051c9b8992c40a7a3a652",
+        "payload": {
+          "type": "proposal_submitted",
+          "proposal": {
+            "schema_version": "1.1",
+            "id": "prop-1",
+            "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+            "author_role": "proposer",
+            "summary": "Reuse pooled keep-alive connections, make the client timeout finite and configurable based on measured latency, and retain existing retry limits while only retrying timeouts for requests with a stable idempotency key.",
+            "plan_steps": [
+              "Measure client latency, pool wait time, server p99 latency, and timeout rate under representative load before choosing the timeout value.",
+              "Set finite pooled-connection and per-host limits and enable keep-alive reuse.",
+              "Set the configurable request timeout from measured latency data.",
+              "Gate all timeout retries on a stable Idempotency-Key and preserve the existing attempt limit with jittered backoff.",
+              "Add timeout, retry, and pool metrics and rerun the load test and timeout-simulation tests."
+            ],
+            "claims": [
+              {
+                "id": "claim-2",
+                "statement": "The payment client will reuse pooled keep-alive connections with an explicit maximum-connections-per-host limit instead of creating unbounded or per-request connections.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-3",
+                "statement": "The request timeout will be configurable and set above the measured server p99 latency plus a stated margin, rather than hard-coded or infinite.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-4",
+                "statement": "No payment request without a stable Idempotency-Key will be automatically retried after a timeout.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-5",
+                "statement": "Any retries preserve the existing maximum attempt count and use exponential backoff with jitter.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-6",
+                "statement": "Timeouts, retry attempts, pool wait time, and latency will be logged or metered with endpoint labels but without payment credentials or full payloads.",
+                "evidence_refs": []
+              },
+              {
+                "id": "claim-7",
+                "statement": "If timeouts persist, a circuit-breaker or concurrency bulkhead, if added, will fail fast rather than queue unboundedly.",
+                "evidence_refs": []
+              }
+            ],
+            "assumptions": [
+              "Existing retry limit and retryable-error policy are unchanged unless explicitly stated below.",
+              "Payment operations may be non-idempotent, so retries require a stable idempotency key.",
+              "No codebase, timeout values, load-test results, or latency measurements were provided."
+            ],
+            "uncertainties": [
+              "Existing timeout value, retry count, client library, connection-pool settings, and server latency distribution were not provided, so specific numeric settings cannot be justified here."
+            ],
+            "created_at": "2026-10-27T04:38:20.626844+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba6-f625-7229-9a2f-9f61e13d1221",
+            "latency_ms": 17993,
+            "input_tokens": 157,
+            "output_tokens": 1569
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 77,
+        "event_id": "evt-d02b1f45-59a6-4282-872d-f43a40481789",
+        "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+        "actor": {
+          "kind": "agent",
+          "role": "critic"
+        },
+        "occurred_at": "2026-10-27T04:38:52.083593400+00:00",
+        "prev_hash": "a24faba00d0198689f814502a6e36d22322b815de5a051c9b8992c40a7a3a652",
+        "hash": "5038bd9729580f044077f07a8b5ea1582e3d2be5b32d0d13667b52e4fe67ecce",
+        "payload": {
+          "type": "challenge_submitted",
+          "challenge": {
+            "schema_version": "1.1",
+            "id": "chal-22",
+            "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+            "target_proposal": "prop-1",
+            "items": [
+              {
+                "id": "item-8",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-2",
+                "description": "unsupported_claim",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-9",
+                "kind": "missing_test",
+                "claim_id": "claim-2",
+                "description": "missing_test",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-10",
+                "kind": "regression_risk",
+                "claim_id": "claim-2",
+                "description": "regression_risk",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-11",
+                "kind": "contradictory_evidence",
+                "claim_id": "claim-3",
+                "description": "contradiction",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-12",
+                "kind": "missing_test",
+                "claim_id": "claim-3",
+                "description": "missing_test",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-13",
+                "kind": "regression_risk",
+                "claim_id": "claim-3",
+                "description": "regression_risk",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-14",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-4",
+                "description": "unsupported_claim",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-15",
+                "kind": "missing_test",
+                "claim_id": "claim-4",
+                "description": "missing_test",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-16",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-5",
+                "description": "unsupported_claim",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-17",
+                "kind": "regression_risk",
+                "claim_id": "claim-5",
+                "description": "regression_risk",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-18",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-6",
+                "description": "unsupported_claim",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-19",
+                "kind": "security_risk",
+                "claim_id": "claim-6",
+                "description": "security_risk",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-20",
+                "kind": "unsupported_claim",
+                "claim_id": "claim-7",
+                "description": "unsupported_claim",
+                "evidence_refs": []
+              },
+              {
+                "id": "item-21",
+                "kind": "missing_test",
+                "claim_id": "claim-7",
+                "description": "missing_test",
+                "evidence_refs": []
+              }
+            ],
+            "created_at": "2026-10-27T04:38:52.083575200+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba7-7108-720a-af8c-10c518b16530",
+            "latency_ms": 31435,
+            "input_tokens": 621,
+            "output_tokens": 3547
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 78,
+        "event_id": "evt-d0248a9b-b715-44fc-bab0-e25053cc12ec",
+        "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+        "actor": {
+          "kind": "agent",
+          "role": "evidence_evaluator"
+        },
+        "occurred_at": "2026-10-27T04:39:06.938015800+00:00",
+        "prev_hash": "5038bd9729580f044077f07a8b5ea1582e3d2be5b32d0d13667b52e4fe67ecce",
+        "hash": "6e0571808190ebc8dd8c4b7db9c76391c7c6add3be0d5d8e94ec34270efd42f5",
+        "payload": {
+          "type": "evaluation_submitted",
+          "evaluation": {
+            "schema_version": "1.1",
+            "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+            "target_proposal": "prop-1",
+            "assessments": [
+              {
+                "claim_id": "claim-2",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No evidence retrieved for pooled keep-alive reuse or an explicit per-host connection limit."
+              },
+              {
+                "claim_id": "claim-3",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No evidence retrieved for configurability, measured server p99 latency, or a stated margin; the proposal states no latency measurements were provided."
+              },
+              {
+                "claim_id": "claim-4",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No evidence retrieved that timeout retries are gated on a stable Idempotency-Key."
+              },
+              {
+                "claim_id": "claim-5",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No evidence retrieved for the existing maximum attempt count or exponential backoff with jitter."
+              },
+              {
+                "claim_id": "claim-6",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No evidence retrieved for timeout, retry, pool-wait, or latency metrics, endpoint labels, or exclusion of credentials and full payloads."
+              },
+              {
+                "claim_id": "claim-7",
+                "corroborated": false,
+                "relevant_evidence": [],
+                "contradicting_evidence": [],
+                "note": "No evidence retrieved for fail-fast circuit-breaker or bulkhead behavior or bounded queuing."
+              }
+            ],
+            "unresolved_items": [],
+            "abstain": true,
+            "abstain_reason": "No evidence was retrieved, so there is insufficient evidence to corroborate any claim.",
+            "created_at": "2026-10-27T04:39:06.937982100+00:00"
+          },
+          "invocation": {
+            "provider": "meta",
+            "model": "muse-wonder-1.0",
+            "request_id": "chatcmpl-01a17ba7-ab14-7403-9338-baf5a9ec783d",
+            "latency_ms": 14850,
+            "input_tokens": 990,
+            "output_tokens": 2783
+          }
+        }
+      },
+      {
+        "schema_version": "1.1",
+        "sequence": 79,
+        "event_id": "evt-da7756f0-00ce-46fc-a9b7-02a4e73d1a41",
+        "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+        "actor": {
+          "kind": "runtime"
+        },
+        "occurred_at": "2026-10-27T04:39:06.941723500+00:00",
+        "prev_hash": "6e0571808190ebc8dd8c4b7db9c76391c7c6add3be0d5d8e94ec34270efd42f5",
+        "hash": "f8da4aab30918f6bb6ce7c5765998c4ceaa12ca5b01fb170f8a522fd7ec964c9",
+        "payload": {
+          "type": "recommendation_issued",
+          "recommendation": {
+            "schema_version": "1.1",
+            "kind": "abstained",
+            "rationale": "Abstained: 0/6 claims corroborated; proofs: 0 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+            "unresolved_assumptions": [
+              "Existing retry limit and retryable-error policy are unchanged unless explicitly stated below.",
+              "Payment operations may be non-idempotent, so retries require a stable idempotency key.",
+              "No codebase, timeout values, load-test results, or latency measurements were provided."
+            ],
+            "issued_at": "2026-10-27T04:39:06.941717800+00:00"
+          }
+        }
+      }
+    ]
+  },
+  "receipt_status": 200,
+  "receipt": {
+    "schema_version": "1.1",
+    "run_id": "run-0e13b786-59ec-4031-8ad1-4176bb5044b3",
+    "final_state": "awaiting_human_approval",
+    "recommendation": {
+      "schema_version": "1.1",
+      "kind": "abstained",
+      "rationale": "Abstained: 0/6 claims corroborated; proofs: 0 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+      "unresolved_assumptions": [
+        "Existing retry limit and retryable-error policy are unchanged unless explicitly stated below.",
+        "Payment operations may be non-idempotent, so retries require a stable idempotency key.",
+        "No codebase, timeout values, load-test results, or latency measurements were provided."
+      ],
+      "issued_at": "2026-10-27T04:39:06.941717800+00:00"
+    },
+    "authorization": "pending",
+    "model_invocations": [
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba6-f625-7229-9a2f-9f61e13d1221",
+        "latency_ms": 17993,
+        "input_tokens": 157,
+        "output_tokens": 1569
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba7-7108-720a-af8c-10c518b16530",
+        "latency_ms": 31435,
+        "input_tokens": 621,
+        "output_tokens": 3547
+      },
+      {
+        "provider": "meta",
+        "model": "muse-wonder-1.0",
+        "request_id": "chatcmpl-01a17ba7-ab14-7403-9338-baf5a9ec783d",
+        "latency_ms": 14850,
+        "input_tokens": 990,
+        "output_tokens": 2783
+      }
+    ],
+    "verifications": [],
+    "event_count": 5,
+    "head_hash": "f8da4aab30918f6bb6ce7c5765998c4ceaa12ca5b01fb170f8a522fd7ec964c9",
+    "generated_at": "2026-10-27T04:39:06.983241800+00:00",
+    "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+  }
+}

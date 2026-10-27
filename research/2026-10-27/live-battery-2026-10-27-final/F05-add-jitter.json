@@ -1,0 +1,1505 @@
+{
+ "tag": "F05-add-jitter",
+ "task": {
+  "project": "demo-repo",
+  "title": "Add jitter to payment retries",
+  "description": "Retry storms align under load. Add randomized jitter to the existing payment retry backoff without changing the attempt limit."
+ },
+ "http_status": 201,
+ "wall_seconds": 287.0,
+ "detail": {
+  "summary": {
+   "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+   "state": "awaiting_human_approval",
+   "recommendation": "contested",
+   "authorization": "pending",
+   "title": "Add jitter to payment retries"
+  },
+  "revision_round": 1,
+  "recommendation": {
+   "schema_version": "1.2",
+   "kind": "contested",
+   "rationale": "Contested: 3/3 claims corroborated; proofs: 6 valid, 0 invalid, 0 unavailable/error; 7 unresolved challenges.",
+   "unresolved_assumptions": [
+    "A random source is available in the retry path that can be seeded non-deterministically in production and mocked or deterministically seeded only in tests.",
+    "The code semantics of RetryPolicy.jitter_ms can be inspected so a fresh per-attempt draw can be implemented while keeping the applied jitter at least 50 ms.",
+    "Tests can capture the payment payload on each attempt to verify it is unchanged."
+   ],
+   "issued_at": "2026-10-27T07:57:13.033130500+00:00"
+  },
+  "verifications": [
+   {
+    "schema_version": "1.2",
+    "evidence_id": "328114099256634798832222840773545327795",
+    "integrity_status": "valid",
+    "factual_status": "contradicted",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.719781800+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "295729039551322334710406856728557559035",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.720338800+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "287567405605917891851290763137356115373",
+    "integrity_status": "valid",
+    "factual_status": "contradicted",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.720842600+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "237412834382378687445660534362297845298",
+    "integrity_status": "valid",
+    "factual_status": "contradicted",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.721313300+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "8864874238917673930644756936982232317",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.721841+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "161896895843658017381255677281559699870",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 9626994744efb2de34f34849df011a7f9c5ebf303cf60449327a0b01d1e184c6); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.722312100+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "186670067796945807561772405393844769735",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 9626994744efb2de34f34849df011a7f9c5ebf303cf60449327a0b01d1e184c6); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.722943200+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "186670067796945807561772405393844769735",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.030010+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "328114099256634798832222840773545327795",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.030620+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "287567405605917891851290763137356115373",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.031170700+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "161896895843658017381255677281559699870",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.031638800+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "237412834382378687445660534362297845298",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.032116400+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "295729039551322334710406856728557559035",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 193841caaec0ac5a0b6b11bd4f175c3c2f528fa8aaa130f05500aa868b64d26a); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.032579+00:00"
+   }
+  ],
+  "model_invocations": [
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c58-f8bf-7222-8643-8dbc699f6aee",
+    "latency_ms": 21978,
+    "input_tokens": 230,
+    "output_tokens": 2239
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c59-8dff-7472-9b10-693279819abf",
+    "latency_ms": 37690,
+    "input_tokens": 968,
+    "output_tokens": 4227
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c5a-85f1-779a-a0b5-74966eb77d0f",
+    "latency_ms": 63468,
+    "input_tokens": 1512,
+    "output_tokens": 7548
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c5b-214f-73e8-8317-8cf6d9af649d",
+    "latency_ms": 39771,
+    "input_tokens": 1635,
+    "output_tokens": 4362
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c5c-8254-74d8-931e-9df6eea41c53",
+    "latency_ms": 89896,
+    "input_tokens": 1265,
+    "output_tokens": 9589
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c5d-03f5-75ff-b0a5-d79564315051",
+    "latency_ms": 33169,
+    "input_tokens": 1874,
+    "output_tokens": 4497
+   }
+  ],
+  "events": [
+   {
+    "schema_version": "1.2",
+    "sequence": 130,
+    "event_id": "evt-cff83736-4dec-4a7a-b3b4-fdd309517ad0",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "human",
+     "id": "live-battery"
+    },
+    "occurred_at": "2026-10-27T07:52:26.105801400+00:00",
+    "prev_hash": "b3c59139c1e5b448a978cd40ced03fd7776be6646796cbbfdf16ee20ac5be376",
+    "hash": "6f2f31d63c61c47114a44a337d14006a7fb1cc15d74f6d44a0429aa9837c4d1a",
+    "payload": {
+     "type": "task_created",
+     "task": {
+      "schema_version": "1.2",
+      "id": "task-9663ff7b-a85e-4bbe-885a-bc0d2c9564f1",
+      "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+      "project_id": "demo-repo",
+      "title": "Add jitter to payment retries",
+      "description": "Retry storms align under load. Add randomized jitter to the existing payment retry backoff without changing the attempt limit.",
+      "created_at": "2026-10-27T07:52:26.105793500+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 131,
+    "event_id": "evt-a89ef4c2-d9e0-401a-b629-4123b9b5dd28",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "agent",
+     "role": "proposer"
+    },
+    "occurred_at": "2026-10-27T07:52:48.085225+00:00",
+    "prev_hash": "6f2f31d63c61c47114a44a337d14006a7fb1cc15d74f6d44a0429aa9837c4d1a",
+    "hash": "244793a8c7bbbbbb615e225f742d61f82db52b5d9998aa8bd1d8a7a8bc0d5b42",
+    "payload": {
+     "type": "proposal_submitted",
+     "proposal": {
+      "schema_version": "1.2",
+      "id": "prop-1",
+      "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+      "author_role": "proposer",
+      "summary": "Title: Add jitter to payment retries\n\nAdd per-attempt randomized jitter to the existing payment retry delay, preserving the existing attempt limit and keeping jitter within any documented maximum-delay bounds.",
+      "plan_steps": [
+       "Preserve the existing attempt limit in retries.",
+       "Apply bounded random jitter to the retry delay.",
+       "Keep non-payment logic unchanged.",
+       "Test with deterministic or mocked randomness where applicable."
+      ],
+      "claims": [
+       {
+        "id": "claim-2",
+        "statement": "The payment retry attempt limit is not changed by this proposal; the limit enforced after the change equals the limit enforced before it.",
+        "evidence_refs": []
+       },
+       {
+        "id": "claim-3",
+        "statement": "Randomized jitter modifies only the timing/delay before a payment retry, not retry eligibility, the payment payload, or the number of retries.",
+        "evidence_refs": []
+       },
+       {
+        "id": "claim-4",
+        "statement": "Each retry delay receives an independently drawn random jitter component, so concurrent failed payments do not all use the same added delay.",
+        "evidence_refs": []
+       }
+      ],
+      "assumptions": [
+       "The existing payment retry path has a backoff delay to which a bounded random component can be added or applied without exceeding any documented maximum delay; no record value was provided here to confirm the base delay, growth factor, or cap.",
+       "A suitable random source is available in the retry code path.",
+       "Tests can seed or mock randomness to assert delay bounds deterministically."
+      ],
+      "uncertainties": [
+       "The concrete documented attempt-limit value, base backoff, growth factor, and any maximum-delay cap were not provided; they must be read from stored records before implementation.",
+       "Whether stored constraints require a specific jitter distribution or range, and any SLA upper bound on total retry time, is unknown from the provided evidence.",
+       "Whether total delay must never exceed the pre-change maximum delay is not settled by the provided evidence."
+      ],
+      "created_at": "2026-10-27T07:52:48.085205900+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c58-f8bf-7222-8643-8dbc699f6aee",
+      "latency_ms": 21978,
+      "input_tokens": 230,
+      "output_tokens": 2239
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 132,
+    "event_id": "evt-0ee2485b-5ec1-4a21-af49-fe5ee4d4dc64",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:52:48.131007800+00:00",
+    "prev_hash": "244793a8c7bbbbbb615e225f742d61f82db52b5d9998aa8bd1d8a7a8bc0d5b42",
+    "hash": "0dcfbb8fe1896fbebb5580e3042ba9b7a6cf5682924b7ca45ef83eed8fc4a989",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.2",
+      "id": "328114099256634798832222840773545327795",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:328114099256634798832222840773545327795",
+      "kind": "decision",
+      "content": "Decision (2026-09 payments review): fix payment timeouts by setting the payment-client RetryPolicy to max_attempts = 3 with jitter_ms of at least 50; raising the attempt cap above 3 is not allowed.",
+      "retrieved_at": "2026-10-27T07:52:48.130961900+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.witness"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 133,
+    "event_id": "evt-116da06c-3ccf-4ffd-a8d9-7eb8cb66cb28",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:52:48.131610100+00:00",
+    "prev_hash": "0dcfbb8fe1896fbebb5580e3042ba9b7a6cf5682924b7ca45ef83eed8fc4a989",
+    "hash": "d66da17c9004887cba032d1a7f6b1f0686f67fbb9ac9ecea9674038490d24e86",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.2",
+      "id": "295729039551322334710406856728557559035",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:295729039551322334710406856728557559035",
+      "kind": "fact",
+      "content": "Fact: in the 2026-08 outage, retry bursts from payment clients amplified an upstream slowdown into a full outage.",
+      "retrieved_at": "2026-10-27T07:52:48.130972200+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.witness"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 134,
+    "event_id": "evt-6dbac975-6890-49d2-8c3a-8337f38a6df5",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:52:48.132107600+00:00",
+    "prev_hash": "d66da17c9004887cba032d1a7f6b1f0686f67fbb9ac9ecea9674038490d24e86",
+    "hash": "7c6f84b0fb0328c9a3409af5efaf9a7b1eada30047ffbac2947c9b4b14ea7bb7",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.2",
+      "id": "287567405605917891851290763137356115373",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:287567405605917891851290763137356115373",
+      "kind": "fact",
+      "content": "Fact: the payment-client default RetryPolicy is max_attempts = 1 with jitter_ms = 0, so a single transient upstream timeout surfaces to users as a payment timeout.",
+      "retrieved_at": "2026-10-27T07:52:48.130974900+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.witness"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 135,
+    "event_id": "evt-b860db0a-12f9-4b69-ba69-a6ec947da9b0",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:52:48.132566900+00:00",
+    "prev_hash": "7c6f84b0fb0328c9a3409af5efaf9a7b1eada30047ffbac2947c9b4b14ea7bb7",
+    "hash": "81d757862306b647211bbd08c013235e31ceab408f7259aa53b4901bf2f2f4ac",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.2",
+      "id": "237412834382378687445660534362297845298",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:237412834382378687445660534362297845298",
+      "kind": "fact",
+      "content": "Fact: the payment-client test constraint_cap_is_three_attempts fails for any RetryPolicy with max_attempts above 3 or with jitter_ms equal to 0.",
+      "retrieved_at": "2026-10-27T07:52:48.130977600+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.witness"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 136,
+    "event_id": "evt-68ee2d9a-c47e-44e1-9454-46b0fe0fdcf8",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:52:48.133013100+00:00",
+    "prev_hash": "81d757862306b647211bbd08c013235e31ceab408f7259aa53b4901bf2f2f4ac",
+    "hash": "1fb791db5bba286c362de076ca41756a2c1196adf2e4a7f8c8be351b923bc636",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.2",
+      "id": "8864874238917673930644756936982232317",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:8864874238917673930644756936982232317",
+      "kind": "fact",
+      "content": "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
+      "retrieved_at": "2026-10-27T07:52:48.130980800+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f8fc-77f2-808d-0964a175d821.witness"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 137,
+    "event_id": "evt-733c7780-5715-40be-b5b2-f128f87f589f",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:52:48.175607100+00:00",
+    "prev_hash": "1fb791db5bba286c362de076ca41756a2c1196adf2e4a7f8c8be351b923bc636",
+    "hash": "45364d5b7980a8a94963e5be42a0198f06ce718d34068d7e13f9f1ea67e9541e",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.2",
+      "id": "161896895843658017381255677281559699870",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:161896895843658017381255677281559699870",
+      "kind": "fact",
+      "content": "Fact: send_with_retries in payment-client retries only SendError::Timeout, up to RetryPolicy.max_attempts; upstream errors are returned at once without a retry.",
+      "retrieved_at": "2026-10-27T07:52:48.175510300+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f928-7750-9109-88191dadc552.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f928-7750-9109-88191dadc552.witness"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 138,
+    "event_id": "evt-e1d18f3b-f937-4f4d-8a12-2e5495bf484a",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:52:48.176455100+00:00",
+    "prev_hash": "45364d5b7980a8a94963e5be42a0198f06ce718d34068d7e13f9f1ea67e9541e",
+    "hash": "a7091876fe8c626d4e8dab1366f91bd8358820833c9275937a7874d63fd07ecb",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.2",
+      "id": "186670067796945807561772405393844769735",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:186670067796945807561772405393844769735",
+      "kind": "constraint",
+      "content": "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+      "retrieved_at": "2026-10-27T07:52:48.175537200+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f928-7750-9109-88191dadc552.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a17c58-f928-7750-9109-88191dadc552.witness"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 139,
+    "event_id": "evt-b5c83122-dadd-4c20-82dd-ca13c733c590",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "agent",
+     "role": "critic"
+    },
+    "occurred_at": "2026-10-27T07:53:26.248409500+00:00",
+    "prev_hash": "a7091876fe8c626d4e8dab1366f91bd8358820833c9275937a7874d63fd07ecb",
+    "hash": "6d587e5dc39ff778846971e776f39db6277d2195fb487e8ab741e10394499b40",
+    "payload": {
+     "type": "challenge_submitted",
+     "challenge": {
+      "schema_version": "1.2",
+      "id": "chal-11",
+      "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+      "target_proposal": "prop-1",
+      "items": [
+       {
+        "id": "item-5",
+        "kind": "contradictory_evidence",
+        "claim_id": "claim-2",
+        "description": "Claim-2 preserves the existing attempt limit, but the existing default is max_attempts = 1 while the documented decision requires setting max_attempts = 3, so preserving the pre-change limit would leave the required payment-timeout fix unimplemented.",
+        "evidence_refs": [
+         "287567405605917891851290763137356115373",
+         "328114099256634798832222840773545327795"
+        ]
+       },
+       {
+        "id": "item-6",
+        "kind": "contradictory_evidence",
+        "claim_id": "claim-4",
+        "description": "The plan only says jitter will be bounded and does not guarantee the documented minimum jitter_ms of at least 50 or the non-zero jitter required by constraint_cap_is_three_attempts, so jitter in the range 0-49 ms would violate the documented requirements.",
+        "evidence_refs": [
+         "328114099256634798832222840773545327795",
+         "237412834382378687445660534362297845298"
+        ]
+       },
+       {
+        "id": "item-7",
+        "kind": "missing_test",
+        "claim_id": "claim-3",
+        "description": "Claim-3 asserts retry eligibility will not change, but the plan provides no test proving that only SendError::Timeout is retried and that upstream errors still return immediately without a retry or that the payment payload remains unchanged.",
+        "evidence_refs": [
+         "161896895843658017381255677281559699870"
+        ]
+       },
+       {
+        "id": "item-8",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-4",
+        "description": "Claim-4 asserts an independently drawn jitter for each retry, but the evidence describes jitter_ms as a RetryPolicy field and the plan does not specify a fresh per-attempt and per-payment draw, so a single policy-level value could still synchronize concurrent failed payments.",
+        "evidence_refs": [
+         "328114099256634798832222840773545327795",
+         "287567405605917891851290763137356115373",
+         "295729039551322334710406856728557559035"
+        ]
+       },
+       {
+        "id": "item-9",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-3",
+        "description": "Claim-3 and the stated maximum-delay protection are unsupported because the proposal admits that any documented maximum delay and total retry-time bound are unknown, so adding jitter to the existing backoff could exceed the applicable cap and prolong payment timeouts.",
+        "evidence_refs": [
+         "328114099256634798832222840773545327795"
+        ]
+       },
+       {
+        "id": "item-10",
+        "kind": "missing_test",
+        "claim_id": "claim-4",
+        "description": "The plan does not exclude using a shared or deterministically seeded random source outside tests, which could give concurrent payment clients correlated jitter and recreate the retry bursts that previously amplified an upstream slowdown into an outage.",
+        "evidence_refs": [
+         "295729039551322334710406856728557559035",
+         "186670067796945807561772405393844769735"
+        ]
+       }
+      ],
+      "created_at": "2026-10-27T07:53:26.248390700+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c59-8dff-7472-9b10-693279819abf",
+      "latency_ms": 37690,
+      "input_tokens": 968,
+      "output_tokens": 4227
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 140,
+    "event_id": "evt-a2ed1e59-8752-42dd-9f9f-b1692c9f3848",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "agent",
+     "role": "evidence_evaluator"
+    },
+    "occurred_at": "2026-10-27T07:54:29.718622700+00:00",
+    "prev_hash": "6d587e5dc39ff778846971e776f39db6277d2195fb487e8ab741e10394499b40",
+    "hash": "401b31ea56b675c0e57a7a28ff831beb9c6331a0d9b89c3f26058bfd7bc170c3",
+    "payload": {
+     "type": "evaluation_submitted",
+     "evaluation": {
+      "schema_version": "1.2",
+      "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+      "target_proposal": "prop-1",
+      "assessments": [
+       {
+        "claim_id": "claim-2",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [
+         "328114099256634798832222840773545327795",
+         "287567405605917891851290763137356115373"
+        ],
+        "note": "Preserving the current max_attempts=1 conflicts with the decision requiring max_attempts=3."
+       },
+       {
+        "claim_id": "claim-3",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [],
+        "note": "No valid record directly states jitter affects only delay or leaves eligibility, payload, and retry count unchanged."
+       },
+       {
+        "claim_id": "claim-4",
+        "corroborated": false,
+        "relevant_evidence": [],
+        "contradicting_evidence": [
+         "328114099256634798832222840773545327795",
+         "237412834382378687445660534362297845298"
+        ],
+        "note": "No valid record states independent per-attempt draws; the unspecified bounded jitter does not establish jitter_ms of at least 50 or non-zero jitter."
+       }
+      ],
+      "unresolved_items": [
+       "item-5",
+       "item-6",
+       "item-7",
+       "item-8",
+       "item-9",
+       "item-10"
+      ],
+      "abstain": false,
+      "created_at": "2026-10-27T07:54:29.718600500+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c5a-85f1-779a-a0b5-74966eb77d0f",
+      "latency_ms": 63468,
+      "input_tokens": 1512,
+      "output_tokens": 7548
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 141,
+    "event_id": "evt-f04b483d-f4ca-49f6-bf56-e955d18cdba1",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:54:29.719785900+00:00",
+    "prev_hash": "401b31ea56b675c0e57a7a28ff831beb9c6331a0d9b89c3f26058bfd7bc170c3",
+    "hash": "f0dbcce2e6b2ed3a6c80d9a463aa822366041c5fe69c721049fc43c0d8a13cfb",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "328114099256634798832222840773545327795",
+      "integrity_status": "valid",
+      "factual_status": "contradicted",
+      "relevance_status": "relevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:54:29.719781800+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 142,
+    "event_id": "evt-2812fa82-f9e7-4acf-94bc-08706bef0b63",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:54:29.720344900+00:00",
+    "prev_hash": "f0dbcce2e6b2ed3a6c80d9a463aa822366041c5fe69c721049fc43c0d8a13cfb",
+    "hash": "5fce2813200e4f5fb72b573b69c4eccd670eb0d0ef3a1f62e1b4086d26f79f77",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "295729039551322334710406856728557559035",
+      "integrity_status": "valid",
+      "factual_status": "not_assessed",
+      "relevance_status": "irrelevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:54:29.720338800+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 143,
+    "event_id": "evt-9fd0ddbf-1efd-4aff-9526-248c9b244d09",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:54:29.720846900+00:00",
+    "prev_hash": "5fce2813200e4f5fb72b573b69c4eccd670eb0d0ef3a1f62e1b4086d26f79f77",
+    "hash": "b6675997ee2de0de059838bb0af490bc30b3e5bac621e9a6340e438abd5307f1",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "287567405605917891851290763137356115373",
+      "integrity_status": "valid",
+      "factual_status": "contradicted",
+      "relevance_status": "relevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:54:29.720842600+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 144,
+    "event_id": "evt-2a95f5ac-ea1b-43ac-9913-c65a874a9f7e",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:54:29.721317300+00:00",
+    "prev_hash": "b6675997ee2de0de059838bb0af490bc30b3e5bac621e9a6340e438abd5307f1",
+    "hash": "039e5792c6eace0026d7049ea2517f6227677a4e48a0ea7bcee93ebdfb9b8d71",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "237412834382378687445660534362297845298",
+      "integrity_status": "valid",
+      "factual_status": "contradicted",
+      "relevance_status": "relevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:54:29.721313300+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 145,
+    "event_id": "evt-6c23f3c7-2bda-4b20-846f-86986bf12e5d",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:54:29.721845300+00:00",
+    "prev_hash": "039e5792c6eace0026d7049ea2517f6227677a4e48a0ea7bcee93ebdfb9b8d71",
+    "hash": "d32dcd162dac66cb0da04c01b678409e97e58e6cb22c5937390cc8ca13255694",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "8864874238917673930644756936982232317",
+      "integrity_status": "valid",
+      "factual_status": "not_assessed",
+      "relevance_status": "irrelevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:54:29.721841+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 146,
+    "event_id": "evt-fc2bf511-a99d-4214-9051-28e4dca821a0",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:54:29.722315200+00:00",
+    "prev_hash": "d32dcd162dac66cb0da04c01b678409e97e58e6cb22c5937390cc8ca13255694",
+    "hash": "6116ebfd155cf216680c7fb4efbb5624e4fa2218cbc8889ba929a2c82be07fe9",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "161896895843658017381255677281559699870",
+      "integrity_status": "valid",
+      "factual_status": "not_assessed",
+      "relevance_status": "irrelevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 9626994744efb2de34f34849df011a7f9c5ebf303cf60449327a0b01d1e184c6); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:54:29.722312100+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 147,
+    "event_id": "evt-70389c7d-dfdd-4393-a9bf-ba8c4ec0e9b5",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:54:29.722949800+00:00",
+    "prev_hash": "6116ebfd155cf216680c7fb4efbb5624e4fa2218cbc8889ba929a2c82be07fe9",
+    "hash": "c924b0e8676c28c9d9b9145dbbccf285eaf7edb01fc6305723f9307b2437c1d7",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "186670067796945807561772405393844769735",
+      "integrity_status": "valid",
+      "factual_status": "not_assessed",
+      "relevance_status": "irrelevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 9626994744efb2de34f34849df011a7f9c5ebf303cf60449327a0b01d1e184c6); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:54:29.722943200+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 148,
+    "event_id": "evt-cc3f9052-43a4-468c-b2bd-0b9e1896ee37",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "agent",
+     "role": "proposer"
+    },
+    "occurred_at": "2026-10-27T07:55:09.495070100+00:00",
+    "prev_hash": "c924b0e8676c28c9d9b9145dbbccf285eaf7edb01fc6305723f9307b2437c1d7",
+    "hash": "939f3b33caa1a3aea4b6d36e4aac8d33a052221dce4a359d2f70520ebee7daf9",
+    "payload": {
+     "type": "revision_submitted",
+     "revision": {
+      "schema_version": "1.2",
+      "proposal": {
+       "schema_version": "1.2",
+       "id": "prop-12",
+       "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+       "author_role": "proposer",
+       "summary": "Set the payment-client RetryPolicy to max_attempts = 3 with jitter_ms of at least 50, drawn fresh per retry attempt and per payment, while leaving Timeout-only retry eligibility unchanged.",
+       "plan_steps": [
+        "Change the payment-client RetryPolicy from the default max_attempts = 1, jitter_ms = 0 to max_attempts = 3 exactly and jitter_ms of at least 50; do not raise max_attempts above 3.",
+        "Inspect the code semantics of jitter_ms before implementing the draw, then on each retry attempt and for each payment draw a fresh random jitter with applied value at least 50 ms, rather than reusing one policy-level or shared value for all retries.",
+        "Use a non-deterministically seeded production random source, for example an OS or thread-local source, with no shared fixed seed outside tests; deterministic seeding or mocking is restricted to tests.",
+        "Keep retry eligibility and the payment payload unchanged: only SendError::Timeout is retried, upstream errors return immediately, and no non-payment logic is changed.",
+        "Check stored records and code for any documented maximum delay, jitter upper bound or distribution, or total retry-time bound before choosing an upper jitter range; the evidence provided lists none, so make no claim about an undocumented cap.",
+        "Test: constraint_cap_is_three_attempts passes at max_attempts = 3 with jitter_ms at least 50, and SendError::Timeout is retried up to 3 attempts.",
+        "Test: an upstream error is returned immediately after one attempt with no retry, and the captured payload is identical on every retry attempt.",
+        "Test: with mocked randomness, a fresh draw is invoked for each attempt and each payment and each applied jitter is at least 50 ms; verify production configuration does not use a shared or deterministically seeded source."
+       ],
+       "claims": [
+        {
+         "id": "claim-13",
+         "statement": "The proposal sets the payment-client RetryPolicy max_attempts to exactly 3, matching the decision requiring max_attempts = 3 and the constraint capping outbound retries at 3 attempts, instead of preserving the default max_attempts = 1.",
+         "evidence_refs": []
+        },
+        {
+         "id": "claim-14",
+         "statement": "send_with_retries retries only SendError::Timeout up to RetryPolicy.max_attempts, and upstream errors are returned at once without a retry; this proposal leaves that eligibility rule unchanged.",
+         "evidence_refs": []
+        },
+        {
+         "id": "claim-15",
+         "statement": "The proposal sets RetryPolicy jitter_ms to at least 50 and non-zero, matching the decision requiring jitter_ms of at least 50 and the test constraint that fails when jitter_ms equals 0.",
+         "evidence_refs": []
+        }
+       ],
+       "assumptions": [
+        "A random source is available in the retry path that can be seeded non-deterministically in production and mocked or deterministically seeded only in tests.",
+        "The code semantics of RetryPolicy.jitter_ms can be inspected so a fresh per-attempt draw can be implemented while keeping the applied jitter at least 50 ms.",
+        "Tests can capture the payment payload on each attempt to verify it is unchanged."
+       ],
+       "uncertainties": [
+        "The provided records give no documented maximum retry delay, jitter upper bound or distribution, or total retry-time or SLA bound, so compliance with any such cap cannot be claimed from the provided evidence.",
+        "The provided records do not state whether jitter_ms denotes a fixed value, a minimum, or a range bound; this must be determined from the code or stored records before implementation."
+       ],
+       "created_at": "2026-10-27T07:55:09.495037300+00:00"
+      },
+      "supersedes": "prop-1",
+      "addressed_items": [
+       "item-5",
+       "item-6",
+       "item-7",
+       "item-8",
+       "item-9",
+       "item-10"
+      ]
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c5b-214f-73e8-8317-8cf6d9af649d",
+      "latency_ms": 39771,
+      "input_tokens": 1635,
+      "output_tokens": 4362
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 149,
+    "event_id": "evt-9c0efc80-c05f-4745-8dd4-71516cffb186",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "agent",
+     "role": "critic"
+    },
+    "occurred_at": "2026-10-27T07:56:39.855123200+00:00",
+    "prev_hash": "939f3b33caa1a3aea4b6d36e4aac8d33a052221dce4a359d2f70520ebee7daf9",
+    "hash": "06f478784edfc2bf46e92998e6a3c8b37f919e07527968ad5410caa5e31f515e",
+    "payload": {
+     "type": "challenge_submitted",
+     "challenge": {
+      "schema_version": "1.2",
+      "id": "chal-23",
+      "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+      "target_proposal": "prop-12",
+      "items": [
+       {
+        "id": "item-16",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-15",
+        "description": "The proposal sets a 50 ms lower bound for each jitter draw but specifies no upper bound, distribution, or maximum cumulative retry delay, so an implementation could impose arbitrarily long payment delays while still passing the stated tests.",
+        "evidence_refs": [
+         "328114099256634798832222840773545327795"
+        ]
+       },
+       {
+        "id": "item-17",
+        "kind": "missing_test",
+        "claim_id": "claim-15",
+        "description": "The mocked-randomness test verifies that draws are invoked and are at least 50 ms but does not assert that successive draws differ or provide a defined spread, so identical or narrowly clustered jitter values could still synchronize retry bursts.",
+        "evidence_refs": [
+         "295729039551322334710406856728557559035",
+         "186670067796945807561772405393844769735"
+        ]
+       },
+       {
+        "id": "item-18",
+        "kind": "unsupported_claim",
+        "claim_id": "claim-15",
+        "description": "The supplied evidence describes jitter_ms only as a scalar RetryPolicy value and provides no evidence that send_with_retries exposes a per-attempt random-draw mechanism, so the fresh-draw implementation and mocked-randomness test rest on an unverified code assumption.",
+        "evidence_refs": [
+         "287567405605917891851290763137356115373",
+         "237412834382378687445660534362297845298",
+         "161896895843658017381255677281559699870"
+        ]
+       },
+       {
+        "id": "item-19",
+        "kind": "missing_test",
+        "claim_id": "claim-13",
+        "description": "The behavioural test does not explicitly assert that the total number of send invocations, including the initial attempt, is exactly three, leaving an off-by-one interpretation in which an initial attempt plus three retries would exceed the three-attempt cap.",
+        "evidence_refs": [
+         "186670067796945807561772405393844769735",
+         "161896895843658017381255677281559699870",
+         "237412834382378687445660534362297845298"
+        ]
+       },
+       {
+        "id": "item-20",
+        "kind": "regression_risk",
+        "claim_id": "claim-14",
+        "description": "Retrying after SendError::Timeout for up to three attempts could resubmit a payment whose original request was processed but whose response was lost, and the proposal provides no evidence or test of an idempotency key or upstream deduplication showing that resending an identical payload is safe.",
+        "evidence_refs": [
+         "161896895843658017381255677281559699870",
+         "328114099256634798832222840773545327795",
+         "287567405605917891851290763137356115373"
+        ]
+       },
+       {
+        "id": "item-21",
+        "kind": "missing_test",
+        "claim_id": "claim-13",
+        "description": "Despite evidence that retry bursts amplified an upstream slowdown into an outage, the proposal includes no concurrent-payment or upstream-slowdown regression test showing that three attempts with the unspecified jitter range do not recreate load amplification.",
+        "evidence_refs": [
+         "295729039551322334710406856728557559035",
+         "186670067796945807561772405393844769735"
+        ]
+       },
+       {
+        "id": "item-22",
+        "kind": "security_risk",
+        "claim_id": "claim-15",
+        "description": "The proposal permits a thread-local random source while also requiring verification that production uses no shared source, but it does not define whether sharing a generator within a thread is permitted or how a test can inspect production seeding, leaving the production-randomness requirement ambiguous and unverifiable as stated.",
+        "evidence_refs": [
+         "328114099256634798832222840773545327795",
+         "295729039551322334710406856728557559035"
+        ]
+       }
+      ],
+      "created_at": "2026-10-27T07:56:39.855097700+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c5c-8254-74d8-931e-9df6eea41c53",
+      "latency_ms": 89896,
+      "input_tokens": 1265,
+      "output_tokens": 9589
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 150,
+    "event_id": "evt-7e40b38f-497c-4311-bd3d-ece3811e5e05",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "agent",
+     "role": "evidence_evaluator"
+    },
+    "occurred_at": "2026-10-27T07:57:13.026533200+00:00",
+    "prev_hash": "06f478784edfc2bf46e92998e6a3c8b37f919e07527968ad5410caa5e31f515e",
+    "hash": "debc135b1fe40aa891a908954985a4b64e9d5ba1b6cb130476b355bd6f15004b",
+    "payload": {
+     "type": "evaluation_submitted",
+     "evaluation": {
+      "schema_version": "1.2",
+      "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+      "target_proposal": "prop-12",
+      "assessments": [
+       {
+        "claim_id": "claim-13",
+        "corroborated": true,
+        "relevant_evidence": [
+         "328114099256634798832222840773545327795",
+         "186670067796945807561772405393844769735",
+         "287567405605917891851290763137356115373"
+        ],
+        "contradicting_evidence": [],
+        "note": "Decision states max_attempts = 3 and no raise above 3; constraint caps outbound retries at 3; default is max_attempts = 1."
+       },
+       {
+        "claim_id": "claim-14",
+        "corroborated": true,
+        "relevant_evidence": [
+         "161896895843658017381255677281559699870"
+        ],
+        "contradicting_evidence": [],
+        "note": "Fact directly states send_with_retries retries only SendError::Timeout up to RetryPolicy.max_attempts and returns upstream errors at once without retry."
+       },
+       {
+        "claim_id": "claim-15",
+        "corroborated": true,
+        "relevant_evidence": [
+         "328114099256634798832222840773545327795",
+         "237412834382378687445660534362297845298"
+        ],
+        "contradicting_evidence": [],
+        "note": "Decision states jitter_ms of at least 50; fact states constraint_cap_is_three_attempts fails when jitter_ms equals 0, supporting at least 50 and non-zero."
+       }
+      ],
+      "unresolved_items": [
+       "item-16",
+       "item-17",
+       "item-18",
+       "item-19",
+       "item-20",
+       "item-21",
+       "item-22"
+      ],
+      "abstain": false,
+      "created_at": "2026-10-27T07:57:13.026510300+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a17c5d-03f5-75ff-b0a5-d79564315051",
+      "latency_ms": 33169,
+      "input_tokens": 1874,
+      "output_tokens": 4497
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 151,
+    "event_id": "evt-1fe91be0-e7cc-49b5-8c27-8b05eabc51e3",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:57:13.030015800+00:00",
+    "prev_hash": "debc135b1fe40aa891a908954985a4b64e9d5ba1b6cb130476b355bd6f15004b",
+    "hash": "173ac2880d1fdc32e6bb9298e6ed2ac08768efa212fccf5f981816f89a857749",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "186670067796945807561772405393844769735",
+      "integrity_status": "valid",
+      "factual_status": "corroborated",
+      "relevance_status": "relevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:57:13.030010+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 152,
+    "event_id": "evt-fb0ae1bf-e2cf-47d2-897b-ff717ad628b1",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:57:13.030627600+00:00",
+    "prev_hash": "173ac2880d1fdc32e6bb9298e6ed2ac08768efa212fccf5f981816f89a857749",
+    "hash": "3ea0a240073e8624bdad3bd41ac1f685ab0e4992a1b8d4de3508fb179d9a3644",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "328114099256634798832222840773545327795",
+      "integrity_status": "valid",
+      "factual_status": "corroborated",
+      "relevance_status": "relevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:57:13.030620+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 153,
+    "event_id": "evt-d3a4125d-28b1-424e-bcad-3f037b772513",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:57:13.031173800+00:00",
+    "prev_hash": "3ea0a240073e8624bdad3bd41ac1f685ab0e4992a1b8d4de3508fb179d9a3644",
+    "hash": "5a6a859f955376260e4f6fdb48619e2e57e50afee38186a699521022cbd5385b",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "287567405605917891851290763137356115373",
+      "integrity_status": "valid",
+      "factual_status": "corroborated",
+      "relevance_status": "relevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:57:13.031170700+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 154,
+    "event_id": "evt-1324afda-88ef-45ac-a2c7-6f14ecb296a7",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:57:13.031641700+00:00",
+    "prev_hash": "5a6a859f955376260e4f6fdb48619e2e57e50afee38186a699521022cbd5385b",
+    "hash": "cc183843d078be30458128ab50e874e78b46621f0935628eef1675fc92749dbd",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "161896895843658017381255677281559699870",
+      "integrity_status": "valid",
+      "factual_status": "corroborated",
+      "relevance_status": "relevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:57:13.031638800+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 155,
+    "event_id": "evt-69392b11-f80b-4d00-a1b8-3077573d9faa",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:57:13.032119100+00:00",
+    "prev_hash": "cc183843d078be30458128ab50e874e78b46621f0935628eef1675fc92749dbd",
+    "hash": "f8db2982aba88fa907f0ffd813b5043884663e8313fed99612a0ba346e77cbab",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "237412834382378687445660534362297845298",
+      "integrity_status": "valid",
+      "factual_status": "corroborated",
+      "relevance_status": "relevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:57:13.032116400+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 156,
+    "event_id": "evt-bcadca5a-2af6-4bcf-ae7f-60b20a3e76e0",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:57:13.032581600+00:00",
+    "prev_hash": "f8db2982aba88fa907f0ffd813b5043884663e8313fed99612a0ba346e77cbab",
+    "hash": "c8fc80bb39b8b3508f72ce338f4a792358fbd2fdf99e7726e1ac7a3ad4c1e840",
+    "payload": {
+     "type": "evidence_verified",
+     "verification": {
+      "schema_version": "1.2",
+      "evidence_id": "295729039551322334710406856728557559035",
+      "integrity_status": "valid",
+      "factual_status": "not_assessed",
+      "relevance_status": "irrelevant",
+      "verifier": "hyphae proof verify",
+      "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 193841caaec0ac5a0b6b11bd4f175c3c2f528fa8aaa130f05500aa868b64d26a); the proof covers the whole recall result this record belongs to",
+      "checked_at": "2026-10-27T07:57:13.032579+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.2",
+    "sequence": 157,
+    "event_id": "evt-ef680192-a340-4036-866e-30a3b599be26",
+    "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-27T07:57:13.033136800+00:00",
+    "prev_hash": "c8fc80bb39b8b3508f72ce338f4a792358fbd2fdf99e7726e1ac7a3ad4c1e840",
+    "hash": "7d8ac2e1df08aba600b7bf424c02dad19c0592eeef4c5b0554597a85861a286a",
+    "payload": {
+     "type": "recommendation_issued",
+     "recommendation": {
+      "schema_version": "1.2",
+      "kind": "contested",
+      "rationale": "Contested: 3/3 claims corroborated; proofs: 6 valid, 0 invalid, 0 unavailable/error; 7 unresolved challenges.",
+      "unresolved_assumptions": [
+       "A random source is available in the retry path that can be seeded non-deterministically in production and mocked or deterministically seeded only in tests.",
+       "The code semantics of RetryPolicy.jitter_ms can be inspected so a fresh per-attempt draw can be implemented while keeping the applied jitter at least 50 ms.",
+       "Tests can capture the payment payload on each attempt to verify it is unchanged."
+      ],
+      "issued_at": "2026-10-27T07:57:13.033130500+00:00"
+     }
+    }
+   }
+  ]
+ },
+ "receipt_status": 200,
+ "receipt": {
+  "schema_version": "1.2",
+  "run_id": "run-b362ffe4-fa29-4374-abad-d0b8965bccf5",
+  "final_state": "awaiting_human_approval",
+  "recommendation": {
+   "schema_version": "1.2",
+   "kind": "contested",
+   "rationale": "Contested: 3/3 claims corroborated; proofs: 6 valid, 0 invalid, 0 unavailable/error; 7 unresolved challenges.",
+   "unresolved_assumptions": [
+    "A random source is available in the retry path that can be seeded non-deterministically in production and mocked or deterministically seeded only in tests.",
+    "The code semantics of RetryPolicy.jitter_ms can be inspected so a fresh per-attempt draw can be implemented while keeping the applied jitter at least 50 ms.",
+    "Tests can capture the payment payload on each attempt to verify it is unchanged."
+   ],
+   "issued_at": "2026-10-27T07:57:13.033130500+00:00"
+  },
+  "authorization": "pending",
+  "model_invocations": [
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c58-f8bf-7222-8643-8dbc699f6aee",
+    "latency_ms": 21978,
+    "input_tokens": 230,
+    "output_tokens": 2239
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c59-8dff-7472-9b10-693279819abf",
+    "latency_ms": 37690,
+    "input_tokens": 968,
+    "output_tokens": 4227
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c5a-85f1-779a-a0b5-74966eb77d0f",
+    "latency_ms": 63468,
+    "input_tokens": 1512,
+    "output_tokens": 7548
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c5b-214f-73e8-8317-8cf6d9af649d",
+    "latency_ms": 39771,
+    "input_tokens": 1635,
+    "output_tokens": 4362
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c5c-8254-74d8-931e-9df6eea41c53",
+    "latency_ms": 89896,
+    "input_tokens": 1265,
+    "output_tokens": 9589
+   },
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a17c5d-03f5-75ff-b0a5-d79564315051",
+    "latency_ms": 33169,
+    "input_tokens": 1874,
+    "output_tokens": 4497
+   }
+  ],
+  "verifications": [
+   {
+    "schema_version": "1.2",
+    "evidence_id": "328114099256634798832222840773545327795",
+    "integrity_status": "valid",
+    "factual_status": "contradicted",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.719781800+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "295729039551322334710406856728557559035",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.720338800+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "287567405605917891851290763137356115373",
+    "integrity_status": "valid",
+    "factual_status": "contradicted",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.720842600+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "237412834382378687445660534362297845298",
+    "integrity_status": "valid",
+    "factual_status": "contradicted",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.721313300+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "8864874238917673930644756936982232317",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 8d098cb32a377145faefb7d9ff79b31e73b55e2563b04bd9ffe665767508f4ca); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.721841+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "161896895843658017381255677281559699870",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 9626994744efb2de34f34849df011a7f9c5ebf303cf60449327a0b01d1e184c6); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.722312100+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "186670067796945807561772405393844769735",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 9626994744efb2de34f34849df011a7f9c5ebf303cf60449327a0b01d1e184c6); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:54:29.722943200+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "186670067796945807561772405393844769735",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.030010+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "328114099256634798832222840773545327795",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.030620+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "287567405605917891851290763137356115373",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.031170700+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "161896895843658017381255677281559699870",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.031638800+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "237412834382378687445660534362297845298",
+    "integrity_status": "valid",
+    "factual_status": "corroborated",
+    "relevance_status": "relevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest d922c82fc02daad1b5b17fb99c6d021d99103b0bdb2fcbf415a8aeeaa3254a48); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.032116400+00:00"
+   },
+   {
+    "schema_version": "1.2",
+    "evidence_id": "295729039551322334710406856728557559035",
+    "integrity_status": "valid",
+    "factual_status": "not_assessed",
+    "relevance_status": "irrelevant",
+    "verifier": "hyphae proof verify",
+    "verified_anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+    "detail": "offline verifier re-executed the recall against the witness and accepted the proof (scope semantic_reexecution, kind memory, result digest 193841caaec0ac5a0b6b11bd4f175c3c2f528fa8aaa130f05500aa868b64d26a); the proof covers the whole recall result this record belongs to",
+    "checked_at": "2026-10-27T07:57:13.032579+00:00"
+   }
+  ],
+  "event_count": 28,
+  "head_hash": "7d8ac2e1df08aba600b7bf424c02dad19c0592eeef4c5b0554597a85861a286a",
+  "generated_at": "2026-10-27T07:57:13.065852700+00:00",
+  "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+ }
+}

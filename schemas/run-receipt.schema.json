@@ -29,7 +29,7 @@
       "type": "string"
     },
     "head_hash": {
-      "description": "Hash-chain head (last event's hash) at receipt time, so any later edit of the log is detectable against this receipt.",
+      "description": "Hash of this run's last event at receipt time. It commits to every earlier record in the log file, so a later edit of any of them is detectable against this receipt; records appended after it, and the file's own head in a multi-run log, are not covered.",
       "type": [
         "string",
         "null"

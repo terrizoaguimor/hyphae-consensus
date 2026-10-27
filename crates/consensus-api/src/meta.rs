@@ -51,6 +51,14 @@ List in contradicting_evidence every record that conflicts with a claim. \
 In unresolved_items, list by ITEM id every Critic objection that still applies to the proposal as written, including objections the evidence confirms; an objection is resolved only when the proposal already satisfies it or the retrieved evidence shows it is mistaken. \
 Set abstain=true only when the evidence is too sparse or inconsistent to assess the claims at all, and say why in abstain_reason.";
 
+// Every list field in these drafts is REQUIRED (no serde default): the
+// live model renames or drops optional fields (e.g. `refs` or
+// `relevant_evidence_ids` for `relevant_evidence`, or no
+// `unresolved_items` at all), and a defaulted empty list would read as "no
+// citations", "no contradictions", or "nothing unresolved". A missing field
+// is malformed output, never an empty answer. Unknown extra fields (even a
+// model-invented `recommendation`) are ignored: they cannot reach a decision.
+
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftProposal {
     pub summary: String,
@@ -75,7 +83,6 @@ pub struct DraftChallengeItem {
     pub kind: ChallengeKind,
     pub claim_id: Option<String>,
     pub description: String,
-    #[serde(default)]
     pub evidence_refs: Vec<String>,
 }
 
@@ -83,7 +90,6 @@ pub struct DraftChallengeItem {
 pub struct DraftEvaluation {
     pub assessments: Vec<DraftAssessment>,
     /// Challenge ITEM ids (as listed in the prompt) still unresolved.
-    #[serde(default)]
     pub unresolved_items: Vec<String>,
     pub abstain: bool,
     pub abstain_reason: Option<String>,
@@ -93,9 +99,7 @@ pub struct DraftEvaluation {
 pub struct DraftAssessment {
     pub claim_id: String,
     pub corroborated: bool,
-    #[serde(default)]
     pub relevant_evidence: Vec<String>,
-    #[serde(default)]
     pub contradicting_evidence: Vec<String>,
     pub note: String,
 }
@@ -108,7 +112,6 @@ pub struct DraftRevision {
     pub assumptions: Vec<String>,
     pub uncertainties: Vec<String>,
     /// Challenge ITEM ids this revision addresses.
-    #[serde(default)]
     pub addressed_items: Vec<String>,
 }
 
@@ -149,6 +152,33 @@ struct ChatUsage {
     completion_tokens: Option<u64>,
 }
 
+/// Rewrites a generated draft schema into the strict structured-output
+/// form: every object lists all of its properties as required and allows
+/// no others (optional values stay representable as null). The API is
+/// asked to enforce it (`strict: true`); our own typed parse still decides.
+pub fn strict_schema(schema: &mut serde_json::Value) {
+    match schema {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Object(properties)) = map.get("properties") {
+                let names: Vec<serde_json::Value> = properties
+                    .keys()
+                    .map(|k| serde_json::Value::String(k.clone()))
+                    .collect();
+                map.insert("required".into(), serde_json::Value::Array(names));
+                map.insert(
+                    "additionalProperties".into(),
+                    serde_json::Value::Bool(false),
+                );
+            }
+            for value in map.values_mut() {
+                strict_schema(value);
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(strict_schema),
+        _ => {}
+    }
+}
+
 pub struct MetaModelClient {
     cfg: MetaConfig,
     http: reqwest::blocking::Client,
@@ -183,8 +213,9 @@ impl MetaModelClient {
         system: &str,
         user: &str,
     ) -> Result<(T, ModelInvocation), ModelError> {
-        let schema = serde_json::to_value(schemars::schema_for!(T))
+        let mut schema = serde_json::to_value(schemars::schema_for!(T))
             .map_err(|e| ModelError::MalformedOutput(format!("schema build: {e}")))?;
+        strict_schema(&mut schema);
         let body = ChatRequest {
             model: self.cfg.model.clone(),
             messages: vec![
@@ -199,7 +230,7 @@ impl MetaModelClient {
             ],
             response_format: serde_json::json!({
                 "type": "json_schema",
-                "json_schema": { "name": schema_name, "schema": schema, "strict": false }
+                "json_schema": { "name": schema_name, "schema": schema, "strict": true }
             }),
         };
         let url = format!(
@@ -253,6 +284,16 @@ impl MetaModelClient {
             .ok_or_else(|| {
                 ModelError::MalformedOutput("missing choices[0].message.content".into())
             })?;
+        // Opt-in diagnostics: keep the raw structured output (model text
+        // only; never the prompt or the key) to audit what the adapter
+        // later filtered or defaulted.
+        if let Some(dir) = std::env::var_os("CONSENSUS_META_DEBUG_DIR").filter(|d| !d.is_empty()) {
+            let name = format!(
+                "{schema_name}-{}.json",
+                parsed.id.as_deref().unwrap_or("no-id")
+            );
+            let _ = std::fs::write(std::path::Path::new(&dir).join(name), &content);
+        }
         let draft: T = serde_json::from_str(&content)
             .map_err(|e| ModelError::MalformedOutput(format!("draft parse: {e}")))?;
         let invocation = ModelInvocation {

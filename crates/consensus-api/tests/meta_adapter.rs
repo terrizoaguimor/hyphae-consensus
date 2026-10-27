@@ -516,3 +516,98 @@ fn prompts_ask_for_record_checkable_claims_and_evidence_based_judgment() {
     );
     assert!(prompt.contains("checkable against the project's stored records"));
 }
+
+fn evaluation_inputs() -> (Proposal, Challenge, RoleContext) {
+    let proposal = one_claim_proposal("Cap retries at 3 attempts with jitter");
+    let challenge = Challenge {
+        schema_version: SCHEMA_VERSION.into(),
+        id: ChallengeId::new("chal-1"),
+        run_id: RunId::new("run-1"),
+        target_proposal: ProposalId::new("prop-1"),
+        items: vec![ChallengeItem {
+            id: "item-5".into(),
+            kind: ChallengeKind::MissingTest,
+            claim_id: Some(ClaimId::new("claim-1")),
+            description: "No test covers the jitter requirement".into(),
+            evidence_refs: vec![],
+        }],
+        created_at: "2026-10-26T00:00:00Z".into(),
+    };
+    let ctx = RoleContext {
+        evidence: vec![evidence_ref(
+            "ev-1",
+            "Constraint: outbound retries must be capped at 3 attempts with jitter.",
+        )],
+        integrity: vec![(EvidenceId::new("ev-1"), IntegrityStatus::Valid)],
+    };
+    (proposal, challenge, ctx)
+}
+
+#[test]
+fn structured_output_is_strict_and_every_list_is_required() {
+    // Live 2026-10-27: with `strict: false` and optional list fields the
+    // model renamed or dropped them. The request now demands the strict
+    // form, and the schema leaves nothing optional.
+    let draft = r#"{"assessments":[],"unresolved_items":[],"abstain":false,"abstain_reason":null}"#;
+    let server = serve(vec![(200, envelope(draft))]);
+    let mut c = client(server.base_url.clone());
+    let (proposal, challenge, ctx) = evaluation_inputs();
+    c.evaluate(&proposal, &challenge, &ctx).unwrap();
+    let raw = server.last_body.lock().unwrap().clone();
+    let body: serde_json::Value =
+        serde_json::from_str(raw.split_once("\r\n\r\n").unwrap().1).unwrap();
+    let format = &body["response_format"]["json_schema"];
+    assert_eq!(format["strict"], serde_json::json!(true));
+    let schema = &format["schema"];
+    assert_eq!(schema["additionalProperties"], serde_json::json!(false));
+    let required = |v: &serde_json::Value| -> Vec<String> {
+        v["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str().unwrap().to_string())
+            .collect()
+    };
+    assert!(required(schema).contains(&"unresolved_items".to_string()));
+    assert!(required(schema).contains(&"abstain_reason".to_string()));
+    let assessment = &schema["definitions"]["DraftAssessment"];
+    for field in ["relevant_evidence", "contradicting_evidence", "note"] {
+        assert!(required(assessment).contains(&field.to_string()), "{field}");
+    }
+    assert_eq!(assessment["additionalProperties"], serde_json::json!(false));
+}
+
+#[test]
+fn renamed_or_missing_draft_fields_are_malformed_never_empty() {
+    // Shapes the live Evaluator returned under `strict: false`: no
+    // `unresolved_items` at all (plus invented keys, even a
+    // `recommendation`), or `*_ids` / `refs` instead of the schema names.
+    // Read leniently they meant "nothing unresolved" and "no citations".
+    let drafts = [
+        r#"{"assessments":[{"claim_id":"claim-1","corroborated":false,"note":"n","relevant_evidence":[]}],"abstain":false,"abstain_reason":null,"findings":[],"recommendation":"approve"}"#,
+        r#"{"assessments":[{"claim_id":"claim-1","corroborated":true,"note":"n","refs":["ev-1"],"contradicting_evidence_ids":[]}],"unresolved_items":["item-5"],"abstain":false,"abstain_reason":null}"#,
+        r#"{"assessments":[{"claim_id":"claim-1","corroborated":true,"note":"n","relevant_evidence_ids":["ev-1"],"contradicting_evidence_ids":[]}],"unresolved_items":[],"abstain":false,"abstain_reason":null}"#,
+    ];
+    let (proposal, challenge, ctx) = evaluation_inputs();
+    for draft in drafts {
+        let server = serve(vec![(200, envelope(draft))]);
+        let mut c = client(server.base_url);
+        match c.evaluate(&proposal, &challenge, &ctx) {
+            Err(ModelError::MalformedOutput(msg)) => {
+                assert!(msg.contains("missing field"), "{msg}")
+            }
+            other => panic!("expected MalformedOutput for {draft}, got {other:?}"),
+        }
+    }
+    // The canonical shape still parses, and an invented extra key is
+    // ignored: it cannot carry an outcome.
+    let ok = r#"{"assessments":[{"claim_id":"claim-1","corroborated":true,"note":"n","relevant_evidence":["ev-1"],"contradicting_evidence":[]}],"unresolved_items":["item-5"],"abstain":false,"abstain_reason":null,"recommendation":"approve"}"#;
+    let server = serve(vec![(200, envelope(ok))]);
+    let mut c = client(server.base_url);
+    let (evaluation, _) = c.evaluate(&proposal, &challenge, &ctx).unwrap();
+    assert_eq!(evaluation.unresolved_items, vec!["item-5".to_string()]);
+    assert_eq!(
+        evaluation.assessments[0].relevant_evidence,
+        vec![EvidenceId::new("ev-1")]
+    );
+}

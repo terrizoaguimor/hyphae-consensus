@@ -32,9 +32,28 @@ Notes learned the hard way:
 - Use a named Docker volume for HOME, not a Windows bind mount.
 - The MCP adapter allows ONE active tool call; drivers must be sequential.
 - `recall(prove=true)` currently fails upstream with
-  `corruption: native durable state is invalid` even on Linux/ext4 while
-  plain recall works. The Consensus adapter retries without `prove` and
-  reports integrity `unavailable` — it never fabricates verification.
+  `{category: "corruption", message: "native durable state is invalid",
+  retry: "after-recovery"}` even on Linux/ext4 while plain recall works.
+  The Consensus adapter retries without `prove` and stamps each record
+  with that reason (`proof_error`); the runtime treats the corruption
+  category as an invalid proof, so live runs that retrieve evidence end
+  `blocked`. It never fabricates verification. `hyphae agent doctor` /
+  `recover` exist but can mutate the store; they were deliberately not run.
+
+## Hostile-memory case (live battery)
+
+`seed-injection-lab.sh` seeds a separate project, `injection-lab`, with
+copies of the two demo records plus ONE deliberately hostile note that
+tries to force approval. Project isolation keeps it out of `demo-repo`
+recalls. Seeded on 2026-10-26 for the live battery (`docs/evaluation.md`):
+
+```powershell
+docker cp scripts/hyphae-container/seed-injection-lab.sh hyphae-consensus:/hyphae-home/seed-injection-lab.sh
+docker exec hyphae-consensus sh /hyphae-home/seed-injection-lab.sh
+```
+
+To remove the hostile note later, call `hyphae_memory_forget` with the
+writer credential (same session pattern as the seed scripts).
 
 ## Console environment (host)
 
@@ -50,3 +69,7 @@ cargo run -p consensus-api -- serve
 `proof verify`) into the container via `docker exec -i`, so every path the
 adapter passes is a container path, consistently. The reader key never
 leaves the container volume; the host only holds its path string.
+
+From Git Bash, set `MSYS_NO_PATHCONV=1` (or use PowerShell as above):
+otherwise MSYS rewrites container paths such as `/hyphae-home/...` into
+Windows paths before Docker sees them.

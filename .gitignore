@@ -9,3 +9,4 @@
 *.key
 *.hyproof
 *.hywit
+/claude-*.log

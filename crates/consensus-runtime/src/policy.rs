@@ -52,6 +52,7 @@ impl PolicyVersion {
         match version {
             "1.1" => Some(Self::V1_1),
             "1.2" => Some(Self::V1_2),
+            "1.3" => Some(Self::V1_2),
             _ => None,
         }
     }
@@ -342,6 +343,9 @@ mod tests {
             verified_anchor: Some("a1".into()),
             detail: None,
             checked_at: "2026-10-26T00:00:00Z".into(),
+            round: None,
+            proof_ref: None,
+            report: None,
         }
     }
 
@@ -487,6 +491,9 @@ mod tests {
             Some(PolicyVersion::CURRENT)
         );
         assert_eq!(PolicyVersion::for_schema("1.0"), None);
+        // Protocol 1.3 keeps the 1.2 rules; only their inputs changed.
+        assert_eq!(PolicyVersion::for_schema("1.2"), Some(PolicyVersion::V1_2));
+        assert_eq!(PolicyVersion::for_schema("1.3"), Some(PolicyVersion::V1_2));
     }
 
     #[test]

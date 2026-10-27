@@ -67,6 +67,7 @@ mod tests {
                     title: "t".into(),
                     description: "d".into(),
                     created_at: "2026-10-27T00:00:00Z".into(),
+                    mode: None,
                 },
             },
         }
@@ -81,6 +82,8 @@ mod tests {
             payload: EventPayload::RunFailed {
                 reason: "boom".into(),
                 stage: "propose".into(),
+                code: None,
+                invocation: None,
             },
         }
     }

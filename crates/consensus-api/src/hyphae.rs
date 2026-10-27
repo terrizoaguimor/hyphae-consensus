@@ -309,6 +309,14 @@ impl<T: McpTransport> HyphaeMemoryClient<T> {
             proof_file: get(&["proof_path", "proof_file", "proofOut", "proof_out"]),
             witness_file: get(&["witness_path", "witness_file", "witnessOut", "witness_out"]),
             proof_error: None,
+            retrieval: None,
+            snapshot_id: None,
+            captured_at: None,
+            proof_ref: None,
+            proof_sha256: None,
+            proof_request: None,
+            backend_project: None,
+            backend_scope: None,
         }
     }
 }
@@ -495,6 +503,7 @@ impl<R: CommandRunner> HyphaeProofVerifier<R> {
             verifier: Some("hyphae proof verify".into()),
             verified_anchor: Some(anchor.to_string()),
             detail: Some(detail),
+            report: None,
         };
         let out = match self.runner.run(&argv) {
             Ok(out) => out,
@@ -578,6 +587,7 @@ impl<R: CommandRunner> ProofVerifier for HyphaeProofVerifier<R> {
                 verifier: None,
                 verified_anchor: evidence.anchor.clone(),
                 detail: Some("no proof/witness/anchor artifacts available for this record".into()),
+                report: None,
             };
         };
         if let Some(expected) = &self.expected_anchor {
@@ -589,6 +599,7 @@ impl<R: CommandRunner> ProofVerifier for HyphaeProofVerifier<R> {
                     detail: Some(format!(
                         "record anchor does not match operator-pinned anchor {expected}"
                     )),
+                    report: None,
                 };
             }
         }

@@ -4,12 +4,12 @@
 //!
 //! The orchestrator checks a [`RunControl`] before every model call
 //! (propose, critique, evaluate, revise), before every memory recall,
-//! and before issuing the recommendation. A call already in progress is
-//! not interrupted: its outcome is handled as usual first (a returned
-//! document is recorded, since its tokens were spent), and the run stops
-//! at the next checkpoint with `RunFailed` and the stage of
-//! [`Stop::stage`]. No new event type is involved, so record shapes and
-//! the schema version are unchanged.
+//! before every proof verification, and before issuing the
+//! recommendation. A call already in progress is not interrupted: its
+//! outcome is handled as usual first (a returned document is recorded,
+//! since its tokens were spent), and the run stops at the next checkpoint
+//! with `RunFailed` and the stage of [`Stop::stage`]. No new event type is
+//! involved, so record shapes and the schema version are unchanged.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;

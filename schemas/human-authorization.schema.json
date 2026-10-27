@@ -15,6 +15,17 @@
     "approved": {
       "type": "boolean"
     },
+    "authority": {
+      "description": "Schema 1.3: the authority the decision was taken under. Absent on earlier records, which read as unspecified, never as operator authority.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Authority"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "authorized_by": {
       "type": "string"
     },
@@ -36,6 +47,27 @@
     },
     "schema_version": {
       "type": "string"
+    }
+  },
+  "definitions": {
+    "Authority": {
+      "description": "Under whose authority a human decision was recorded (schema 1.3).",
+      "oneOf": [
+        {
+          "description": "The operator of this deployment.",
+          "type": "string",
+          "enum": [
+            "operator"
+          ]
+        },
+        {
+          "description": "A public visitor deciding on their own simulated run: the record carries no operational authority.",
+          "type": "string",
+          "enum": [
+            "public_demo"
+          ]
+        }
+      ]
     }
   }
 }

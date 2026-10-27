@@ -99,15 +99,59 @@ pub struct ClaimAssessment {
     pub note: String,
 }
 
+// The Meta adapter's strict draft schema reuses this enum, and schemars
+// copies doc comments into it: keep the doc model-facing, and keep the
+// variants undocumented (variant docs turn the plain string `enum` into a
+// `oneOf`).
+/// Evaluator judgment on one Critic objection (schema 1.3): `resolved`
+/// when the proposal as written no longer has the problem or the
+/// retrieved evidence shows the objection is mistaken; `unresolved` when
+/// it still applies, so it stays open into the next round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemStatus {
+    Resolved,
+    Unresolved,
+}
+
+/// One explicit verdict on one objection, by item id (schema 1.3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ItemVerdict {
+    pub item_id: String,
+    pub status: ItemStatus,
+    /// Why. Required (non-empty) for a resolved verdict: an objection is
+    /// never closed without saying what settled it.
+    pub reason: String,
+}
+
+/// A contradiction recorded in an earlier round that this evaluation
+/// judges no longer applies, with the reason (schema 1.3). Silence never
+/// clears a contradiction; only an entry here does.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ClearedContradiction {
+    pub evidence_id: EvidenceId,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Evaluation {
     pub schema_version: String,
     pub run_id: RunId,
     pub target_proposal: ProposalId,
     pub assessments: Vec<ClaimAssessment>,
-    /// Challenge ITEM ids the evaluator judges still unresolved.
+    /// Challenge ITEM ids the evaluator judges still unresolved. From
+    /// schema 1.3 exactly the ids of the `unresolved` verdicts.
     #[serde(default, alias = "unresolved_challenges")]
     pub unresolved_items: Vec<String>,
+    /// Schema 1.3: one verdict for every objection under evaluation, the
+    /// ones still open from earlier rounds and this round's. Empty on
+    /// earlier records, which judged this round's items only, implicitly.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub item_verdicts: Vec<ItemVerdict>,
+    /// Schema 1.3: contradictions carried from earlier rounds that this
+    /// evaluation clears, each with its reason.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cleared_contradictions: Vec<ClearedContradiction>,
     /// True when the evaluator cannot reach a supported judgment and the
     /// correct behavior is to abstain rather than guess.
     pub abstain: bool,

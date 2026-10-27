@@ -109,8 +109,35 @@
         "integrity_status": {
           "$ref": "#/definitions/IntegrityStatus"
         },
+        "proof_ref": {
+          "description": "Schema 1.3: the proof artifact that was checked (the record's `proof_ref`), when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "relevance_status": {
           "$ref": "#/definitions/RelevanceStatus"
+        },
+        "report": {
+          "description": "Schema 1.3: the verifier's structured report, when it gives one.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VerifierReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "round": {
+          "description": "Schema 1.3: the deliberation round (1 = first) whose evaluation this record combines with. Protocol 1.3 re-verifies every record of the round context in every round.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
         },
         "schema_version": {
           "type": "string"
@@ -189,6 +216,22 @@
         "provider"
       ],
       "properties": {
+        "attempts": {
+          "description": "Schema 1.3: HTTP attempts made for this call (retries included).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "finish_reason": {
+          "description": "Schema 1.3: why the model stopped generating, as the API said it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "input_tokens": {
           "type": [
             "integer",
@@ -198,6 +241,15 @@
           "minimum": 0.0
         },
         "latency_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "max_completion_tokens": {
+          "description": "Schema 1.3: the output bound sent with the request, if any.",
           "type": [
             "integer",
             "null"
@@ -216,10 +268,54 @@
           "format": "uint64",
           "minimum": 0.0
         },
+        "prompt_sha256": {
+          "description": "Schema 1.3: SHA-256 of the prompt template, lowercase hex.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "provider": {
           "type": "string"
         },
+        "reasoning_effort": {
+          "description": "Schema 1.3: reasoning effort requested, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reasoning_tokens": {
+          "description": "Schema 1.3: reasoning tokens, when the API reports them apart.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
         "request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "safety_identifier_sent": {
+          "description": "Schema 1.3: whether a pseudonymous safety identifier was sent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "schema_name": {
+          "description": "Schema 1.3: name of the structured-output schema requested.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_sha256": {
+          "description": "Schema 1.3: SHA-256 of that schema as sent, lowercase hex.",
           "type": [
             "string",
             "null"
@@ -252,6 +348,13 @@
         },
         "unresolved_assumptions": {
           "description": "Assumptions that remain unresolved at decision time.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unresolved_uncertainties": {
+          "description": "Schema 1.3: the final proposal's own uncertainties, carried to the human next to its assumptions.",
           "type": "array",
           "items": {
             "type": "string"
@@ -294,6 +397,48 @@
         "rejected",
         "failed"
       ]
+    },
+    "VerifierReport": {
+      "description": "Structured fields of a verifier's own report (schema 1.3), kept next to the free-text `detail` so a reader never has to parse prose.",
+      "type": "object",
+      "properties": {
+        "anchor_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
   }
 }

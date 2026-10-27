@@ -4,8 +4,8 @@
 //! Events contain claims and concise justifications only — never secrets
 //! and never raw model reasoning traces.
 
-use crate::evidence::{EvidenceReference, EvidenceVerification};
-use crate::ids::{EventId, RunId};
+use crate::evidence::{EvidenceReference, EvidenceVerification, ProofRequest};
+use crate::ids::{EventId, EvidenceId, RunId};
 use crate::proposal::{Challenge, Evaluation, Proposal, Revision};
 use crate::run::{HumanAuthorization, Recommendation, Task};
 use crate::Actor;
@@ -27,6 +27,33 @@ pub struct ModelInvocation {
     pub input_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_tokens: Option<u64>,
+    /// Schema 1.3: why the model stopped generating, as the API said it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+    /// Schema 1.3: reasoning tokens, when the API reports them apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<u64>,
+    /// Schema 1.3: the output bound sent with the request, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<u64>,
+    /// Schema 1.3: name of the structured-output schema requested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_name: Option<String>,
+    /// Schema 1.3: SHA-256 of that schema as sent, lowercase hex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_sha256: Option<String>,
+    /// Schema 1.3: SHA-256 of the prompt template, lowercase hex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_sha256: Option<String>,
+    /// Schema 1.3: reasoning effort requested, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// Schema 1.3: whether a pseudonymous safety identifier was sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safety_identifier_sent: Option<bool>,
+    /// Schema 1.3: HTTP attempts made for this call (retries included).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempts: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -48,6 +75,20 @@ pub enum EventPayload {
     EvidenceUnavailable {
         query: String,
         reason: String,
+        /// Schema 1.3: stable machine code next to the English `reason`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+    },
+    /// Schema 1.3: a proof the memory backend produced, described by what
+    /// it seals: its own request, the records its result holds (none for
+    /// an empty recall, which still proves absence, e.g. for project
+    /// isolation), the proof artifact and the anchor it is bound to.
+    RecallProven {
+        request: ProofRequest,
+        evidence_ids: Vec<EvidenceId>,
+        proof_ref: String,
+        anchor: String,
+        empty: bool,
     },
     EvidenceVerified {
         verification: EvidenceVerification,
@@ -73,6 +114,13 @@ pub enum EventPayload {
     RunFailed {
         reason: String,
         stage: String,
+        /// Schema 1.3: stable machine code next to the English `reason`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+        /// Schema 1.3: the model call whose document the runtime refused,
+        /// so the call (and its tokens) still appears in the run's record.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        invocation: Option<ModelInvocation>,
     },
 }
 

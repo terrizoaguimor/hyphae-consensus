@@ -12,12 +12,30 @@
 //! a domain document; any deviation is `ModelError::MalformedOutput` and
 //! fails the run safely in the orchestrator.
 //!
+//! The Evaluator's ids decide the outcome, so `evaluate` never drops one
+//! (audit finding MA-1): every claim id, cited record id, item verdict
+//! id and cleared contradiction id must name, byte for byte, a claim of
+//! the proposal, a record of the round context, an objection under
+//! evaluation or a carried contradiction, and none may repeat; a missing
+//! verdict or a second assessment of one claim is malformed too. The
+//! error names the field and the value. Only an omitted claim is still
+//! completed, as uncorroborated (fail-closed). Ids no decision reads
+//! (the Critic's `claim_id`/`evidence_refs`, the reviser's
+//! `addressed_items`) are still filtered to known ids.
+//!
+//! Protocol 1.3 prompts carry the deliberation across rounds: the
+//! Evaluator is shown every objection still open (carried ones marked
+//! with the round they were raised in) and every carried contradiction,
+//! and must judge each; the Critic is shown the open objections and told
+//! not to repeat them; the reviser is shown every objection left open.
+//!
 //! Evidence text is embedded in prompts inside explicit
 //! `UNTRUSTED_EVIDENCE` delimiters with instructions to treat it as data
 //! to evaluate, never as instructions to follow.
 
 use crate::config::MetaConfig;
 use consensus_domain::*;
+use consensus_runtime::contract::OpenItem;
 use consensus_runtime::ports::{ModelClient, ModelError, RoleContext};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -45,11 +63,13 @@ Prefer a few precise claims over many broad ones.";
 /// then caps the run below `supported`), so abstention is reserved for
 /// evidence too sparse to assess at all.
 const EVALUATION_RULES: &str = "\
-Assess every claim. Set corroborated=true only when a retrieved record whose integrity is Valid directly states what the claim asserts (the same value, rule, or fact), and cite that record in relevant_evidence. \
+Assess every claim exactly once, by its claim id. Set corroborated=true only when a retrieved record whose integrity is Valid directly states what the claim asserts (the same value, rule, or fact), and cite that record in relevant_evidence. \
 A record whose integrity is not Valid cannot corroborate anything. \
 If no record settles a claim, set corroborated=false for it: an unsettled claim is reported per claim, not by abstaining. \
 List in contradicting_evidence every record that conflicts with a claim. \
-In unresolved_items, list by ITEM id every Critic objection that still applies to the proposal as written, including objections the evidence confirms; an objection is resolved only when the proposal already satisfies it or the retrieved evidence shows it is mistaken. \
+Cite records only by the ids given in the evidence block, exactly as written. \
+In item_verdicts, give exactly one verdict for every objection listed above, by its ITEM id exactly as written: status unresolved when the objection still applies to the proposal as written, including objections the evidence confirms; status resolved only when the proposal already satisfies it or the retrieved evidence shows it is mistaken, with a reason naming the change or the record that settles it. \
+For every carried contradiction, either list the record again in contradicting_evidence of a claim it still conflicts with, or put it in cleared_contradictions with a reason naming the change that removed the conflict; never leave one out. \
 Set abstain=true only when the evidence is too sparse or inconsistent to assess the claims at all, and say why in abstain_reason.";
 
 // Every list field in these drafts is REQUIRED (no serde default): the
@@ -87,13 +107,31 @@ pub struct DraftChallengeItem {
     pub evidence_refs: Vec<String>,
 }
 
+// Protocol 1.3: the Evaluator judges each objection explicitly, and the
+// adapter derives `unresolved_items` from these verdicts. (Doc comments on
+// draft types reach the model through the schema; this note must not.)
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftEvaluation {
     pub assessments: Vec<DraftAssessment>,
-    /// Challenge ITEM ids (as listed in the prompt) still unresolved.
-    pub unresolved_items: Vec<String>,
+    /// One verdict per objection listed in the prompt, by ITEM id.
+    pub item_verdicts: Vec<DraftItemVerdict>,
+    /// Carried contradictions this evaluation clears, with reasons.
+    pub cleared_contradictions: Vec<DraftClearedContradiction>,
     pub abstain: bool,
     pub abstain_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DraftItemVerdict {
+    pub item_id: String,
+    pub status: ItemStatus,
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DraftClearedContradiction {
+    pub evidence_id: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -140,6 +178,8 @@ struct ChatResponse {
 #[derive(Debug, Deserialize)]
 struct ChatChoice {
     message: ChatChoiceMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -278,6 +318,7 @@ impl MetaModelClient {
                 }
             }
         };
+        let finish_reason = parsed.choices.first().and_then(|c| c.finish_reason.clone());
         let content = parsed
             .choices
             .first()
@@ -305,6 +346,15 @@ impl MetaModelClient {
             latency_ms: Some(started.elapsed().as_millis() as u64),
             input_tokens: parsed.usage.as_ref().and_then(|u| u.prompt_tokens),
             output_tokens: parsed.usage.as_ref().and_then(|u| u.completion_tokens),
+            finish_reason,
+            reasoning_tokens: None,
+            max_completion_tokens: None,
+            schema_name: Some(schema_name.to_string()),
+            schema_sha256: None,
+            prompt_sha256: None,
+            reasoning_effort: None,
+            safety_identifier_sent: None,
+            attempts: Some(attempt),
         };
         Ok((draft, invocation))
     }
@@ -456,6 +506,190 @@ impl MetaModelClient {
             created_at: (self.now)(),
         })
     }
+
+    /// One objection as a role sees it: id, kind, target claim, when it
+    /// was raised (`None`: this round) and its description.
+    fn item_line(item: &ChallengeItem, raised_in_round: Option<u32>) -> String {
+        let raised = match raised_in_round {
+            Some(round) => format!("raised in round {round}, still open"),
+            None => "raised this round".to_string(),
+        };
+        format!(
+            "- id={} [{:?}] claim={:?} ({raised}) {}",
+            item.id,
+            item.kind,
+            item.claim_id,
+            Self::escape_untrusted(&item.description)
+        )
+    }
+
+    /// The objections an evaluation judges: those still open from earlier
+    /// rounds (with the round each was raised in), then this round's.
+    fn under_evaluation<'a>(
+        ctx: &'a RoleContext,
+        challenge: &'a Challenge,
+    ) -> Vec<(&'a ChallengeItem, Option<u32>)> {
+        ctx.open_items
+            .iter()
+            .map(|o: &OpenItem| (&o.item, Some(o.raised_in_round)))
+            .chain(challenge.items.iter().map(|i| (i, None)))
+            .collect()
+    }
+
+    /// The draft's assessments, in proposal order. No id is dropped
+    /// (MA-1): an assessment of an unknown claim, a second assessment of
+    /// one claim, or a cited id that is not a record of the round context
+    /// (or is cited twice in one list) is malformed. A claim the draft
+    /// omits is completed as uncorroborated (fail-closed, as before).
+    fn assessments_from_draft(
+        proposal: &Proposal,
+        ctx: &RoleContext,
+        drafts: Vec<DraftAssessment>,
+    ) -> Result<Vec<ClaimAssessment>, ModelError> {
+        let malformed = |m: String| Err(ModelError::MalformedOutput(m));
+        for (n, a) in drafts.iter().enumerate() {
+            if !proposal.claims.iter().any(|c| c.id.as_str() == a.claim_id) {
+                return malformed(format!(
+                    "assessments: claim_id {:?} is not a claim of the proposal",
+                    a.claim_id
+                ));
+            }
+            if drafts[..n].iter().any(|b| b.claim_id == a.claim_id) {
+                return malformed(format!(
+                    "assessments: claim_id {:?} is assessed more than once",
+                    a.claim_id
+                ));
+            }
+            for (field, cited) in [
+                ("relevant_evidence", &a.relevant_evidence),
+                ("contradicting_evidence", &a.contradicting_evidence),
+            ] {
+                for (m, id) in cited.iter().enumerate() {
+                    if !ctx.evidence.iter().any(|e| e.id.as_str() == id) {
+                        return malformed(format!(
+                            "assessments[{:?}].{field}: {id:?} is not a retrieved record",
+                            a.claim_id
+                        ));
+                    }
+                    if cited[..m].contains(id) {
+                        return malformed(format!(
+                            "assessments[{:?}].{field}: {id:?} is listed more than once",
+                            a.claim_id
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(proposal
+            .claims
+            .iter()
+            .map(
+                |claim| match drafts.iter().find(|a| a.claim_id == claim.id.as_str()) {
+                    Some(a) => ClaimAssessment {
+                        claim_id: claim.id.clone(),
+                        corroborated: a.corroborated,
+                        relevant_evidence: a
+                            .relevant_evidence
+                            .iter()
+                            .cloned()
+                            .map(EvidenceId::new)
+                            .collect(),
+                        contradicting_evidence: a
+                            .contradicting_evidence
+                            .iter()
+                            .cloned()
+                            .map(EvidenceId::new)
+                            .collect(),
+                        note: a.note.clone(),
+                    },
+                    // Conservative completion: an omitted claim is never
+                    // treated as corroborated.
+                    None => ClaimAssessment {
+                        claim_id: claim.id.clone(),
+                        corroborated: false,
+                        relevant_evidence: vec![],
+                        contradicting_evidence: vec![],
+                        note: "evaluator omitted this claim; treated as uncorroborated".into(),
+                    },
+                },
+            )
+            .collect())
+    }
+
+    /// One verdict per objection under evaluation, in the order they were
+    /// shown. A verdict for anything else, a second verdict for one item,
+    /// or an item without a verdict is malformed: none is ever inferred.
+    fn verdicts_from_draft(
+        expected: &[&str],
+        drafts: Vec<DraftItemVerdict>,
+    ) -> Result<Vec<ItemVerdict>, ModelError> {
+        let malformed = |m: String| ModelError::MalformedOutput(m);
+        for (n, v) in drafts.iter().enumerate() {
+            if !expected.contains(&v.item_id.as_str()) {
+                return Err(malformed(format!(
+                    "item_verdicts: item_id {:?} is not an objection under evaluation",
+                    v.item_id
+                )));
+            }
+            if drafts[..n].iter().any(|w| w.item_id == v.item_id) {
+                return Err(malformed(format!(
+                    "item_verdicts: item_id {:?} has more than one verdict",
+                    v.item_id
+                )));
+            }
+        }
+        expected
+            .iter()
+            .map(|id| {
+                drafts
+                    .iter()
+                    .find(|v| v.item_id == *id)
+                    .map(|v| ItemVerdict {
+                        item_id: v.item_id.clone(),
+                        status: v.status,
+                        reason: v.reason.clone(),
+                    })
+                    .ok_or_else(|| {
+                        malformed(format!("item_verdicts: no verdict for item_id {id:?}"))
+                    })
+            })
+            .collect()
+    }
+
+    /// Cleared contradictions as drafted. Only a carried contradiction can
+    /// be cleared, once; anything else is malformed. (The runtime contract
+    /// then checks each reason and that a cleared record is not also
+    /// listed as contradicting.)
+    fn cleared_from_draft(
+        ctx: &RoleContext,
+        drafts: Vec<DraftClearedContradiction>,
+    ) -> Result<Vec<ClearedContradiction>, ModelError> {
+        for (n, c) in drafts.iter().enumerate() {
+            if !ctx
+                .carried_contradictions
+                .iter()
+                .any(|id| id.as_str() == c.evidence_id)
+            {
+                return Err(ModelError::MalformedOutput(format!(
+                    "cleared_contradictions: evidence_id {:?} is not a carried contradiction",
+                    c.evidence_id
+                )));
+            }
+            if drafts[..n].iter().any(|d| d.evidence_id == c.evidence_id) {
+                return Err(ModelError::MalformedOutput(format!(
+                    "cleared_contradictions: evidence_id {:?} is cleared more than once",
+                    c.evidence_id
+                )));
+            }
+        }
+        Ok(drafts
+            .into_iter()
+            .map(|c| ClearedContradiction {
+                evidence_id: EvidenceId::new(c.evidence_id),
+                reason: c.reason,
+            })
+            .collect())
+    }
 }
 
 impl ModelClient for MetaModelClient {
@@ -477,10 +711,26 @@ impl ModelClient for MetaModelClient {
         proposal: &Proposal,
         ctx: &RoleContext,
     ) -> Result<(Challenge, ModelInvocation), ModelError> {
+        // Protocol 1.3: objections the previous evaluation left open stay
+        // on the record and are judged again; the Critic adds new ones.
+        let carried = if ctx.open_items.is_empty() {
+            String::new()
+        } else {
+            let lines: Vec<String> = ctx
+                .open_items
+                .iter()
+                .map(|o| Self::item_line(&o.item, Some(o.raised_in_round)))
+                .collect();
+            format!(
+                "\n\nObjections from earlier rounds that are still open (they stay on the record and the Evaluator judges each of them again). Do not repeat them; raise only new objections:\n{}",
+                lines.join("\n")
+            )
+        };
         let user = format!(
-            "Proposal under review:\n{}\n\nRetrieved evidence:\n{}\n\nChallenge it: find contradictions, unsupported claims, missing tests, regression and security risks, and conflicts with documented constraints. Reference claim ids exactly as given; put the ids of the records an objection rests on in evidence_refs. Each item's description must state the specific objection in a full sentence; a category label alone is invalid. Use an empty items list only if you find nothing.",
+            "Proposal under review:\n{}\n\nRetrieved evidence:\n{}{}\n\nChallenge it: find contradictions, unsupported claims, missing tests, regression and security risks, and conflicts with documented constraints. Reference claim ids exactly as given; put the ids of the records an objection rests on in evidence_refs. Each item's description must state the specific objection in a full sentence; a category label alone is invalid. Use an empty items list only if you find nothing.",
             Self::proposal_block(proposal),
-            Self::evidence_block(ctx)
+            Self::evidence_block(ctx),
+            carried
         );
         let (draft, inv) = self.call::<DraftChallenge>(
             "DraftChallenge",
@@ -543,24 +793,22 @@ impl ModelClient for MetaModelClient {
         challenge: &Challenge,
         ctx: &RoleContext,
     ) -> Result<(Evaluation, ModelInvocation), ModelError> {
-        let items: Vec<String> = challenge
-            .items
+        let expected = Self::under_evaluation(ctx, challenge);
+        let items: Vec<String> = expected
             .iter()
-            .map(|i| {
-                format!(
-                    "- id={} [{:?}] claim={:?} {}",
-                    i.id,
-                    i.kind,
-                    i.claim_id,
-                    Self::escape_untrusted(&i.description)
-                )
-            })
+            .map(|(item, raised)| Self::item_line(item, *raised))
+            .collect();
+        let contradictions: Vec<String> = ctx
+            .carried_contradictions
+            .iter()
+            .map(|id| format!("- {id}"))
             .collect();
         let user = format!(
-            "Proposal:\n{}\n\nCritic challenge items (challenge document id={}):\n{}\n\nRetrieved evidence with integrity status (integrity is about record tampering only; it does NOT make content true):\n{}\n\n{}",
+            "Proposal:\n{}\n\nObjections to judge, one verdict each (this round's challenge document id={}; a carried objection was raised in an earlier round and is still open):\n{}\n\nCarried contradictions (records an earlier evaluation found contradicting a claim; judge each again):\n{}\n\nRetrieved evidence with integrity status (integrity is about record tampering only; it does NOT make content true):\n{}\n\n{}",
             Self::proposal_block(proposal),
             challenge.id,
             if items.is_empty() { "(none)".into() } else { items.join("\n") },
+            if contradictions.is_empty() { "(none)".into() } else { contradictions.join("\n") },
             Self::evidence_block(ctx),
             EVALUATION_RULES
         );
@@ -569,49 +817,15 @@ impl ModelClient for MetaModelClient {
             "You are the Evidence Evaluator. Distinguish cryptographic integrity from factual correctness; a valid proof never makes a claim true.",
             &user,
         )?;
-        let known_evidence: Vec<&EvidenceId> = ctx.evidence.iter().map(|e| &e.id).collect();
-        let mut assessments: Vec<ClaimAssessment> = Vec::new();
-        for claim in &proposal.claims {
-            match draft
-                .assessments
-                .iter()
-                .find(|a| a.claim_id == claim.id.as_str())
-            {
-                Some(a) => assessments.push(ClaimAssessment {
-                    claim_id: claim.id.clone(),
-                    corroborated: a.corroborated,
-                    relevant_evidence: a
-                        .relevant_evidence
-                        .iter()
-                        .cloned()
-                        .map(EvidenceId::new)
-                        .filter(|id| known_evidence.contains(&id))
-                        .collect(),
-                    contradicting_evidence: a
-                        .contradicting_evidence
-                        .iter()
-                        .cloned()
-                        .map(EvidenceId::new)
-                        .filter(|id| known_evidence.contains(&id))
-                        .collect(),
-                    note: a.note.clone(),
-                }),
-                // Conservative completion: an omitted claim is never
-                // treated as corroborated.
-                None => assessments.push(ClaimAssessment {
-                    claim_id: claim.id.clone(),
-                    corroborated: false,
-                    relevant_evidence: vec![],
-                    contradicting_evidence: vec![],
-                    note: "evaluator omitted this claim; treated as uncorroborated".into(),
-                }),
-            }
-        }
-        let known_items: Vec<&str> = challenge.items.iter().map(|i| i.id.as_str()).collect();
-        let unresolved: Vec<String> = draft
-            .unresolved_items
-            .into_iter()
-            .filter(|id| known_items.contains(&id.as_str()))
+        let expected_ids: Vec<&str> = expected.iter().map(|(i, _)| i.id.as_str()).collect();
+        let assessments = Self::assessments_from_draft(proposal, ctx, draft.assessments)?;
+        let item_verdicts = Self::verdicts_from_draft(&expected_ids, draft.item_verdicts)?;
+        let cleared_contradictions = Self::cleared_from_draft(ctx, draft.cleared_contradictions)?;
+        // Derived, never asked for separately: exactly the open verdicts.
+        let unresolved_items = item_verdicts
+            .iter()
+            .filter(|v| v.status == ItemStatus::Unresolved)
+            .map(|v| v.item_id.clone())
             .collect();
         Ok((
             Evaluation {
@@ -619,7 +833,9 @@ impl ModelClient for MetaModelClient {
                 run_id: proposal.run_id.clone(),
                 target_proposal: proposal.id.clone(),
                 assessments,
-                unresolved_items: unresolved,
+                unresolved_items,
+                item_verdicts,
+                cleared_contradictions,
                 abstain: draft.abstain,
                 abstain_reason: draft.abstain_reason,
                 created_at: (self.now)(),
@@ -635,17 +851,25 @@ impl ModelClient for MetaModelClient {
         evaluation: &Evaluation,
         ctx: &RoleContext,
     ) -> Result<(Revision, ModelInvocation), ModelError> {
-        let items: Vec<String> = challenge
-            .items
+        // Every objection the evaluation left open, wherever it was raised,
+        // with the Evaluator's reason when it gave one.
+        let expected = Self::under_evaluation(ctx, challenge);
+        let open: Vec<String> = evaluation
+            .unresolved_items
             .iter()
-            .map(|i| {
-                format!(
-                    "- id={} [{:?}] claim={:?} {}",
-                    i.id,
-                    i.kind,
-                    i.claim_id,
-                    Self::escape_untrusted(&i.description)
-                )
+            .map(|id| {
+                let shown = expected
+                    .iter()
+                    .find(|(item, _)| &item.id == id)
+                    .map(|(item, raised)| Self::item_line(item, *raised))
+                    .unwrap_or_else(|| format!("- id={id}"));
+                match evaluation.item_verdicts.iter().find(|v| &v.item_id == id) {
+                    Some(v) if !v.reason.trim().is_empty() => format!(
+                        "{shown}\n  evaluator: {}",
+                        Self::escape_untrusted(&v.reason)
+                    ),
+                    _ => shown,
+                }
             })
             .collect();
         let notes: Vec<String> = evaluation
@@ -678,9 +902,9 @@ impl ModelClient for MetaModelClient {
             String::new()
         };
         let user = format!(
-            "Your previous proposal:\n{}\n\nCritic challenge items:\n{}\n\nEvaluation:\n{}\nUnresolved item ids: {:?}{}\n\nEvidence:\n{}\n\nRevise the proposal to address the unresolved items. In addressed_items, list by ITEM id which objections the revision fixes. Drop or fix claims the evidence contradicts and respect documented constraints found in the evidence. {}",
+            "Your previous proposal:\n{}\n\nOpen objections (unresolved after the evaluation; a carried one shows the round it was raised in):\n{}\n\nEvaluation:\n{}\nUnresolved item ids: {:?}{}\n\nEvidence:\n{}\n\nRevise the proposal to address every open objection. In addressed_items, list by ITEM id which objections the revision fixes. Drop or fix claims the evidence contradicts and respect documented constraints found in the evidence. {}",
             Self::proposal_block(proposal),
-            if items.is_empty() { "(none)".into() } else { items.join("\n") },
+            if open.is_empty() { "(none)".into() } else { open.join("\n") },
             notes.join("\n"),
             evaluation.unresolved_items,
             abstention,
@@ -692,7 +916,7 @@ impl ModelClient for MetaModelClient {
             "You are the Proposer revising after critique and evidence evaluation.",
             &user,
         )?;
-        let known_items: Vec<&str> = challenge.items.iter().map(|i| i.id.as_str()).collect();
+        let known_items: Vec<&str> = expected.iter().map(|(item, _)| item.id.as_str()).collect();
         let addressed: Vec<String> = draft
             .addressed_items
             .into_iter()

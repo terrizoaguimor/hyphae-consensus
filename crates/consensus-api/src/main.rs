@@ -81,6 +81,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             EventPayload::ProposalSubmitted { .. } => "proposal_submitted",
             EventPayload::EvidenceRetrieved { .. } => "evidence_retrieved",
             EventPayload::EvidenceUnavailable { .. } => "evidence_unavailable",
+            EventPayload::RecallProven { .. } => "recall_proven",
             EventPayload::EvidenceVerified { .. } => "evidence_verified",
             EventPayload::ChallengeSubmitted { .. } => "challenge_submitted",
             EventPayload::EvaluationSubmitted { .. } => "evaluation_submitted",
@@ -103,6 +104,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             decided_at: now.clone(),
             idempotency_key: "demo-decision-1".into(),
             note: Some("M1 demo decision (recording only; no execution)".into()),
+            authority: None,
         };
         let agg = record_human_decision(&mut log, auth, now)?;
         println!(

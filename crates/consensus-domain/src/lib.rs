@@ -26,10 +26,47 @@ pub use run::*;
 /// 1.2: policy order (a recorded contradiction outranks abstention) and a
 /// revision may follow an abstention that lists unresolved items. Record
 /// shapes are unchanged; replay re-derives each run with its own rules.
-pub const SCHEMA_VERSION: &str = "1.2";
+///
+/// 1.3 (protocol 1.3; the policy rules stay those of 1.2): the
+/// fail-closed evaluation contract and cross-round carry-forward. The
+/// runtime checks every 1.3 evaluation against the run's own record of
+/// open objections, retrieved records and earlier contradictions, both
+/// before recording it and on replay (`consensus_runtime::contract`).
+/// Carry-forward changes the inputs of the 1.2 rules, so the same
+/// deliberation can now derive `contested` where 1.2 derived `supported`.
+///
+/// Every 1.3 change is additive. Each field added to an existing type
+/// reachable from [`ConsensusEvent`] is an `Option` or `Vec` with
+/// `#[serde(default, skip_serializing_if = ...)]`, so a 1.0-1.2 record
+/// parses and re-serializes byte for byte and its chain hash still
+/// verifies; no `HashMap`/`HashSet` appears in a serialized type. The
+/// 1.3 inventory:
+/// - [`Evaluation::item_verdicts`] ([`ItemVerdict`], [`ItemStatus`]) and
+///   [`Evaluation::cleared_contradictions`] ([`ClearedContradiction`]);
+/// - [`Recommendation::unresolved_uncertainties`];
+/// - [`HumanAuthorization::authority`] ([`Authority`]);
+/// - [`Task::mode`] ([`TaskMode`]: [`ModelMode`], [`EvidenceMode`],
+///   [`RunOrigin`], preset);
+/// - [`EvidenceReference`]: `retrieval` ([`Retrieval`]), `snapshot_id`,
+///   `captured_at`, `proof_ref`, `proof_sha256`, `proof_request`
+///   ([`ProofRequest`]), `backend_project`, `backend_scope`;
+/// - [`EvidenceVerification`]: `round`, `proof_ref`, `report`
+///   ([`VerifierReport`]);
+/// - [`ModelInvocation`]: `finish_reason`, `reasoning_tokens`,
+///   `max_completion_tokens`, `schema_name`, `schema_sha256`,
+///   `prompt_sha256`, `reasoning_effort`, `safety_identifier_sent`,
+///   `attempts`;
+/// - [`EventPayload::RunFailed`]: `code` and `invocation` (a call whose
+///   document the runtime refused is still recorded);
+///   [`EventPayload::EvidenceUnavailable`]: `code`;
+/// - a new event, [`EventPayload::RecallProven`]: the request a proof
+///   actually sealed, the ids it covers (none for an empty recall), the
+///   proof reference and anchor. Accepted wherever the other evidence
+///   events are; nothing emits it yet.
+pub const SCHEMA_VERSION: &str = "1.3";
 
 /// Versions the event log can still read (additive/aliased changes only).
-pub const READABLE_SCHEMA_VERSIONS: [&str; 3] = ["1.0", "1.1", "1.2"];
+pub const READABLE_SCHEMA_VERSIONS: [&str; 4] = ["1.0", "1.1", "1.2", "1.3"];
 
 /// The three logical agent roles. Roles may share one underlying model;
 /// they differ in instructions, context, and tool permissions.

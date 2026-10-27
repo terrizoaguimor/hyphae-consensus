@@ -8,7 +8,11 @@ use crate::ports::*;
 use consensus_domain::*;
 use std::collections::{HashMap, VecDeque};
 
-/// Scripted model: each role call pops the next queued response.
+/// Scripted model: each role call pops the next queued response. A
+/// scripted document is returned as written (only its correlation ids are
+/// rewritten): the fake never completes an assessment, synthesizes a
+/// verdict or clears a contradiction, so scripts face the same protocol
+/// 1.3 evaluation contract as a live model.
 #[derive(Default)]
 pub struct FakeModelClient {
     pub proposals: VecDeque<Result<Proposal, ModelError>>,
@@ -16,6 +20,9 @@ pub struct FakeModelClient {
     pub evaluations: VecDeque<Result<Evaluation, ModelError>>,
     pub revisions: VecDeque<Result<Revision, ModelError>>,
     pub calls: Vec<String>,
+    /// The context of every critique, evaluate and revise call, with the
+    /// call's name, in call order.
+    pub contexts: Vec<(String, RoleContext)>,
     /// Reported (input, output) tokens per call; (0, 0) by default.
     pub tokens_per_call: (u64, u64),
     /// Report no usage at all, like a provider that omits it.
@@ -38,7 +45,23 @@ impl FakeModelClient {
             latency_ms: Some(1),
             input_tokens: (!self.omit_usage).then_some(input),
             output_tokens: (!self.omit_usage).then_some(output),
+            // No HTTP call, schema or prompt exists behind a scripted
+            // response, so nothing is claimed about one.
+            finish_reason: None,
+            reasoning_tokens: None,
+            max_completion_tokens: None,
+            schema_name: None,
+            schema_sha256: None,
+            prompt_sha256: None,
+            reasoning_effort: None,
+            safety_identifier_sent: None,
+            attempts: None,
         }
+    }
+
+    fn record(&mut self, stage: &str, ctx: &RoleContext) {
+        self.calls.push(stage.into());
+        self.contexts.push((stage.into(), ctx.clone()));
     }
 
     fn pop<T>(q: &mut VecDeque<Result<T, ModelError>>, stage: &str) -> Result<T, ModelError> {
@@ -64,9 +87,9 @@ impl ModelClient for FakeModelClient {
     fn critique(
         &mut self,
         proposal: &Proposal,
-        _c: &RoleContext,
+        ctx: &RoleContext,
     ) -> Result<(Challenge, ModelInvocation), ModelError> {
-        self.calls.push("critique".into());
+        self.record("critique", ctx);
         let inv = self.invocation("critique");
         Self::pop(&mut self.critiques, "critique").map(|mut ch| {
             ch.run_id = proposal.run_id.clone();
@@ -78,9 +101,9 @@ impl ModelClient for FakeModelClient {
         &mut self,
         proposal: &Proposal,
         _ch: &Challenge,
-        _c: &RoleContext,
+        ctx: &RoleContext,
     ) -> Result<(Evaluation, ModelInvocation), ModelError> {
-        self.calls.push("evaluate".into());
+        self.record("evaluate", ctx);
         let inv = self.invocation("evaluate");
         Self::pop(&mut self.evaluations, "evaluate").map(|mut e| {
             e.run_id = proposal.run_id.clone();
@@ -93,9 +116,9 @@ impl ModelClient for FakeModelClient {
         proposal: &Proposal,
         _ch: &Challenge,
         _e: &Evaluation,
-        _c: &RoleContext,
+        ctx: &RoleContext,
     ) -> Result<(Revision, ModelInvocation), ModelError> {
-        self.calls.push("revise".into());
+        self.record("revise", ctx);
         let inv = self.invocation("revise");
         Self::pop(&mut self.revisions, "revise").map(|mut r| {
             r.proposal.run_id = proposal.run_id.clone();
@@ -200,6 +223,7 @@ impl ProofVerifier for FakeProofVerifier {
             detail: Some(format!(
                 "SIMULATED proof (scripted outcome, no cryptography checked): {status:?}"
             )),
+            report: None,
         }
     }
 }

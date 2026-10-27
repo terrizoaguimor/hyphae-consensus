@@ -4,6 +4,12 @@
 //! demonstration: a proposer recommends a change, the critic finds a
 //! documented constraint it violates, the evaluator confirms the
 //! contradiction from retrieved evidence, and the proposer revises.
+//!
+//! Every scripted evaluation keeps the protocol 1.3 contract
+//! ([`crate::contract`]) on its own: it assesses each claim once, cites
+//! only records the run retrieves, and gives an explicit verdict, with a
+//! reason when resolved, on every objection under evaluation, carried
+//! ones included. The fake model returns these documents verbatim.
 
 use crate::fakes::{FakeMemoryClient, FakeModelClient, FakeProofVerifier};
 use crate::orchestrator::TaskInput;
@@ -12,6 +18,7 @@ use consensus_domain::*;
 pub const DEMO_PROJECT: &str = "demo-repo";
 pub const TS: &str = "2026-10-26T09:00:00Z";
 
+/// A seeded record, labeled `retrieval: simulated` (schema 1.3).
 pub fn evidence(id: &str, project: &str, kind: &str, content: &str) -> EvidenceReference {
     EvidenceReference {
         schema_version: SCHEMA_VERSION.into(),
@@ -25,6 +32,14 @@ pub fn evidence(id: &str, project: &str, kind: &str, content: &str) -> EvidenceR
         proof_file: None,
         witness_file: None,
         proof_error: None,
+        retrieval: Some(Retrieval::Simulated),
+        snapshot_id: None,
+        captured_at: None,
+        proof_ref: None,
+        proof_sha256: None,
+        proof_request: None,
+        backend_project: None,
+        backend_scope: None,
     }
 }
 
@@ -69,6 +84,9 @@ pub fn assessment(
     }
 }
 
+/// An evaluation with no item verdicts: under protocol 1.3 only valid
+/// when no objection is under evaluation (and then `unresolved` is
+/// empty). Use [`judged`] whenever there are items to judge.
 pub fn evaluation(
     assessments: Vec<ClaimAssessment>,
     unresolved: &[&str],
@@ -80,10 +98,47 @@ pub fn evaluation(
         target_proposal: ProposalId::new("placeholder"),
         assessments,
         unresolved_items: unresolved.iter().map(|s| s.to_string()).collect(),
+        item_verdicts: vec![],
+        cleared_contradictions: vec![],
         abstain,
         abstain_reason: abstain.then(|| "evidence is insufficient to judge".to_string()),
         created_at: TS.into(),
     }
+}
+
+/// One scripted verdict on one objection.
+pub fn verdict(item_id: &str, status: ItemStatus, reason: &str) -> ItemVerdict {
+    ItemVerdict {
+        item_id: item_id.into(),
+        status,
+        reason: reason.into(),
+    }
+}
+
+/// One scripted clearing of a carried contradiction, with its reason.
+pub fn cleared(evidence_id: &str, reason: &str) -> ClearedContradiction {
+    ClearedContradiction {
+        evidence_id: EvidenceId::new(evidence_id),
+        reason: reason.into(),
+    }
+}
+
+/// An evaluation that states a verdict on each objection; its
+/// `unresolved_items` are the `unresolved` verdicts, in verdict order.
+/// Nothing is synthesized: every verdict comes from the script.
+pub fn judged(
+    assessments: Vec<ClaimAssessment>,
+    verdicts: Vec<ItemVerdict>,
+    abstain: bool,
+) -> Evaluation {
+    let mut judged = evaluation(assessments, &[], abstain);
+    judged.unresolved_items = verdicts
+        .iter()
+        .filter(|v| v.status == ItemStatus::Unresolved)
+        .map(|v| v.item_id.clone())
+        .collect();
+    judged.item_verdicts = verdicts;
+    judged
 }
 
 pub struct Scenario {
@@ -93,22 +148,19 @@ pub struct Scenario {
     pub input: TaskInput,
 }
 
-/// Proposer violates a stored constraint; critic catches it; revision
-/// complies; second evaluation corroborates. Expected: Supported.
-pub fn retry_constraint_scenario() -> Scenario {
-    let constraint = evidence(
-        "ev-constraint", DEMO_PROJECT, "constraint",
-        "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
-    );
-    let fact = evidence(
-        "ev-fact",
-        DEMO_PROJECT,
-        "fact",
-        "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
-    );
+fn retry_input() -> TaskInput {
+    TaskInput {
+        project_id: ProjectId::new(DEMO_PROJECT),
+        title: "Fix payment client timeouts".into(),
+        description: "Payment requests intermittently time out under load. Propose a fix.".into(),
+        submitted_by: "mario".into(),
+        mode: None,
+    }
+}
 
-    let mut model = FakeModelClient::new();
-    model.proposals.push_back(Ok(proposal(
+/// The reference task's first proposal: it raises retries past the cap.
+fn retry_first_proposal() -> Proposal {
+    proposal(
         "prop-1",
         "Raise the payment client retry limit to fix timeouts",
         vec![
@@ -118,39 +170,12 @@ pub fn retry_constraint_scenario() -> Scenario {
             ),
             claim("claim-2", "Raising the retry limit to 10 attempts is safe"),
         ],
-    )));
-    model.critiques.push_back(Ok(Challenge {
-        schema_version: SCHEMA_VERSION.into(),
-        id: ChallengeId::new("chal-1"),
-        run_id: RunId::new("placeholder"),
-        target_proposal: ProposalId::new("placeholder"),
-        items: vec![
-            ChallengeItem {
-                id: "item-1".into(),
-                kind: ChallengeKind::ConstraintConflict,
-                claim_id: Some(ClaimId::new("claim-2")),
-                description: "Documented constraint caps retries at 3 attempts".into(),
-                evidence_refs: vec![EvidenceId::new("ev-constraint")],
-            },
-            ChallengeItem {
-                id: "item-2".into(),
-                kind: ChallengeKind::UnsupportedClaim,
-                claim_id: Some(ClaimId::new("claim-1")),
-                description: "No evidence ties timeouts to insufficient retries".into(),
-                evidence_refs: vec![],
-            },
-        ],
-        created_at: TS.into(),
-    }));
-    model.evaluations.push_back(Ok(evaluation(
-        vec![
-            assessment("claim-1", false, &["ev-fact"], &[]),
-            assessment("claim-2", false, &["ev-constraint"], &["ev-constraint"]),
-        ],
-        &["item-1", "item-2"],
-        false,
-    )));
-    model.revisions.push_back(Ok(Revision {
+    )
+}
+
+/// The reference task's revision: it keeps the documented cap.
+fn retry_revision() -> Revision {
+    Revision {
         schema_version: SCHEMA_VERSION.into(),
         proposal: proposal(
             "prop-2",
@@ -168,34 +193,185 @@ pub fn retry_constraint_scenario() -> Scenario {
         ),
         supersedes: ProposalId::new("placeholder"),
         addressed_items: vec!["item-1".into(), "item-2".into()],
-    }));
-    model.critiques.push_back(Ok(Challenge {
+    }
+}
+
+fn challenge(id: &str, items: Vec<ChallengeItem>) -> Challenge {
+    Challenge {
         schema_version: SCHEMA_VERSION.into(),
-        id: ChallengeId::new("chal-2"),
+        id: ChallengeId::new(id),
         run_id: RunId::new("placeholder"),
         target_proposal: ProposalId::new("placeholder"),
-        items: vec![],
+        items,
         created_at: TS.into(),
-    }));
-    model.evaluations.push_back(Ok(evaluation(
+    }
+}
+
+/// Proposer violates a stored constraint; critic catches it; revision
+/// complies; the second evaluation resolves both carried objections and
+/// clears the carried contradiction, each with its reason, and
+/// corroborates. Expected: Supported.
+pub fn retry_constraint_scenario() -> Scenario {
+    let constraint = evidence(
+        "ev-constraint", DEMO_PROJECT, "constraint",
+        "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+    );
+    let fact = evidence(
+        "ev-fact",
+        DEMO_PROJECT,
+        "fact",
+        "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
+    );
+
+    let mut model = FakeModelClient::new();
+    model.proposals.push_back(Ok(retry_first_proposal()));
+    model.critiques.push_back(Ok(challenge(
+        "chal-1",
         vec![
-            assessment("claim-1", true, &["ev-fact"], &[]),
-            assessment("claim-2", true, &["ev-constraint"], &[]),
+            ChallengeItem {
+                id: "item-1".into(),
+                kind: ChallengeKind::ConstraintConflict,
+                claim_id: Some(ClaimId::new("claim-2")),
+                description: "Documented constraint caps retries at 3 attempts".into(),
+                evidence_refs: vec![EvidenceId::new("ev-constraint")],
+            },
+            ChallengeItem {
+                id: "item-2".into(),
+                kind: ChallengeKind::UnsupportedClaim,
+                claim_id: Some(ClaimId::new("claim-1")),
+                description: "No evidence ties timeouts to insufficient retries".into(),
+                evidence_refs: vec![],
+            },
         ],
-        &[],
+    )));
+    model.evaluations.push_back(Ok(judged(
+        vec![
+            assessment("claim-1", false, &["ev-fact"], &[]),
+            assessment("claim-2", false, &["ev-constraint"], &["ev-constraint"]),
+        ],
+        vec![
+            verdict(
+                "item-1",
+                ItemStatus::Unresolved,
+                "ev-constraint caps retries at 3 attempts; the proposal raises them to 10",
+            ),
+            verdict(
+                "item-2",
+                ItemStatus::Unresolved,
+                "ev-fact ties timeouts to retry bursts, not to too few retries",
+            ),
+        ],
         false,
     )));
+    model.revisions.push_back(Ok(retry_revision()));
+    model.critiques.push_back(Ok(challenge("chal-2", vec![])));
+    model.evaluations.push_back(Ok(Evaluation {
+        cleared_contradictions: vec![cleared(
+            "ev-constraint",
+            "the revision caps retries at 3 attempts with jitter, as the constraint requires",
+        )],
+        ..judged(
+            vec![
+                assessment("claim-1", true, &["ev-fact"], &[]),
+                assessment("claim-2", true, &["ev-constraint"], &[]),
+            ],
+            vec![
+                verdict(
+                    "item-1",
+                    ItemStatus::Resolved,
+                    "claim-2 now caps retries at 3 attempts with jitter",
+                ),
+                verdict(
+                    "item-2",
+                    ItemStatus::Resolved,
+                    "claim-1 now states the correlation ev-fact records",
+                ),
+            ],
+            false,
+        )
+    }));
 
     Scenario {
         model,
         memory: FakeMemoryClient::new(vec![constraint, fact]),
         verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
-        input: TaskInput {
-            project_id: ProjectId::new(DEMO_PROJECT),
-            title: "Fix payment client timeouts".into(),
-            description: "Payment requests intermittently time out under load. Propose a fix."
-                .into(),
-            submitted_by: "mario".into(),
-        },
+        input: retry_input(),
+    }
+}
+
+/// The reference task with the memory backend offline. Nothing can be
+/// retrieved, so nothing is cited: protocol 1.3 refuses a citation of a
+/// record the run never retrieved. The Critic's two objections are about
+/// the plan; the revision answers them and the second evaluation resolves
+/// both, with reasons, but no claim can be corroborated. Expected:
+/// InsufficientEvidence after one revision (6 model calls).
+pub fn offline_scenario() -> Scenario {
+    let mut model = FakeModelClient::new();
+    model.proposals.push_back(Ok(retry_first_proposal()));
+    model.critiques.push_back(Ok(challenge(
+        "chal-1",
+        vec![
+            ChallengeItem {
+                id: "item-1".into(),
+                kind: ChallengeKind::UnsupportedClaim,
+                claim_id: Some(ClaimId::new("claim-2")),
+                description: "No retrieved record shows that 10 retry attempts are safe".into(),
+                evidence_refs: vec![],
+            },
+            ChallengeItem {
+                id: "item-2".into(),
+                kind: ChallengeKind::UnsupportedClaim,
+                claim_id: Some(ClaimId::new("claim-1")),
+                description: "No retrieved record ties the timeouts to too few retries".into(),
+                evidence_refs: vec![],
+            },
+        ],
+    )));
+    model.evaluations.push_back(Ok(judged(
+        vec![
+            assessment("claim-1", false, &[], &[]),
+            assessment("claim-2", false, &[], &[]),
+        ],
+        vec![
+            verdict(
+                "item-1",
+                ItemStatus::Unresolved,
+                "memory is offline: no record could be retrieved to settle it",
+            ),
+            verdict(
+                "item-2",
+                ItemStatus::Unresolved,
+                "memory is offline: no record could be retrieved to settle it",
+            ),
+        ],
+        false,
+    )));
+    model.revisions.push_back(Ok(retry_revision()));
+    model.critiques.push_back(Ok(challenge("chal-2", vec![])));
+    model.evaluations.push_back(Ok(judged(
+        vec![
+            assessment("claim-1", false, &[], &[]),
+            assessment("claim-2", false, &[], &[]),
+        ],
+        vec![
+            verdict(
+                "item-1",
+                ItemStatus::Resolved,
+                "the revision no longer raises the attempt limit",
+            ),
+            verdict(
+                "item-2",
+                ItemStatus::Resolved,
+                "the revision no longer claims a cause; claim-1 states a correlation",
+            ),
+        ],
+        false,
+    )));
+
+    Scenario {
+        model,
+        memory: FakeMemoryClient::offline(),
+        verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
+        input: retry_input(),
     }
 }

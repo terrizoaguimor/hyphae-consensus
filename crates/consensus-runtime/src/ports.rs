@@ -6,6 +6,7 @@
 //! their own timeouts and return structured errors — the orchestrator
 //! fails the run safely on any `Err` and never guesses.
 
+use crate::contract::OpenItem;
 use consensus_domain::*;
 use thiserror::Error;
 
@@ -20,14 +21,32 @@ pub enum ModelError {
 }
 
 /// Bounded context handed to a role call. Evidence content inside is data
-/// to reason about, never instructions to follow.
+/// to reason about, never instructions to follow. The orchestrator builds
+/// one per round, from the run's aggregate, for that round's critique,
+/// evaluation and revision.
 #[derive(Debug, Clone, Default)]
 pub struct RoleContext {
+    /// Protocol 1.3: every record retrieved so far in the run (at most
+    /// `MAX_EVIDENCE_PER_RUN`), not only this round's recalls.
     pub evidence: Vec<EvidenceReference>,
     /// Integrity results known before the call, keyed by evidence id.
     pub integrity: Vec<(EvidenceId, IntegrityStatus)>,
+    /// Protocol 1.3: Critic objections the previous evaluation left open,
+    /// in its verdict order. Empty in the first round.
+    pub open_items: Vec<OpenItem>,
+    /// Protocol 1.3: records an earlier evaluation listed as contradicting
+    /// a claim and no later one cleared. Empty in the first round.
+    pub carried_contradictions: Vec<EvidenceId>,
 }
 
+/// One role call per method. Every `Evaluation` returned must keep the
+/// protocol 1.3 evaluation contract ([`crate::contract`]) for the
+/// proposal, the challenge and the context it was asked about: one
+/// assessment per claim, citations only from `ctx.evidence`, one verdict
+/// per objection in `ctx.open_items` and `challenge.items`, and a
+/// judgment on every carried contradiction. The orchestrator checks it
+/// before recording anything and fails the run on a violation; it never
+/// completes or repairs a document, whichever client produced it.
 pub trait ModelClient {
     fn propose(&mut self, task: &Task) -> Result<(Proposal, ModelInvocation), ModelError>;
     fn critique(
@@ -96,6 +115,9 @@ pub struct ProofCheck {
     pub verifier: Option<String>,
     pub verified_anchor: Option<String>,
     pub detail: Option<String>,
+    /// The verifier's structured report, when it gives one; recorded in
+    /// `EvidenceVerification::report` (schema 1.3).
+    pub report: Option<VerifierReport>,
 }
 
 /// Verifies cryptographic integrity only. Factual correctness and

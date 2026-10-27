@@ -114,6 +114,25 @@
         "evidence_evaluator"
       ]
     },
+    "Authority": {
+      "description": "Under whose authority a human decision was recorded (schema 1.3).",
+      "oneOf": [
+        {
+          "description": "The operator of this deployment.",
+          "type": "string",
+          "enum": [
+            "operator"
+          ]
+        },
+        {
+          "description": "A public visitor deciding on their own simulated run: the record carries no operational authority.",
+          "type": "string",
+          "enum": [
+            "public_demo"
+          ]
+        }
+      ]
+    },
     "Challenge": {
       "description": "Critic output. The critic's job is to find problems, not to agree.",
       "type": "object",
@@ -254,6 +273,22 @@
         }
       }
     },
+    "ClearedContradiction": {
+      "description": "A contradiction recorded in an earlier round that this evaluation judges no longer applies, with the reason (schema 1.3). Silence never clears a contradiction; only an entry here does.",
+      "type": "object",
+      "required": [
+        "evidence_id",
+        "reason"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
     "Evaluation": {
       "type": "object",
       "required": [
@@ -281,8 +316,22 @@
             "$ref": "#/definitions/ClaimAssessment"
           }
         },
+        "cleared_contradictions": {
+          "description": "Schema 1.3: contradictions carried from earlier rounds that this evaluation clears, each with its reason.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClearedContradiction"
+          }
+        },
         "created_at": {
           "type": "string"
+        },
+        "item_verdicts": {
+          "description": "Schema 1.3: one verdict for every objection under evaluation, the ones still open from earlier rounds and this round's. Empty on earlier records, which judged this round's items only, implicitly.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ItemVerdict"
+          }
         },
         "run_id": {
           "type": "string"
@@ -294,7 +343,7 @@
           "type": "string"
         },
         "unresolved_items": {
-          "description": "Challenge ITEM ids the evaluator judges still unresolved.",
+          "description": "Challenge ITEM ids the evaluator judges still unresolved. From schema 1.3 exactly the ids of the `unresolved` verdicts.",
           "default": [],
           "type": "array",
           "items": {
@@ -372,6 +421,13 @@
             "type"
           ],
           "properties": {
+            "code": {
+              "description": "Schema 1.3: stable machine code next to the English `reason`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "query": {
               "type": "string"
             },
@@ -382,6 +438,44 @@
               "type": "string",
               "enum": [
                 "evidence_unavailable"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Schema 1.3: a proof the memory backend produced, described by what it seals: its own request, the records its result holds (none for an empty recall, which still proves absence, e.g. for project isolation), the proof artifact and the anchor it is bound to.",
+          "type": "object",
+          "required": [
+            "anchor",
+            "empty",
+            "evidence_ids",
+            "proof_ref",
+            "request",
+            "type"
+          ],
+          "properties": {
+            "anchor": {
+              "type": "string"
+            },
+            "empty": {
+              "type": "boolean"
+            },
+            "evidence_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "proof_ref": {
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/definitions/ProofRequest"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "recall_proven"
               ]
             }
           }
@@ -514,6 +608,24 @@
             "type"
           ],
           "properties": {
+            "code": {
+              "description": "Schema 1.3: stable machine code next to the English `reason`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "invocation": {
+              "description": "Schema 1.3: the model call whose document the runtime refused, so the call (and its tokens) still appears in the run's record.",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ModelInvocation"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "reason": {
               "type": "string"
             },
@@ -527,6 +639,38 @@
               ]
             }
           }
+        }
+      ]
+    },
+    "EvidenceMode": {
+      "oneOf": [
+        {
+          "description": "Seeded in-memory records with scripted proof outcomes.",
+          "type": "string",
+          "enum": [
+            "simulated"
+          ]
+        },
+        {
+          "description": "No memory backend: retrieval fails and the run degrades.",
+          "type": "string",
+          "enum": [
+            "offline"
+          ]
+        },
+        {
+          "description": "A sealed, pre-captured Hyphae snapshot.",
+          "type": "string",
+          "enum": [
+            "sealed_snapshot"
+          ]
+        },
+        {
+          "description": "A running Hyphae Agent Memory deployment.",
+          "type": "string",
+          "enum": [
+            "live_hyphae"
+          ]
         }
       ]
     },
@@ -549,8 +693,29 @@
             "null"
           ]
         },
+        "backend_project": {
+          "description": "Schema 1.3: the project the backend itself reported for the record, which may differ from `project_id` (the run's project).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "backend_ref": {
           "description": "Backend-native record identifier (e.g. Hyphae memory id), when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend_scope": {
+          "description": "Schema 1.3: the backend's scope for the record, when it reports one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "captured_at": {
+          "description": "Schema 1.3: when that snapshot was captured (RFC 3339).",
           "type": [
             "string",
             "null"
@@ -583,11 +748,54 @@
             "null"
           ]
         },
+        "proof_ref": {
+          "description": "Schema 1.3: public identifier of the proof artifact covering the record, without any local path.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_request": {
+          "description": "Schema 1.3: the request the proof actually sealed. A proof covers its own request (e.g. the full record list of a project), which need not be the claim query that led the runtime to the record.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProofRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "proof_sha256": {
+          "description": "Schema 1.3: SHA-256 of that proof artifact, lowercase hex.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retrieval": {
+          "description": "Schema 1.3: how the record was obtained.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Retrieval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "retrieved_at": {
           "type": "string"
         },
         "schema_version": {
           "type": "string"
+        },
+        "snapshot_id": {
+          "description": "Schema 1.3: the sealed snapshot the record came from, when it did.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "witness_file": {
           "description": "Local witness artifact path paired with `proof_file`.",
@@ -628,8 +836,35 @@
         "integrity_status": {
           "$ref": "#/definitions/IntegrityStatus"
         },
+        "proof_ref": {
+          "description": "Schema 1.3: the proof artifact that was checked (the record's `proof_ref`), when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "relevance_status": {
           "$ref": "#/definitions/RelevanceStatus"
+        },
+        "report": {
+          "description": "Schema 1.3: the verifier's structured report, when it gives one.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VerifierReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "round": {
+          "description": "Schema 1.3: the deliberation round (1 = first) whose evaluation this record combines with. Protocol 1.3 re-verifies every record of the round context in every round.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
         },
         "schema_version": {
           "type": "string"
@@ -674,6 +909,17 @@
       "properties": {
         "approved": {
           "type": "boolean"
+        },
+        "authority": {
+          "description": "Schema 1.3: the authority the decision was taken under. Absent on earlier records, which read as unspecified, never as operator authority.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Authority"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "authorized_by": {
           "type": "string"
@@ -739,6 +985,35 @@
         }
       ]
     },
+    "ItemStatus": {
+      "description": "Evaluator judgment on one Critic objection (schema 1.3): `resolved` when the proposal as written no longer has the problem or the retrieved evidence shows the objection is mistaken; `unresolved` when it still applies, so it stays open into the next round.",
+      "type": "string",
+      "enum": [
+        "resolved",
+        "unresolved"
+      ]
+    },
+    "ItemVerdict": {
+      "description": "One explicit verdict on one objection, by item id (schema 1.3).",
+      "type": "object",
+      "required": [
+        "item_id",
+        "reason",
+        "status"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why. Required (non-empty) for a resolved verdict: an objection is never closed without saying what settled it.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/ItemStatus"
+        }
+      }
+    },
     "ModelInvocation": {
       "description": "Metadata for one model call, recorded so Meta model participation is demonstrable from receipts. `model` preserves the exact Model API identity string returned/configured for the call.",
       "type": "object",
@@ -747,6 +1022,22 @@
         "provider"
       ],
       "properties": {
+        "attempts": {
+          "description": "Schema 1.3: HTTP attempts made for this call (retries included).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "finish_reason": {
+          "description": "Schema 1.3: why the model stopped generating, as the API said it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "input_tokens": {
           "type": [
             "integer",
@@ -756,6 +1047,15 @@
           "minimum": 0.0
         },
         "latency_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "max_completion_tokens": {
+          "description": "Schema 1.3: the output bound sent with the request, if any.",
           "type": [
             "integer",
             "null"
@@ -774,10 +1074,104 @@
           "format": "uint64",
           "minimum": 0.0
         },
+        "prompt_sha256": {
+          "description": "Schema 1.3: SHA-256 of the prompt template, lowercase hex.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "provider": {
           "type": "string"
         },
+        "reasoning_effort": {
+          "description": "Schema 1.3: reasoning effort requested, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reasoning_tokens": {
+          "description": "Schema 1.3: reasoning tokens, when the API reports them apart.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
         "request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "safety_identifier_sent": {
+          "description": "Schema 1.3: whether a pseudonymous safety identifier was sent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "schema_name": {
+          "description": "Schema 1.3: name of the structured-output schema requested.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_sha256": {
+          "description": "Schema 1.3: SHA-256 of that schema as sent, lowercase hex.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ModelMode": {
+      "oneOf": [
+        {
+          "description": "Scripted test doubles; no model is called.",
+          "type": "string",
+          "enum": [
+            "scripted"
+          ]
+        },
+        {
+          "description": "The Meta Model API.",
+          "type": "string",
+          "enum": [
+            "meta"
+          ]
+        }
+      ]
+    },
+    "ProofRequest": {
+      "description": "The request a memory proof seals (schema 1.3): the operation and arguments the proof's own result answers.",
+      "type": "object",
+      "required": [
+        "operation",
+        "project"
+      ],
+      "properties": {
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "operation": {
+          "description": "Backend operation, e.g. `list` or `recall`.",
+          "type": "string"
+        },
+        "project": {
+          "description": "Backend project string the operation ran against.",
+          "type": "string"
+        },
+        "query": {
           "type": [
             "string",
             "null"
@@ -874,6 +1268,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "unresolved_uncertainties": {
+          "description": "Schema 1.3: the final proposal's own uncertainties, carried to the human next to its assumptions.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -895,6 +1296,32 @@
         "relevant",
         "irrelevant",
         "not_assessed"
+      ]
+    },
+    "Retrieval": {
+      "description": "How an evidence record was obtained (schema 1.3).",
+      "oneOf": [
+        {
+          "description": "A recall against a running memory backend.",
+          "type": "string",
+          "enum": [
+            "live_recall"
+          ]
+        },
+        {
+          "description": "Served from a sealed, pre-captured snapshot.",
+          "type": "string",
+          "enum": [
+            "sealed_snapshot"
+          ]
+        },
+        {
+          "description": "A seeded test record; any proof outcome is scripted.",
+          "type": "string",
+          "enum": [
+            "simulated"
+          ]
+        }
       ]
     },
     "Revision": {
@@ -925,6 +1352,31 @@
         }
       }
     },
+    "RunOrigin": {
+      "oneOf": [
+        {
+          "description": "The command-line demo.",
+          "type": "string",
+          "enum": [
+            "cli"
+          ]
+        },
+        {
+          "description": "The operator console.",
+          "type": "string",
+          "enum": [
+            "operator"
+          ]
+        },
+        {
+          "description": "The public portal.",
+          "type": "string",
+          "enum": [
+            "public"
+          ]
+        }
+      ]
+    },
     "Task": {
       "description": "A user-defined problem submitted for multi-agent deliberation.",
       "type": "object",
@@ -948,6 +1400,17 @@
         "id": {
           "type": "string"
         },
+        "mode": {
+          "description": "Schema 1.3: the mode the run was declared with when it was created. A declaration, not proof: what actually happened is read from the recorded invocations and verifications.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TaskMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "project_id": {
           "type": "string"
         },
@@ -959,6 +1422,75 @@
         },
         "title": {
           "type": "string"
+        }
+      }
+    },
+    "TaskMode": {
+      "description": "How a run was declared at creation (schema 1.3).",
+      "type": "object",
+      "required": [
+        "evidence",
+        "model",
+        "origin"
+      ],
+      "properties": {
+        "evidence": {
+          "$ref": "#/definitions/EvidenceMode"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelMode"
+        },
+        "origin": {
+          "$ref": "#/definitions/RunOrigin"
+        },
+        "preset": {
+          "description": "Curated preset the task came from, when it did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "VerifierReport": {
+      "description": "Structured fields of a verifier's own report (schema 1.3), kept next to the free-text `detail` so a reader never has to parse prose.",
+      "type": "object",
+      "properties": {
+        "anchor_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

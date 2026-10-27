@@ -271,6 +271,14 @@ fn evidence_with_proof() -> EvidenceReference {
         proof_file: Some("/tmp/p.hyproof".into()),
         witness_file: Some("/tmp/w.hywit".into()),
         proof_error: None,
+        retrieval: None,
+        snapshot_id: None,
+        captured_at: None,
+        proof_ref: None,
+        proof_sha256: None,
+        proof_request: None,
+        backend_project: None,
+        backend_scope: None,
     }
 }
 

@@ -27,8 +27,22 @@
         "$ref": "#/definitions/ClaimAssessment"
       }
     },
+    "cleared_contradictions": {
+      "description": "Schema 1.3: contradictions carried from earlier rounds that this evaluation clears, each with its reason.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ClearedContradiction"
+      }
+    },
     "created_at": {
       "type": "string"
+    },
+    "item_verdicts": {
+      "description": "Schema 1.3: one verdict for every objection under evaluation, the ones still open from earlier rounds and this round's. Empty on earlier records, which judged this round's items only, implicitly.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ItemVerdict"
+      }
     },
     "run_id": {
       "type": "string"
@@ -40,7 +54,7 @@
       "type": "string"
     },
     "unresolved_items": {
-      "description": "Challenge ITEM ids the evaluator judges still unresolved.",
+      "description": "Challenge ITEM ids the evaluator judges still unresolved. From schema 1.3 exactly the ids of the `unresolved` verdicts.",
       "default": [],
       "type": "array",
       "items": {
@@ -81,6 +95,51 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "ClearedContradiction": {
+      "description": "A contradiction recorded in an earlier round that this evaluation judges no longer applies, with the reason (schema 1.3). Silence never clears a contradiction; only an entry here does.",
+      "type": "object",
+      "required": [
+        "evidence_id",
+        "reason"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "ItemStatus": {
+      "description": "Evaluator judgment on one Critic objection (schema 1.3): `resolved` when the proposal as written no longer has the problem or the retrieved evidence shows the objection is mistaken; `unresolved` when it still applies, so it stays open into the next round.",
+      "type": "string",
+      "enum": [
+        "resolved",
+        "unresolved"
+      ]
+    },
+    "ItemVerdict": {
+      "description": "One explicit verdict on one objection, by item id (schema 1.3).",
+      "type": "object",
+      "required": [
+        "item_id",
+        "reason",
+        "status"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why. Required (non-empty) for a resolved verdict: an objection is never closed without saying what settled it.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/ItemStatus"
         }
       }
     }

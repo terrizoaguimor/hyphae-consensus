@@ -55,9 +55,12 @@ fn main() {
         proposal.expect("recorded proposal"),
         challenge.expect("recorded challenge"),
     );
+    // Round 1 carries nothing from earlier rounds.
     let ctx = RoleContext {
         evidence,
         integrity,
+        open_items: Vec::new(),
+        carried_contradictions: Vec::new(),
     };
     let cfg = MetaConfig::from_env().expect("META_API_KEY (or MODEL_API_KEY) required");
     let mut client = MetaModelClient::new(cfg).expect("meta client");

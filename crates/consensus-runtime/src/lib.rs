@@ -8,6 +8,7 @@
 //! exactly and performs no external effects.
 
 pub mod clock;
+pub mod contract;
 pub mod control;
 pub mod event_log;
 pub mod fakes;

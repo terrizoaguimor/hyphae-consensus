@@ -6,7 +6,16 @@
 //! log replay a faithful rebuild. Authorization transitions additionally
 //! require a human actor, so no agent or runtime component can approve
 //! its own run.
+//!
+//! Protocol 1.3 (records of schema 1.3 and later): the aggregate derives
+//! from the events what each evaluation must judge, the run's open
+//! objections, retrieved records and uncleared contradictions, and
+//! `apply` checks every `EvaluationSubmitted`, challenge and proposal
+//! against the [`contract`](crate::contract), exactly as the orchestrator
+//! did before recording them. Earlier records are tracked the same way
+//! but never checked: they replay exactly as before.
 
+use crate::contract::{self, ContractViolation, EvaluationContext, OpenItem};
 use consensus_domain::*;
 use thiserror::Error;
 
@@ -39,6 +48,9 @@ pub enum TransitionError {
         stored: RecommendationKind,
         derived: RecommendationKind,
     },
+    /// A schema 1.3+ record breaks the protocol 1.3 contract.
+    #[error("protocol 1.3 contract: {0}")]
+    Contract(#[from] ContractViolation),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +71,27 @@ pub struct RunAggregate {
     /// Replay recomputes the recommendation from these (schema 1.1+).
     pub last_evaluation: Option<Evaluation>,
     pub round_verifications: Vec<EvidenceVerification>,
+    /// Claim ids of the current proposal (the submitted one, then each
+    /// revision's), in proposal order.
+    pub claims: Vec<ClaimId>,
+    /// Items raised since the latest evaluation, with their round; the
+    /// next evaluation judges them after `open_items`.
+    pub round_items: Vec<OpenItem>,
+    /// Every challenge item id recorded in the run, in order. From schema
+    /// 1.3 item ids are non-empty and never reused.
+    pub items_seen: Vec<String>,
+    /// Items the latest evaluation left open (its `unresolved` verdicts,
+    /// in verdict order), each with the round it was raised in. Always
+    /// empty after a pre-1.3 evaluation, which carries no verdicts (its
+    /// open items are its own `unresolved_items`).
+    pub open_items: Vec<OpenItem>,
+    /// Every record with an `EvidenceRetrieved` event in the run, in
+    /// retrieval order (the first record per id). Protocol 1.3's round
+    /// context.
+    pub retrieved: Vec<EvidenceReference>,
+    /// Records an evaluation listed as contradicting a claim, minus those
+    /// a later evaluation cleared, in order of first contradiction.
+    pub contradicted: Vec<EvidenceId>,
 }
 
 impl RunAggregate {
@@ -77,6 +110,37 @@ impl RunAggregate {
             event_count: 0,
             last_evaluation: None,
             round_verifications: Vec::new(),
+            claims: Vec::new(),
+            round_items: Vec::new(),
+            items_seen: Vec::new(),
+            open_items: Vec::new(),
+            retrieved: Vec::new(),
+            contradicted: Vec::new(),
+        }
+    }
+
+    /// The deliberation round in progress (1 = first): one more than the
+    /// revisions recorded so far.
+    pub fn round(&self) -> u32 {
+        self.revision_round + 1
+    }
+
+    /// What an evaluation recorded now must satisfy (protocol 1.3): the
+    /// current claims, the open items followed by this round's items, the
+    /// retrieved records and the uncleared contradictions. `apply` checks
+    /// a 1.3 `EvaluationSubmitted` against exactly this, and the
+    /// orchestrator checks before recording against the same.
+    pub fn evaluation_context(&self) -> EvaluationContext {
+        EvaluationContext {
+            claims: self.claims.clone(),
+            expected_items: self
+                .open_items
+                .iter()
+                .chain(&self.round_items)
+                .map(|o| o.item.id.clone())
+                .collect(),
+            retrieved: self.retrieved.iter().map(|e| e.id.clone()).collect(),
+            carried_contradictions: self.contradicted.clone(),
         }
     }
 
@@ -87,6 +151,8 @@ impl RunAggregate {
         if self.state.is_terminal() {
             return Err(TransitionError::Terminal { state: self.state });
         }
+        // Protocol 1.3 checks apply to records of schema 1.3 and later.
+        let contract = contract::binds(&event.schema_version);
         match &event.payload {
             EventPayload::TaskCreated { task } => {
                 if self.task.is_some() {
@@ -105,11 +171,29 @@ impl RunAggregate {
                         event: "proposal_submitted",
                     });
                 }
+                if contract {
+                    contract::validate_claims(proposal)?;
+                }
                 self.current_proposal = Some(proposal.id.clone());
+                self.claims = proposal.claims.iter().map(|c| c.id.clone()).collect();
                 self.invocations.push(invocation.clone());
                 self.state = RunState::Proposed;
             }
-            EventPayload::EvidenceRetrieved { .. } | EventPayload::EvidenceUnavailable { .. } => {
+            EventPayload::EvidenceRetrieved { evidence } => {
+                self.require(
+                    &[
+                        RunState::Proposed,
+                        RunState::EvidenceReview,
+                        RunState::Revised,
+                    ],
+                    "evidence_retrieved",
+                )?;
+                if !self.retrieved.iter().any(|e| e.id == evidence.id) {
+                    self.retrieved.push(evidence.clone());
+                }
+                self.state = RunState::EvidenceReview;
+            }
+            EventPayload::EvidenceUnavailable { .. } | EventPayload::RecallProven { .. } => {
                 self.require(
                     &[
                         RunState::Proposed,
@@ -134,7 +218,10 @@ impl RunAggregate {
                 self.verifications.push(verification.clone());
                 self.round_verifications.push(verification.clone());
             }
-            EventPayload::ChallengeSubmitted { invocation, .. } => {
+            EventPayload::ChallengeSubmitted {
+                challenge,
+                invocation,
+            } => {
                 self.require(
                     &[
                         RunState::Proposed,
@@ -143,6 +230,17 @@ impl RunAggregate {
                     ],
                     "challenge_submitted",
                 )?;
+                if contract {
+                    contract::validate_challenge(&self.items_seen, challenge)?;
+                }
+                let round = self.round();
+                for item in &challenge.items {
+                    self.items_seen.push(item.id.clone());
+                    self.round_items.push(OpenItem {
+                        item: item.clone(),
+                        raised_in_round: round,
+                    });
+                }
                 self.invocations.push(invocation.clone());
                 self.state = RunState::EvidenceReview;
             }
@@ -151,9 +249,42 @@ impl RunAggregate {
                 invocation,
             } => {
                 self.require(&[RunState::EvidenceReview], "evaluation_submitted")?;
+                // Protocol 1.3: the evaluation must judge what the events
+                // so far say is open, so a forged 1.3 log fails replay.
+                if contract {
+                    contract::validate_evaluation(&self.evaluation_context(), evaluation)?;
+                }
                 self.invocations.push(invocation.clone());
                 self.last_evaluation = Some(evaluation.clone());
                 self.round_verifications.clear();
+                // What stays open is what this evaluation left unresolved,
+                // carried items and this round's alike.
+                let judged: Vec<OpenItem> = self
+                    .open_items
+                    .drain(..)
+                    .chain(self.round_items.drain(..))
+                    .collect();
+                self.open_items = evaluation
+                    .item_verdicts
+                    .iter()
+                    .filter(|v| v.status == ItemStatus::Unresolved)
+                    .filter_map(|v| judged.iter().find(|o| o.item.id == v.item_id).cloned())
+                    .collect();
+                self.contradicted.retain(|id| {
+                    !evaluation
+                        .cleared_contradictions
+                        .iter()
+                        .any(|c| &c.evidence_id == id)
+                });
+                for id in evaluation
+                    .assessments
+                    .iter()
+                    .flat_map(|a| &a.contradicting_evidence)
+                {
+                    if !self.contradicted.contains(id) {
+                        self.contradicted.push(id.clone());
+                    }
+                }
                 self.state = if evaluation.abstain {
                     RunState::Abstained
                 } else {
@@ -182,8 +313,17 @@ impl RunAggregate {
                 if self.revision_round >= MAX_REVISION_ROUNDS {
                     return Err(TransitionError::RoundLimit);
                 }
+                if contract {
+                    contract::validate_claims(&revision.proposal)?;
+                }
                 self.revision_round += 1;
                 self.current_proposal = Some(revision.proposal.id.clone());
+                self.claims = revision
+                    .proposal
+                    .claims
+                    .iter()
+                    .map(|c| c.id.clone())
+                    .collect();
                 self.invocations.push(invocation.clone());
                 self.state = RunState::Revised;
             }
@@ -244,7 +384,13 @@ impl RunAggregate {
                     self.state = RunState::Rejected;
                 }
             }
-            EventPayload::RunFailed { reason, .. } => {
+            EventPayload::RunFailed {
+                reason, invocation, ..
+            } => {
+                // A call whose document was refused still happened.
+                if let Some(invocation) = invocation {
+                    self.invocations.push(invocation.clone());
+                }
                 self.failure_reason = Some(reason.clone());
                 self.state = RunState::Failed;
             }
@@ -278,6 +424,7 @@ mod tests {
             title: "t".into(),
             description: "d".into(),
             created_at: "2026-10-26T00:00:00Z".into(),
+            mode: None,
         }
     }
 
@@ -295,6 +442,8 @@ mod tests {
         }
     }
 
+    /// One claim, `c1`: the claim the tests' evaluations assess (protocol
+    /// 1.3 refuses an assessment of a claim the proposal does not make).
     fn proposal(run: &RunId) -> Proposal {
         Proposal {
             schema_version: SCHEMA_VERSION.into(),
@@ -303,7 +452,11 @@ mod tests {
             author_role: AgentRole::Proposer,
             summary: "s".into(),
             plan_steps: vec![],
-            claims: vec![],
+            claims: vec![Claim {
+                id: ClaimId::new("c1"),
+                statement: "Retries are capped at 3 attempts".into(),
+                evidence_refs: vec![],
+            }],
             assumptions: vec![],
             uncertainties: vec![],
             created_at: "2026-10-26T00:00:00Z".into(),
@@ -318,6 +471,15 @@ mod tests {
             latency_ms: None,
             input_tokens: None,
             output_tokens: None,
+            finish_reason: None,
+            reasoning_tokens: None,
+            max_completion_tokens: None,
+            schema_name: None,
+            schema_sha256: None,
+            prompt_sha256: None,
+            reasoning_effort: None,
+            safety_identifier_sent: None,
+            attempts: None,
         }
     }
 
@@ -330,6 +492,7 @@ mod tests {
             decided_at: "2026-10-26T00:00:00Z".into(),
             idempotency_key: "k1".into(),
             note: None,
+            authority: None,
         }
     }
 
@@ -368,6 +531,8 @@ mod tests {
                     target_proposal: ProposalId::new("prop-1"),
                     assessments: vec![],
                     unresolved_items: vec![],
+                    item_verdicts: vec![],
+                    cleared_contradictions: vec![],
                     abstain: false,
                     abstain_reason: None,
                     created_at: "2026-10-26T00:00:00Z".into(),
@@ -437,6 +602,8 @@ mod tests {
                         note: "no evidence".into(),
                     }],
                     unresolved_items: vec![],
+                    item_verdicts: vec![],
+                    cleared_contradictions: vec![],
                     abstain: false,
                     abstain_reason: None,
                     created_at: "2026-10-26T00:00:00Z".into(),
@@ -451,6 +618,7 @@ mod tests {
                 kind,
                 rationale: "r".into(),
                 unresolved_assumptions: vec![],
+                unresolved_uncertainties: vec![],
                 issued_at: "2026-10-26T00:00:00Z".into(),
             },
         };
@@ -479,8 +647,20 @@ mod tests {
         assert_eq!(agg.state, RunState::AwaitingHumanApproval);
     }
 
-    /// Task, proposal, challenge, and an abstaining evaluation that
-    /// lists `unresolved` items; the aggregate ends in `Abstained`.
+    fn item(id: &str) -> ChallengeItem {
+        ChallengeItem {
+            id: id.into(),
+            kind: ChallengeKind::ConstraintConflict,
+            claim_id: Some(ClaimId::new("c1")),
+            description: "Ten attempts break the documented cap".into(),
+            evidence_refs: vec![EvidenceId::new("ev1")],
+        }
+    }
+
+    /// Task, proposal, the retrieved record ev1, a challenge raising the
+    /// `unresolved` items, and an abstaining evaluation that keeps them
+    /// unresolved (one explicit verdict each); the aggregate ends in
+    /// `Abstained`.
     fn to_abstained(unresolved: &[&str], schema: &str) -> (RunAggregate, RunId) {
         let run = RunId::new("run-1");
         let mut agg = RunAggregate::new(run.clone());
@@ -507,6 +687,14 @@ mod tests {
         .unwrap();
         agg.apply(&at(
             3,
+            Actor::Runtime,
+            EventPayload::EvidenceRetrieved {
+                evidence: record("ev1"),
+            },
+        ))
+        .unwrap();
+        agg.apply(&at(
+            4,
             agent(AgentRole::Critic),
             EventPayload::ChallengeSubmitted {
                 challenge: Challenge {
@@ -514,7 +702,7 @@ mod tests {
                     id: ChallengeId::new("chal-1"),
                     run_id: run.clone(),
                     target_proposal: ProposalId::new("prop-1"),
-                    items: vec![],
+                    items: unresolved.iter().map(|id| item(id)).collect(),
                     created_at: "2026-10-26T00:00:00Z".into(),
                 },
                 invocation: invocation(),
@@ -522,7 +710,7 @@ mod tests {
         ))
         .unwrap();
         agg.apply(&at(
-            4,
+            5,
             agent(AgentRole::EvidenceEvaluator),
             EventPayload::EvaluationSubmitted {
                 evaluation: Evaluation {
@@ -537,6 +725,15 @@ mod tests {
                         note: "conflicts with the stored cap".into(),
                     }],
                     unresolved_items: unresolved.iter().map(|s| s.to_string()).collect(),
+                    item_verdicts: unresolved
+                        .iter()
+                        .map(|id| ItemVerdict {
+                            item_id: id.to_string(),
+                            status: ItemStatus::Unresolved,
+                            reason: "cannot judge".into(),
+                        })
+                        .collect(),
+                    cleared_contradictions: vec![],
                     abstain: true,
                     abstain_reason: Some("insufficient".into()),
                     created_at: "2026-10-26T00:00:00Z".into(),
@@ -549,10 +746,14 @@ mod tests {
         (agg, run)
     }
 
+    fn record(id: &str) -> EvidenceReference {
+        crate::scenarios::evidence(id, "p", "constraint", "Retries are capped at 3 attempts")
+    }
+
     fn revision_event(run: &RunId) -> ConsensusEvent {
         ev(
             run,
-            5,
+            6,
             Actor::Agent {
                 role: AgentRole::Proposer,
             },
@@ -594,6 +795,9 @@ mod tests {
                 verified_anchor: None,
                 detail: None,
                 checked_at: "2026-10-26T00:00:00Z".into(),
+                round: None,
+                proof_ref: None,
+                report: None,
             },
         }
     }
@@ -605,6 +809,7 @@ mod tests {
                 kind,
                 rationale: "r".into(),
                 unresolved_assumptions: vec![],
+                unresolved_uncertainties: vec![],
                 issued_at: "2026-10-26T00:00:00Z".into(),
             },
         }
@@ -637,10 +842,10 @@ mod tests {
             ),
         ] {
             let (mut agg, run) = to_abstained(&[], schema);
-            let mut verified = ev(&run, 5, Actor::Runtime, contradicted_verification(schema));
+            let mut verified = ev(&run, 6, Actor::Runtime, contradicted_verification(schema));
             verified.schema_version = schema.into();
             agg.apply(&verified).unwrap();
-            let mut issued = ev(&run, 6, Actor::Runtime, recommendation(stored, schema));
+            let mut issued = ev(&run, 7, Actor::Runtime, recommendation(stored, schema));
             issued.schema_version = schema.into();
             let result = agg.apply(&issued);
             if stored == derived {
@@ -651,6 +856,298 @@ mod tests {
                     result.unwrap_err(),
                     TransitionError::RecommendationMismatch { stored, derived },
                     "schema {schema}"
+                );
+            }
+        }
+    }
+
+    /// `ev` with an explicit schema version.
+    fn ev_at(run: &RunId, schema: &str, actor: Actor, payload: EventPayload) -> ConsensusEvent {
+        let mut e = ev(run, 1, actor, payload);
+        e.schema_version = schema.into();
+        e
+    }
+
+    fn challenge_of(run: &RunId, items: Vec<ChallengeItem>) -> EventPayload {
+        EventPayload::ChallengeSubmitted {
+            challenge: Challenge {
+                schema_version: SCHEMA_VERSION.into(),
+                id: ChallengeId::new("chal-2"),
+                run_id: run.clone(),
+                target_proposal: ProposalId::new("prop-1"),
+                items,
+                created_at: "2026-10-26T00:00:00Z".into(),
+            },
+            invocation: invocation(),
+        }
+    }
+
+    #[test]
+    fn item_ids_are_held_unique_from_schema_1_3_only() {
+        for schema in ["1.2", SCHEMA_VERSION] {
+            // Abstained over i1, then revised: a new challenge may follow.
+            let (mut agg, run) = to_abstained(&["i1"], schema);
+            let mut revised = revision_event(&run);
+            revised.schema_version = schema.into();
+            agg.apply(&revised).unwrap();
+            let critic = Actor::Agent {
+                role: AgentRole::Critic,
+            };
+            let reused = agg.clone().apply(&ev_at(
+                &run,
+                schema,
+                critic.clone(),
+                challenge_of(&run, vec![item("i1")]),
+            ));
+            let empty = agg.clone().apply(&ev_at(
+                &run,
+                schema,
+                critic.clone(),
+                challenge_of(&run, vec![item(" ")]),
+            ));
+            if schema == "1.2" {
+                reused.unwrap();
+                empty.unwrap();
+            } else {
+                assert_eq!(
+                    reused.unwrap_err(),
+                    TransitionError::Contract(ContractViolation::ReusedItemId("i1".into()))
+                );
+                assert_eq!(
+                    empty.unwrap_err(),
+                    TransitionError::Contract(ContractViolation::EmptyItemId { index: 1 })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn evaluations_are_checked_against_the_events_from_schema_1_3_only() {
+        for schema in ["1.2", SCHEMA_VERSION] {
+            let (agg, run) = to_abstained(&[], schema);
+            // A second evaluation in the round (as a forged log might hold):
+            // silent on the carried contradiction ev1 and citing a record
+            // the run never retrieved.
+            let mut agg = agg;
+            agg.state = RunState::EvidenceReview;
+            let forged = EventPayload::EvaluationSubmitted {
+                evaluation: Evaluation {
+                    schema_version: schema.into(),
+                    run_id: run.clone(),
+                    target_proposal: ProposalId::new("prop-1"),
+                    assessments: vec![ClaimAssessment {
+                        claim_id: ClaimId::new("c1"),
+                        corroborated: true,
+                        relevant_evidence: vec![EvidenceId::new("ev9")],
+                        contradicting_evidence: vec![],
+                        note: "forged".into(),
+                    }],
+                    unresolved_items: vec![],
+                    item_verdicts: vec![],
+                    cleared_contradictions: vec![],
+                    abstain: false,
+                    abstain_reason: None,
+                    created_at: "2026-10-26T00:00:00Z".into(),
+                },
+                invocation: invocation(),
+            };
+            let evaluator = Actor::Agent {
+                role: AgentRole::EvidenceEvaluator,
+            };
+            let result = agg.apply(&ev_at(&run, schema, evaluator, forged));
+            if schema == "1.2" {
+                result.unwrap();
+            } else {
+                assert_eq!(
+                    result.unwrap_err(),
+                    TransitionError::Contract(ContractViolation::UnretrievedEvidence {
+                        claim: ClaimId::new("c1"),
+                        field: "relevant_evidence",
+                        evidence: EvidenceId::new("ev9"),
+                    })
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_aggregate_carries_open_items_and_contradictions_across_rounds() {
+        let (mut agg, run) = to_abstained(&["i1", "i2"], SCHEMA_VERSION);
+        let open = |agg: &RunAggregate| -> Vec<(String, u32)> {
+            agg.open_items
+                .iter()
+                .map(|o| (o.item.id.clone(), o.raised_in_round))
+                .collect()
+        };
+        assert_eq!(open(&agg), [("i1".into(), 1), ("i2".into(), 1)]);
+        assert_eq!(agg.contradicted, [EvidenceId::new("ev1")]);
+        assert_eq!(agg.claims, [ClaimId::new("c1")]);
+
+        // Round 2: a revision, then a challenge raising i3.
+        agg.apply(&revision_event(&run)).unwrap();
+        assert_eq!(agg.round(), 2);
+        let critic = Actor::Agent {
+            role: AgentRole::Critic,
+        };
+        agg.apply(&ev(&run, 7, critic, challenge_of(&run, vec![item("i3")])))
+            .unwrap();
+        let ctx = agg.evaluation_context();
+        assert_eq!(ctx.claims, [ClaimId::new("c1")]);
+        assert_eq!(ctx.expected_items, ["i1", "i2", "i3"]);
+        assert_eq!(ctx.retrieved, [EvidenceId::new("ev1")]);
+        assert_eq!(ctx.carried_contradictions, [EvidenceId::new("ev1")]);
+
+        // i1 resolved, i2 and i3 open; ev1 cleared.
+        let verdict = |id: &str, status| ItemVerdict {
+            item_id: id.into(),
+            status,
+            reason: "judged".into(),
+        };
+        agg.apply(&ev(
+            &run,
+            8,
+            Actor::Agent {
+                role: AgentRole::EvidenceEvaluator,
+            },
+            EventPayload::EvaluationSubmitted {
+                evaluation: Evaluation {
+                    schema_version: SCHEMA_VERSION.into(),
+                    run_id: run.clone(),
+                    target_proposal: ProposalId::new("prop-1"),
+                    assessments: vec![ClaimAssessment {
+                        claim_id: ClaimId::new("c1"),
+                        corroborated: true,
+                        relevant_evidence: vec![EvidenceId::new("ev1")],
+                        contradicting_evidence: vec![],
+                        note: "the revision keeps the cap".into(),
+                    }],
+                    unresolved_items: vec!["i2".into(), "i3".into()],
+                    item_verdicts: vec![
+                        verdict("i1", ItemStatus::Resolved),
+                        verdict("i2", ItemStatus::Unresolved),
+                        verdict("i3", ItemStatus::Unresolved),
+                    ],
+                    cleared_contradictions: vec![ClearedContradiction {
+                        evidence_id: EvidenceId::new("ev1"),
+                        reason: "the revision keeps the cap".into(),
+                    }],
+                    abstain: false,
+                    abstain_reason: None,
+                    created_at: "2026-10-26T00:00:00Z".into(),
+                },
+                invocation: invocation(),
+            },
+        ))
+        .unwrap();
+        assert_eq!(open(&agg), [("i2".into(), 1), ("i3".into(), 2)]);
+        assert!(agg.contradicted.is_empty());
+        assert!(agg.round_items.is_empty());
+        assert_eq!(agg.items_seen, ["i1", "i2", "i3"]);
+    }
+
+    #[test]
+    fn recall_proven_is_accepted_where_evidence_events_are() {
+        let run = RunId::new("run-1");
+        let proven = || EventPayload::RecallProven {
+            request: ProofRequest {
+                operation: "recall".into(),
+                project: "other-repo".into(),
+                query: Some("retry cap".into()),
+                limit: Some(5),
+            },
+            evidence_ids: vec![],
+            proof_ref: "snapshot-1/recall-other-repo".into(),
+            anchor: "ab".repeat(32),
+            empty: true,
+        };
+        let mut agg = RunAggregate::new(run.clone());
+        agg.apply(&ev(
+            &run,
+            1,
+            Actor::Human { id: "mario".into() },
+            EventPayload::TaskCreated { task: task(&run) },
+        ))
+        .unwrap();
+        // Not before a proposal, exactly like EvidenceRetrieved.
+        assert!(matches!(
+            agg.clone()
+                .apply(&ev(&run, 2, Actor::Runtime, proven()))
+                .unwrap_err(),
+            TransitionError::InvalidTransition { .. }
+        ));
+        agg.apply(&ev(
+            &run,
+            2,
+            Actor::Agent {
+                role: AgentRole::Proposer,
+            },
+            EventPayload::ProposalSubmitted {
+                proposal: proposal(&run),
+                invocation: invocation(),
+            },
+        ))
+        .unwrap();
+        agg.apply(&ev(&run, 3, Actor::Runtime, proven())).unwrap();
+        assert_eq!(agg.state, RunState::EvidenceReview);
+        assert!(
+            agg.retrieved.is_empty(),
+            "a proof is not a retrieved record"
+        );
+    }
+
+    #[test]
+    fn a_refused_call_on_a_failure_record_counts_as_a_model_call() {
+        let run = RunId::new("run-1");
+        let mut agg = RunAggregate::new(run.clone());
+        agg.apply(&ev(
+            &run,
+            1,
+            Actor::Runtime,
+            EventPayload::RunFailed {
+                reason: "evaluate output refused by the protocol 1.3 contract".into(),
+                stage: "evaluate".into(),
+                code: Some("evaluation_contract".into()),
+                invocation: Some(invocation()),
+            },
+        ))
+        .unwrap();
+        assert_eq!(agg.state, RunState::Failed);
+        assert_eq!(agg.invocations, [invocation()]);
+    }
+
+    #[test]
+    fn duplicate_claim_ids_are_refused_from_schema_1_3_only() {
+        for schema in ["1.2", SCHEMA_VERSION] {
+            let run = RunId::new("run-1");
+            let mut agg = RunAggregate::new(run.clone());
+            agg.apply(&ev(
+                &run,
+                1,
+                Actor::Human { id: "mario".into() },
+                EventPayload::TaskCreated { task: task(&run) },
+            ))
+            .unwrap();
+            let mut twice = proposal(&run);
+            twice.claims.push(twice.claims[0].clone());
+            let result = agg.apply(&ev_at(
+                &run,
+                schema,
+                Actor::Agent {
+                    role: AgentRole::Proposer,
+                },
+                EventPayload::ProposalSubmitted {
+                    proposal: twice,
+                    invocation: invocation(),
+                },
+            ));
+            if schema == "1.2" {
+                result.unwrap();
+            } else {
+                assert_eq!(
+                    result.unwrap_err(),
+                    TransitionError::Contract(ContractViolation::DuplicateClaimId(ClaimId::new(
+                        "c1"
+                    )))
                 );
             }
         }
@@ -723,6 +1220,8 @@ mod tests {
                 EventPayload::RunFailed {
                     reason: "late".into(),
                     stage: "x".into(),
+                    code: None,
+                    invocation: None,
                 },
             ))
             .unwrap_err();
@@ -767,6 +1266,7 @@ mod tests {
             kind: RecommendationKind::Supported,
             rationale: "r".into(),
             unresolved_assumptions: vec![],
+            unresolved_uncertainties: vec![],
             issued_at: "2026-10-26T00:00:00Z".into(),
         };
         let err = agg

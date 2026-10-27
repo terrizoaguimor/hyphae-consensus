@@ -10,17 +10,75 @@
 //! `token_budget`. Human approval is recorded by [`record_human_decision`]
 //! and triggers no execution in M1-M3 — the `ExecutorPort` is never
 //! invoked here.
+//!
+//! Protocol 1.3 (new runs) carries the deliberation across rounds: each
+//! round's context holds every record retrieved so far in the run, the
+//! objections still open and the contradictions not yet cleared, all read
+//! from the run's aggregate. Each model document is checked against the
+//! [`contract`](crate::contract) before it is recorded; a violation fails
+//! the run at that call's stage, with the refused call kept in the
+//! record. The recommendation is derived from the recorded evaluation and
+//! verifications, exactly the inputs replay re-derives it from.
 
 use crate::clock::{Clock, IdGen};
-use crate::control::RunControl;
+use crate::contract::{self, ContractViolation};
+use crate::control::{RunControl, Stop};
 use crate::event_log::{EventLog, EventLogError};
 use crate::policy::{derive_recommendation, rationale_for};
 use crate::ports::*;
 use crate::sink::EventSink;
 use crate::state_machine::{RunAggregate, TransitionError, MAX_REVISION_ROUNDS};
 use consensus_domain::*;
-use std::collections::{HashMap, HashSet};
 use thiserror::Error;
+
+/// Stable machine codes the orchestrator records next to an English
+/// reason (schema 1.3): `RunFailed.code` and `EvidenceUnavailable.code`.
+/// A reader localizes from these, never from the hashed reason text. A
+/// stop requested through [`RunControl`] records its stage (`cancelled`,
+/// `shutdown` or `deadline`) as its code.
+pub mod codes {
+    /// An evaluation broke the protocol 1.3 evaluation contract (stage
+    /// `evaluate`).
+    pub const EVALUATION_CONTRACT: &str = "evaluation_contract";
+    /// A challenge left an item id empty or reused one (stage `critique`).
+    pub const CHALLENGE_CONTRACT: &str = "challenge_contract";
+    /// A proposal or revision repeated a claim id (stage `propose` or
+    /// `revise`).
+    pub const PROPOSAL_CONTRACT: &str = "proposal_contract";
+    /// A model call timed out.
+    pub const MODEL_TIMEOUT: &str = "model_timeout";
+    /// A model call returned malformed structured output.
+    pub const MODEL_MALFORMED_OUTPUT: &str = "model_malformed_output";
+    /// The model service was unavailable.
+    pub const MODEL_UNAVAILABLE: &str = "model_unavailable";
+    /// The per-run token cap was crossed (stage `token_budget`).
+    pub const TOKEN_BUDGET_EXCEEDED: &str = "token_budget_exceeded";
+    /// A call reported no token usage (stage `token_budget`).
+    pub const TOKEN_USAGE_MISSING: &str = "token_usage_missing";
+    /// The process restarted mid-run (stage `interrupted`).
+    pub const INTERRUPTED: &str = "interrupted";
+    /// Evidence: the memory backend was unreachable.
+    pub const MEMORY_UNAVAILABLE: &str = "memory_unavailable";
+    /// Evidence: the memory backend answered with an error.
+    pub const MEMORY_ERROR: &str = "memory_error";
+    /// Evidence: records past the per-run cap were not processed.
+    pub const EVIDENCE_CAP: &str = "evidence_cap";
+}
+
+fn model_error_code(e: &ModelError) -> &'static str {
+    match e {
+        ModelError::Timeout => codes::MODEL_TIMEOUT,
+        ModelError::MalformedOutput(_) => codes::MODEL_MALFORMED_OUTPUT,
+        ModelError::Unavailable(_) => codes::MODEL_UNAVAILABLE,
+    }
+}
+
+fn memory_error_code(e: &MemoryError) -> &'static str {
+    match e {
+        MemoryError::Unavailable(_) => codes::MEMORY_UNAVAILABLE,
+        MemoryError::Backend(_) => codes::MEMORY_ERROR,
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum OrchestratorError {
@@ -34,7 +92,9 @@ pub enum OrchestratorError {
 /// model emitting many claims cannot cause unbounded proof-verification
 /// processes or prompt growth. Records past the cap are dropped and the
 /// drop is recorded. Recall calls are bounded separately: one per claim
-/// per round, with claims capped by the model adapter.
+/// per round, with claims capped by the model adapter. Since protocol 1.3
+/// every round's context is the run's retrieved records, so this also
+/// bounds each round's context.
 pub const MAX_EVIDENCE_PER_RUN: usize = 20;
 
 /// Default per-run token cap (input + output, all model calls). The
@@ -67,22 +127,32 @@ struct TokenBudget {
 }
 
 impl TokenBudget {
-    /// Charges one call. Returns the failure reason when the run must
-    /// stop: the cap is crossed, or the call reported no usage, which
+    /// Charges one call. Returns the failure code and reason when the run
+    /// must stop: the cap is crossed, or the call reported no usage, which
     /// would make the cap unenforceable (never assumed to be zero).
-    fn charge(&mut self, stage: &str, invocation: &ModelInvocation) -> Option<String> {
+    fn charge(
+        &mut self,
+        stage: &str,
+        invocation: &ModelInvocation,
+    ) -> Option<(&'static str, String)> {
         self.calls += 1;
         let (Some(input), Some(output)) = (invocation.input_tokens, invocation.output_tokens)
         else {
-            return Some(format!(
-                "token budget cannot be enforced: the {stage} call reported no token usage"
+            return Some((
+                codes::TOKEN_USAGE_MISSING,
+                format!(
+                    "token budget cannot be enforced: the {stage} call reported no token usage"
+                ),
             ));
         };
         self.used = self.used.saturating_add(input).saturating_add(output);
         (self.used > self.cap).then(|| {
-            format!(
-                "token budget exceeded after the {stage} call: {} tokens used across {} model calls, cap {} (CONSENSUS_MAX_RUN_TOKENS)",
-                self.used, self.calls, self.cap
+            (
+                codes::TOKEN_BUDGET_EXCEEDED,
+                format!(
+                    "token budget exceeded after the {stage} call: {} tokens used across {} model calls, cap {} (CONSENSUS_MAX_RUN_TOKENS)",
+                    self.used, self.calls, self.cap
+                ),
             )
         })
     }
@@ -94,6 +164,8 @@ pub struct TaskInput {
     pub title: String,
     pub description: String,
     pub submitted_by: String,
+    /// Declared mode, recorded as `Task.mode` (schema 1.3).
+    pub mode: Option<TaskMode>,
 }
 
 pub struct Orchestrator<M, Mem, V, C, I> {
@@ -145,6 +217,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             title: input.title,
             description: input.description,
             created_at: self.clock.now(),
+            mode: input.mode,
         };
         self.emit(
             sink,
@@ -162,12 +235,26 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
     /// evaluation, bounded revisions, then the runtime-issued
     /// recommendation, which leaves the run awaiting a human decision.
     ///
+    /// Protocol 1.3: each round's context is every record retrieved so far
+    /// in the run (at most [`MAX_EVIDENCE_PER_RUN`]); every record of it is
+    /// integrity-checked and verified for that round; and the objections
+    /// and contradictions the previous evaluation left open are shown
+    /// again and must be judged again. A proposal, challenge or evaluation
+    /// that breaks the [`contract`](crate::contract) is refused before it
+    /// is recorded: the run fails at that call's stage (code
+    /// `proposal_contract`, `challenge_contract` or `evaluation_contract`)
+    /// and the refused call is kept in `RunFailed.invocation`. A revision
+    /// follows only while objections stay open, the result is not blocked,
+    /// the round made progress (it resolved at least one objection the
+    /// previous evaluation had left open) and the round bound allows.
+    ///
     /// `control` is checked before every model call, before every memory
-    /// recall and before the recommendation. Once it is tripped, the next
-    /// checkpoint ends the run with `RunFailed` (stage `cancelled`,
-    /// `shutdown` or `deadline`). A call already in progress is not
-    /// interrupted: its outcome is handled as usual first (its document
-    /// recorded and charged, or the run failed at that call's stage).
+    /// recall, before every proof verification and before the
+    /// recommendation. Once it is tripped, the next checkpoint ends the
+    /// run with `RunFailed` (stage `cancelled`, `shutdown` or `deadline`).
+    /// A call already in progress is not interrupted: its outcome is
+    /// handled as usual first (its document recorded and charged, or the
+    /// run failed at that call's stage).
     ///
     /// `agg` must be the run of `task`, still in state `Created`.
     /// Anything else is refused before any model call is made.
@@ -205,13 +292,23 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
 
         // Stage 1: proposal.
         if let Some(stop) = control.check() {
-            return self.fail(sink, agg, stop.stage(), &stop.reason("propose call"));
+            return self.stop(sink, agg, stop, "propose call");
         }
         let (mut proposal, inv) = match self.model.propose(task) {
             Ok(v) => v,
-            Err(e) => return self.fail(sink, agg, "propose", &e.to_string()),
+            Err(e) => return self.model_failed(sink, agg, "propose", &e),
         };
         let over_budget = budget.charge("propose", &inv);
+        if let Err(violation) = contract::validate_claims(&proposal) {
+            return self.refuse(
+                sink,
+                agg,
+                "propose",
+                codes::PROPOSAL_CONTRACT,
+                &violation,
+                inv,
+            );
+        }
         self.emit(
             sink,
             &mut agg,
@@ -223,48 +320,40 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                 invocation: inv,
             },
         )?;
-        if let Some(reason) = over_budget {
-            return self.fail(sink, agg, "token_budget", &reason);
+        if let Some((code, reason)) = over_budget {
+            return self.fail(sink, agg, "token_budget", code, &reason);
         }
 
-        let mut seen_evidence: HashSet<EvidenceId> = HashSet::new();
-        let mut prev_unresolved: Option<usize> = None;
-
         // Stages 2-5, bounded by revision rounds and a no-progress exit.
-        let (final_kind, evaluation, all_verifications) = loop {
+        let final_kind = loop {
+            let round = agg.round();
             // Retrieve evidence per claim (read-only memory access).
             // Retrieval is performed by the runtime, never by a model,
             // so these events are attributed to Actor::Runtime.
-            let mut evidence: Vec<EvidenceReference> = Vec::new();
             let mut capped = 0usize;
             for claim in &proposal.claims {
                 if let Some(stop) = control.check() {
-                    return self.fail(sink, agg, stop.stage(), &stop.reason("memory recall"));
+                    return self.stop(sink, agg, stop, "memory recall");
                 }
                 match self.memory.recall(&task.project_id, &claim.statement, 5) {
                     Ok(records) => {
                         for rec in records {
-                            // Already-seen records stay usable in later
-                            // rounds; only NEW records count against the cap.
-                            if !seen_evidence.contains(&rec.id)
-                                && seen_evidence.len() >= MAX_EVIDENCE_PER_RUN
-                            {
+                            // A record retrieved earlier in the run is
+                            // already in every later round's context; only
+                            // NEW records count against the cap.
+                            if agg.retrieved.iter().any(|e| e.id == rec.id) {
+                                continue;
+                            }
+                            if agg.retrieved.len() >= MAX_EVIDENCE_PER_RUN {
                                 capped += 1;
                                 continue;
                             }
-                            if seen_evidence.insert(rec.id.clone()) {
-                                self.emit(
-                                    sink,
-                                    &mut agg,
-                                    Actor::Runtime,
-                                    EventPayload::EvidenceRetrieved {
-                                        evidence: rec.clone(),
-                                    },
-                                )?;
-                            }
-                            if !evidence.iter().any(|e| e.id == rec.id) {
-                                evidence.push(rec);
-                            }
+                            self.emit(
+                                sink,
+                                &mut agg,
+                                Actor::Runtime,
+                                EventPayload::EvidenceRetrieved { evidence: rec },
+                            )?;
                         }
                     }
                     Err(e) => {
@@ -275,6 +364,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                             EventPayload::EvidenceUnavailable {
                                 query: claim.statement.clone(),
                                 reason: e.to_string(),
+                                code: Some(memory_error_code(&e).into()),
                             },
                         )?;
                     }
@@ -291,15 +381,21 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                         reason: format!(
                             "{capped} additional record(s) not processed: per-run cap of {MAX_EVIDENCE_PER_RUN} distinct records reached"
                         ),
+                        code: Some(codes::EVIDENCE_CAP.into()),
                     },
                 )?;
             }
+            // The round context: every record retrieved in the run so far,
+            // as the log recorded it (protocol 1.3 carry-forward).
+            let evidence = agg.retrieved.clone();
             // Integrity pre-checks (events emitted after evaluation so the
             // three orthogonal axes land in one record). Records whose
             // proof GENERATION failed upstream carry `proof_error`:
             // corruption-class signals count as Invalid (never silently
-            // downgraded), other failures as Unavailable.
-            let mut checks: HashMap<EvidenceId, ProofCheck> = HashMap::new();
+            // downgraded), other failures as Unavailable. Every record is
+            // checked every round; a verifier may reuse its own results
+            // (the Hyphae verifier checks each distinct proof once per run).
+            let mut checks: Vec<ProofCheck> = Vec::with_capacity(evidence.len());
             for ev in &evidence {
                 let check = match &ev.proof_error {
                     Some(reason) => ProofCheck {
@@ -311,24 +407,46 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                         verifier: Some("recall(prove) upstream".into()),
                         verified_anchor: ev.anchor.clone(),
                         detail: Some(reason.clone()),
+                        report: None,
                     },
-                    None => self.verifier.verify(ev),
+                    None => {
+                        if let Some(stop) = control.check() {
+                            return self.stop(sink, agg, stop, "proof verification");
+                        }
+                        self.verifier.verify(ev)
+                    }
                 };
-                checks.insert(ev.id.clone(), check);
+                checks.push(check);
             }
             let ctx = RoleContext {
-                evidence: evidence.clone(),
-                integrity: checks.iter().map(|(k, v)| (k.clone(), v.status)).collect(),
+                integrity: evidence
+                    .iter()
+                    .zip(&checks)
+                    .map(|(ev, check)| (ev.id.clone(), check.status))
+                    .collect(),
+                evidence,
+                open_items: agg.open_items.clone(),
+                carried_contradictions: agg.contradicted.clone(),
             };
 
             if let Some(stop) = control.check() {
-                return self.fail(sink, agg, stop.stage(), &stop.reason("critique call"));
+                return self.stop(sink, agg, stop, "critique call");
             }
             let (challenge, inv) = match self.model.critique(&proposal, &ctx) {
                 Ok(v) => v,
-                Err(e) => return self.fail(sink, agg, "critique", &e.to_string()),
+                Err(e) => return self.model_failed(sink, agg, "critique", &e),
             };
             let over_budget = budget.charge("critique", &inv);
+            if let Err(violation) = contract::validate_challenge(&agg.items_seen, &challenge) {
+                return self.refuse(
+                    sink,
+                    agg,
+                    "critique",
+                    codes::CHALLENGE_CONTRACT,
+                    &violation,
+                    inv,
+                );
+            }
             self.emit(
                 sink,
                 &mut agg,
@@ -340,18 +458,32 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     invocation: inv,
                 },
             )?;
-            if let Some(reason) = over_budget {
-                return self.fail(sink, agg, "token_budget", &reason);
+            if let Some((code, reason)) = over_budget {
+                return self.fail(sink, agg, "token_budget", code, &reason);
             }
 
             if let Some(stop) = control.check() {
-                return self.fail(sink, agg, stop.stage(), &stop.reason("evaluate call"));
+                return self.stop(sink, agg, stop, "evaluate call");
             }
             let (evaluation, inv) = match self.model.evaluate(&proposal, &challenge, &ctx) {
                 Ok(v) => v,
-                Err(e) => return self.fail(sink, agg, "evaluate", &e.to_string()),
+                Err(e) => return self.model_failed(sink, agg, "evaluate", &e),
             };
             let over_budget = budget.charge("evaluate", &inv);
+            // The contract replay enforces, against what the log holds so
+            // far: a violation is the model's failure, never repaired here.
+            if let Err(violation) =
+                contract::validate_evaluation(&agg.evaluation_context(), &evaluation)
+            {
+                return self.refuse(
+                    sink,
+                    agg,
+                    "evaluate",
+                    codes::EVALUATION_CONTRACT,
+                    &violation,
+                    inv,
+                );
+            }
             self.emit(
                 sink,
                 &mut agg,
@@ -359,24 +491,20 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     role: AgentRole::EvidenceEvaluator,
                 },
                 EventPayload::EvaluationSubmitted {
-                    evaluation: evaluation.clone(),
+                    evaluation,
                     invocation: inv,
                 },
             )?;
-            if let Some(reason) = over_budget {
-                return self.fail(sink, agg, "token_budget", &reason);
+            if let Some((code, reason)) = over_budget {
+                return self.fail(sink, agg, "token_budget", code, &reason);
             }
+            // From here on the evaluation is read as the log recorded it.
+            let evaluation = recorded_evaluation(&agg)?;
 
             // Combined verification records: integrity from the verifier,
             // factual/relevance from the evaluation. Never cross-derived.
-            let mut round_verifications = Vec::new();
-            for ev in &evidence {
-                let check = checks.get(&ev.id).cloned().unwrap_or(ProofCheck {
-                    status: IntegrityStatus::NotChecked,
-                    verifier: None,
-                    verified_anchor: None,
-                    detail: None,
-                });
+            // One per record of the round context, tagged with the round.
+            for (ev, check) in ctx.evidence.iter().zip(checks) {
                 let relevant = evaluation
                     .assessments
                     .iter()
@@ -411,43 +539,60 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     verified_anchor: check.verified_anchor,
                     detail: check.detail,
                     checked_at: self.clock.now(),
+                    round: Some(round),
+                    proof_ref: ev.proof_ref.clone(),
+                    report: check.report,
                 };
                 self.emit(
                     sink,
                     &mut agg,
                     Actor::Runtime,
-                    EventPayload::EvidenceVerified {
-                        verification: verification.clone(),
-                    },
+                    EventPayload::EvidenceVerified { verification },
                 )?;
-                round_verifications.push(verification);
             }
-            let all_verifications = round_verifications;
-            let final_kind = derive_recommendation(&evaluation, &all_verifications);
-            let unresolved = evaluation.unresolved_items.len();
+            // The policy reads the recorded evaluation and this round's
+            // recorded verifications, exactly the inputs replay uses.
+            let final_kind = derive_recommendation(&evaluation, &agg.round_verifications);
 
-            let no_progress = prev_unresolved.map(|p| unresolved >= p).unwrap_or(false);
-            prev_unresolved = Some(unresolved);
-            // Unresolved items drive revision. Since schema 1.2 that holds
+            // Progress is set-based: this round made some only if its
+            // evaluation resolved at least one objection the previous
+            // evaluation had left open. The first evaluation has no
+            // earlier objections, so the rule starts with the second.
+            let progress = round == 1
+                || evaluation.item_verdicts.iter().any(|v| {
+                    v.status == ItemStatus::Resolved
+                        && ctx.open_items.iter().any(|o| o.item.id == v.item_id)
+                });
+            // Open objections drive revision. Since schema 1.2 that holds
             // after an abstention too (bounded by the same round limit and
-            // no-progress exit); an abstention with nothing unresolved, or
-            // a blocked result, ends deliberation.
+            // no-progress exit); nothing open, or a blocked result, ends
+            // deliberation.
             let should_revise = final_kind != RecommendationKind::Blocked
-                && unresolved > 0
-                && !no_progress
+                && !agg.open_items.is_empty()
+                && progress
                 && agg.revision_round < MAX_REVISION_ROUNDS;
             if !should_revise {
-                break (final_kind, evaluation, all_verifications);
+                break final_kind;
             }
             if let Some(stop) = control.check() {
-                return self.fail(sink, agg, stop.stage(), &stop.reason("revise call"));
+                return self.stop(sink, agg, stop, "revise call");
             }
             let (revision, inv) = match self.model.revise(&proposal, &challenge, &evaluation, &ctx)
             {
                 Ok(v) => v,
-                Err(e) => return self.fail(sink, agg, "revise", &e.to_string()),
+                Err(e) => return self.model_failed(sink, agg, "revise", &e),
             };
             let over_budget = budget.charge("revise", &inv);
+            if let Err(violation) = contract::validate_claims(&revision.proposal) {
+                return self.refuse(
+                    sink,
+                    agg,
+                    "revise",
+                    codes::PROPOSAL_CONTRACT,
+                    &violation,
+                    inv,
+                );
+            }
             self.emit(
                 sink,
                 &mut agg,
@@ -459,20 +604,22 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     invocation: inv,
                 },
             )?;
-            if let Some(reason) = over_budget {
-                return self.fail(sink, agg, "token_budget", &reason);
+            if let Some((code, reason)) = over_budget {
+                return self.fail(sink, agg, "token_budget", code, &reason);
             }
             proposal = revision.proposal;
         };
 
         if let Some(stop) = control.check() {
-            return self.fail(sink, agg, stop.stage(), &stop.reason("recommendation"));
+            return self.stop(sink, agg, stop, "recommendation");
         }
+        let evaluation = recorded_evaluation(&agg)?;
         let recommendation = Recommendation {
             schema_version: SCHEMA_VERSION.into(),
             kind: final_kind,
-            rationale: rationale_for(final_kind, &evaluation, &all_verifications),
+            rationale: rationale_for(final_kind, &evaluation, &agg.round_verifications),
             unresolved_assumptions: proposal.assumptions.clone(),
+            unresolved_uncertainties: proposal.uncertainties.clone(),
             issued_at: self.clock.now(),
         };
         self.emit(
@@ -508,12 +655,26 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         Ok(())
     }
 
+    /// Ends the run with `RunFailed` at `stage`, with its code and reason.
     fn fail<S: EventSink>(
+        &mut self,
+        sink: &mut S,
+        agg: RunAggregate,
+        stage: &str,
+        code: &str,
+        reason: &str,
+    ) -> Result<RunAggregate, OrchestratorError> {
+        self.fail_with(sink, agg, stage, code, reason, None)
+    }
+
+    fn fail_with<S: EventSink>(
         &mut self,
         sink: &mut S,
         mut agg: RunAggregate,
         stage: &str,
+        code: &str,
         reason: &str,
+        invocation: Option<ModelInvocation>,
     ) -> Result<RunAggregate, OrchestratorError> {
         self.emit(
             sink,
@@ -522,10 +683,75 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             EventPayload::RunFailed {
                 reason: reason.to_string(),
                 stage: stage.to_string(),
+                code: Some(code.to_string()),
+                invocation,
             },
         )?;
         Ok(agg)
     }
+
+    /// A tripped [`RunControl`]: stage and code are the stop's, and the
+    /// reason names the checkpoint that saw it.
+    fn stop<S: EventSink>(
+        &mut self,
+        sink: &mut S,
+        agg: RunAggregate,
+        stop: Stop,
+        checkpoint: &str,
+    ) -> Result<RunAggregate, OrchestratorError> {
+        self.fail(
+            sink,
+            agg,
+            stop.stage(),
+            stop.stage(),
+            &stop.reason(checkpoint),
+        )
+    }
+
+    /// A model call that returned an error instead of a document.
+    fn model_failed<S: EventSink>(
+        &mut self,
+        sink: &mut S,
+        agg: RunAggregate,
+        stage: &str,
+        error: &ModelError,
+    ) -> Result<RunAggregate, OrchestratorError> {
+        self.fail(
+            sink,
+            agg,
+            stage,
+            model_error_code(error),
+            &error.to_string(),
+        )
+    }
+
+    /// A model document the contract refuses. The run fails at the call's
+    /// stage and the call stays on the record (`RunFailed.invocation`), so
+    /// its request id and tokens still reach the receipt.
+    fn refuse<S: EventSink>(
+        &mut self,
+        sink: &mut S,
+        agg: RunAggregate,
+        stage: &str,
+        code: &str,
+        violation: &ContractViolation,
+        invocation: ModelInvocation,
+    ) -> Result<RunAggregate, OrchestratorError> {
+        let reason = format!("{stage} output refused by the protocol 1.3 contract: {violation}");
+        self.fail_with(sink, agg, stage, code, &reason, Some(invocation))
+    }
+}
+
+/// The latest evaluation as the log recorded it: what the policy and the
+/// next role calls read, never a local copy.
+fn recorded_evaluation(agg: &RunAggregate) -> Result<Evaluation, OrchestratorError> {
+    agg.last_evaluation.clone().ok_or_else(|| {
+        TransitionError::InvalidTransition {
+            state: agg.state,
+            event: "recommendation_issued",
+        }
+        .into()
+    })
 }
 
 /// Record a human approval/rejection. Idempotent per run on
@@ -608,6 +834,8 @@ pub fn mark_interrupted_runs(
                 payload: EventPayload::RunFailed {
                     reason: "process restarted before the run completed".into(),
                     stage: "interrupted".into(),
+                    code: Some(codes::INTERRUPTED.into()),
+                    invocation: None,
                 },
             };
             let seq = log.append(new)?;
@@ -707,7 +935,7 @@ mod tests {
     /// (stage, reason) of the log's last record, which must be RunFailed.
     fn failure(log: &EventLog) -> (&str, &str) {
         match &log.all_events().last().expect("a record").payload {
-            EventPayload::RunFailed { stage, reason } => (stage.as_str(), reason.as_str()),
+            EventPayload::RunFailed { stage, reason, .. } => (stage.as_str(), reason.as_str()),
             other => panic!("expected RunFailed last, got {other:?}"),
         }
     }
@@ -911,6 +1139,79 @@ mod tests {
         );
         assert_eq!(agg.state, RunState::Failed);
         assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "replays");
+    }
+
+    /// The scripted verifier, plus an owner's cancel that arrives while the
+    /// first proof verification is in flight.
+    struct CancellingVerifier {
+        inner: FakeProofVerifier,
+        control: RunControl,
+        verifies: usize,
+    }
+
+    impl ProofVerifier for CancellingVerifier {
+        fn verify(&mut self, evidence: &EvidenceReference) -> ProofCheck {
+            self.verifies += 1;
+            let out = self.inner.verify(evidence);
+            self.control.cancel(CancelReason::Owner);
+            out
+        }
+    }
+
+    #[test]
+    fn cancel_during_a_proof_verification_is_honored_before_the_next_one() {
+        let s = retry_constraint_scenario();
+        let control = RunControl::new();
+        let mut orch = Orchestrator {
+            model: s.model,
+            memory: s.memory,
+            verifier: CancellingVerifier {
+                inner: s.verifier,
+                control: control.clone(),
+                verifies: 0,
+            },
+            clock: FixedClock::new(TS),
+            ids: SequentialIdGen::new(),
+            limits: RunLimits::default(),
+        };
+        let mut log = EventLog::open(temp_log("cancel-during-verify.jsonl")).unwrap();
+        let run_id = RunId::new(orch.ids.next("run"));
+        let (agg, task) = orch.create_task(&mut log, run_id, s.input).unwrap();
+        let agg = orch.deliberate(&mut log, agg, &task, &control).unwrap();
+
+        // The round context holds two records: the second was never
+        // verified, and the Critic was never called.
+        assert_eq!(orch.verifier.verifies, 1);
+        assert_eq!(orch.model.calls, ["propose"]);
+        assert_eq!(
+            failure(&log),
+            (
+                "cancelled",
+                "cancelled by the run's owner before the proof verification"
+            )
+        );
+        assert_eq!(agg.state, RunState::Failed);
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "replays");
+    }
+
+    #[test]
+    fn every_failure_records_a_stable_code_next_to_its_reason() {
+        let code = |log: &EventLog| match &log.all_events().last().unwrap().payload {
+            EventPayload::RunFailed { code, .. } => code.clone(),
+            other => panic!("expected RunFailed last, got {other:?}"),
+        };
+        let control = RunControl::new();
+        control.cancel(CancelReason::Shutdown);
+        let (_, log) = deliberate_tripped("code-shutdown.jsonl", &control);
+        assert_eq!(code(&log).as_deref(), Some("shutdown"));
+
+        let mut model = FakeModelClient::new();
+        model.proposals.push_back(Err(ModelError::Timeout));
+        let s = retry_constraint_scenario();
+        let mut log = EventLog::open(temp_log("code-timeout.jsonl")).unwrap();
+        let mut orch = orchestrator(model, s.memory, s.verifier);
+        orch.run(&mut log, s.input).unwrap();
+        assert_eq!(code(&log).as_deref(), Some(codes::MODEL_TIMEOUT));
     }
 
     #[test]

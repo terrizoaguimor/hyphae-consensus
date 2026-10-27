@@ -19,8 +19,29 @@
         "null"
       ]
     },
+    "backend_project": {
+      "description": "Schema 1.3: the project the backend itself reported for the record, which may differ from `project_id` (the run's project).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "backend_ref": {
       "description": "Backend-native record identifier (e.g. Hyphae memory id), when known.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "backend_scope": {
+      "description": "Schema 1.3: the backend's scope for the record, when it reports one.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "captured_at": {
+      "description": "Schema 1.3: when that snapshot was captured (RFC 3339).",
       "type": [
         "string",
         "null"
@@ -53,17 +74,120 @@
         "null"
       ]
     },
+    "proof_ref": {
+      "description": "Schema 1.3: public identifier of the proof artifact covering the record, without any local path.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "proof_request": {
+      "description": "Schema 1.3: the request the proof actually sealed. A proof covers its own request (e.g. the full record list of a project), which need not be the claim query that led the runtime to the record.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ProofRequest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "proof_sha256": {
+      "description": "Schema 1.3: SHA-256 of that proof artifact, lowercase hex.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "retrieval": {
+      "description": "Schema 1.3: how the record was obtained.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Retrieval"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "retrieved_at": {
       "type": "string"
     },
     "schema_version": {
       "type": "string"
     },
+    "snapshot_id": {
+      "description": "Schema 1.3: the sealed snapshot the record came from, when it did.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "witness_file": {
       "description": "Local witness artifact path paired with `proof_file`.",
       "type": [
         "string",
         "null"
+      ]
+    }
+  },
+  "definitions": {
+    "ProofRequest": {
+      "description": "The request a memory proof seals (schema 1.3): the operation and arguments the proof's own result answers.",
+      "type": "object",
+      "required": [
+        "operation",
+        "project"
+      ],
+      "properties": {
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "operation": {
+          "description": "Backend operation, e.g. `list` or `recall`.",
+          "type": "string"
+        },
+        "project": {
+          "description": "Backend project string the operation ran against.",
+          "type": "string"
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Retrieval": {
+      "description": "How an evidence record was obtained (schema 1.3).",
+      "oneOf": [
+        {
+          "description": "A recall against a running memory backend.",
+          "type": "string",
+          "enum": [
+            "live_recall"
+          ]
+        },
+        {
+          "description": "Served from a sealed, pre-captured snapshot.",
+          "type": "string",
+          "enum": [
+            "sealed_snapshot"
+          ]
+        },
+        {
+          "description": "A seeded test record; any proof outcome is scripted.",
+          "type": "string",
+          "enum": [
+            "simulated"
+          ]
+        }
       ]
     }
   }

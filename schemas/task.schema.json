@@ -23,6 +23,17 @@
     "id": {
       "type": "string"
     },
+    "mode": {
+      "description": "Schema 1.3: the mode the run was declared with when it was created. A declaration, not proof: what actually happened is read from the recorded invocations and verifications.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/TaskMode"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "project_id": {
       "type": "string"
     },
@@ -34,6 +45,110 @@
     },
     "title": {
       "type": "string"
+    }
+  },
+  "definitions": {
+    "EvidenceMode": {
+      "oneOf": [
+        {
+          "description": "Seeded in-memory records with scripted proof outcomes.",
+          "type": "string",
+          "enum": [
+            "simulated"
+          ]
+        },
+        {
+          "description": "No memory backend: retrieval fails and the run degrades.",
+          "type": "string",
+          "enum": [
+            "offline"
+          ]
+        },
+        {
+          "description": "A sealed, pre-captured Hyphae snapshot.",
+          "type": "string",
+          "enum": [
+            "sealed_snapshot"
+          ]
+        },
+        {
+          "description": "A running Hyphae Agent Memory deployment.",
+          "type": "string",
+          "enum": [
+            "live_hyphae"
+          ]
+        }
+      ]
+    },
+    "ModelMode": {
+      "oneOf": [
+        {
+          "description": "Scripted test doubles; no model is called.",
+          "type": "string",
+          "enum": [
+            "scripted"
+          ]
+        },
+        {
+          "description": "The Meta Model API.",
+          "type": "string",
+          "enum": [
+            "meta"
+          ]
+        }
+      ]
+    },
+    "RunOrigin": {
+      "oneOf": [
+        {
+          "description": "The command-line demo.",
+          "type": "string",
+          "enum": [
+            "cli"
+          ]
+        },
+        {
+          "description": "The operator console.",
+          "type": "string",
+          "enum": [
+            "operator"
+          ]
+        },
+        {
+          "description": "The public portal.",
+          "type": "string",
+          "enum": [
+            "public"
+          ]
+        }
+      ]
+    },
+    "TaskMode": {
+      "description": "How a run was declared at creation (schema 1.3).",
+      "type": "object",
+      "required": [
+        "evidence",
+        "model",
+        "origin"
+      ],
+      "properties": {
+        "evidence": {
+          "$ref": "#/definitions/EvidenceMode"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelMode"
+        },
+        "origin": {
+          "$ref": "#/definitions/RunOrigin"
+        },
+        "preset": {
+          "description": "Curated preset the task came from, when it did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
   }
 }

@@ -66,6 +66,7 @@ fn input() -> TaskInput {
         title: "Fix payment client timeouts".into(),
         description: "Timeouts under load".into(),
         submitted_by: "eval".into(),
+        mode: None,
     }
 }
 
@@ -134,8 +135,10 @@ fn cases() -> Vec<Case> {
             name: "memory-offline",
             first_proposal: "unverifiable (no memory)",
             build: || {
-                let s = retry_constraint_scenario();
-                (s.model, FakeMemoryClient::offline(), s.verifier)
+                // Protocol 1.3: its script cites nothing, since nothing
+                // can be retrieved; memory is offline.
+                let s = offline_scenario();
+                (s.model, s.memory, s.verifier)
             },
             max_run_tokens: None,
             expected: |a| kind(a) == Some(RecommendationKind::InsufficientEvidence),
@@ -257,9 +260,13 @@ fn cases() -> Vec<Case> {
                         evidence_refs: vec![],
                     }],
                 )));
-                m.evaluations.push_back(Ok(evaluation(
+                m.evaluations.push_back(Ok(judged(
                     vec![assessment("claim-1", false, &[], &[])],
-                    &["item-1"],
+                    vec![verdict(
+                        "item-1",
+                        ItemStatus::Unresolved,
+                        "no stored record settles the retry count",
+                    )],
                     true,
                 )));
                 m.revisions.push_back(Ok(Revision {
@@ -277,9 +284,13 @@ fn cases() -> Vec<Case> {
                 }));
                 m.critiques
                     .push_back(Ok(simple_challenge("chal-2", vec![])));
-                m.evaluations.push_back(Ok(evaluation(
+                m.evaluations.push_back(Ok(judged(
                     vec![assessment("claim-1", true, &["ev-constraint"], &[])],
-                    &[],
+                    vec![verdict(
+                        "item-1",
+                        ItemStatus::Resolved,
+                        "the revised claim states the cap ev-constraint records",
+                    )],
                     false,
                 )));
                 let mem = FakeMemoryClient::new(vec![evidence(

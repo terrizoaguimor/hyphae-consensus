@@ -46,6 +46,7 @@ fn input() -> TaskInput {
         title: "Task".into(),
         description: "Desc".into(),
         submitted_by: "mario".into(),
+        mode: None,
     }
 }
 
@@ -58,6 +59,7 @@ fn approve(run_id: &RunId, key: &str) -> HumanAuthorization {
         decided_at: TS.into(),
         idempotency_key: key.into(),
         note: None,
+        authority: None,
     }
 }
 
@@ -150,8 +152,9 @@ fn invalid_proof_blocks_without_revision_attempt() {
 
 #[test]
 fn offline_memory_degrades_to_insufficient_evidence() {
-    let mut s = retry_constraint_scenario();
-    s.memory = FakeMemoryClient::offline();
+    // Protocol 1.3: the offline script cites no record, since none can be
+    // retrieved (the reference script cites two and now fails evaluate).
+    let s = offline_scenario();
     let mut log = EventLog::open(temp_log("offline.jsonl")).unwrap();
     let mut orch = orchestrator(s.model, s.memory, s.verifier);
     let agg = orch.run(&mut log, s.input).unwrap();
@@ -258,18 +261,26 @@ fn no_progress_exits_instead_of_looping() {
             "Payment timeouts are caused by insufficient retries",
         )],
     )));
-    let chal = || Challenge {
+    let chal = |items| Challenge {
         schema_version: SCHEMA_VERSION.into(),
         id: ChallengeId::new("chal-1"),
         run_id: RunId::new("placeholder"),
         target_proposal: ProposalId::new("placeholder"),
-        items: vec![],
+        items,
         created_at: TS.into(),
     };
-    model.critiques.push_back(Ok(chal()));
-    model.evaluations.push_back(Ok(evaluation(
+    model.critiques.push_back(Ok(chal(vec![challenge_item(
+        "item-1",
+        "c1",
+        "No record ties the timeouts to too few retries",
+    )])));
+    model.evaluations.push_back(Ok(judged(
         vec![assessment("c1", false, &[], &[])],
-        &["chal-1"],
+        vec![verdict(
+            "item-1",
+            ItemStatus::Unresolved,
+            "no record settles it",
+        )],
         false,
     )));
     model.revisions.push_back(Ok(Revision {
@@ -285,11 +296,16 @@ fn no_progress_exits_instead_of_looping() {
         supersedes: ProposalId::new("placeholder"),
         addressed_items: vec![],
     }));
-    model.critiques.push_back(Ok(chal()));
-    // Same unresolved count as before the revision: no progress -> stop.
-    model.evaluations.push_back(Ok(evaluation(
+    model.critiques.push_back(Ok(chal(vec![])));
+    // The carried item is still unresolved and nothing that was open got
+    // resolved (protocol 1.3, set-based): no progress -> stop.
+    model.evaluations.push_back(Ok(judged(
         vec![assessment("c1", false, &[], &[])],
-        &["chal-1"],
+        vec![verdict(
+            "item-1",
+            ItemStatus::Unresolved,
+            "the revision did not change the claim",
+        )],
         false,
     )));
 
@@ -313,15 +329,16 @@ fn no_progress_exits_instead_of_looping() {
 
 #[test]
 fn two_revision_rounds_are_reachable_and_bounded() {
-    // Progress is measured by shrinking unresolved count (2 -> 1), which
-    // unlocks the second revision; the run then stops instead of looping.
+    // Progress is set-based (protocol 1.3): the second evaluation resolves
+    // x2, one of the two objections left open by the first, which unlocks
+    // the second revision; the run then stops instead of looping.
     let mut model = FakeModelClient::new();
-    let chal = |id: &str| Challenge {
+    let chal = |id: &str, items| Challenge {
         schema_version: SCHEMA_VERSION.into(),
         id: ChallengeId::new(id),
         run_id: RunId::new("placeholder"),
         target_proposal: ProposalId::new("placeholder"),
-        items: vec![],
+        items,
         created_at: TS.into(),
     };
     let rev = |pid: &str| Revision {
@@ -345,24 +362,44 @@ fn two_revision_rounds_are_reachable_and_bounded() {
             "Payment timeouts are caused by insufficient retries",
         )],
     )));
-    model.critiques.push_back(Ok(chal("chal-1")));
-    model.evaluations.push_back(Ok(evaluation(
+    model.critiques.push_back(Ok(chal(
+        "chal-1",
+        vec![
+            challenge_item("x1", "c1", "No record ties the timeouts to retries"),
+            challenge_item("x2", "c1", "No test covers the retry path"),
+        ],
+    )));
+    model.evaluations.push_back(Ok(judged(
         vec![assessment("c1", false, &[], &[])],
-        &["x1", "x2"],
+        vec![
+            verdict("x1", ItemStatus::Unresolved, "no record settles it"),
+            verdict("x2", ItemStatus::Unresolved, "no test yet"),
+        ],
         false,
     )));
     model.revisions.push_back(Ok(rev("p2")));
-    model.critiques.push_back(Ok(chal("chal-2")));
-    model.evaluations.push_back(Ok(evaluation(
+    model.critiques.push_back(Ok(chal("chal-2", vec![])));
+    model.evaluations.push_back(Ok(judged(
         vec![assessment("c1", false, &[], &[])],
-        &["x1"],
+        vec![
+            verdict("x1", ItemStatus::Unresolved, "no record settles it"),
+            verdict(
+                "x2",
+                ItemStatus::Resolved,
+                "the revision adds a retry-path test",
+            ),
+        ],
         false,
     )));
     model.revisions.push_back(Ok(rev("p3")));
-    model.critiques.push_back(Ok(chal("chal-3")));
-    model.evaluations.push_back(Ok(evaluation(
+    model.critiques.push_back(Ok(chal("chal-3", vec![])));
+    model.evaluations.push_back(Ok(judged(
         vec![assessment("c1", false, &[], &[])],
-        &["x1"],
+        vec![verdict(
+            "x1",
+            ItemStatus::Unresolved,
+            "no record settles it",
+        )],
         false,
     )));
 
@@ -662,6 +699,15 @@ fn fake_invocation() -> ModelInvocation {
         latency_ms: None,
         input_tokens: None,
         output_tokens: None,
+        finish_reason: None,
+        reasoning_tokens: None,
+        max_completion_tokens: None,
+        schema_name: None,
+        schema_sha256: None,
+        prompt_sha256: None,
+        reasoning_effort: None,
+        safety_identifier_sent: None,
+        attempts: None,
     }
 }
 
@@ -684,6 +730,7 @@ fn task_for(run: &RunId) -> Task {
         title: "t".into(),
         description: "d".into(),
         created_at: TS.into(),
+        mode: None,
     }
 }
 
@@ -728,6 +775,7 @@ fn startup_recovery_closes_crashed_runs_and_reports_broken_ones() {
                 kind: RecommendationKind::Supported,
                 rationale: "forged".into(),
                 unresolved_assumptions: vec![],
+                unresolved_uncertainties: vec![],
                 issued_at: TS.into(),
             },
         };
@@ -775,12 +823,17 @@ fn evidence_cap_is_strict_recorded_and_retrieval_is_runtime_attributed() {
             })
         })
         .collect();
+    // Protocol 1.3: every claim is assessed (an empty evaluation of six
+    // claims now fails evaluate).
+    let assessments = (0..topics.len())
+        .map(|i| assessment(&format!("c{i}"), false, &[], &[]))
+        .collect();
     let mut model = FakeModelClient::new();
     model.proposals.push_back(Ok(proposal("p1", "s", claims)));
     model.critiques.push_back(Ok(empty_challenge("chal-1")));
     model
         .evaluations
-        .push_back(Ok(evaluation(vec![], &[], false)));
+        .push_back(Ok(evaluation(assessments, &[], false)));
     let mut log = EventLog::open(temp_log("evidence-cap.jsonl")).unwrap();
     let mut orch = orchestrator(
         model,
@@ -842,9 +895,13 @@ fn revision_follows_abstention_with_open_items_and_can_reach_supported() {
         "No stored record says how many retries are allowed",
     )];
     model.critiques.push_back(Ok(chal));
-    model.evaluations.push_back(Ok(evaluation(
+    model.evaluations.push_back(Ok(judged(
         vec![assessment("c1", false, &[], &[])],
-        &["item-1"],
+        vec![verdict(
+            "item-1",
+            ItemStatus::Unresolved,
+            "no record states the cap",
+        )],
         true,
     )));
     model.revisions.push_back(Ok(Revision {
@@ -861,9 +918,13 @@ fn revision_follows_abstention_with_open_items_and_can_reach_supported() {
         addressed_items: vec!["item-1".into()],
     }));
     model.critiques.push_back(Ok(empty_challenge("chal-2")));
-    model.evaluations.push_back(Ok(evaluation(
+    model.evaluations.push_back(Ok(judged(
         vec![assessment("c1", true, &["ev-constraint"], &[])],
-        &[],
+        vec![verdict(
+            "item-1",
+            ItemStatus::Resolved,
+            "the revised claim states the cap ev-constraint records",
+        )],
         false,
     )));
     let mut log = EventLog::open(temp_log("abstain-revise.jsonl")).unwrap();

@@ -30,8 +30,35 @@
     "integrity_status": {
       "$ref": "#/definitions/IntegrityStatus"
     },
+    "proof_ref": {
+      "description": "Schema 1.3: the proof artifact that was checked (the record's `proof_ref`), when it has one.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "relevance_status": {
       "$ref": "#/definitions/RelevanceStatus"
+    },
+    "report": {
+      "description": "Schema 1.3: the verifier's structured report, when it gives one.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/VerifierReport"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "round": {
+      "description": "Schema 1.3: the deliberation round (1 = first) whose evaluation this record combines with. Protocol 1.3 re-verifies every record of the round context in every round.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0.0
     },
     "schema_version": {
       "type": "string"
@@ -110,6 +137,48 @@
         "irrelevant",
         "not_assessed"
       ]
+    },
+    "VerifierReport": {
+      "description": "Structured fields of a verifier's own report (schema 1.3), kept next to the free-text `detail` so a reader never has to parse prose.",
+      "type": "object",
+      "properties": {
+        "anchor_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
   }
 }

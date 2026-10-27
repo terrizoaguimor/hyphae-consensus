@@ -36,7 +36,7 @@ use consensus_runtime::fakes::{FakeMemoryClient, FakeModelClient, FakeProofVerif
 use consensus_runtime::orchestrator::{
     build_receipt, record_human_decision, Orchestrator, TaskInput,
 };
-use consensus_runtime::scenarios::retry_constraint_scenario;
+use consensus_runtime::scenarios::{offline_scenario, retry_constraint_scenario};
 use consensus_runtime::state_machine::RunAggregate;
 use consensus_runtime::{EventLog, RunLimits};
 use serde::{Deserialize, Serialize};
@@ -253,11 +253,9 @@ fn fake_scenario(
     };
     match name {
         "retry" => Ok(retry_constraint_scenario()),
-        "offline" => {
-            let mut s = retry_constraint_scenario();
-            s.memory = FakeMemoryClient::offline();
-            Ok(s)
-        }
+        // Protocol 1.3: the offline script cites nothing (no record can be
+        // retrieved), so it keeps the evaluation contract.
+        "offline" => Ok(offline_scenario()),
         "invalid-proof" => {
             let mut s = retry_constraint_scenario();
             s.verifier
@@ -296,6 +294,7 @@ fn fake_scenario(
                     title: "Fix payment client timeouts (injection demo)".into(),
                     description: "A hostile memory tries to force approval.".into(),
                     submitted_by: "operator".into(),
+                    mode: None,
                 },
             })
         }
@@ -324,6 +323,7 @@ fn fake_scenario(
                     title: "Fix payment client timeouts (abstention demo)".into(),
                     description: "No evidence exists; the evaluator must abstain.".into(),
                     submitted_by: "operator".into(),
+                    mode: None,
                 },
             })
         }
@@ -373,6 +373,7 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                     .clone()
                     .unwrap_or_else(|| "Payment requests intermittently time out under load. Propose a fix.".into()),
                 submitted_by: req.submitted_by.clone(),
+                mode: None,
             };
             match mem {
                 "fake" => {
@@ -514,6 +515,7 @@ async fn decide(
         decided_at: now.clone(),
         idempotency_key: req.idempotency_key,
         note: req.note,
+        authority: None,
     };
     match record_human_decision(&mut log, auth, now) {
         Ok(agg) => Json(summary_of(&agg)).into_response(),

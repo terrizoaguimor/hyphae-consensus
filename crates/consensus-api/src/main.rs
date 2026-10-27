@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Entry point. Two modes:
 //!
 //!   cargo run -p consensus-api -- serve     # operator console (Axum/SSE)

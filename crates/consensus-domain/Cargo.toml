@@ -2,6 +2,8 @@
 name = "consensus-domain"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false
 description = "Typed, versioned data contracts for Hyphae Consensus. No I/O."
 
 [dependencies]

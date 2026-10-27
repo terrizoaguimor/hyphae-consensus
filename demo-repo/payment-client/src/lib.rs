@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Synthetic payment client with a reproducible retry bug.
 //!
 //! BUG (deliberate, this is the demo fixture): `send_with_retries` retries

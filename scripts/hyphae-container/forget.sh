@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # Permanently forgets one memory (operator action, writer credential), via
 # the documented hyphae_memory_forget tool. Idempotent.
 # Usage: sh forget.sh <project> <memory-id>

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Re-asks the live Evaluator a recorded round-1 question (diagnostics).
 //!
 //! Run: `cargo run -p consensus-api --example replay_evaluate -- <run.json> [repeats]`

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Time and identifier generation, injected so tests are deterministic.
 
 pub trait Clock {

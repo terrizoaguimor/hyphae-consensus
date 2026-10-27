@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Run orchestration: Proposer -> evidence retrieval/verification ->
 //! Critic -> Evidence Evaluator -> optional bounded revisions ->
 //! runtime-issued recommendation -> awaiting human authorization.

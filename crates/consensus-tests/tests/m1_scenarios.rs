@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! M1 integration scenarios: deterministic fakes only. No Meta API, no
 //! Hyphae runtime, no external mutation anywhere in this file.
 

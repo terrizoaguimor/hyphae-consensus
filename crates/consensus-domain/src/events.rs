@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Append-only event records. The runtime's event log is the source of
 //! truth for run state; aggregates are rebuilt by deterministic replay.
 //! Events contain claims and concise justifications only — never secrets

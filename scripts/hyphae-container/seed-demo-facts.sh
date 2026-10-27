@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # Seeds richer, memory-checkable records for project demo-repo (operator
 # action, writer credential), on top of seed.sh. Each record states a value,
 # rule, or fact taken from the synthetic fixture in demo-repo/payment-client

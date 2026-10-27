@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # Recall via the reader credential (validates the adapter shape).
 # Usage: sh recall.sh [project] [query] [prove:true|false]
 # Prints only the tools/call response line.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Deterministic test doubles for every port. These are shipping test
 //! infrastructure (used by `consensus-tests` and the M1 demo binary),
 //! never presented as real model or Hyphae behavior: fake invocations

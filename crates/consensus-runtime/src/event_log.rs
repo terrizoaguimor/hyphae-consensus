@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Append-only JSONL event log with crash-safe recovery.
 //!
 //! Guarantees:

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # Starts an Agent Memory daemon the way the systemd unit written by
 # `hyphae agent setup` does: `agent recover`, then `serve` with the socket
 # OUTSIDE the data directory (see hyphae-env.sh for why).

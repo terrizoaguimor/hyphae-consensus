@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # Shared paths and helpers for the container scripts (paths only, never
 # key values). Copied to /hyphae-home/hyphae-env.sh and sourced.
 #

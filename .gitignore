@@ -1,12 +1,49 @@
 /target
 **/target/
+
+# Local research data, tooling and agent logs: never committed from here.
+# demo-run/ is the only original copy of the live research data; the curated,
+# publishable, verbatim copy lives in research/ (see research/README.md).
 /demo-run
 /tools
 /hyphae-isolated
 /hyphae-linux
+/claude-*.log
+
+# Secrets and credentials (the Meta key lives only in the environment).
 .env
-*.jsonl
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
 *.key
+*.pem
+*.p12
+
+# Event logs anywhere except the curated research archive.
+*.jsonl
+!/research/**/*.jsonl
+
+# Hyphae proof artifacts: real files use .proof/.witness, test fixtures
+# .hyproof/.hywit. A witness is a full copy of a store's data directory
+# (WAL included), so witnesses of private stores are never committed.
+*.proof
+*.witness
 *.hyproof
 *.hywit
-/claude-*.log
+
+# Raw Meta draft dumps (CONSENSUS_META_DEBUG_DIR).
+meta-debug*/
+
+# Node / Next.js (apps/web)
+node_modules/
+.next/
+/apps/web/out/
+*.tsbuildinfo
+.pnpm-store/
+playwright-report/
+test-results/
+coverage/
+
+# Cloudflare tooling
+.wrangler/

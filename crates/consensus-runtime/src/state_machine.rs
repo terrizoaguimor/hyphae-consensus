@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Deterministic run state machine.
 //!
 //! `apply` is a pure transition function over the aggregate: the same

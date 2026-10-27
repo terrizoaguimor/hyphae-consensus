@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # Seeds the two original demo-repo memories (operator action, writer
 # credential). Idempotent: identical text maps to the same memory.
 . /hyphae-home/hyphae-env.sh

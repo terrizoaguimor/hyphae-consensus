@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Meta adapter tests against a local fake HTTP server. The fake speaks
 //! the documented Chat Completions envelope; no network or credentials
 //! are involved. One live test exists but is `#[ignore]`d and doubly

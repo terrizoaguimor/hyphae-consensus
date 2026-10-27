@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Environment configuration. No secret is ever printed, logged, or
 //! written to the event log; key material stays in memory only (Meta) or
 //! in a restricted file referenced by path (Hyphae).

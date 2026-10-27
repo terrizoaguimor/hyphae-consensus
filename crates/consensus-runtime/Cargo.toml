@@ -2,6 +2,8 @@
 name = "consensus-runtime"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false
 description = "Deterministic consensus state machine, crash-safe event log, orchestration, and policy."
 
 [dependencies]

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Hyphae Agent Memory adapter (pinned revision in README).
 //!
 //! Transport: MCP revision `2025-06-18`, newline-delimited JSON-RPC 2.0

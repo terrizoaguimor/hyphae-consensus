@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Meta Model API adapter (`POST {base}/chat/completions`).
 //!
 //! Structured output follows the documented Chat Completions shape:

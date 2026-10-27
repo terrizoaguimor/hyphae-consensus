@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Adapters and operator surface for Hyphae Consensus.
 //!
 //! - [`meta`]: Meta Model API client implementing the runtime's

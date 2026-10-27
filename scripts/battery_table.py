@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Summarize live battery run records (from live_battery.py) as Markdown.
 
 Every number comes from the saved run detail and receipt; nothing is typed

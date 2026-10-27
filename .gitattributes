@@ -1,2 +1,7 @@
 # Container scripts run under Linux sh: keep LF even with core.autocrlf=true.
 *.sh text eol=lf
+
+# The research archive is stored and checked out byte for byte: its MANIFEST
+# pins sha256 values and its event logs are hash-chained, so no line-ending
+# conversion may ever touch it.
+/research/** -text

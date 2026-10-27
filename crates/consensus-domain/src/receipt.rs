@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Redacted, downloadable record of one completed run.
 
 use crate::events::ModelInvocation;

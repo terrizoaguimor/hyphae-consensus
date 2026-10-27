@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Operator console: Axum HTTP API + server-sent event replay.
 //!
 //! Concurrency model: one owning `EventLog` behind a mutex performs all

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Hyphae adapter tests over an in-memory MCP transport and a scripted
 //! command runner. These verify OUR protocol handling and status
 //! mapping — they do not simulate Hyphae's cryptography. The live probe

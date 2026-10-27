@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 # Dot-source to configure a live Meta + Hyphae session in PowerShell:
 #   . .\scripts\hyphae-container\live-env.ps1                    # demo store
 #   . .\scripts\hyphae-container\live-env.ps1 /hyphae-home/lab-injection

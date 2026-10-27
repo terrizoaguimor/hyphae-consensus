@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Drive a live battery through a running console (stdlib only).
 
 Each task is one POST /api/runs (model=meta, memory=hyphae) followed by a

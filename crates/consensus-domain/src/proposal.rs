@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Model-produced documents: proposal, challenge, evaluation, revision.
 //!
 //! None of these types carries an outcome, vote, or authorization field.

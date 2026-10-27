@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Writes JSON Schema files for every public contract into `schemas/`.
 //! Run: `cargo run -p consensus-domain --example write_schemas`
 

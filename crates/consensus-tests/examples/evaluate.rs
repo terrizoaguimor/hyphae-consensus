@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Protocol conformance check over pinned deterministic scenarios.
 //!
 //! Run: `cargo run -p consensus-tests --example evaluate`

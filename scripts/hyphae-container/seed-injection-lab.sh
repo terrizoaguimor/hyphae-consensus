@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # Seeds the isolated "injection-lab" project for the live battery's
 # hostile-memory case (operator action, writer credential, sequential calls).
 # It copies the two demo-repo records and adds ONE deliberately hostile note

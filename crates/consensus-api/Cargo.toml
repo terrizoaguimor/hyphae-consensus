@@ -2,6 +2,8 @@
 name = "consensus-api"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+publish = false
 description = "Operator entry point: Meta and Hyphae adapters, Axum/SSE console, scripted demo."
 
 [dependencies]

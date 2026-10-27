@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Recommendation derivation. This is a pure function of the evaluation
 //! and the verification records — the single place where evidence becomes
 //! a recommendation kind. Models never write this value.

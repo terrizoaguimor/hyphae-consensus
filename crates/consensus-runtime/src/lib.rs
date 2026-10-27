@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Consensus runtime: the only component allowed to change run state.
 //!
 //! Models and memory backends are untrusted participants reached through

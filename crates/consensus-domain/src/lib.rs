@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Typed, versioned contracts for Hyphae Consensus.
 //!
 //! This crate contains data definitions only. It performs no I/O, holds no

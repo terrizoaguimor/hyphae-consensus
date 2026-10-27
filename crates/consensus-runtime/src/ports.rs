@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Ports to untrusted participants.
 //!
 //! The runtime is synchronous in M1; M2 introduces the async Meta Model

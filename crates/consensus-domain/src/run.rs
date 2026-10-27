@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Run lifecycle states, recommendation, and authorization.
 //!
 //! Recommendation and authorization are separate axes by design:

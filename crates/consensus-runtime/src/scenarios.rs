@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Shared deterministic scenarios used by integration tests and the M1
 //! demo binary. The reference scenario mirrors the planned hackathon
 //! demonstration: a proposer recommends a change, the critic finds a

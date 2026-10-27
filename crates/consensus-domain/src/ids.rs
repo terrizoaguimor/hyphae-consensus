@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Stable identifier types. IDs are opaque strings; generation is the
 //! runtime's responsibility so tests can use deterministic sequences.
 

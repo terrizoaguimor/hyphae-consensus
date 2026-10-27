@@ -131,8 +131,8 @@
   2. The policy ranks an invalid proof above abstention, but the state machine
      rejected `blocked` in the Abstained state. The orchestrator then appended
      a record that failed replay, and on restart the console refused to start.
-     Once (1) was fixed, every live run where the Evaluator abstains would have
-     hit this. Fixes: `blocked` is allowed from Abstained (never an upgrade);
+     Once (1) was fixed, every live run where the Evaluator abstains over
+     retrieved evidence would have hit this (9 of the 10 completed live runs). Fixes: `blocked` is allowed from Abstained (never an upgrade);
      every event is validated before it is persisted; startup recovery reports
      unreplayable runs instead of aborting.
 - Also: console snapshots report a corrupt log line (500) instead of skipping

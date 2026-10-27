@@ -199,6 +199,10 @@ impl RunReceiptV2 {
 pub struct ReceiptFailure {
     pub stage: String,
     pub reason: String,
+    /// Stable failure code recorded with the failure (schema 1.3), for
+    /// clients that localize from codes instead of the English reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 /// The deliberation as it stood at the end of the run.
@@ -239,15 +243,14 @@ pub struct Deliberation {
     /// kind stay in `unevaluated_items` only.
     pub missing_tests: Vec<OpenItem>,
     pub revisions: Vec<ReceiptRevision>,
-    /// Items raised in rounds before the final one that the final
-    /// evaluation never listed as unresolved. Before protocol 1.3 each
-    /// evaluation judged only the items of its own round's challenge, so
-    /// no later round judged these again. Computed from the records for
+    /// Items raised in rounds before the final one that no later
+    /// evaluation judged again: none of them lists the item as unresolved
+    /// or gives it an explicit verdict (protocol 1.3). Before protocol 1.3
+    /// each evaluation judged only the items of its own round's challenge,
+    /// so no later round judged these again. Computed from the records for
     /// every protocol, never from a schema label: a protocol that carries
-    /// open items forward leaves this empty only when its final evaluation
-    /// actually lists each earlier item. (No record carries per-item
-    /// verdicts yet; once evaluations do, an explicit verdict will count as
-    /// judging an item again.)
+    /// open items forward leaves this empty only when a later evaluation
+    /// actually judges each earlier item.
     pub earlier_round_objections_never_rejudged: Vec<UnrejudgedObjection>,
 }
 

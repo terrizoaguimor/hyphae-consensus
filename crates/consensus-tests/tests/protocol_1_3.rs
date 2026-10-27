@@ -1022,6 +1022,30 @@ fn refused(label: &str, replayed: Result<RunAggregate, EventLogError>) -> Transi
     }
 }
 
+/// Replays `run` from `events` through the state machine alone, as
+/// [`EventLog::rebuild`] does once a log has opened. The event log never
+/// opens a file in which a run's records go back to an earlier schema
+/// version ([`refused_at_open`]), so replay's own refusal, which holds
+/// for events from any source, is checked on the events directly.
+fn replay_only(run: &RunId, events: &[ConsensusEvent]) -> Result<RunAggregate, TransitionError> {
+    let mut agg = RunAggregate::new(run.clone());
+    for e in events.iter().filter(|e| &e.run_id == run) {
+        agg.apply(e)?;
+    }
+    Ok(agg)
+}
+
+/// The error [`EventLog::open`] refuses `events` with, written as a
+/// re-chained log at `name` (every hash and link recomputed).
+fn refused_at_open(name: &str, events: &[ConsensusEvent]) -> EventLogError {
+    let path = temp_log(name);
+    write_rechained(&path, events);
+    match EventLog::open(&path) {
+        Err(e) => e,
+        Ok(_) => panic!("{name}: expected the event log to refuse the file"),
+    }
+}
+
 fn verification_mut(e: &mut ConsensusEvent) -> &mut EvidenceVerification {
     match &mut e.payload {
         EventPayload::EvidenceVerified { verification } => verification,
@@ -1040,7 +1064,9 @@ fn recommendation_mut(e: &mut ConsensusEvent) -> &mut Recommendation {
 fn one_record_of_a_1_3_run_relabeled_down_fails_replay() {
     // Review R13-1: replay picks its checks by each record's own version,
     // so a forger could relabel just the record a check would catch. A
-    // run's version never goes down, so the relabel itself is refused.
+    // run's version never goes down, so the relabel itself is refused, by
+    // replay and, before replay, by the event log: it refuses to open a
+    // file in which one run's records go back to an earlier version.
     let (run, events) = reference_events("forge-source-downgrade.jsonl");
     let mut forged = forge(&events, 1, |e| {
         e.item_verdicts.retain(|v| v.item_id != "item-2")
@@ -1048,15 +1074,18 @@ fn one_record_of_a_1_3_run_relabeled_down_fails_replay() {
     let second = nth_record(&forged, 1, is_evaluation);
     forged[second].schema_version = "1.2".into();
     assert_eq!(
-        refused(
-            "evaluation relabeled 1.2",
-            replay_rechained("downgrade-evaluation.jsonl", &run, &forged)
-        ),
-        TransitionError::SchemaDowngrade {
+        replay_only(&run, &forged),
+        Err(TransitionError::SchemaDowngrade {
             from: SCHEMA_VERSION.into(),
             to: "1.2".into(),
-        }
+        })
     );
+    match refused_at_open("downgrade-evaluation.jsonl", &forged) {
+        EventLogError::SchemaDowngrade { found, earlier, .. } => {
+            assert_eq!((found.as_str(), earlier.as_str()), ("1.2", SCHEMA_VERSION))
+        }
+        other => panic!("evaluation relabeled 1.2: expected a refused downgrade, got {other:?}"),
+    }
 
     // `supported` over open objections: 1.0 predates recomputation, so a
     // recommendation relabeled 1.0 used to be trusted as stored.
@@ -1094,18 +1123,23 @@ fn one_record_of_a_1_3_run_relabeled_down_fails_replay() {
             derived: RecommendationKind::Contested,
         }
     );
-    // ...and relabeled 1.0 it is refused before anything is trusted.
+    // ...and relabeled 1.0 it is refused before anything is trusted: by
+    // replay as a downgrade, and by the event log because a chained record
+    // is never labelled 1.0.
     upgraded[at].schema_version = "1.0".into();
     assert_eq!(
-        refused(
-            "upgraded and relabeled 1.0",
-            replay_rechained("upgrade-1-0.jsonl", &agg.run_id, &upgraded)
-        ),
-        TransitionError::SchemaDowngrade {
+        replay_only(&agg.run_id, &upgraded),
+        Err(TransitionError::SchemaDowngrade {
             from: SCHEMA_VERSION.into(),
             to: "1.0".into(),
-        }
+        })
     );
+    match refused_at_open("upgrade-1-0.jsonl", &upgraded) {
+        EventLogError::HashChain { detail, .. } => {
+            assert_eq!(detail, "schema 1.0 record with chain hash")
+        }
+        other => panic!("upgraded and relabeled 1.0: expected a refused label, got {other:?}"),
+    }
 }
 
 #[test]

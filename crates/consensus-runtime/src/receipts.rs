@@ -168,15 +168,18 @@ pub fn build_receipt_v2(
 
     let run_schema_version = first.schema_version.clone();
     let deliberation = history.deliberation();
-    // No record before schema 1.3 carries an authority, so each decision
-    // reads as unspecified, never as operator authority. A 1.3 record's
-    // own authority belongs here once HumanAuthorization carries one.
+    // A decision recorded without an authority (every record before schema
+    // 1.3) reads as unspecified, never as operator authority.
     let authorization = ReceiptAuthorization {
         state: agg.authorization,
-        authority: history
-            .decision
-            .as_ref()
-            .map(|_| UNSPECIFIED_AUTHORITY.to_string()),
+        authority: history.decision.as_ref().map(|d| {
+            match d.authority {
+                Some(Authority::Operator) => "operator",
+                Some(Authority::PublicDemo) => "public_demo",
+                None => UNSPECIFIED_AUTHORITY,
+            }
+            .to_string()
+        }),
         decided_at: history.decision.as_ref().map(|d| d.decided_at.clone()),
         note: history.decision.as_ref().and_then(|d| d.note.clone()),
     };
@@ -423,10 +426,16 @@ impl History {
                     verification: verification.clone(),
                 });
             }
-            EventPayload::RunFailed { reason, stage } => {
+            EventPayload::RunFailed {
+                reason,
+                stage,
+                code,
+                ..
+            } => {
                 self.failure = Some(ReceiptFailure {
                     stage: stage.clone(),
                     reason: reason.clone(),
+                    code: code.clone(),
                 });
             }
             EventPayload::HumanDecisionRecorded { authorization } => {
@@ -435,6 +444,7 @@ impl History {
             EventPayload::TaskCreated { .. }
             | EventPayload::EvidenceRetrieved { .. }
             | EventPayload::EvidenceUnavailable { .. }
+            | EventPayload::RecallProven { .. }
             | EventPayload::RecommendationIssued { .. } => {}
         }
     }
@@ -549,17 +559,15 @@ impl History {
         }
     }
 
-    /// Items raised before the final round that the final evaluation never
-    /// listed. Before protocol 1.3 no later round saw them again. This is
-    /// read from the records whatever the run's protocol: a label claiming
-    /// carry-forward proves nothing, and the list is empty only when the
-    /// final evaluation does list every earlier item. No record carries
-    /// per-item verdicts yet; once evaluations do, an explicit verdict on
-    /// an item must count as judging it again here.
+    /// Items raised before the final round that no later evaluation judged
+    /// again: none of them lists the item, either as unresolved or with an
+    /// explicit verdict (protocol 1.3). Before protocol 1.3 no later round
+    /// saw earlier items again. This is read from the records whatever the
+    /// run's protocol: a label claiming carry-forward proves nothing.
     fn unrejudged(&self) -> Vec<UnrejudgedObjection> {
-        let Some(last) = self.evaluations.last() else {
+        if self.evaluations.is_empty() {
             return Vec::new();
-        };
+        }
         let final_round = self.rounds();
         let mut out = Vec::new();
         for (round, challenge) in &self.challenges {
@@ -568,8 +576,9 @@ impl History {
             }
             // Rounds before the final one all have their evaluation.
             let own = &self.evaluations[*round as usize - 1];
+            let later = &self.evaluations[*round as usize..];
             for item in &challenge.items {
-                if lists(last, challenge, item) {
+                if later.iter().any(|e| judges(e, challenge, item)) {
                     continue;
                 }
                 out.push(UnrejudgedObjection {
@@ -584,6 +593,17 @@ impl History {
         }
         out
     }
+}
+
+/// Whether `evaluation` judges `item`: lists it as unresolved, or gives it
+/// an explicit verdict (protocol 1.3).
+fn judges(evaluation: &Evaluation, challenge: &Challenge, item: &ChallengeItem) -> bool {
+    lists(evaluation, challenge, item)
+        || (!item.id.is_empty()
+            && evaluation
+                .item_verdicts
+                .iter()
+                .any(|v| v.item_id == item.id))
 }
 
 /// Whether `evaluation` lists `item` as unresolved. Pre-1.1 items carry no
@@ -601,12 +621,13 @@ fn lists(evaluation: &Evaluation, challenge: &Challenge, item: &ChallengeItem) -
 mod tests {
     use super::*;
     use crate::clock::{FixedClock, SequentialIdGen};
+    use crate::contract::ContractViolation;
     use crate::event_log::{compute_hash, expected_prev_hash, EventLog, EventLogError};
     use crate::fakes::{FakeMemoryClient, FakeModelClient, FakeProofVerifier};
     use crate::orchestrator::{build_receipt, record_human_decision, Orchestrator, RunLimits};
     use crate::policy::rationale_code;
     use crate::ports::ModelError;
-    use crate::scenarios::{retry_constraint_scenario, Scenario, TS};
+    use crate::scenarios::{offline_scenario, retry_constraint_scenario, Scenario, TS};
     use std::path::PathBuf;
 
     fn temp_log(name: &str) -> PathBuf {
@@ -665,6 +686,124 @@ mod tests {
         }
     }
 
+    /// `events` as a writer before protocol 1.3 recorded the same run,
+    /// under `schema`: every record and nested document carries that
+    /// label, none carries a field schema 1.3 added, and the records are
+    /// chained again with the event log's own hashing (1.0 predates the
+    /// chain, so its records carry no hashes). For the scripts used here
+    /// the 1.2 orchestrator recorded the same records in the same order:
+    /// it too retrieved each record once per run, and every round's
+    /// recalls return every record, so it verified the same ones.
+    fn recorded_under(schema: &str, events: &[ConsensusEvent]) -> Vec<ConsensusEvent> {
+        let mut old = events.to_vec();
+        for e in &mut old {
+            e.schema_version = schema.into();
+            match &mut e.payload {
+                EventPayload::TaskCreated { task } => {
+                    task.schema_version = schema.into();
+                    task.mode = None;
+                }
+                EventPayload::ProposalSubmitted {
+                    proposal,
+                    invocation,
+                } => {
+                    proposal.schema_version = schema.into();
+                    without_1_3_details(invocation);
+                }
+                EventPayload::EvidenceRetrieved { evidence } => {
+                    *evidence = EvidenceReference {
+                        schema_version: schema.into(),
+                        retrieval: None,
+                        snapshot_id: None,
+                        captured_at: None,
+                        proof_ref: None,
+                        proof_sha256: None,
+                        proof_request: None,
+                        backend_project: None,
+                        backend_scope: None,
+                        ..evidence.clone()
+                    };
+                }
+                EventPayload::EvidenceUnavailable { code, .. } => *code = None,
+                EventPayload::EvidenceVerified { verification } => {
+                    *verification = EvidenceVerification {
+                        schema_version: schema.into(),
+                        round: None,
+                        proof_ref: None,
+                        report: None,
+                        ..verification.clone()
+                    };
+                }
+                EventPayload::ChallengeSubmitted {
+                    challenge,
+                    invocation,
+                } => {
+                    challenge.schema_version = schema.into();
+                    without_1_3_details(invocation);
+                }
+                EventPayload::EvaluationSubmitted {
+                    evaluation,
+                    invocation,
+                } => {
+                    evaluation.schema_version = schema.into();
+                    evaluation.item_verdicts.clear();
+                    evaluation.cleared_contradictions.clear();
+                    without_1_3_details(invocation);
+                }
+                EventPayload::RevisionSubmitted {
+                    revision,
+                    invocation,
+                } => {
+                    revision.schema_version = schema.into();
+                    revision.proposal.schema_version = schema.into();
+                    without_1_3_details(invocation);
+                }
+                EventPayload::RecommendationIssued { recommendation } => {
+                    recommendation.schema_version = schema.into();
+                    recommendation.unresolved_uncertainties.clear();
+                }
+                EventPayload::HumanDecisionRecorded { authorization } => {
+                    authorization.schema_version = schema.into();
+                    authorization.authority = None;
+                }
+                EventPayload::RunFailed {
+                    code, invocation, ..
+                } => {
+                    *code = None;
+                    *invocation = None;
+                }
+                EventPayload::RecallProven { .. } => {
+                    panic!("RecallProven is a schema 1.3 record")
+                }
+            }
+        }
+        if schema == "1.0" {
+            for e in &mut old {
+                e.prev_hash.clear();
+                e.hash.clear();
+            }
+        } else {
+            rehash(&mut old);
+        }
+        old
+    }
+
+    /// `invocation` without the call details schema 1.3 added.
+    fn without_1_3_details(invocation: &mut ModelInvocation) {
+        *invocation = ModelInvocation {
+            finish_reason: None,
+            reasoning_tokens: None,
+            max_completion_tokens: None,
+            schema_name: None,
+            schema_sha256: None,
+            prompt_sha256: None,
+            reasoning_effort: None,
+            safety_identifier_sent: None,
+            attempts: None,
+            ..invocation.clone()
+        };
+    }
+
     #[test]
     fn reference_receipt_shows_the_deliberation_and_the_dropped_objections() {
         let (mut log, run) = run("reference.jsonl", retry_constraint_scenario());
@@ -673,7 +812,9 @@ mod tests {
 
         assert_eq!(r.format, RunReceiptV2::FORMAT);
         assert_eq!(r.run_schema_version, SCHEMA_VERSION);
-        assert_eq!(r.protocol, "policy 1.2");
+        // Protocol 1.3 changed the label (it was `policy 1.2`): the rules
+        // are still those of 1.2, but carry-forward changed their inputs.
+        assert_eq!(r.protocol, "protocol 1.3 · policy rules 1.2");
         assert_eq!(r.final_state, RunState::AwaitingHumanApproval);
         assert_eq!(r.failure, None);
         assert_eq!(
@@ -736,30 +877,37 @@ mod tests {
                 addressed_items: vec!["item-1".into(), "item-2".into()],
             }]
         );
-        // Under protocol 1.2 round 2 judged only its own (empty) challenge:
-        // both round-1 objections were never judged again, though the
-        // revision said it addressed them.
+        // Protocol 1.3 changed this fact: round 2 judged both carried
+        // round-1 objections again, with an explicit verdict on each, so
+        // none is left never judged again. (Under 1.2 both were; see the
+        // 1.2 record of the same deliberation below.)
+        let verdicts: Vec<Vec<(&str, ItemStatus)>> = all
+            .iter()
+            .filter_map(|e| match &e.payload {
+                EventPayload::EvaluationSubmitted { evaluation, .. } => Some(
+                    evaluation
+                        .item_verdicts
+                        .iter()
+                        .map(|v| (v.item_id.as_str(), v.status))
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .collect();
         assert_eq!(
-            d.earlier_round_objections_never_rejudged,
+            verdicts,
             [
-                UnrejudgedObjection {
-                    id: "item-1".into(),
-                    raised_in_round: 1,
-                    kind: ChallengeKind::ConstraintConflict,
-                    claim_id: Some(ClaimId::new("claim-2")),
-                    description: "Documented constraint caps retries at 3 attempts".into(),
-                    unresolved_in_its_round: true,
-                },
-                UnrejudgedObjection {
-                    id: "item-2".into(),
-                    raised_in_round: 1,
-                    kind: ChallengeKind::UnsupportedClaim,
-                    claim_id: Some(ClaimId::new("claim-1")),
-                    description: "No evidence ties timeouts to insufficient retries".into(),
-                    unresolved_in_its_round: true,
-                },
+                [
+                    ("item-1", ItemStatus::Unresolved),
+                    ("item-2", ItemStatus::Unresolved)
+                ],
+                [
+                    ("item-1", ItemStatus::Resolved),
+                    ("item-2", ItemStatus::Resolved)
+                ],
             ]
         );
+        assert!(d.earlier_round_objections_never_rejudged.is_empty());
 
         // Round 1 contradicted ev-constraint; round 2, which the policy
         // used, corroborated it. Each record says which round it is.
@@ -783,6 +931,12 @@ mod tests {
                 (2, "ev-fact", FactualStatus::Corroborated),
             ]
         );
+        // From 1.3 each record also states its round, the one it is
+        // tagged with here.
+        assert!(r
+            .verifications
+            .iter()
+            .all(|v| v.verification.round == Some(v.round)));
         assert_eq!(r.model_invocations.len(), 6);
         assert_eq!(r.event_count, all.len() as u64);
         assert_eq!(r.chain.scope, ChainScope::Run);
@@ -811,7 +965,61 @@ mod tests {
         assert_eq!(v1.head_hash, r.chain.head_hash);
         assert_eq!(v1.final_state, r.final_state);
 
-        // A recorded decision: pre-1.3 records carry no authority.
+        // The same deliberation as schema 1.2 recorded it: round 2 judged
+        // only its own (empty) challenge, so both round-1 objections were
+        // never judged again, though the revision said it addressed them.
+        // Everything else the receipt shows is the same.
+        let recorded_1_2 = recorded_under("1.2", &all);
+        let old = build_receipt_v2(&recorded_1_2, TS.into()).unwrap();
+        assert_eq!(old.run_schema_version, "1.2");
+        assert_eq!(old.protocol, "policy 1.2");
+        assert_eq!(old.final_state, RunState::AwaitingHumanApproval);
+        assert_eq!(old.policy_trace, r.policy_trace);
+        assert_eq!(
+            old.deliberation.earlier_round_objections_never_rejudged,
+            [
+                UnrejudgedObjection {
+                    id: "item-1".into(),
+                    raised_in_round: 1,
+                    kind: ChallengeKind::ConstraintConflict,
+                    claim_id: Some(ClaimId::new("claim-2")),
+                    description: "Documented constraint caps retries at 3 attempts".into(),
+                    unresolved_in_its_round: true,
+                },
+                UnrejudgedObjection {
+                    id: "item-2".into(),
+                    raised_in_round: 1,
+                    kind: ChallengeKind::UnsupportedClaim,
+                    claim_id: Some(ClaimId::new("claim-1")),
+                    description: "No evidence ties timeouts to insufficient retries".into(),
+                    unresolved_in_its_round: true,
+                },
+            ]
+        );
+        assert_eq!(
+            Deliberation {
+                earlier_round_objections_never_rejudged: Vec::new(),
+                ..old.deliberation.clone()
+            },
+            r.deliberation
+        );
+        // Its records carry no round of their own; the tags are the same.
+        let tags = |receipt: &RunReceiptV2| -> Vec<u32> {
+            receipt.verifications.iter().map(|v| v.round).collect()
+        };
+        assert_eq!(tags(&old), tags(&r));
+        assert!(old
+            .verifications
+            .iter()
+            .all(|v| v.verification.round.is_none()));
+        assert_eq!(old.chain.scope, ChainScope::Run);
+        assert_eq!(
+            old.chain.head_hash.as_deref(),
+            recorded_1_2.last().map(|e| e.hash.as_str())
+        );
+
+        // A recorded decision. One recorded without an authority reads as
+        // unspecified, never as operator authority.
         let decision = HumanAuthorization {
             schema_version: SCHEMA_VERSION.into(),
             run_id: run.clone(),
@@ -819,7 +1027,8 @@ mod tests {
             approved: false,
             decided_at: "2026-10-27T10:00:00Z".into(),
             idempotency_key: "k1".into(),
-            note: Some("two round-1 objections were never judged again".into()),
+            note: Some("no load test backs the jittered cap yet".into()),
+            authority: None,
         };
         record_human_decision(&mut log, decision, TS.into()).unwrap();
         let decided = receipt(&log, &run);
@@ -830,11 +1039,49 @@ mod tests {
                 state: AuthorizationState::Rejected,
                 authority: Some(UNSPECIFIED_AUTHORITY.into()),
                 decided_at: Some("2026-10-27T10:00:00Z".into()),
-                note: Some("two round-1 objections were never judged again".into()),
+                note: Some("no load test backs the jittered cap yet".into()),
             }
         );
         // The trace still explains the recommendation the human decided on.
         assert_eq!(decided.policy_trace, r.policy_trace);
+        // A decision recorded before schema 1.3 carried no authority at
+        // all, and reads as unspecified too; the dropped objections of the
+        // 1.2 record stay listed after it.
+        let decided_1_2 =
+            build_receipt_v2(&recorded_under("1.2", &events(&log, &run)), TS.into()).unwrap();
+        assert_eq!(decided_1_2.final_state, RunState::Rejected);
+        assert_eq!(decided_1_2.authorization, decided.authorization);
+        assert_eq!(decided_1_2.deliberation, old.deliberation);
+    }
+
+    #[test]
+    fn a_decision_shows_the_authority_it_was_recorded_under() {
+        // From schema 1.3 a decision may name its authority. The receipt
+        // shows it as the record serializes it; none reads as unspecified
+        // (the reference test above).
+        for authority in [Authority::Operator, Authority::PublicDemo] {
+            let name = serde_json::to_value(authority).unwrap();
+            let name = name
+                .as_str()
+                .expect("a unit variant serializes as a string");
+            let (mut log, run) = run(
+                &format!("authority-{name}.jsonl"),
+                retry_constraint_scenario(),
+            );
+            let decision = HumanAuthorization {
+                schema_version: SCHEMA_VERSION.into(),
+                run_id: run.clone(),
+                authorized_by: "mario".into(),
+                approved: true,
+                decided_at: TS.into(),
+                idempotency_key: "k1".into(),
+                note: None,
+                authority: Some(authority),
+            };
+            record_human_decision(&mut log, decision, TS.into()).unwrap();
+            let shown = receipt(&log, &run).authorization.authority;
+            assert_eq!(shown.as_deref(), Some(name), "{authority:?}");
+        }
     }
 
     #[test]
@@ -889,10 +1136,38 @@ mod tests {
 
     #[test]
     fn offline_receipt_names_the_evidence_nobody_checked() {
-        let mut s = retry_constraint_scenario();
-        s.memory = FakeMemoryClient::offline();
-        let (log, run) = run("offline.jsonl", s);
-        let r = receipt(&log, &run);
+        // Before protocol 1.3 nothing refused a citation of a record the
+        // run never retrieved: with memory offline, the reference script's
+        // evaluations cited ev-fact and ev-constraint all the same. As the
+        // 1.2 orchestrator recorded that run: the 1.3 offline run's records
+        // (same proposal, revision and failed recalls) with the reference
+        // script's challenges and evaluations, and the rationale it wrote.
+        let (log, run_id) = run("offline.jsonl", offline_scenario());
+        let recorded = events(&log, &run_id);
+        let mut offline_1_2 = recorded_under("1.2", &recorded);
+        let script = retry_constraint_scenario().model;
+        let mut critiques = script.critiques.into_iter().map(Result::unwrap);
+        let mut evaluations = script.evaluations.into_iter().map(Result::unwrap);
+        for e in &mut offline_1_2 {
+            match &mut e.payload {
+                EventPayload::ChallengeSubmitted { challenge, .. } => {
+                    challenge.items = critiques.next().unwrap().items;
+                }
+                EventPayload::EvaluationSubmitted { evaluation, .. } => {
+                    evaluation.assessments = evaluations.next().unwrap().assessments;
+                }
+                _ => {}
+            }
+        }
+        let at = recommendation_index(&offline_1_2);
+        recommendation_mut(&mut offline_1_2[at]).rationale = concat!(
+            "InsufficientEvidence: 2/2 claims corroborated; proofs: 0 valid, ",
+            "0 invalid, 0 unavailable/error; 0 unresolved challenges."
+        )
+        .into();
+        rehash(&mut offline_1_2);
+        let r = build_receipt_v2(&offline_1_2, TS.into()).unwrap();
+        assert_eq!(r.protocol, "policy 1.2");
         let trace = r.policy_trace.as_ref().unwrap();
         assert_eq!(trace.kind, RecommendationKind::InsufficientEvidence);
         assert_eq!(
@@ -902,6 +1177,57 @@ mod tests {
             }]
         );
         assert!(r.verifications.is_empty());
+
+        // Protocol 1.3 changed this fact: the contract refuses the citation
+        // itself. The same script with memory offline fails at its first
+        // evaluation, before any recommendation; the refused call stays on
+        // the record.
+        let mut s = retry_constraint_scenario();
+        s.memory = FakeMemoryClient::offline();
+        let (refused_log, refused_run) = run("offline-refused.jsonl", s);
+        let refused = receipt(&refused_log, &refused_run);
+        assert_eq!(refused.final_state, RunState::Failed);
+        let failure = refused.failure.as_ref().unwrap();
+        assert_eq!(
+            (failure.stage.as_str(), failure.code.as_deref()),
+            ("evaluate", Some("evaluation_contract"))
+        );
+        assert!(
+            failure.reason.contains(
+                r#"cited_evidence_retrieved: relevant_evidence of claim "claim-1" names "ev-fact""#
+            ),
+            "{}",
+            failure.reason
+        );
+        assert_eq!(refused.recommendation, None);
+        assert_eq!(refused.policy_trace, None);
+        assert!(refused.verifications.is_empty());
+        assert_eq!(
+            refused.model_invocations.len(),
+            3,
+            "propose, critique, evaluate"
+        );
+        // The 1.3 offline script cites nothing, so nothing cited goes
+        // unchecked: its claims are simply uncorroborated, and round 2
+        // judged both objections again.
+        let r = receipt(&log, &run_id);
+        assert_eq!(r.protocol, "protocol 1.3 · policy rules 1.2");
+        let trace = r.policy_trace.as_ref().unwrap();
+        assert_eq!(trace.kind, RecommendationKind::InsufficientEvidence);
+        assert_eq!(
+            trace.reasons,
+            [
+                TraceReason::UncorroboratedClaims {
+                    claim_ids: vec![ClaimId::new("claim-1"), ClaimId::new("claim-2")]
+                },
+                TraceReason::NoCheckedEvidence,
+            ]
+        );
+        assert!(r.verifications.is_empty());
+        assert!(r
+            .deliberation
+            .earlier_round_objections_never_rejudged
+            .is_empty());
     }
 
     #[test]
@@ -960,6 +1286,7 @@ mod tests {
             decided_at: TS.into(),
             idempotency_key: "k1".into(),
             note: None,
+            authority: None,
         };
         record_human_decision(&mut log, decision, TS.into()).unwrap();
 
@@ -985,102 +1312,145 @@ mod tests {
     #[test]
     fn receipts_refuse_events_that_are_not_one_runs_intact_history() {
         let (log, run) = run("refused.jsonl", retry_constraint_scenario());
-        let all = events(&log, &run);
+        let recorded = events(&log, &run);
+        let recorded_1_2 = recorded_under("1.2", &recorded);
         assert!(matches!(
             build_receipt_v2(&[], TS.into()),
             Err(ReceiptError::NoEvents)
         ));
 
-        // An edited record whose hashes were not recomputed.
-        let mut edited = all.clone();
-        if let EventPayload::TaskCreated { task } = &mut edited[0].payload {
-            task.title = "forged".into();
-        }
-        match build_receipt_v2(&edited, TS.into()) {
-            Err(ReceiptError::HashChain {
-                sequence: 1,
-                detail,
-            }) => {
-                assert!(detail.contains("hash mismatch"), "{detail}")
+        // Each of these is refused in the run as recorded today and in the
+        // same deliberation as schema 1.2 recorded it.
+        for all in [&recorded, &recorded_1_2] {
+            let label = &all[0].schema_version;
+            // An edited record whose hashes were not recomputed.
+            let mut edited = all.clone();
+            if let EventPayload::TaskCreated { task } = &mut edited[0].payload {
+                task.title = "forged".into();
             }
-            other => panic!("expected a broken chain, got {other:?}"),
-        }
-        // An edited record re-hashed on its own no longer links to its
-        // successor.
-        let mut relinked = all.clone();
-        if let EventPayload::ProposalSubmitted { proposal, .. } = &mut relinked[1].payload {
-            proposal.summary = "forged".into();
-        }
-        relinked[1].hash = compute_hash(&relinked[1]).unwrap();
-        match build_receipt_v2(&relinked, TS.into()) {
-            Err(ReceiptError::HashChain {
-                sequence: 3,
-                detail,
-            }) => {
-                assert!(detail.contains("prev_hash mismatch"), "{detail}")
+            match build_receipt_v2(&edited, TS.into()) {
+                Err(ReceiptError::HashChain {
+                    sequence: 1,
+                    detail,
+                }) => {
+                    assert!(detail.contains("hash mismatch"), "{label}: {detail}")
+                }
+                other => panic!("{label}: expected a broken chain, got {other:?}"),
             }
-            other => panic!("expected a broken link, got {other:?}"),
+            // An edited record re-hashed on its own no longer links to its
+            // successor.
+            let mut relinked = all.clone();
+            if let EventPayload::ProposalSubmitted { proposal, .. } = &mut relinked[1].payload {
+                proposal.summary = "forged".into();
+            }
+            relinked[1].hash = compute_hash(&relinked[1]).unwrap();
+            match build_receipt_v2(&relinked, TS.into()) {
+                Err(ReceiptError::HashChain {
+                    sequence: 3,
+                    detail,
+                }) => {
+                    assert!(detail.contains("prev_hash mismatch"), "{label}: {detail}")
+                }
+                other => panic!("{label}: expected a broken link, got {other:?}"),
+            }
+            // Out of order, or another run's record mixed in.
+            let mut swapped = all.clone();
+            swapped.swap(1, 2);
+            assert!(
+                matches!(
+                    build_receipt_v2(&swapped, TS.into()),
+                    Err(ReceiptError::OutOfOrder {
+                        previous: 3,
+                        found: 2
+                    })
+                ),
+                "{label}"
+            );
+            let mut mixed = all.clone();
+            mixed[4].run_id = RunId::new("run-other");
+            assert!(
+                matches!(
+                    build_receipt_v2(&mixed, TS.into()),
+                    Err(ReceiptError::MixedRuns { sequence: 5, .. })
+                ),
+                "{label}"
+            );
+
+            // A forger who upgrades the outcome and re-hashes the whole
+            // chain gets past the hashes. Replay's re-derivation catches
+            // this edit because the record keeps a label that maps to a
+            // policy; a label changed to escape re-derivation is refused on
+            // its own (see relabelling_a_record_cannot_escape_re_derivation).
+            let mut forged = all.clone();
+            let at = recommendation_index(&forged);
+            recommendation_mut(&mut forged[at]).kind = RecommendationKind::Contested;
+            rehash(&mut forged);
+            assert!(
+                matches!(
+                    build_receipt_v2(&forged, TS.into()),
+                    Err(ReceiptError::Replay(
+                        TransitionError::RecommendationMismatch { .. }
+                    ))
+                ),
+                "{label}"
+            );
         }
+
         // A record cut from the middle looks exactly like another run's
         // records in between: the run's own events cannot tell the two
         // apart, so the receipt says verification needs the whole log.
-        let mut cut = all.clone();
+        let mut cut = recorded_1_2.clone();
         cut.remove(3);
         let r = build_receipt_v2(&cut, TS.into()).unwrap();
         assert_eq!(r.chain.scope, ChainScope::Log);
-        assert_eq!(r.event_count, all.len() as u64 - 1);
-        // Out of order, or another run's record mixed in.
-        let mut swapped = all.clone();
-        swapped.swap(1, 2);
-        assert!(matches!(
-            build_receipt_v2(&swapped, TS.into()),
-            Err(ReceiptError::OutOfOrder {
-                previous: 3,
-                found: 2
-            })
-        ));
-        let mut mixed = all.clone();
-        mixed[4].run_id = RunId::new("run-other");
-        assert!(matches!(
-            build_receipt_v2(&mixed, TS.into()),
-            Err(ReceiptError::MixedRuns { sequence: 5, .. })
-        ));
-
-        // A forger who upgrades the outcome and re-hashes the whole chain
-        // gets past the hashes. Replay's re-derivation catches this edit
-        // because the record keeps a label that maps to a policy; a label
-        // changed to escape re-derivation is refused on its own (see
-        // relabelling_a_record_cannot_escape_re_derivation).
-        let mut forged = all.clone();
-        let rec = forged
-            .iter_mut()
-            .find_map(|e| match &mut e.payload {
-                EventPayload::RecommendationIssued { recommendation } => Some(recommendation),
-                _ => None,
-            })
-            .unwrap();
-        rec.kind = RecommendationKind::Contested;
-        rehash(&mut forged);
-        assert!(matches!(
-            build_receipt_v2(&forged, TS.into()),
-            Err(ReceiptError::Replay(
-                TransitionError::RecommendationMismatch { .. }
-            ))
-        ));
+        assert_eq!(r.event_count, recorded_1_2.len() as u64 - 1);
+        // Protocol 1.3 changed this fact for that cut: the record cut is
+        // the retrieval of ev-fact, which round 1's evaluation cites, and
+        // the contract refuses a citation of a record the run never
+        // retrieved, so replay refuses the history.
+        let mut cut = recorded.clone();
+        cut.remove(3);
+        match build_receipt_v2(&cut, TS.into()) {
+            Err(ReceiptError::Replay(TransitionError::Contract(violation))) => assert_eq!(
+                violation,
+                ContractViolation::UnretrievedEvidence {
+                    claim: ClaimId::new("claim-1"),
+                    field: "relevant_evidence",
+                    evidence: EvidenceId::new("ev-fact"),
+                }
+            ),
+            other => panic!("expected the contract to refuse the cut, got {other:?}"),
+        }
     }
 
     #[test]
     fn legacy_run_is_unchained_and_not_rederived() {
+        // The reference deliberation as a schema 1.0 writer recorded it
+        // (research/ run C01 is this script, recorded so by the console):
+        // no hash chain and no item ids, so its round-1 evaluation listed
+        // the challenge it left unresolved, and the revision the challenge
+        // it addressed. Its records carry no verdicts: a 1.3 record of the
+        // run would, and its round 2 judges both objections again.
         let (log, run) = run("legacy.jsonl", retry_constraint_scenario());
-        let legacy: Vec<ConsensusEvent> = events(&log, &run)
-            .into_iter()
-            .map(|mut e| {
-                e.schema_version = "1.0".into();
-                e.prev_hash.clear();
-                e.hash.clear();
-                e
-            })
-            .collect();
+        let mut legacy = recorded_under("1.0", &events(&log, &run));
+        for e in &mut legacy {
+            match &mut e.payload {
+                EventPayload::ChallengeSubmitted { challenge, .. } => {
+                    for item in &mut challenge.items {
+                        item.id.clear();
+                    }
+                }
+                EventPayload::EvaluationSubmitted { evaluation, .. }
+                    if !evaluation.unresolved_items.is_empty() =>
+                {
+                    evaluation.unresolved_items = vec!["chal-1".into()];
+                }
+                EventPayload::RevisionSubmitted { revision, .. } => {
+                    revision.addressed_items = vec!["chal-1".into()];
+                }
+                _ => {}
+            }
+        }
         let r = build_receipt_v2(&legacy, TS.into()).unwrap();
         assert_eq!(r.run_schema_version, "1.0");
         assert_eq!(r.protocol, "pre-1.1 (not re-derived on replay)");
@@ -1092,32 +1462,68 @@ mod tests {
             r.recommendation.map(|rec| rec.kind),
             Some(RecommendationKind::Supported)
         );
+        let never = &r.deliberation.earlier_round_objections_never_rejudged;
+        assert_eq!(never.len(), 2);
+        // Found through the challenge id their round listed.
+        assert!(never
+            .iter()
+            .all(|o| o.id.is_empty() && o.raised_in_round == 1 && o.unresolved_in_its_round));
+        let kinds: Vec<ChallengeKind> = never.iter().map(|o| o.kind).collect();
         assert_eq!(
-            r.deliberation.earlier_round_objections_never_rejudged.len(),
-            2
+            kinds,
+            [
+                ChallengeKind::ConstraintConflict,
+                ChallengeKind::UnsupportedClaim
+            ]
         );
     }
 
     #[test]
     fn a_protocol_label_alone_never_hides_dropped_objections() {
-        // The reference history drops two round-1 objections. Labelled as
-        // a carry-forward protocol, with no record showing that a later
-        // round judged them, it drops them all the same, and the receipt
-        // still lists them. (The history is not replayed as 1.3 here: the
-        // 1.3 contract checks apply only to records written under it.)
+        // The reference deliberation as schema 1.2 recorded it drops two
+        // round-1 objections. Labelled as a carry-forward protocol, with
+        // no record showing that a later round judged them, it drops them
+        // all the same, and the receipt still lists them. (The history is
+        // read without replay here: replayed as 1.3, it gets no receipt at
+        // all, below.)
         let (log, run) = run("protocol-1-3.jsonl", retry_constraint_scenario());
-        for label in BEFORE_CARRY_FORWARD.into_iter().chain(["1.3", "1.4"]) {
+        let recorded = events(&log, &run);
+        let recorded_1_2 = recorded_under("1.2", &recorded);
+        let never = |events: &[ConsensusEvent], label: &str| -> Vec<String> {
             let mut history = History::default();
-            for ev in log.events_for(&run) {
+            for ev in events {
                 let mut relabelled = ev.clone();
                 relabelled.schema_version = label.into();
                 history.record(&relabelled);
             }
-            let never = history
+            history
                 .deliberation()
-                .earlier_round_objections_never_rejudged;
-            let ids: Vec<&str> = never.iter().map(|o| o.id.as_str()).collect();
-            assert_eq!(ids, ["item-1", "item-2"], "{label}");
+                .earlier_round_objections_never_rejudged
+                .into_iter()
+                .map(|o| o.id)
+                .collect()
+        };
+        for label in BEFORE_CARRY_FORWARD.into_iter().chain(["1.3", "1.4"]) {
+            assert_eq!(never(&recorded_1_2, label), ["item-1", "item-2"], "{label}");
+            // Nor does a label add any: the 1.3 record's explicit verdicts
+            // judge both objections again, whatever the label says.
+            assert!(never(&recorded, label).is_empty(), "{label}");
+        }
+        // Replayed as 1.3, the 1.2 record is refused: the contract wants a
+        // verdict on every open objection, and its evaluations give none.
+        let mut relabelled = recorded_1_2.clone();
+        for e in &mut relabelled {
+            e.schema_version = "1.3".into();
+        }
+        rehash(&mut relabelled);
+        match build_receipt_v2(&relabelled, TS.into()) {
+            Err(ReceiptError::Replay(TransitionError::Contract(violation))) => {
+                assert_eq!(
+                    violation,
+                    ContractViolation::MissingVerdict("item-1".into())
+                )
+            }
+            other => panic!("expected the contract to refuse it, got {other:?}"),
         }
     }
 
@@ -1449,6 +1855,7 @@ mod tests {
             decided_at: TS.into(),
             idempotency_key: "k1".into(),
             note: None,
+            authority: None,
         };
         record_human_decision(&mut log, decision, TS.into()).unwrap();
         let mut events = events(&log, &run);

@@ -1,0 +1,7 @@
+[package]
+name = "payment-client"
+version = "0.1.0"
+edition = "2021"
+description = "Synthetic demo repository for Hyphae Consensus. Contains the reproducible retry bug under deliberation."
+
+[workspace]

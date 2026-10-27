@@ -1,0 +1,292 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RunReceipt",
+  "type": "object",
+  "required": [
+    "authorization",
+    "event_count",
+    "final_state",
+    "generated_at",
+    "model_invocations",
+    "proof_limitations",
+    "run_id",
+    "schema_version",
+    "verifications"
+  ],
+  "properties": {
+    "authorization": {
+      "$ref": "#/definitions/AuthorizationState"
+    },
+    "event_count": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "final_state": {
+      "$ref": "#/definitions/RunState"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "model_invocations": {
+      "description": "Every model call made during the run, with exact model identity.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ModelInvocation"
+      }
+    },
+    "proof_limitations": {
+      "description": "Plain-language limits of what this receipt proves. Always present.",
+      "type": "string"
+    },
+    "recommendation": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Recommendation"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "verifications": {
+      "description": "Development-model disclaimer is documentation, not data; receipts record application inference identity only.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/EvidenceVerification"
+      }
+    }
+  },
+  "definitions": {
+    "AuthorizationState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected"
+      ]
+    },
+    "EvidenceVerification": {
+      "description": "Full verification picture for one evidence record. The three status fields must be set from independent evidence: integrity from proof verification, factual/relevance from evaluator judgment.",
+      "type": "object",
+      "required": [
+        "checked_at",
+        "evidence_id",
+        "factual_status",
+        "integrity_status",
+        "relevance_status",
+        "schema_version"
+      ],
+      "properties": {
+        "checked_at": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_id": {
+          "type": "string"
+        },
+        "factual_status": {
+          "$ref": "#/definitions/FactualStatus"
+        },
+        "integrity_status": {
+          "$ref": "#/definitions/IntegrityStatus"
+        },
+        "relevance_status": {
+          "$ref": "#/definitions/RelevanceStatus"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "verified_anchor": {
+          "description": "Anchor the verification was performed against, when available.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verifier": {
+          "description": "Verifier identity/mechanism, e.g. `hyphae proof verify`, when run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "FactualStatus": {
+      "description": "Factual corroboration axis only. Independent of integrity.",
+      "type": "string",
+      "enum": [
+        "corroborated",
+        "uncorroborated",
+        "contradicted",
+        "not_assessed"
+      ]
+    },
+    "IntegrityStatus": {
+      "description": "Cryptographic integrity axis only.",
+      "oneOf": [
+        {
+          "description": "Proof was available and verified against its anchor.",
+          "type": "string",
+          "enum": [
+            "valid"
+          ]
+        },
+        {
+          "description": "Proof was available and failed verification.",
+          "type": "string",
+          "enum": [
+            "invalid"
+          ]
+        },
+        {
+          "description": "No proof was available for this record (includes backend offline).",
+          "type": "string",
+          "enum": [
+            "unavailable"
+          ]
+        },
+        {
+          "description": "Verification could not complete due to infrastructure error.",
+          "type": "string",
+          "enum": [
+            "verification_error"
+          ]
+        },
+        {
+          "description": "Verification has not been attempted.",
+          "type": "string",
+          "enum": [
+            "not_checked"
+          ]
+        }
+      ]
+    },
+    "ModelInvocation": {
+      "description": "Metadata for one model call, recorded so Meta model participation is demonstrable from receipts. `model` preserves the exact Model API identity string returned/configured for the call.",
+      "type": "object",
+      "required": [
+        "model",
+        "provider"
+      ],
+      "properties": {
+        "input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "latency_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "model": {
+          "type": "string"
+        },
+        "output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "provider": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Recommendation": {
+      "type": "object",
+      "required": [
+        "issued_at",
+        "kind",
+        "rationale",
+        "schema_version",
+        "unresolved_assumptions"
+      ],
+      "properties": {
+        "issued_at": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/RecommendationKind"
+        },
+        "rationale": {
+          "description": "Human-readable, concise justification citing claim/evidence ids.",
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "unresolved_assumptions": {
+          "description": "Assumptions that remain unresolved at decision time.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "RecommendationKind": {
+      "description": "Runtime-derived assessment of a run. Never written by a model.",
+      "type": "string",
+      "enum": [
+        "supported",
+        "contested",
+        "insufficient_evidence",
+        "abstained",
+        "blocked"
+      ]
+    },
+    "RelevanceStatus": {
+      "description": "Relevance axis only. Independent of integrity and factuality.",
+      "type": "string",
+      "enum": [
+        "relevant",
+        "irrelevant",
+        "not_assessed"
+      ]
+    },
+    "RunState": {
+      "description": "Deterministic lifecycle of one run. Transitions are owned and validated by the runtime state machine; see `docs/adr/0001-m1-architecture.md`.",
+      "type": "string",
+      "enum": [
+        "created",
+        "proposed",
+        "evidence_review",
+        "evaluated",
+        "revised",
+        "abstained",
+        "awaiting_human_approval",
+        "approved",
+        "rejected",
+        "failed"
+      ]
+    }
+  }
+}

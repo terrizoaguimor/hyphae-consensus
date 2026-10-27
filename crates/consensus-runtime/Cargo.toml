@@ -1,0 +1,13 @@
+[package]
+name = "consensus-runtime"
+version.workspace = true
+edition.workspace = true
+description = "Deterministic consensus state machine, crash-safe event log, orchestration, and policy."
+
+[dependencies]
+consensus-domain = { path = "../consensus-domain" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true

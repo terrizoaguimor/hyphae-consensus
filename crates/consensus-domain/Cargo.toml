@@ -1,0 +1,10 @@
+[package]
+name = "consensus-domain"
+version.workspace = true
+edition.workspace = true
+description = "Typed, versioned data contracts for Hyphae Consensus. No I/O."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true

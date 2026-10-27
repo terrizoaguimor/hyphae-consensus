@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EvidenceVerification",
+  "description": "Full verification picture for one evidence record. The three status fields must be set from independent evidence: integrity from proof verification, factual/relevance from evaluator judgment.",
+  "type": "object",
+  "required": [
+    "checked_at",
+    "evidence_id",
+    "factual_status",
+    "integrity_status",
+    "relevance_status",
+    "schema_version"
+  ],
+  "properties": {
+    "checked_at": {
+      "type": "string"
+    },
+    "detail": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence_id": {
+      "type": "string"
+    },
+    "factual_status": {
+      "$ref": "#/definitions/FactualStatus"
+    },
+    "integrity_status": {
+      "$ref": "#/definitions/IntegrityStatus"
+    },
+    "relevance_status": {
+      "$ref": "#/definitions/RelevanceStatus"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "verified_anchor": {
+      "description": "Anchor the verification was performed against, when available.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "verifier": {
+      "description": "Verifier identity/mechanism, e.g. `hyphae proof verify`, when run.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "definitions": {
+    "FactualStatus": {
+      "description": "Factual corroboration axis only. Independent of integrity.",
+      "type": "string",
+      "enum": [
+        "corroborated",
+        "uncorroborated",
+        "contradicted",
+        "not_assessed"
+      ]
+    },
+    "IntegrityStatus": {
+      "description": "Cryptographic integrity axis only.",
+      "oneOf": [
+        {
+          "description": "Proof was available and verified against its anchor.",
+          "type": "string",
+          "enum": [
+            "valid"
+          ]
+        },
+        {
+          "description": "Proof was available and failed verification.",
+          "type": "string",
+          "enum": [
+            "invalid"
+          ]
+        },
+        {
+          "description": "No proof was available for this record (includes backend offline).",
+          "type": "string",
+          "enum": [
+            "unavailable"
+          ]
+        },
+        {
+          "description": "Verification could not complete due to infrastructure error.",
+          "type": "string",
+          "enum": [
+            "verification_error"
+          ]
+        },
+        {
+          "description": "Verification has not been attempted.",
+          "type": "string",
+          "enum": [
+            "not_checked"
+          ]
+        }
+      ]
+    },
+    "RelevanceStatus": {
+      "description": "Relevance axis only. Independent of integrity and factuality.",
+      "type": "string",
+      "enum": [
+        "relevant",
+        "irrelevant",
+        "not_assessed"
+      ]
+    }
+  }
+}

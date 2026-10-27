@@ -1,0 +1,945 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConsensusEvent",
+  "description": "One line in the JSONL event log.",
+  "type": "object",
+  "required": [
+    "actor",
+    "event_id",
+    "occurred_at",
+    "payload",
+    "run_id",
+    "schema_version",
+    "sequence"
+  ],
+  "properties": {
+    "actor": {
+      "$ref": "#/definitions/Actor"
+    },
+    "event_id": {
+      "description": "Idempotency key: re-appending an event with an existing id is a no-op that returns the original sequence.",
+      "type": "string"
+    },
+    "occurred_at": {
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/definitions/EventPayload"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "sequence": {
+      "description": "Monotonic, gap-free sequence within the log file, starting at 1. Assigned by the event log on append; validated on open/replay.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "Actor": {
+      "description": "Who performed an action recorded in the event log. `Human` is the only actor kind allowed to authorize a run.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "role"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "agent"
+              ]
+            },
+            "role": {
+              "$ref": "#/definitions/AgentRole"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "runtime"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "kind"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "human"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "AgentRole": {
+      "description": "The three logical agent roles. Roles may share one underlying model; they differ in instructions, context, and tool permissions.",
+      "type": "string",
+      "enum": [
+        "proposer",
+        "critic",
+        "evidence_evaluator"
+      ]
+    },
+    "Challenge": {
+      "description": "Critic output. The critic's job is to find problems, not to agree.",
+      "type": "object",
+      "required": [
+        "created_at",
+        "id",
+        "items",
+        "run_id",
+        "schema_version",
+        "target_proposal"
+      ],
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ChallengeItem"
+          }
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "target_proposal": {
+          "type": "string"
+        }
+      }
+    },
+    "ChallengeItem": {
+      "description": "One specific objection raised by the Critic against a claim or plan.",
+      "type": "object",
+      "required": [
+        "description",
+        "evidence_refs",
+        "kind"
+      ],
+      "properties": {
+        "claim_id": {
+          "description": "Claim under challenge, when the objection targets one claim.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "description": "Evidence the critic believes contradicts or constrains the claim.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kind": {
+          "$ref": "#/definitions/ChallengeKind"
+        }
+      }
+    },
+    "ChallengeKind": {
+      "type": "string",
+      "enum": [
+        "contradictory_evidence",
+        "missing_test",
+        "unsupported_claim",
+        "regression_risk",
+        "security_risk",
+        "constraint_conflict"
+      ]
+    },
+    "Claim": {
+      "description": "One explicit, checkable assertion inside a proposal.",
+      "type": "object",
+      "required": [
+        "evidence_refs",
+        "id",
+        "statement"
+      ],
+      "properties": {
+        "evidence_refs": {
+          "description": "Evidence the author believes supports this claim (may be empty, which the evaluator treats as unsupported until retrieved).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        }
+      }
+    },
+    "ClaimAssessment": {
+      "description": "Evaluator output: per-claim sufficiency judgment. Factual and relevance judgments live here; cryptographic integrity is reported separately in `EvidenceVerification` and is never inferred from this document.",
+      "type": "object",
+      "required": [
+        "claim_id",
+        "corroborated",
+        "note",
+        "relevant_evidence"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string"
+        },
+        "contradicting_evidence": {
+          "description": "Evidence the evaluator judges to contradict this claim.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "corroborated": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        },
+        "relevant_evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Evaluation": {
+      "type": "object",
+      "required": [
+        "abstain",
+        "assessments",
+        "created_at",
+        "run_id",
+        "schema_version",
+        "target_proposal",
+        "unresolved_challenges"
+      ],
+      "properties": {
+        "abstain": {
+          "description": "True when the evaluator cannot reach a supported judgment and the correct behavior is to abstain rather than guess.",
+          "type": "boolean"
+        },
+        "abstain_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "assessments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClaimAssessment"
+          }
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "target_proposal": {
+          "type": "string"
+        },
+        "unresolved_challenges": {
+          "description": "Challenge ids the evaluator judges still unresolved after review.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "EventPayload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "task",
+            "type"
+          ],
+          "properties": {
+            "task": {
+              "$ref": "#/definitions/Task"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "task_created"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "invocation",
+            "proposal",
+            "type"
+          ],
+          "properties": {
+            "invocation": {
+              "$ref": "#/definitions/ModelInvocation"
+            },
+            "proposal": {
+              "$ref": "#/definitions/Proposal"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "proposal_submitted"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "evidence",
+            "type"
+          ],
+          "properties": {
+            "evidence": {
+              "$ref": "#/definitions/EvidenceReference"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "evidence_retrieved"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Retrieval was attempted but the memory backend could not serve it (e.g. Hyphae offline). The run continues with reduced evidence; see the README's offline-behavior statement.",
+          "type": "object",
+          "required": [
+            "query",
+            "reason",
+            "type"
+          ],
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "evidence_unavailable"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "verification"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "evidence_verified"
+              ]
+            },
+            "verification": {
+              "$ref": "#/definitions/EvidenceVerification"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "challenge",
+            "invocation",
+            "type"
+          ],
+          "properties": {
+            "challenge": {
+              "$ref": "#/definitions/Challenge"
+            },
+            "invocation": {
+              "$ref": "#/definitions/ModelInvocation"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "challenge_submitted"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "evaluation",
+            "invocation",
+            "type"
+          ],
+          "properties": {
+            "evaluation": {
+              "$ref": "#/definitions/Evaluation"
+            },
+            "invocation": {
+              "$ref": "#/definitions/ModelInvocation"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "evaluation_submitted"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "invocation",
+            "revision",
+            "type"
+          ],
+          "properties": {
+            "invocation": {
+              "$ref": "#/definitions/ModelInvocation"
+            },
+            "revision": {
+              "$ref": "#/definitions/Revision"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "revision_submitted"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "recommendation",
+            "type"
+          ],
+          "properties": {
+            "recommendation": {
+              "$ref": "#/definitions/Recommendation"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "recommendation_issued"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "authorization",
+            "type"
+          ],
+          "properties": {
+            "authorization": {
+              "$ref": "#/definitions/HumanAuthorization"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "human_decision_recorded"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "reason",
+            "stage",
+            "type"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "run_failed"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "EvidenceReference": {
+      "description": "A reference to one record retrieved from the memory backend.",
+      "type": "object",
+      "required": [
+        "content",
+        "id",
+        "kind",
+        "project_id",
+        "retrieved_at",
+        "schema_version"
+      ],
+      "properties": {
+        "anchor": {
+          "description": "Snapshot/anchor identifier the proof is bound to, when the backend interface provides one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend_ref": {
+          "description": "Backend-native record identifier (e.g. Hyphae memory id), when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content": {
+          "description": "Retrieved content. Treated everywhere as untrusted data, never as instructions.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "proof_file": {
+          "description": "Local proof artifact path for offline verification, when the backend writes proofs to disk (Hyphae memory profile does).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retrieved_at": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "witness_file": {
+          "description": "Local witness artifact path paired with `proof_file`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "EvidenceVerification": {
+      "description": "Full verification picture for one evidence record. The three status fields must be set from independent evidence: integrity from proof verification, factual/relevance from evaluator judgment.",
+      "type": "object",
+      "required": [
+        "checked_at",
+        "evidence_id",
+        "factual_status",
+        "integrity_status",
+        "relevance_status",
+        "schema_version"
+      ],
+      "properties": {
+        "checked_at": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_id": {
+          "type": "string"
+        },
+        "factual_status": {
+          "$ref": "#/definitions/FactualStatus"
+        },
+        "integrity_status": {
+          "$ref": "#/definitions/IntegrityStatus"
+        },
+        "relevance_status": {
+          "$ref": "#/definitions/RelevanceStatus"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "verified_anchor": {
+          "description": "Anchor the verification was performed against, when available.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verifier": {
+          "description": "Verifier identity/mechanism, e.g. `hyphae proof verify`, when run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "FactualStatus": {
+      "description": "Factual corroboration axis only. Independent of integrity.",
+      "type": "string",
+      "enum": [
+        "corroborated",
+        "uncorroborated",
+        "contradicted",
+        "not_assessed"
+      ]
+    },
+    "HumanAuthorization": {
+      "description": "A human decision recorded against a run. Recording an approval performs no external action in M1-M3; the executor is deferred.",
+      "type": "object",
+      "required": [
+        "approved",
+        "authorized_by",
+        "decided_at",
+        "idempotency_key",
+        "run_id",
+        "schema_version"
+      ],
+      "properties": {
+        "approved": {
+          "type": "boolean"
+        },
+        "authorized_by": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "Caller-supplied key making retries of the same decision no-ops.",
+          "type": "string"
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        }
+      }
+    },
+    "IntegrityStatus": {
+      "description": "Cryptographic integrity axis only.",
+      "oneOf": [
+        {
+          "description": "Proof was available and verified against its anchor.",
+          "type": "string",
+          "enum": [
+            "valid"
+          ]
+        },
+        {
+          "description": "Proof was available and failed verification.",
+          "type": "string",
+          "enum": [
+            "invalid"
+          ]
+        },
+        {
+          "description": "No proof was available for this record (includes backend offline).",
+          "type": "string",
+          "enum": [
+            "unavailable"
+          ]
+        },
+        {
+          "description": "Verification could not complete due to infrastructure error.",
+          "type": "string",
+          "enum": [
+            "verification_error"
+          ]
+        },
+        {
+          "description": "Verification has not been attempted.",
+          "type": "string",
+          "enum": [
+            "not_checked"
+          ]
+        }
+      ]
+    },
+    "ModelInvocation": {
+      "description": "Metadata for one model call, recorded so Meta model participation is demonstrable from receipts. `model` preserves the exact Model API identity string returned/configured for the call.",
+      "type": "object",
+      "required": [
+        "model",
+        "provider"
+      ],
+      "properties": {
+        "input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "latency_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "model": {
+          "type": "string"
+        },
+        "output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "provider": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Proposal": {
+      "description": "Proposer output: a plan plus the claims, assumptions, and uncertainties it rests on.",
+      "type": "object",
+      "required": [
+        "assumptions",
+        "author_role",
+        "claims",
+        "created_at",
+        "id",
+        "plan_steps",
+        "run_id",
+        "schema_version",
+        "summary",
+        "uncertainties"
+      ],
+      "properties": {
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "author_role": {
+          "$ref": "#/definitions/AgentRole"
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Claim"
+          }
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "plan_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Recommendation": {
+      "type": "object",
+      "required": [
+        "issued_at",
+        "kind",
+        "rationale",
+        "schema_version",
+        "unresolved_assumptions"
+      ],
+      "properties": {
+        "issued_at": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/RecommendationKind"
+        },
+        "rationale": {
+          "description": "Human-readable, concise justification citing claim/evidence ids.",
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "unresolved_assumptions": {
+          "description": "Assumptions that remain unresolved at decision time.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "RecommendationKind": {
+      "description": "Runtime-derived assessment of a run. Never written by a model.",
+      "type": "string",
+      "enum": [
+        "supported",
+        "contested",
+        "insufficient_evidence",
+        "abstained",
+        "blocked"
+      ]
+    },
+    "RelevanceStatus": {
+      "description": "Relevance axis only. Independent of integrity and factuality.",
+      "type": "string",
+      "enum": [
+        "relevant",
+        "irrelevant",
+        "not_assessed"
+      ]
+    },
+    "Revision": {
+      "description": "A revision is a new proposal document that supersedes an earlier one.",
+      "type": "object",
+      "required": [
+        "addressed_challenges",
+        "proposal",
+        "schema_version",
+        "supersedes"
+      ],
+      "properties": {
+        "addressed_challenges": {
+          "description": "Which challenges this revision claims to address, by id.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "proposal": {
+          "$ref": "#/definitions/Proposal"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "supersedes": {
+          "type": "string"
+        }
+      }
+    },
+    "Task": {
+      "description": "A user-defined problem submitted for multi-agent deliberation.",
+      "type": "object",
+      "required": [
+        "created_at",
+        "description",
+        "id",
+        "project_id",
+        "run_id",
+        "schema_version",
+        "title"
+      ],
+      "properties": {
+        "created_at": {
+          "description": "RFC 3339 timestamp supplied by the runtime clock.",
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

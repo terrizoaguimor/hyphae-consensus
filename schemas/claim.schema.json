@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Claim",
+  "description": "One explicit, checkable assertion inside a proposal.",
+  "type": "object",
+  "required": [
+    "evidence_refs",
+    "id",
+    "statement"
+  ],
+  "properties": {
+    "evidence_refs": {
+      "description": "Evidence the author believes supports this claim (may be empty, which the evaluator treats as unsupported until retrieved).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "statement": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Revision",
+  "description": "A revision is a new proposal document that supersedes an earlier one.",
+  "type": "object",
+  "required": [
+    "addressed_challenges",
+    "proposal",
+    "schema_version",
+    "supersedes"
+  ],
+  "properties": {
+    "addressed_challenges": {
+      "description": "Which challenges this revision claims to address, by id.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "proposal": {
+      "$ref": "#/definitions/Proposal"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "supersedes": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "AgentRole": {
+      "description": "The three logical agent roles. Roles may share one underlying model; they differ in instructions, context, and tool permissions.",
+      "type": "string",
+      "enum": [
+        "proposer",
+        "critic",
+        "evidence_evaluator"
+      ]
+    },
+    "Claim": {
+      "description": "One explicit, checkable assertion inside a proposal.",
+      "type": "object",
+      "required": [
+        "evidence_refs",
+        "id",
+        "statement"
+      ],
+      "properties": {
+        "evidence_refs": {
+          "description": "Evidence the author believes supports this claim (may be empty, which the evaluator treats as unsupported until retrieved).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        }
+      }
+    },
+    "Proposal": {
+      "description": "Proposer output: a plan plus the claims, assumptions, and uncertainties it rests on.",
+      "type": "object",
+      "required": [
+        "assumptions",
+        "author_role",
+        "claims",
+        "created_at",
+        "id",
+        "plan_steps",
+        "run_id",
+        "schema_version",
+        "summary",
+        "uncertainties"
+      ],
+      "properties": {
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "author_role": {
+          "$ref": "#/definitions/AgentRole"
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Claim"
+          }
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "plan_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

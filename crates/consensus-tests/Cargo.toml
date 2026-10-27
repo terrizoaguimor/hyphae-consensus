@@ -1,0 +1,11 @@
+[package]
+name = "consensus-tests"
+version.workspace = true
+edition.workspace = true
+description = "Deterministic integration and adversarial scenarios for Hyphae Consensus."
+publish = false
+
+[dependencies]
+consensus-domain = { path = "../consensus-domain" }
+consensus-runtime = { path = "../consensus-runtime" }
+serde_json.workspace = true

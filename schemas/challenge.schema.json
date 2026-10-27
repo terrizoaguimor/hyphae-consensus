@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Challenge",
+  "description": "Critic output. The critic's job is to find problems, not to agree.",
+  "type": "object",
+  "required": [
+    "created_at",
+    "id",
+    "items",
+    "run_id",
+    "schema_version",
+    "target_proposal"
+  ],
+  "properties": {
+    "created_at": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ChallengeItem"
+      }
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "target_proposal": {
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "ChallengeItem": {
+      "description": "One specific objection raised by the Critic against a claim or plan.",
+      "type": "object",
+      "required": [
+        "description",
+        "evidence_refs",
+        "kind"
+      ],
+      "properties": {
+        "claim_id": {
+          "description": "Claim under challenge, when the objection targets one claim.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "description": "Evidence the critic believes contradicts or constrains the claim.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kind": {
+          "$ref": "#/definitions/ChallengeKind"
+        }
+      }
+    },
+    "ChallengeKind": {
+      "type": "string",
+      "enum": [
+        "contradictory_evidence",
+        "missing_test",
+        "unsupported_claim",
+        "regression_risk",
+        "security_risk",
+        "constraint_conflict"
+      ]
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HumanAuthorization",
+  "description": "A human decision recorded against a run. Recording an approval performs no external action in M1-M3; the executor is deferred.",
+  "type": "object",
+  "required": [
+    "approved",
+    "authorized_by",
+    "decided_at",
+    "idempotency_key",
+    "run_id",
+    "schema_version"
+  ],
+  "properties": {
+    "approved": {
+      "type": "boolean"
+    },
+    "authorized_by": {
+      "type": "string"
+    },
+    "decided_at": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Caller-supplied key making retries of the same decision no-ops.",
+      "type": "string"
+    },
+    "note": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    }
+  }
+}

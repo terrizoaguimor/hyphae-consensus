@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hyphae Consensus — Operator Console</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0f14; --panel:#121922; --line:#223041; --txt:#dbe4ee; --dim:#8fa3b8;
+          --ok:#3fb96f; --bad:#e05555; --warn:#d9a13b; --info:#4f9be0; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--txt); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; } header .sub { color:var(--dim); font-size:12px; }
+  main { display:grid; grid-template-columns: 320px 1fr; gap:14px; padding:14px 20px; align-items:start; }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:14px; }
+  .panel h2 { font-size:13.5px; margin:0 0 10px; font-weight:650; }
+  label { display:block; font-size:12px; color:var(--dim); margin:8px 0 3px; }
+  select, input, textarea { width:100%; background:#0d141d; color:var(--txt); border:1px solid var(--line); border-radius:5px; padding:6px 8px; }
+  button { background:#1d4ed8; color:#fff; border:0; border-radius:5px; padding:7px 14px; cursor:pointer; font-weight:600; }
+  button.secondary { background:#26374a; } button.danger { background:#8c2f2f; } button.good { background:#1f7a43; }
+  button:disabled { opacity:.5; cursor:default; }
+  .run { padding:8px; border:1px solid var(--line); border-radius:6px; margin-bottom:8px; cursor:pointer; }
+  .run:hover { border-color:var(--info); } .run.sel { border-color:var(--info); background:#15202e; }
+  .chip { display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px; border:1px solid var(--line); margin-right:4px; }
+  .chip.ok { color:var(--ok); border-color:var(--ok); } .chip.bad { color:var(--bad); border-color:var(--bad); }
+  .chip.warn { color:var(--warn); border-color:var(--warn); } .chip.dim { color:var(--dim); }
+  .roles { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .role { border:1px solid var(--line); border-radius:6px; padding:8px 10px; } .role b { display:block; margin-bottom:3px; }
+  .tl { list-style:none; margin:0; padding:0; } .tl li { padding:5px 0 5px 12px; border-left:2px solid var(--line); margin-left:6px; position:relative; }
+  .tl .seq { color:var(--dim); font-size:11px; margin-right:6px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; } th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .muted { color:var(--dim); font-size:12px; } .err { color:var(--bad); white-space:pre-wrap; }
+  pre { background:#0d141d; border:1px solid var(--line); border-radius:6px; padding:8px; overflow:auto; font-size:11.5px; max-height:280px; }
+  a { color:var(--info); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Hyphae Consensus</h1>
+  <span class="sub">Verifiable multi-agent reasoning · Proposer / Critic / Evidence Evaluator · human authorization required</span>
+  <span class="sub" id="health"></span>
+</header>
+<main>
+  <section>
+    <div class="panel">
+      <h2>New run</h2>
+      <label>Model</label>
+      <select id="model">
+        <option value="fake">fake — scripted reference scenario</option>
+        <option value="meta">meta — Meta Model API (live)</option>
+      </select>
+      <label>Memory</label>
+      <select id="memory">
+        <option value="fake">fake — seeded constraint + fact</option>
+        <option value="offline">offline — degrade to insufficient evidence</option>
+        <option value="hyphae">hyphae — MCP memory profile (live)</option>
+      </select>
+      <label>Task title (meta mode)</label>
+      <input id="title" value="Fix payment client timeouts">
+      <label>Task description (meta mode)</label>
+      <textarea id="desc" rows="3">Payment requests intermittently time out under load. Propose a fix.</textarea>
+      <label>Submitted by</label>
+      <input id="by" value="operator">
+      <p><button id="runBtn">Run consensus</button></p>
+      <p class="muted">Modes are explicit: <b>fake</b> execution is scripted and labeled; <b>meta</b>/<b>hyphae</b> require server environment configuration. Approval never executes anything (executor deferred).</p>
+      <p class="err" id="err"></p>
+    </div>
+    <div class="panel">
+      <h2>Runs</h2>
+      <div id="runs"><span class="muted">loading…</span></div>
+    </div>
+  </section>
+  <section id="detailSec" hidden>
+    <div class="panel">
+      <h2>Run <span id="runId"></span></h2>
+      <p id="runMeta"></p>
+      <div class="roles">
+        <div class="role"><b>Proposer</b><span class="muted" id="roleProposer">—</span></div>
+        <div class="role"><b>Critic</b><span class="muted" id="roleCritic">—</span></div>
+        <div class="role"><b>Evidence Evaluator</b><span class="muted" id="roleEval">—</span></div>
+      </div>
+    </div>
+    <div class="panel"><h2>Timeline</h2><ul class="tl" id="timeline"></ul></div>
+    <div class="panel">
+      <h2>Evidence &amp; verification</h2>
+      <p class="muted">Integrity (cryptographic), factual corroboration, and relevance are independent. A valid proof never makes content true.</p>
+      <table><thead><tr><th>Evidence</th><th>Integrity</th><th>Factual</th><th>Relevance</th><th>Verifier / anchor</th></tr></thead>
+      <tbody id="evTable"></tbody></table>
+    </div>
+    <div class="panel">
+      <h2>Recommendation &amp; authorization</h2>
+      <p id="recLine"></p>
+      <p class="muted" id="recWhy"></p>
+      <p id="assumptions"></p>
+      <p>
+        <button class="good" id="approveBtn">Approve (record only)</button>
+        <button class="danger" id="rejectBtn">Reject</button>
+        <a id="receiptLink" href="#">Download run receipt (JSON)</a>
+      </p>
+      <p class="muted">Recording approval performs no repository or external mutation in M1–M3.</p>
+    </div>
+    <div class="panel"><h2>Model invocations</h2><pre id="invocations"></pre></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let current = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error || (r.status + " " + r.statusText));
+  return body;
+}
+function chip(text, cls) { return `<span class="chip ${cls||''}">${text}</span>`; }
+function statusChip(kind, v) {
+  const good = { integrity_status:['valid'], factual_status:['corroborated'], relevance_status:['relevant'] }[kind] || [];
+  const bad  = { integrity_status:['invalid'], factual_status:['contradicted'], relevance_status:['irrelevant'] }[kind] || [];
+  return chip(v, good.includes(v) ? 'ok' : bad.includes(v) ? 'bad' : 'warn');
+}
+async function refreshHealth() {
+  try { const h = await api('/api/health');
+    $('health').textContent = `meta: ${h.meta_configured ? 'configured' : 'not configured'} · hyphae: ${h.hyphae_configured ? 'configured' : 'not configured'} · ${h.executor}`;
+  } catch(e) { $('health').textContent = 'health check failed'; }
+}
+async function refreshRuns(selectId) {
+  const runs = await api('/api/runs');
+  $('runs').innerHTML = runs.length ? '' : '<span class="muted">no runs yet</span>';
+  for (const r of runs) {
+    const d = document.createElement('div');
+    d.className = 'run' + (r.run_id === selectId ? ' sel' : '');
+    d.innerHTML = `<b>${r.title || r.run_id}</b><br>${chip(r.state)} ${r.recommendation ? chip(r.recommendation, r.recommendation==='supported'?'ok':r.recommendation==='blocked'?'bad':'warn') : ''} ${chip('auth: '+r.authorization, r.authorization==='approved'?'ok':r.authorization==='rejected'?'bad':'dim')}<br><span class="muted">${r.run_id}</span>`;
+    d.onclick = () => showRun(r.run_id);
+    $('runs').appendChild(d);
+  }
+}
+const KIND = { task_created:'Task created', proposal_submitted:'Proposal', evidence_retrieved:'Evidence retrieved',
+  evidence_unavailable:'Evidence UNAVAILABLE', evidence_verified:'Evidence verified', challenge_submitted:'Challenge',
+  evaluation_submitted:'Evaluation', revision_submitted:'Revision', recommendation_issued:'Recommendation',
+  human_decision_recorded:'Human decision', run_failed:'Run FAILED' };
+function describe(ev) {
+  const p = ev.payload, t = p.type;
+  let extra = '';
+  if (t==='proposal_submitted') extra = p.proposal.summary;
+  if (t==='revision_submitted') extra = p.revision.proposal.summary;
+  if (t==='challenge_submitted') extra = p.challenge.items.map(i=>i.description).join(' · ') || '(no objections)';
+  if (t==='evidence_retrieved') extra = `${p.evidence.id}: ${p.evidence.content}`;
+  if (t==='evidence_unavailable') extra = p.reason;
+  if (t==='evidence_verified') extra = `${p.verification.evidence_id} integrity=${p.verification.integrity_status} factual=${p.verification.factual_status}`;
+  if (t==='evaluation_submitted') extra = p.evaluation.abstain ? 'ABSTAINED: '+(p.evaluation.abstain_reason||'') :
+    p.evaluation.assessments.map(a=>`${a.claim_id}: ${a.corroborated?'corroborated':'NOT corroborated'}`).join(' · ');
+  if (t==='recommendation_issued') extra = p.recommendation.kind + ' — ' + p.recommendation.rationale;
+  if (t==='human_decision_recorded') extra = (p.authorization.approved?'APPROVED':'REJECTED') + ' by ' + p.authorization.authorized_by;
+  if (t==='run_failed') extra = p.stage + ': ' + p.reason;
+  const actor = ev.actor.kind==='agent' ? ev.actor.role : ev.actor.kind;
+  return `<span class="seq">#${ev.sequence}</span><b>${KIND[t]||t}</b> <span class="muted">(${actor})</span><br><span class="muted">${extra.replace(/</g,'&lt;')}</span>`;
+}
+async function showRun(id) {
+  current = id;
+  const d = await api('/api/runs/' + encodeURIComponent(id));
+  $('detailSec').hidden = false;
+  $('runId').textContent = id;
+  $('runMeta').innerHTML = `${chip(d.summary.state)} revision rounds: ${d.revision_round}`;
+  const count = role => d.events.filter(e=>e.actor.kind==='agent'&&e.actor.role===role).length;
+  $('roleProposer').textContent = count('proposer') + ' action(s)';
+  $('roleCritic').textContent = count('critic') + ' action(s)';
+  $('roleEval').textContent = count('evidence_evaluator') + ' action(s)';
+  $('timeline').innerHTML = d.events.map(e=>`<li>${describe(e)}</li>`).join('');
+  $('evTable').innerHTML = d.verifications.map(v=>`<tr><td>${v.evidence_id}</td><td>${statusChip('integrity_status',v.integrity_status)}</td><td>${statusChip('factual_status',v.factual_status)}</td><td>${statusChip('relevance_status',v.relevance_status)}</td><td class="muted">${v.verifier||'—'}<br>${v.verified_anchor||''}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="muted">no verified evidence records</td></tr>';
+  const r = d.recommendation;
+  $('recLine').innerHTML = r ? `Recommendation: ${chip(r.kind, r.kind==='supported'?'ok':r.kind==='blocked'?'bad':'warn')} · Authorization: ${chip(d.summary.authorization)}` : 'No recommendation yet.';
+  $('recWhy').textContent = r ? r.rationale : '';
+  $('assumptions').innerHTML = r && r.unresolved_assumptions.length ? 'Unresolved assumptions: ' + r.unresolved_assumptions.map(a=>chip(a,'warn')).join(' ') : '';
+  const awaiting = d.summary.state === 'awaiting_human_approval';
+  $('approveBtn').disabled = !awaiting; $('rejectBtn').disabled = !awaiting;
+  $('receiptLink').href = '/api/runs/' + encodeURIComponent(id) + '/receipt';
+  $('invocations').textContent = JSON.stringify(d.model_invocations, null, 2);
+  refreshRuns(id);
+}
+$('runBtn').onclick = async () => {
+  $('err').textContent = ''; $('runBtn').disabled = true; $('runBtn').textContent = 'Running…';
+  try {
+    const d = await api('/api/runs', { method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({ model:$('model').value, memory:$('memory').value, title:$('title').value,
+        description:$('desc').value, submitted_by:$('by').value }) });
+    await showRun(d.summary.run_id);
+  } catch(e) { $('err').textContent = e.message; }
+  $('runBtn').disabled = false; $('runBtn').textContent = 'Run consensus';
+};
+async function decide(approved) {
+  if (!current) return;
+  try {
+    await api('/api/runs/' + encodeURIComponent(current) + '/decision', { method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({ approved, authorized_by: $('by').value, idempotency_key: 'console-' + current + '-' + Date.now() }) });
+    await showRun(current);
+  } catch(e) { $('err').textContent = e.message; }
+}
+$('approveBtn').onclick = () => decide(true);
+$('rejectBtn').onclick = () => decide(false);
+refreshHealth(); refreshRuns();
+</script>
+</body>
+</html>

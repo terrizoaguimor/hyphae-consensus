@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Recommendation",
+  "type": "object",
+  "required": [
+    "issued_at",
+    "kind",
+    "rationale",
+    "schema_version",
+    "unresolved_assumptions"
+  ],
+  "properties": {
+    "issued_at": {
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/definitions/RecommendationKind"
+    },
+    "rationale": {
+      "description": "Human-readable, concise justification citing claim/evidence ids.",
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "unresolved_assumptions": {
+      "description": "Assumptions that remain unresolved at decision time.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "definitions": {
+    "RecommendationKind": {
+      "description": "Runtime-derived assessment of a run. Never written by a model.",
+      "type": "string",
+      "enum": [
+        "supported",
+        "contested",
+        "insufficient_evidence",
+        "abstained",
+        "blocked"
+      ]
+    }
+  }
+}

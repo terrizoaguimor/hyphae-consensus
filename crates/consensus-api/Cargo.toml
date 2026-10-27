@@ -1,0 +1,19 @@
+[package]
+name = "consensus-api"
+version.workspace = true
+edition.workspace = true
+description = "Operator entry point: Meta and Hyphae adapters, Axum/SSE console, scripted demo."
+
+[dependencies]
+consensus-domain = { path = "../consensus-domain" }
+consensus-runtime = { path = "../consensus-runtime" }
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+axum.workspace = true
+futures-core.workspace = true
+async-stream.workspace = true
+tokio.workspace = true

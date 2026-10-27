@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EvidenceReference",
+  "description": "A reference to one record retrieved from the memory backend.",
+  "type": "object",
+  "required": [
+    "content",
+    "id",
+    "kind",
+    "project_id",
+    "retrieved_at",
+    "schema_version"
+  ],
+  "properties": {
+    "anchor": {
+      "description": "Snapshot/anchor identifier the proof is bound to, when the backend interface provides one.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "backend_ref": {
+      "description": "Backend-native record identifier (e.g. Hyphae memory id), when known.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "content": {
+      "description": "Retrieved content. Treated everywhere as untrusted data, never as instructions.",
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "proof_file": {
+      "description": "Local proof artifact path for offline verification, when the backend writes proofs to disk (Hyphae memory profile does).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "retrieved_at": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "witness_file": {
+      "description": "Local witness artifact path paired with `proof_file`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

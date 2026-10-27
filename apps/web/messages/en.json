@@ -1,0 +1,50 @@
+{
+  "Metadata": {
+    "title": "Hyphae Consensus",
+    "description": "Hyphae Consensus portal: verifiable multi-agent reasoning and decision accountability."
+  },
+  "App": {
+    "name": "Hyphae Consensus",
+    "tagline": "Verifiable multi-agent reasoning and decision accountability",
+    "intro": "Three AI roles (Proposer, Critic and Evidence Evaluator) work through a software-engineering problem. The runtime retrieves evidence from Hyphae memory and verifies its proofs, the Evaluator judges each claim against that evidence, and a fixed policy turns the result into a recommendation. Only a person can authorize it, and authorizing records a decision without executing anything.",
+    "scaffoldNote": "This page is an early scaffold of the portal. It shows the labels the portal will use; nothing on it calls a model or reads memory."
+  },
+  "Theme": {
+    "darkTheme": "Dark theme"
+  },
+  "LocaleSwitcher": {
+    "label": "Language",
+    "names": {
+      "en": "English",
+      "es": "Spanish",
+      "pt-BR": "Portuguese (Brazil)",
+      "fr": "French"
+    }
+  },
+  "Provenance": {
+    "heading": "Provenance labels",
+    "intro": "The portal marks where each run and event comes from:",
+    "simulated": {
+      "label": "SIMULATED",
+      "description": "Scripted roles and simulated evidence. No model is called."
+    },
+    "liveMeta": {
+      "label": "LIVE META",
+      "description": "Events from a run in progress, produced by live calls to a Meta model."
+    },
+    "recorded": {
+      "label": "RECORDED",
+      "description": "A real run recorded earlier and shown from the archive, not a run in progress."
+    },
+    "replay": {
+      "label": "REPLAY",
+      "description": "Stored events played back, not as they happen."
+    }
+  },
+  "Runs": {
+    "count": "{count, plural, =0 {No runs yet} one {# run} other {# runs}}"
+  },
+  "Footer": {
+    "nonAffiliation": "Independent project; not affiliated with, sponsored by, or endorsed by Meta."
+  }
+}

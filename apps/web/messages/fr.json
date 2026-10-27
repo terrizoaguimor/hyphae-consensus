@@ -1,0 +1,50 @@
+{
+  "Metadata": {
+    "title": "Hyphae Consensus",
+    "description": "Portail Hyphae Consensus : raisonnement multi-agents vérifiable et responsabilité des décisions."
+  },
+  "App": {
+    "name": "Hyphae Consensus",
+    "tagline": "Raisonnement multi-agents vérifiable et responsabilité des décisions",
+    "intro": "Trois rôles d’IA (Proposant, Critique et Évaluateur des éléments probants) travaillent sur un problème de génie logiciel. L’environnement d’exécution récupère des éléments probants dans la mémoire Hyphae et vérifie leurs preuves, l’Évaluateur juge chaque affirmation au regard de ces éléments, et une politique fixe transforme le résultat en recommandation. Seule une personne peut l’autoriser, et autoriser enregistre une décision sans rien exécuter.",
+    "scaffoldNote": "Cette page est une première ébauche du portail. Elle présente les étiquettes que le portail utilisera ; rien sur cette page n’appelle de modèle ni ne lit la mémoire."
+  },
+  "Theme": {
+    "darkTheme": "Thème sombre"
+  },
+  "LocaleSwitcher": {
+    "label": "Langue",
+    "names": {
+      "en": "Anglais",
+      "es": "Espagnol",
+      "pt-BR": "Portugais (Brésil)",
+      "fr": "Français"
+    }
+  },
+  "Provenance": {
+    "heading": "Étiquettes de provenance",
+    "intro": "Le portail indique la provenance de chaque exécution et de chaque événement :",
+    "simulated": {
+      "label": "SIMULÉ",
+      "description": "Rôles scénarisés et éléments probants simulés. Aucun modèle n’est appelé."
+    },
+    "liveMeta": {
+      "label": "META EN DIRECT",
+      "description": "Événements d’une exécution en cours, produits par des appels en direct à un modèle de Meta."
+    },
+    "recorded": {
+      "label": "ENREGISTRÉ",
+      "description": "Une exécution réelle enregistrée auparavant et présentée depuis l’archive, et non une exécution en cours."
+    },
+    "replay": {
+      "label": "REJEU",
+      "description": "Événements enregistrés rejoués, et non au moment où ils se produisent."
+    }
+  },
+  "Runs": {
+    "count": "{count, plural, =0 {Aucune exécution pour l’instant} one {# exécution} many {# d’exécutions} other {# exécutions}}"
+  },
+  "Footer": {
+    "nonAffiliation": "Projet indépendant ; non affilié à Meta, ni parrainé ni approuvé par Meta."
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "hyphae-consensus-web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@12.15.0+sha512.b3951d6d6ff4a9f13dc7cf56cd28d2b8eb37dbcc9c68e52e1e1191873ea9f82a017287ab50baadc5ccc494f036c67c0e47eb13608c2fa36f47711b61ea128e61",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build && node scripts/csp-manifest.mjs",
+    "typecheck": "next typegen && tsc --noEmit",
+    "lint": "eslint --max-warnings=0 .",
+    "test": "vitest run",
+    "theme:build": "astryx theme build src/theme/hyphaeMissionTheme.ts",
+    "theme:check": "astryx theme build src/theme/hyphaeMissionTheme.ts --check",
+    "check": "pnpm theme:check && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@astryxdesign/core": "0.7.4",
+    "@astryxdesign/theme-neutral": "0.7.4",
+    "@stylexjs/stylex": "0.19.1",
+    "motion": "14.6.0",
+    "next": "16.4.3",
+    "next-intl": "4.14.9",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@astryxdesign/cli": "0.7.4",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.3",
+    "intl-messageformat": "11.2.15",
+    "parse5": "8.0.1",
+    "typescript": "6.0.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

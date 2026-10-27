@@ -1,0 +1,50 @@
+{
+  "Metadata": {
+    "title": "Hyphae Consensus",
+    "description": "Portal do Hyphae Consensus: raciocínio multiagente verificável e responsabilização nas decisões."
+  },
+  "App": {
+    "name": "Hyphae Consensus",
+    "tagline": "Raciocínio multiagente verificável e responsabilização nas decisões",
+    "intro": "Três papéis de IA (Proponente, Crítico e Avaliador de evidências) trabalham sobre um problema de engenharia de software. O ambiente de execução busca evidências na memória do Hyphae e verifica suas provas, o Avaliador julga cada afirmação com base nessas evidências e uma política fixa transforma o resultado em uma recomendação. Só uma pessoa pode autorizá-la, e autorizar registra uma decisão sem executar nada.",
+    "scaffoldNote": "Esta página é um esboço inicial do portal. Ela mostra os rótulos que o portal vai usar; nada nela chama um modelo ou lê a memória."
+  },
+  "Theme": {
+    "darkTheme": "Tema escuro"
+  },
+  "LocaleSwitcher": {
+    "label": "Idioma",
+    "names": {
+      "en": "Inglês",
+      "es": "Espanhol",
+      "pt-BR": "Português (Brasil)",
+      "fr": "Francês"
+    }
+  },
+  "Provenance": {
+    "heading": "Rótulos de procedência",
+    "intro": "O portal indica de onde vem cada execução e cada evento:",
+    "simulated": {
+      "label": "SIMULADO",
+      "description": "Papéis roteirizados e evidências simuladas. Nenhum modelo é chamado."
+    },
+    "liveMeta": {
+      "label": "META AO VIVO",
+      "description": "Eventos de uma execução em andamento, gerados por chamadas ao vivo a um modelo da Meta."
+    },
+    "recorded": {
+      "label": "GRAVADO",
+      "description": "Uma execução real gravada anteriormente e exibida a partir do arquivo, não uma execução em andamento."
+    },
+    "replay": {
+      "label": "REPRODUÇÃO",
+      "description": "Eventos armazenados reproduzidos, não no momento em que acontecem."
+    }
+  },
+  "Runs": {
+    "count": "{count, plural, =0 {Nenhuma execução ainda} one {# execução} many {# de execuções} other {# execuções}}"
+  },
+  "Footer": {
+    "nonAffiliation": "Projeto independente; não é afiliado à Meta, nem patrocinado ou endossado pela Meta."
+  }
+}

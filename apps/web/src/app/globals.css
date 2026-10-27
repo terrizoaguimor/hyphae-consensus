@@ -1,0 +1,189 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/*
+ * App styles. Imported after Astryx's reset.css, astryx.css and the compiled
+ * hyphae-mission theme (src/app/styles.ts), and kept in the `app` layer,
+ * which comes after Astryx's layers: unlayered rules would beat every Astryx
+ * layer regardless of specificity.
+ */
+@layer reset, astryx-base, astryx-theme, app;
+
+@layer app {
+  html {
+    background-color: var(--color-background-body);
+  }
+
+  /* Astryx sets no document font or size; match its body text. */
+  body {
+    min-height: 100dvh;
+    font-family: var(--font-family-body);
+    font-size: var(--text-body-size);
+    line-height: var(--text-body-leading);
+    color: var(--color-text-primary);
+    background-color: var(--color-background-body);
+  }
+
+  /*
+   * The root Astryx Theme wrapper is pre-rendered in "system" mode, which
+   * would let the OS decide light-dark() inside it until hydration. The head
+   * script has already set data-theme on <html>, so the wrapper inherits that
+   * scheme. For Next's default browser targets, Lightning CSS compiles
+   * light-dark() into --lightningcss-light / --lightningcss-dark switches set
+   * next to each color-scheme declaration, so those must inherit as well.
+   */
+  html[data-theme] body > [data-astryx-theme] {
+    color-scheme: inherit;
+    --lightningcss-light: inherit;
+    --lightningcss-dark: inherit;
+  }
+
+  /* Utilities */
+
+  .hc-tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Hashes, ids and receipts: monospace, slashed zero, no ligatures. */
+  .hc-code {
+    font-family: var(--font-family-code);
+    font-variant-numeric: slashed-zero;
+    font-variant-ligatures: none;
+  }
+
+  /* Page structure */
+
+  .hc-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+  }
+
+  .hc-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-4);
+    padding: var(--spacing-3) var(--spacing-6);
+    border-block-end: 1px solid var(--color-border);
+    background-color: var(--color-background-surface);
+  }
+
+  .hc-wordmark {
+    font-family: var(--font-family-heading);
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .hc-header-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-4);
+  }
+
+  .hc-locale-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .hc-locale-list a {
+    display: inline-block;
+    padding: var(--spacing-1) var(--spacing-2);
+    border-radius: var(--radius-element);
+    color: var(--color-text-secondary);
+  }
+
+  .hc-locale-list a:hover {
+    color: var(--color-text-primary);
+    background-color: var(--color-overlay-hover);
+  }
+
+  /* The current language is marked by weight and underline, not only color. */
+  .hc-locale-list a[aria-current="page"] {
+    color: var(--color-text-accent);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 0.25em;
+  }
+
+  .hc-locale-list a:focus-visible,
+  .hc-root a:focus-visible {
+    outline: var(--focus-outline-width) var(--focus-outline-style)
+      var(--focus-outline-color);
+    outline-offset: var(--focus-outline-offset);
+  }
+
+  .hc-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--spacing-8);
+    width: 100%;
+    max-width: 60rem;
+    margin-inline: auto;
+    padding: var(--spacing-10) var(--spacing-6);
+  }
+
+  .hc-intro,
+  .hc-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
+  }
+
+  .hc-provenance-list {
+    display: grid;
+    gap: var(--spacing-3);
+    margin: 0;
+  }
+
+  .hc-provenance-item {
+    display: grid;
+    grid-template-columns: minmax(9rem, max-content) 1fr;
+    gap: var(--spacing-4);
+    align-items: baseline;
+  }
+
+  .hc-provenance-item dd {
+    margin: 0;
+  }
+
+  .hc-footer {
+    padding: var(--spacing-4) var(--spacing-6);
+    border-block-start: 1px solid var(--color-border);
+  }
+
+  /* Root page: a language list while the redirect runs. */
+
+  .hc-root {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-4);
+    min-height: 100dvh;
+    padding: var(--spacing-6);
+  }
+
+  .hc-root ul {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--spacing-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .hc-root a {
+    color: var(--color-text-accent);
+    text-decoration: underline;
+    text-underline-offset: 0.25em;
+  }
+}

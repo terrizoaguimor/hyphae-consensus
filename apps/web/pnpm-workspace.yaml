@@ -1,0 +1,29 @@
+# pnpm settings for apps/web (pnpm 12 reads project settings from this file and
+# fails on any key it does not recognize, so a misspelled policy cannot be
+# silently dropped).
+
+# Supply-chain cooldown: refuse any version published less than 3 days
+# (4320 minutes) ago. An explicit value makes the check strict.
+minimumReleaseAge: 4320
+
+# Dependency build scripts. pnpm 12 runs none unless a package is set to true
+# here, and fails the install while any script is undecided. Every entry below
+# was reviewed (2026-10-27) and is denied; none is needed:
+# - @astryxdesign/core, @astryxdesign/cli: postinstall only prints a nudge to
+#   run `astryx init`, which this project never runs (it writes AGENTS.md /
+#   CLAUDE.md).
+# - @parcel/watcher: install builds from source only when
+#   npm_config_build_from_source=true; the prebuilt binding comes from its
+#   optional platform package.
+# - @swc/core: postinstall checks the native binding and otherwise installs
+#   @swc/wasm through npm; the binding comes from its optional platform package.
+# - unrs-resolver: postinstall (napi-postinstall) checks the native binding,
+#   which also comes from its optional platform package.
+# @parcel/watcher and @swc/core arrive through next-intl (its message
+# extractor, unused here); unrs-resolver through eslint-config-next.
+allowBuilds:
+  "@astryxdesign/cli": false
+  "@astryxdesign/core": false
+  "@parcel/watcher": false
+  "@swc/core": false
+  unrs-resolver: false

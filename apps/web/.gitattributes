@@ -1,0 +1,5 @@
+# apps/web is built only inside a Linux container: keep LF on every checkout
+# (core.autocrlf=true would otherwise check out CRLF on Windows). Inline
+# script and style bodies are pinned by sha256 in the CSP, so their bytes must
+# not depend on the checkout.
+* text=auto eol=lf

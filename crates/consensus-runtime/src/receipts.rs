@@ -9,9 +9,17 @@
 //! file and needs no other run's events, so it works the same for a
 //! per-run file, a multi-run log or the research archive. Nothing here is
 //! stored: receipts are computed at read time.
+//!
+//! Re-derivation is only as strong as the schema labels it selects rules
+//! by, so the labels are checked too: every record's version must be
+//! readable, a run's version never goes back, a chained record is never
+//! labelled 1.0, and an unchained record never follows a chained one of
+//! the same run. A recommendation recorded under 1.1 or later must
+//! re-derive, and its stored rationale and unresolved assumptions must be
+//! the ones the runtime derives from the same records.
 
-use crate::event_log::{chain_link_problem, Predecessor};
-use crate::policy::{explain, PolicyVersion};
+use crate::event_log::{chain_link_problem, is_downgrade, schema_order, Predecessor};
+use crate::policy::{explain, rationale_for, PolicyVersion};
 use crate::state_machine::{RunAggregate, TransitionError};
 use consensus_domain::*;
 use thiserror::Error;
@@ -32,6 +40,43 @@ pub enum ReceiptError {
     HashChain { sequence: u64, detail: String },
     #[error("replay failed: {0}")]
     Replay(#[from] TransitionError),
+    /// A record whose schema version this build cannot read.
+    #[error("unsupported schema_version {found:?} at sequence {sequence}")]
+    SchemaVersion { sequence: u64, found: String },
+    /// A record whose schema version is older than an earlier record of
+    /// the same run. No writer downgrades a run, so it was relabelled, and
+    /// its label would pick the rules replay re-derives it with.
+    #[error("schema_version {found:?} at sequence {sequence} is older than {earlier:?}, recorded earlier in the run")]
+    SchemaDowngrade {
+        sequence: u64,
+        found: String,
+        earlier: String,
+    },
+    /// A recommendation recorded under schema 1.1 or later that cannot be
+    /// re-derived: no rules for its version, or no evaluation to derive
+    /// from. Its outcome would be unverified, so no receipt is issued.
+    #[error("recommendation at sequence {sequence} (schema {schema_version}) cannot be re-derived: {detail}")]
+    PolicyNotDerived {
+        sequence: u64,
+        schema_version: String,
+        detail: String,
+    },
+    /// The stored rationale is not `rationale_for` of the stored kind and
+    /// the records the recommendation was derived from.
+    #[error("recommendation at sequence {sequence}: stored rationale {stored:?} is not the derived {derived:?}")]
+    RationaleMismatch {
+        sequence: u64,
+        stored: String,
+        derived: String,
+    },
+    /// The stored unresolved assumptions are not the final proposal's
+    /// assumptions, which the runtime copies into the recommendation.
+    #[error("recommendation at sequence {sequence}: stored unresolved assumptions {stored:?} are not the final proposal's {expected:?}")]
+    AssumptionsMismatch {
+        sequence: u64,
+        stored: Vec<String>,
+        expected: Vec<String>,
+    },
 }
 
 /// Authority of a decision recorded before schema 1.3, which carried
@@ -39,7 +84,9 @@ pub enum ReceiptError {
 pub const UNSPECIFIED_AUTHORITY: &str = "unspecified";
 
 /// Schema versions recorded before protocol 1.3, under which each
-/// evaluation judged only its own round's challenge items.
+/// evaluation judged only its own round's challenge items. Used for the
+/// protocol label only: what a run's evaluations judged is read from its
+/// records, never from its label.
 const BEFORE_CARRY_FORWARD: [&str; 3] = ["1.0", "1.1", "1.2"];
 
 /// What the chain cannot show, whatever its scope.
@@ -50,6 +97,9 @@ pub const CHAIN_NOTE_RUN: &str = "This run's events form a complete hash chain f
 
 /// Chain note for [`ChainScope::Log`].
 pub const CHAIN_NOTE_LOG: &str = "This run is one segment of a multi-run log: its records are linked to records of other runs, so verifying its chain needs the whole log file, from genesis. head_hash is the hash of this run's last event, not the head of the file; it commits to every earlier record in the file, not to records written after it.";
+
+/// Chain note for [`ChainScope::PartlyChained`].
+pub const CHAIN_NOTE_PARTLY_CHAINED: &str = "This run began before schema 1.1: its pre-1.1 records carry no hash chain and are not tamper-evident, and the chain after them commits to them only by count (pre-1.1:<sequence>), not by content. head_hash is the hash of this run's last event; it covers only the chained records, and verifying them needs the whole log file, from genesis.";
 
 /// Chain note for [`ChainScope::Unchained`].
 pub const CHAIN_NOTE_UNCHAINED: &str = "Pre-1.1 records carry no hash chain: nothing in this run is tamper-evident, and there is no head_hash.";
@@ -84,8 +134,11 @@ fn label(schema_version: &str, rules: Option<PolicyVersion>) -> String {
 
 /// Builds receipt v2 from one run's events, in log order: every event of
 /// the run and nothing else. Fails when the events mix runs or go out of
-/// order, when a record's hash or a link the run's records can show is
-/// broken, or when replay rejects the history.
+/// order; when a record's schema version is unreadable or older than an
+/// earlier record's of the run; when a record's hash or a link the run's
+/// records can show is broken; when replay rejects the history; or when a
+/// recommendation recorded under 1.1 or later does not re-derive, with its
+/// stored rationale and unresolved assumptions, from the records before it.
 pub fn build_receipt_v2(
     run_events: &[ConsensusEvent],
     generated_at: String,
@@ -99,28 +152,22 @@ pub fn build_receipt_v2(
             sequence: other.sequence,
         });
     }
+    check_schema_versions(run_events)?;
     let chain = check_chain(run_events)?;
 
     let mut agg = RunAggregate::new(run_id.clone());
     let mut history = History::default();
     let mut policy_trace = None;
     for ev in run_events {
-        if let EventPayload::RecommendationIssued { .. } = ev.payload {
-            // Exactly the inputs and rules replay re-derives the stored kind
-            // from: the latest evaluation, the verifications recorded after
-            // it, and the rules of the record's own schema version.
-            policy_trace = agg
-                .last_evaluation
-                .as_ref()
-                .zip(PolicyVersion::for_schema(&ev.schema_version))
-                .map(|(evaluation, rules)| explain(rules, evaluation, &agg.round_verifications));
-        }
         agg.apply(ev)?;
+        if let EventPayload::RecommendationIssued { recommendation } = &ev.payload {
+            policy_trace = re_derive(ev, recommendation, &agg, &history)?;
+        }
         history.record(ev);
     }
 
     let run_schema_version = first.schema_version.clone();
-    let deliberation = history.deliberation(&run_schema_version);
+    let deliberation = history.deliberation();
     // No record before schema 1.3 carries an authority, so each decision
     // reads as unspecified, never as operator authority. A 1.3 record's
     // own authority belongs here once HumanAuthorization carries one.
@@ -155,12 +202,107 @@ pub fn build_receipt_v2(
     })
 }
 
+/// Refuses a record this build cannot read, and a record older than an
+/// earlier record of the run: no writer downgrades a run (an older build
+/// cannot read the newer records), so an older label could only be there
+/// to pick other rules for replay's re-derivation, or none.
+fn check_schema_versions(events: &[ConsensusEvent]) -> Result<(), ReceiptError> {
+    let mut newest: Option<&str> = None;
+    for ev in events {
+        let version = ev.schema_version.as_str();
+        if !READABLE_SCHEMA_VERSIONS.contains(&version) {
+            return Err(ReceiptError::SchemaVersion {
+                sequence: ev.sequence,
+                found: version.to_string(),
+            });
+        }
+        match newest {
+            Some(earlier) if is_downgrade(version, earlier) => {
+                return Err(ReceiptError::SchemaDowngrade {
+                    sequence: ev.sequence,
+                    found: version.to_string(),
+                    earlier: earlier.to_string(),
+                });
+            }
+            _ => newest = Some(version),
+        }
+    }
+    Ok(())
+}
+
+/// The trace of a recommendation whose record replay just accepted: from
+/// the latest evaluation and the verifications recorded after it, under
+/// the rules of the record's own schema version, exactly the inputs and
+/// rules replay re-derived its kind from. A pre-1.1 record predates
+/// re-derivation and has none. From 1.1 on, a record that cannot be
+/// re-derived, or whose rationale or unresolved assumptions are not what
+/// the runtime writes for the same records, gets no receipt.
+fn re_derive(
+    ev: &ConsensusEvent,
+    recommendation: &Recommendation,
+    agg: &RunAggregate,
+    history: &History,
+) -> Result<Option<PolicyTrace>, ReceiptError> {
+    if !schema_order(&ev.schema_version).is_some_and(|version| version >= (1, 1)) {
+        return Ok(None);
+    }
+    let not_derived = |detail: &str| ReceiptError::PolicyNotDerived {
+        sequence: ev.sequence,
+        schema_version: ev.schema_version.clone(),
+        detail: detail.to_string(),
+    };
+    let rules = PolicyVersion::for_schema(&ev.schema_version)
+        .ok_or_else(|| not_derived("no policy rules for its schema version"))?;
+    let evaluation = agg
+        .last_evaluation
+        .as_ref()
+        .ok_or_else(|| not_derived("no evaluation was recorded before it"))?;
+    let verifications = &agg.round_verifications;
+    let trace = explain(rules, evaluation, verifications);
+    // Replay checked this already; checked again so the trace shown can
+    // never disagree with the kind stored.
+    if trace.kind != recommendation.kind {
+        return Err(TransitionError::RecommendationMismatch {
+            stored: recommendation.kind,
+            derived: trace.kind,
+        }
+        .into());
+    }
+    // The runtime writes both fields from the same records; replay checks
+    // only the kind, so a re-hashed log could otherwise carry a sentence
+    // that contradicts it.
+    let derived = rationale_for(recommendation.kind, evaluation, verifications);
+    if recommendation.rationale != derived {
+        return Err(ReceiptError::RationaleMismatch {
+            sequence: ev.sequence,
+            stored: recommendation.rationale.clone(),
+            derived,
+        });
+    }
+    let expected = history
+        .final_proposal
+        .as_ref()
+        .map(|p| p.assumptions.clone())
+        .unwrap_or_default();
+    if recommendation.unresolved_assumptions != expected {
+        return Err(ReceiptError::AssumptionsMismatch {
+            sequence: ev.sequence,
+            stored: recommendation.unresolved_assumptions.clone(),
+            expected,
+        });
+    }
+    Ok(Some(trace))
+}
+
 /// Checks what the run's own records can prove, then states the chain's
 /// scope. Every chained record's hash is recomputed. A record's link is
 /// checked when its predecessor in the file is at hand: the run's
 /// previous event at the previous sequence, or the start of the file.
+/// Unchained (pre-1.1) records may only precede the run's chained ones,
+/// across gaps too, as they may only precede chained records in a file.
 fn check_chain(events: &[ConsensusEvent]) -> Result<ReceiptChain, ReceiptError> {
     let mut previous: Option<&ConsensusEvent> = None;
+    let mut chained = false;
     for ev in events {
         let predecessor = match previous {
             Some(p) if ev.sequence <= p.sequence => {
@@ -184,6 +326,13 @@ fn check_chain(events: &[ConsensusEvent]) -> Result<ReceiptChain, ReceiptError> 
                 detail,
             });
         }
+        if ev.hash.is_empty() && chained {
+            return Err(ReceiptError::HashChain {
+                sequence: ev.sequence,
+                detail: "unhashed record after a chained record of the same run".into(),
+            });
+        }
+        chained |= !ev.hash.is_empty();
         previous = Some(ev);
     }
 
@@ -192,15 +341,22 @@ fn check_chain(events: &[ConsensusEvent]) -> Result<ReceiptChain, ReceiptError> 
         _ => return Err(ReceiptError::NoEvents),
     };
     let head_hash = Some(last.hash.clone()).filter(|h| !h.is_empty());
+    let has_unchained = events.iter().any(|e| e.hash.is_empty());
     // Sequence 1 passed the check above against genesis; contiguous
     // sequences passed it against each other.
     let self_contained = first.sequence == 1
         && events
             .windows(2)
             .all(|w| w[1].sequence == w[0].sequence + 1)
-        && events.iter().all(|e| !e.hash.is_empty());
+        && !has_unchained;
     let (scope, note) = match head_hash {
         None => (ChainScope::Unchained, CHAIN_NOTE_UNCHAINED.to_string()),
+        // Pre-1.1 records first, chained ones after (the check above):
+        // only the chained part is tamper-evident.
+        Some(_) if has_unchained => (
+            ChainScope::PartlyChained,
+            format!("{CHAIN_NOTE_PARTLY_CHAINED} {CHAIN_LIMITATIONS}"),
+        ),
         Some(_) if self_contained => (
             ChainScope::Run,
             format!("{CHAIN_NOTE_RUN} {CHAIN_LIMITATIONS}"),
@@ -283,7 +439,7 @@ impl History {
         }
     }
 
-    fn deliberation(&self, run_schema_version: &str) -> Deliberation {
+    fn deliberation(&self) -> Deliberation {
         let proposal = self.final_proposal.as_ref();
         let evaluation = self.evaluations.last();
         // Assessments attach to the final proposal's claims only when the
@@ -343,14 +499,35 @@ impl History {
             claims,
             unmatched_assessments: unmatched,
             open_items,
+            unevaluated_items: self.unevaluated_items(),
             assumptions: proposal.map(|p| p.assumptions.clone()).unwrap_or_default(),
             uncertainties: proposal
                 .map(|p| p.uncertainties.clone())
                 .unwrap_or_default(),
             missing_tests,
             revisions: self.revisions.clone(),
-            earlier_round_objections_never_rejudged: self.unrejudged(run_schema_version),
+            earlier_round_objections_never_rejudged: self.unrejudged(),
         }
+    }
+
+    /// Items of the challenges recorded after the final evaluation: their
+    /// round has no evaluation (the run failed or stopped first), so they
+    /// are neither open items nor earlier-round objections.
+    fn unevaluated_items(&self) -> Vec<OpenItem> {
+        let final_round = self.rounds();
+        self.challenges
+            .iter()
+            .filter(|(round, _)| *round > final_round)
+            .flat_map(|(round, challenge)| {
+                challenge.items.iter().map(|item| OpenItem {
+                    id: item.id.clone(),
+                    raised_in_round: Some(*round),
+                    kind: Some(item.kind),
+                    claim_id: item.claim_id.clone(),
+                    description: Some(item.description.clone()),
+                })
+            })
+            .collect()
     }
 
     /// The challenge item an unresolved id names, latest round first:
@@ -373,13 +550,13 @@ impl History {
     }
 
     /// Items raised before the final round that the final evaluation never
-    /// listed. Before protocol 1.3 no later round saw them again. From 1.3
-    /// on every open item is carried forward and needs a verdict in every
-    /// round, so none can be left behind.
-    fn unrejudged(&self, run_schema_version: &str) -> Vec<UnrejudgedObjection> {
-        if !BEFORE_CARRY_FORWARD.contains(&run_schema_version) {
-            return Vec::new();
-        }
+    /// listed. Before protocol 1.3 no later round saw them again. This is
+    /// read from the records whatever the run's protocol: a label claiming
+    /// carry-forward proves nothing, and the list is empty only when the
+    /// final evaluation does list every earlier item. No record carries
+    /// per-item verdicts yet; once evaluations do, an explicit verdict on
+    /// an item must count as judging it again here.
+    fn unrejudged(&self) -> Vec<UnrejudgedObjection> {
         let Some(last) = self.evaluations.last() else {
             return Vec::new();
         };
@@ -424,7 +601,7 @@ fn lists(evaluation: &Evaluation, challenge: &Challenge, item: &ChallengeItem) -
 mod tests {
     use super::*;
     use crate::clock::{FixedClock, SequentialIdGen};
-    use crate::event_log::{compute_hash, expected_prev_hash, EventLog};
+    use crate::event_log::{compute_hash, expected_prev_hash, EventLog, EventLogError};
     use crate::fakes::{FakeMemoryClient, FakeModelClient, FakeProofVerifier};
     use crate::orchestrator::{build_receipt, record_human_decision, Orchestrator, RunLimits};
     use crate::policy::rationale_code;
@@ -542,6 +719,7 @@ mod tests {
         assert!(d.claims.iter().all(|c| c.assessment.is_some()));
         assert!(d.unmatched_assessments.is_empty());
         assert!(d.open_items.is_empty() && d.missing_tests.is_empty());
+        assert!(d.unevaluated_items.is_empty());
         assert_eq!(
             d.assumptions,
             ["Upstream services tolerate the proposed change"]
@@ -761,6 +939,7 @@ mod tests {
         assert_eq!(r.deliberation.rounds, 0);
         assert_eq!(r.deliberation.final_proposal_id, None);
         assert!(r.deliberation.claims.is_empty());
+        assert!(r.deliberation.unevaluated_items.is_empty());
         assert_eq!(r.chain.scope, ChainScope::Run);
     }
 
@@ -868,7 +1047,10 @@ mod tests {
         ));
 
         // A forger who upgrades the outcome and re-hashes the whole chain
-        // gets past the hashes, but not replay's re-derivation.
+        // gets past the hashes. Replay's re-derivation catches this edit
+        // because the record keeps a label that maps to a policy; a label
+        // changed to escape re-derivation is refused on its own (see
+        // relabelling_a_record_cannot_escape_re_derivation).
         let mut forged = all.clone();
         let rec = forged
             .iter_mut()
@@ -917,22 +1099,381 @@ mod tests {
     }
 
     #[test]
-    fn carry_forward_protocols_report_no_unrejudged_objections() {
-        // The reference history drops two round-1 objections under the
-        // protocols before 1.3. From 1.3 on every open item is carried
-        // forward and needs a verdict in every round, so none can be left
-        // behind. (The history is not replayed as 1.3 here: the 1.3
-        // contract checks apply only to records written under it.)
+    fn a_protocol_label_alone_never_hides_dropped_objections() {
+        // The reference history drops two round-1 objections. Labelled as
+        // a carry-forward protocol, with no record showing that a later
+        // round judged them, it drops them all the same, and the receipt
+        // still lists them. (The history is not replayed as 1.3 here: the
+        // 1.3 contract checks apply only to records written under it.)
         let (log, run) = run("protocol-1-3.jsonl", retry_constraint_scenario());
+        for label in BEFORE_CARRY_FORWARD.into_iter().chain(["1.3", "1.4"]) {
+            let mut history = History::default();
+            for ev in log.events_for(&run) {
+                let mut relabelled = ev.clone();
+                relabelled.schema_version = label.into();
+                history.record(&relabelled);
+            }
+            let never = history
+                .deliberation()
+                .earlier_round_objections_never_rejudged;
+            let ids: Vec<&str> = never.iter().map(|o| o.id.as_str()).collect();
+            assert_eq!(ids, ["item-1", "item-2"], "{label}");
+        }
+    }
+
+    /// Index of the recommendation record in `events`.
+    fn recommendation_index(events: &[ConsensusEvent]) -> usize {
+        events
+            .iter()
+            .position(|e| matches!(e.payload, EventPayload::RecommendationIssued { .. }))
+            .expect("a recommendation was issued")
+    }
+
+    fn recommendation_mut(ev: &mut ConsensusEvent) -> &mut Recommendation {
+        match &mut ev.payload {
+            EventPayload::RecommendationIssued { recommendation } => recommendation,
+            other => panic!("not a recommendation: {other:?}"),
+        }
+    }
+
+    /// One line per event, as the event log writes them.
+    fn write_log(name: &str, events: &[ConsensusEvent]) -> PathBuf {
+        let path = temp_log(name);
+        let lines: String = events
+            .iter()
+            .map(|e| serde_json::to_string(e).unwrap() + "\n")
+            .collect();
+        std::fs::write(&path, lines).unwrap();
+        path
+    }
+
+    #[test]
+    fn relabelling_a_record_cannot_escape_re_derivation() {
+        // The adversarial review's probe (P-1): a blocked run whose
+        // recommendation is upgraded to supported and relabelled so that
+        // replay would derive it under other rules, or not at all, with the
+        // whole chain re-hashed so every hash checks out.
+        let mut s = retry_constraint_scenario();
+        s.verifier
+            .by_id
+            .insert(EvidenceId::new("ev-constraint"), IntegrityStatus::Invalid);
+        let (log, run) = run("relabelled.jsonl", s);
+        let genuine = events(&log, &run);
+        let at = recommendation_index(&genuine);
+        let trace = receipt(&log, &run).policy_trace.unwrap();
+        assert_eq!(trace.kind, RecommendationKind::Blocked);
+        let forge = |label: &str, every_record: bool| {
+            let mut forged = genuine.clone();
+            recommendation_mut(&mut forged[at]).kind = RecommendationKind::Supported;
+            for (i, e) in forged.iter_mut().enumerate() {
+                if every_record || i == at {
+                    e.schema_version = label.into();
+                }
+            }
+            rehash(&mut forged);
+            forged
+        };
+
+        // 1.0, which replay never re-derives, and 1.1, whose rules it would
+        // use: both older than the run's records before it.
+        for label in ["1.0", "1.1"] {
+            match build_receipt_v2(&forge(label, false), TS.into()) {
+                Err(ReceiptError::SchemaDowngrade {
+                    sequence,
+                    found,
+                    earlier,
+                }) => {
+                    assert_eq!(sequence, genuine[at].sequence);
+                    assert_eq!((found.as_str(), earlier.as_str()), (label, SCHEMA_VERSION));
+                }
+                other => panic!("{label}: expected a refused downgrade, got {other:?}"),
+            }
+        }
+        // The event log refuses the same forged file, read-only or not.
+        let forged_1_0 = write_log("relabelled-1-0.jsonl", &forge("1.0", false));
+        for opened in [
+            EventLog::open_read_only(&forged_1_0),
+            EventLog::open(&forged_1_0),
+        ] {
+            match opened {
+                Err(EventLogError::HashChain { detail, .. }) => {
+                    assert_eq!(detail, "schema 1.0 record with chain hash")
+                }
+                other => panic!("expected a refused 1.0 label, got {other:?}"),
+            }
+        }
+        let forged_1_1 = write_log("relabelled-1-1.jsonl", &forge("1.1", false));
+        assert!(matches!(
+            EventLog::open_read_only(&forged_1_1),
+            Err(EventLogError::SchemaDowngrade { .. })
+        ));
+
+        // Every record relabelled 1.0 yet chained: 1.0 predates the chain.
+        match build_receipt_v2(&forge("1.0", true), TS.into()) {
+            Err(ReceiptError::HashChain {
+                sequence: 1,
+                detail,
+            }) => assert_eq!(detail, "schema 1.0 record with chain hash"),
+            other => panic!("expected a refused 1.0 label, got {other:?}"),
+        }
+        // A label no rules exist for, on one record or on all of them.
+        for every_record in [false, true] {
+            match build_receipt_v2(&forge("9.9", every_record), TS.into()) {
+                Err(ReceiptError::SchemaVersion { found, .. }) => assert_eq!(found, "9.9"),
+                other => panic!("expected an unreadable label, got {other:?}"),
+            }
+        }
+        // Every record relabelled 1.1, a consistent older run: replay
+        // re-derives it under the 1.1 rules, which block it too.
+        assert!(matches!(
+            build_receipt_v2(&forge("1.1", true), TS.into()),
+            Err(ReceiptError::Replay(
+                TransitionError::RecommendationMismatch {
+                    stored: RecommendationKind::Supported,
+                    derived: RecommendationKind::Blocked,
+                }
+            ))
+        ));
+    }
+
+    #[test]
+    fn an_unchained_record_never_follows_a_chained_one_of_the_run() {
+        // Across a gap (another run's records, or a cut one) a record's
+        // link cannot be checked, but a run still never goes back to
+        // unchained records.
+        let (log, run) = run("unchained-after-gap.jsonl", retry_constraint_scenario());
+        let mut events = events(&log, &run);
+        events.remove(3);
+        let sequence = events[3].sequence;
+        let legacy = &mut events[3];
+        legacy.schema_version = "1.0".into();
+        legacy.prev_hash.clear();
+        legacy.hash.clear();
+        match check_chain(&events) {
+            Err(ReceiptError::HashChain {
+                sequence: at,
+                detail,
+            }) => {
+                assert_eq!(at, sequence);
+                assert_eq!(
+                    detail,
+                    "unhashed record after a chained record of the same run"
+                );
+            }
+            other => panic!("expected a refused unchained record, got {other:?}"),
+        }
+        // The receipt refuses it even before the chain: its label is
+        // older than the run's records before it.
+        assert!(matches!(
+            build_receipt_v2(&events, TS.into()),
+            Err(ReceiptError::SchemaDowngrade { .. })
+        ));
+    }
+
+    #[test]
+    fn a_recommendation_recorded_from_1_1_on_must_re_derive() {
+        let (log, run) = run("not-derived.jsonl", retry_constraint_scenario());
+        let all = events(&log, &run);
+        let at = recommendation_index(&all);
+        let mut agg = RunAggregate::new(run.clone());
         let mut history = History::default();
-        for ev in log.events_for(&run) {
+        for ev in &all[..at] {
+            agg.apply(ev).unwrap();
             history.record(ev);
         }
-        for before in BEFORE_CARRY_FORWARD {
-            assert_eq!(history.unrejudged(before).len(), 2, "{before}");
+        let mut issued = all[at].clone();
+        let rec = recommendation_mut(&mut issued).clone();
+        let trace = re_derive(&issued, &rec, &agg, &history).unwrap();
+        assert_eq!(trace.map(|t| t.rule), Some(PolicyRule::AllChecksPassed));
+
+        // A version past 1.1 that no rules map (a build that reads a new
+        // schema before the policy maps it) gets no receipt, never one
+        // without a trace.
+        let mut unmapped = issued.clone();
+        unmapped.schema_version = "2.0".into();
+        match re_derive(&unmapped, &rec, &agg, &history) {
+            Err(ReceiptError::PolicyNotDerived {
+                sequence,
+                schema_version,
+                detail,
+            }) => {
+                assert_eq!(
+                    (sequence, schema_version.as_str()),
+                    (issued.sequence, "2.0")
+                );
+                assert_eq!(detail, "no policy rules for its schema version");
+            }
+            other => panic!("expected an underivable recommendation, got {other:?}"),
         }
-        assert!(history.unrejudged("1.3").is_empty());
-        assert!(history.unrejudged("1.4").is_empty());
+        let no_evaluation = RunAggregate::new(run.clone());
+        assert!(matches!(
+            re_derive(&issued, &rec, &no_evaluation, &history),
+            Err(ReceiptError::PolicyNotDerived { .. })
+        ));
+        // A pre-1.1 record predates re-derivation: no trace, by design.
+        let mut legacy = issued;
+        legacy.schema_version = "1.0".into();
+        assert_eq!(re_derive(&legacy, &rec, &agg, &history).unwrap(), None);
+    }
+
+    #[test]
+    fn a_forged_rationale_or_assumption_list_gets_no_receipt() {
+        // Replay checks only the kind; the sentence and the assumptions
+        // beside it must also be what the runtime derives.
+        let (log, run) = run("rationale.jsonl", retry_constraint_scenario());
+        let genuine = events(&log, &run);
+        let at = recommendation_index(&genuine);
+        let recorded = recommendation_mut(&mut genuine[at].clone()).clone();
+        assert_eq!(
+            recorded.rationale,
+            "Supported: 2/2 claims corroborated; proofs: 2 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges."
+        );
+
+        let mut forged = genuine.clone();
+        recommendation_mut(&mut forged[at]).rationale =
+            format!("{} Security review passed.", recorded.rationale);
+        rehash(&mut forged);
+        match build_receipt_v2(&forged, TS.into()) {
+            Err(ReceiptError::RationaleMismatch {
+                sequence,
+                stored,
+                derived,
+            }) => {
+                assert_eq!(sequence, genuine[at].sequence);
+                assert!(stored.ends_with("Security review passed."), "{stored}");
+                assert_eq!(derived, recorded.rationale);
+            }
+            other => panic!("expected a refused rationale, got {other:?}"),
+        }
+
+        let mut forged = genuine.clone();
+        recommendation_mut(&mut forged[at])
+            .unresolved_assumptions
+            .clear();
+        rehash(&mut forged);
+        match build_receipt_v2(&forged, TS.into()) {
+            Err(ReceiptError::AssumptionsMismatch {
+                stored, expected, ..
+            }) => {
+                assert!(stored.is_empty());
+                assert_eq!(expected, recorded.unresolved_assumptions);
+                assert_eq!(expected, ["Upstream services tolerate the proposed change"]);
+            }
+            other => panic!("expected refused assumptions, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unevaluated_items_are_the_items_no_evaluation_judged() {
+        // The run fails at its first evaluation: the Critic raised both
+        // items, and nothing ever judged them.
+        let mut s = retry_constraint_scenario();
+        s.model.evaluations.clear();
+        s.model.evaluations.push_back(Err(ModelError::Timeout));
+        let (log, run_id) = run("unevaluated-round-1.jsonl", s);
+        let r = receipt(&log, &run_id);
+        assert_eq!(
+            r.failure.as_ref().map(|f| f.stage.as_str()),
+            Some("evaluate")
+        );
+        let d = &r.deliberation;
+        assert_eq!(d.rounds, 0);
+        assert!(d.open_items.is_empty());
+        assert!(d.earlier_round_objections_never_rejudged.is_empty());
+        assert_eq!(
+            d.unevaluated_items,
+            [
+                OpenItem {
+                    id: "item-1".into(),
+                    raised_in_round: Some(1),
+                    kind: Some(ChallengeKind::ConstraintConflict),
+                    claim_id: Some(ClaimId::new("claim-2")),
+                    description: Some("Documented constraint caps retries at 3 attempts".into()),
+                },
+                OpenItem {
+                    id: "item-2".into(),
+                    raised_in_round: Some(1),
+                    kind: Some(ChallengeKind::UnsupportedClaim),
+                    claim_id: Some(ClaimId::new("claim-1")),
+                    description: Some("No evidence ties timeouts to insufficient retries".into()),
+                },
+            ]
+        );
+
+        // The run fails at its second evaluation, after a challenge that
+        // raised a new item: round 1's evaluation is the final one, so its
+        // items are the open ones, and the new item is unevaluated.
+        let mut s = retry_constraint_scenario();
+        let mut second = s.model.critiques[1].clone().unwrap();
+        second.items.push(ChallengeItem {
+            id: "item-3".into(),
+            kind: ChallengeKind::MissingTest,
+            claim_id: Some(ClaimId::new("claim-2")),
+            description: "No test covers the jittered backoff".into(),
+            evidence_refs: vec![],
+        });
+        s.model.critiques[1] = Ok(second);
+        s.model.evaluations[1] = Err(ModelError::Timeout);
+        let (log, run_id) = run("unevaluated-round-2.jsonl", s);
+        let d = receipt(&log, &run_id).deliberation;
+        assert_eq!(d.rounds, 1);
+        let open: Vec<&str> = d.open_items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(open, ["item-1", "item-2"]);
+        assert!(d.earlier_round_objections_never_rejudged.is_empty());
+        assert_eq!(
+            d.unevaluated_items,
+            [OpenItem {
+                id: "item-3".into(),
+                raised_in_round: Some(2),
+                kind: Some(ChallengeKind::MissingTest),
+                claim_id: Some(ClaimId::new("claim-2")),
+                description: Some("No test covers the jittered backoff".into()),
+            }]
+        );
+        // Missing tests are the open items of that kind; an unevaluated
+        // one is listed with the unevaluated items.
+        assert!(d.missing_tests.is_empty());
+    }
+
+    #[test]
+    fn a_run_continued_after_its_pre_1_1_records_is_only_partly_chained() {
+        // A run deliberated under 1.0 whose decision a later build
+        // recorded: only the decision is chained, and it commits to the
+        // records before it by count, not content.
+        let (mut log, run) = run("partly-chained.jsonl", retry_constraint_scenario());
+        let decision = HumanAuthorization {
+            schema_version: SCHEMA_VERSION.into(),
+            run_id: run.clone(),
+            authorized_by: "mario".into(),
+            approved: false,
+            decided_at: TS.into(),
+            idempotency_key: "k1".into(),
+            note: None,
+        };
+        record_human_decision(&mut log, decision, TS.into()).unwrap();
+        let mut events = events(&log, &run);
+        let last = events.len() - 1;
+        for e in &mut events[..last] {
+            e.schema_version = "1.0".into();
+            e.prev_hash.clear();
+            e.hash.clear();
+        }
+        let prev_hash = expected_prev_hash(Some(&events[last - 1]));
+        assert_eq!(prev_hash, format!("pre-1.1:{last}"));
+        events[last].prev_hash = prev_hash;
+        events[last].hash = compute_hash(&events[last]).unwrap();
+
+        let r = build_receipt_v2(&events, TS.into()).unwrap();
+        assert_eq!(r.chain.scope, ChainScope::PartlyChained);
+        assert_eq!(
+            r.chain.head_hash.as_deref(),
+            Some(events[last].hash.as_str())
+        );
+        assert!(r.chain.note.starts_with(CHAIN_NOTE_PARTLY_CHAINED));
+        assert!(r.chain.note.contains("unsigned"));
+        assert_eq!(r.protocol, "pre-1.1 (not re-derived on replay)");
+        assert_eq!(r.policy_trace, None);
+        assert_eq!(r.final_state, RunState::Rejected);
     }
 
     #[test]
@@ -950,19 +1491,35 @@ mod tests {
     }
 
     #[test]
-    fn receipt_round_trips_through_json_with_flat_round_verifications() {
+    fn receipt_round_trips_through_json_with_nested_round_verifications() {
         let (log, run) = run("json.jsonl", retry_constraint_scenario());
         let r = receipt(&log, &run);
         let json = serde_json::to_value(&r).unwrap();
         assert_eq!(json["format"], "hyphae-consensus-run-receipt-v2");
         assert_eq!(json["policy_trace"]["rule"], "all_checks_passed");
         assert_eq!(json["chain"]["scope"], "run");
-        // A verification is one flat object: its round beside its fields.
+        // A verification is nested beside its round, never flattened into
+        // the same object, so no field the record gains can collide.
         let v = &json["verifications"][0];
         assert_eq!(v["round"], 1);
-        assert_eq!(v["evidence_id"], "ev-constraint");
-        assert_eq!(v["factual_status"], "contradicted");
-        let back: RunReceiptV2 = serde_json::from_value(json).unwrap();
+        assert_eq!(v["verification"]["evidence_id"], "ev-constraint");
+        assert_eq!(v["verification"]["factual_status"], "contradicted");
+        let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["round", "verification"]);
+        let back: RunReceiptV2 = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(back, r);
+
+        // Verification records that carry a round of their own (schema 1.3
+        // adds one) still read back, and the receipt's tags are unchanged.
+        let mut tagged = json;
+        for v in tagged["verifications"].as_array_mut().unwrap() {
+            v["verification"]["round"] = serde_json::json!(7);
+        }
+        let back: RunReceiptV2 = serde_json::from_value(tagged).unwrap();
+        let rounds: Vec<u32> = back.verifications.iter().map(|v| v.round).collect();
+        assert_eq!(rounds, [1, 1, 2, 2]);
+        let again: RunReceiptV2 =
+            serde_json::from_value(serde_json::to_value(&back).unwrap()).unwrap();
+        assert_eq!(again, back);
     }
 }

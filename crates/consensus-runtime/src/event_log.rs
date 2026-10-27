@@ -3,7 +3,9 @@
 //!
 //! Guarantees:
 //! - Sequences are gap-free, starting at 1, validated on open.
-//! - Each append is flushed and fsync'd before it is acknowledged.
+//! - Each append is flushed and fsync'd before it is acknowledged. When
+//!   opening creates the file or its directories, the new directory
+//!   entries are fsync'd too on Unix (see [`EventLog::open`]).
 //! - A truncated final record (crash mid-write) is detected on open,
 //!   removed, and reported via `recovered_truncated_tail`; all complete
 //!   records before it remain valid.
@@ -17,14 +19,28 @@
 //!   effects and cannot re-trigger authorization or execution.
 //! - Since schema 1.1, every record carries a SHA-256 hash-chain link
 //!   (`prev_hash`/`hash`) validated on open: editing or deleting a past
-//!   record is detectable. Pre-1.1 records (empty hashes) form a legacy
-//!   prefix that is readable but not chain-verified; the first chained
-//!   record anchors to `pre-1.1:<last legacy sequence>`.
+//!   record is detectable. Pre-1.1 records (empty hashes, schema 1.0
+//!   only) form a legacy prefix that is readable but not chain-verified;
+//!   the first chained record anchors to `pre-1.1:<last legacy sequence>`.
+//!   A chained record labelled 1.0 is refused, and so is a record whose
+//!   schema version is older than an earlier record of the same run: no
+//!   writer produces either, and both would let a re-hashed record escape
+//!   replay's re-derivation of the recommendation (`SchemaDowngrade`).
 //! - A failed append rolls the file back to its previous length, so a
 //!   partial write never masquerades as a committed record. If the
 //!   rollback fails too, the handle is poisoned: it refuses every later
 //!   append (`Poisoned`), because its next record would land after the
-//!   partial bytes. Reopening the log recovers them as a torn tail.
+//!   failed one's bytes. Those bytes stay in the file, partial or
+//!   complete (the write may have finished and only its fsync failed):
+//!   reopening cuts a torn record or accepts a complete one, although its
+//!   append was reported as failed. After `Poisoned`, reopen the log and
+//!   look the event id up to learn whether the record landed.
+//! - A handle writes only where it left the file: if the file's length
+//!   is not what this handle last wrote (another writer appended to or
+//!   cut the log under it), the append is refused with
+//!   `ConcurrentWriter` before anything is written, and the handle is
+//!   poisoned. This catches a stale writer; only [`EventLog::open_locked`]
+//!   keeps a second writer out.
 //!
 //! Three ways to open a log, all validating exactly the same things:
 //! - [`EventLog::open`] creates the file when missing and repairs it: it
@@ -86,6 +102,27 @@ pub enum EventLogError {
         /// `payload`.
         fields: Vec<&'static str>,
     },
+    /// A record's schema version is older than one recorded earlier for
+    /// the same run. No writer downgrades a run (an older build cannot
+    /// read the newer records), so the record was relabelled, which could
+    /// make replay re-derive its recommendation under other rules.
+    #[error("schema_version {found:?} at line {line} is older than {earlier:?}, recorded earlier for run {run_id}")]
+    SchemaDowngrade {
+        line: usize,
+        run_id: RunId,
+        found: String,
+        earlier: String,
+    },
+    /// The file's length is not what this handle last left it at: another
+    /// writer appended to, or cut, the log under this handle. Nothing was
+    /// written, and the handle is now poisoned, because its view of the
+    /// log is stale.
+    #[error("event log {} changed under this handle (expected {expected} bytes, found {found}): another writer is using it; nothing was written, reopen the log", .path.display())]
+    ConcurrentWriter {
+        path: PathBuf,
+        expected: u64,
+        found: u64,
+    },
 }
 
 /// Chain anchor for the first record of an empty log.
@@ -133,7 +170,10 @@ pub(crate) enum Predecessor<'a> {
 /// Why `ev` fails its chain check against `prev`, or None when it passes.
 /// Empty-hash records are a legacy (pre-1.1) prefix only: schema must
 /// be "1.0", `prev_hash` must also be empty, and no chained record may
-/// precede them.
+/// precede them. A chained record is never labelled "1.0": schema 1.0
+/// predates the chain, and replay does not re-derive a 1.0 record's
+/// recommendation, so that label on a re-hashed record would hide a
+/// forged outcome.
 pub(crate) fn chain_link_problem(
     prev: Predecessor<'_>,
     ev: &ConsensusEvent,
@@ -154,6 +194,9 @@ pub(crate) fn chain_link_problem(
             }
         }
         return Ok(None);
+    }
+    if ev.schema_version == "1.0" {
+        return Ok(Some("schema 1.0 record with chain hash".into()));
     }
     let expected = match prev {
         Predecessor::Start => Some(expected_prev_hash(None)),
@@ -176,6 +219,23 @@ pub(crate) fn chain_link_problem(
         )));
     }
     Ok(None)
+}
+
+/// Order of a schema version, `<major>.<minor>` compared numerically, or
+/// None when `version` is not of that form. Every readable version is.
+pub(crate) fn schema_order(version: &str) -> Option<(u32, u32)> {
+    let (major, minor) = version.split_once('.')?;
+    Some((major.parse().ok()?, minor.parse().ok()?))
+}
+
+/// Whether `version` is older than `earlier`, both recorded for one run.
+/// A version without an order is never assumed newer: unless it equals
+/// `earlier`, it counts as older.
+pub(crate) fn is_downgrade(version: &str, earlier: &str) -> bool {
+    match (schema_order(version), schema_order(earlier)) {
+        (Some(now), Some(before)) => now < before,
+        _ => version != earlier,
+    }
 }
 
 /// Validate one record's chain link against the accepted prefix.
@@ -214,10 +274,13 @@ struct Parsed {
 }
 
 /// Parses and validates every record: schema version, gap-free
-/// sequence, unique ids, and the hash chain. Never touches the file.
+/// sequence, unique ids, the hash chain, and that no run's schema
+/// version goes back. Never touches the file.
 fn parse(bytes: &[u8]) -> Result<Parsed, EventLogError> {
     let mut events: Vec<ConsensusEvent> = Vec::new();
     let mut by_id: HashMap<EventId, u64> = HashMap::new();
+    // Per run, the newest schema version recorded so far.
+    let mut run_schema: HashMap<RunId, String> = HashMap::new();
     if bytes.is_empty() {
         return Ok(Parsed {
             events,
@@ -263,6 +326,24 @@ fn parse(bytes: &[u8]) -> Result<Parsed, EventLogError> {
                     return Err(EventLogError::DuplicateStoredId { line: line_no });
                 }
                 validate_chain_link(events.last(), &ev, line_no)?;
+                match run_schema.get_mut(&ev.run_id) {
+                    Some(earlier) if is_downgrade(&ev.schema_version, earlier) => {
+                        return Err(EventLogError::SchemaDowngrade {
+                            line: line_no,
+                            run_id: ev.run_id.clone(),
+                            found: ev.schema_version.clone(),
+                            earlier: earlier.clone(),
+                        });
+                    }
+                    Some(earlier) => {
+                        if *earlier != ev.schema_version {
+                            *earlier = ev.schema_version.clone();
+                        }
+                    }
+                    None => {
+                        run_schema.insert(ev.run_id.clone(), ev.schema_version.clone());
+                    }
+                }
                 events.push(ev);
                 offset += line.len() + 1;
             }
@@ -307,19 +388,66 @@ enum Access {
 }
 
 /// Opens `path` for reading and writing, creating it and its parent
-/// directory when missing. Never truncates.
+/// directories when missing. Never truncates.
+///
+/// A new file or directory is only durable once the directory holding
+/// its entry is synced, so on Unix every directory that gained an entry
+/// here (the file's own directory when the file is new, and the parent of
+/// each directory created) is fsync'd before this returns; a failure to do
+/// so fails the open. On Windows std's `File::open` cannot open a
+/// directory (that takes `FILE_FLAG_BACKUP_SEMANTICS`), so nothing is
+/// done there: only the file itself is ever synced, as before, and whether
+/// a just-created entry survives a power loss is up to the file system.
 fn open_for_writing(path: &Path) -> Result<File, EventLogError> {
+    let dir_of = |p: &Path| -> PathBuf {
+        match p.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+            _ => PathBuf::from("."),
+        }
+    };
+    // Directories that gain an entry here.
+    let mut gained_entry: Vec<PathBuf> = Vec::new();
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
+            let mut missing = Vec::new();
+            let mut dir = Some(parent);
+            while let Some(d) = dir.filter(|d| !d.as_os_str().is_empty() && !d.exists()) {
+                missing.push(d.to_path_buf());
+                dir = d.parent();
+            }
             std::fs::create_dir_all(parent)?;
+            gained_entry.extend(missing.iter().map(|d| dir_of(d)));
         }
     }
-    Ok(OpenOptions::new()
+    let file = match OpenOptions::new()
         .read(true)
         .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)?)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(file) => {
+            gained_entry.insert(0, dir_of(path));
+            file
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            OpenOptions::new().read(true).write(true).open(path)?
+        }
+        Err(e) => return Err(e.into()),
+    };
+    for dir in &gained_entry {
+        sync_dir(dir)?;
+    }
+    Ok(file)
+}
+
+/// Makes `dir`'s entries durable: fsync on Unix, nothing elsewhere (see
+/// [`open_for_writing`]).
+fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    if cfg!(unix) {
+        File::open(dir)?.sync_all()
+    } else {
+        Ok(())
+    }
 }
 
 /// The writer lock file of a log: `<file name>.lock` beside its canonical
@@ -361,9 +489,14 @@ pub struct EventLog {
     pub recovered_truncated_tail: bool,
     /// Opened with `open_read_only`: every append is refused.
     read_only: bool,
-    /// Set when a failed append could not be rolled back: every later
-    /// append is refused.
+    /// Set when a failed append could not be rolled back, or when another
+    /// writer changed the file under this handle: every later append is
+    /// refused.
     poisoned: Option<String>,
+    /// Length of the file as this handle last left it: set on open,
+    /// advanced by each committed append, unchanged by a rollback. An
+    /// append that finds another length writes nothing.
+    expected_len: u64,
     /// The lock file `open_locked` holds exclusively; dropping the handle
     /// closes it, which releases the lock.
     lock: Option<File>,
@@ -381,6 +514,11 @@ impl EventLog {
     /// directory) when missing. Validates every record; a torn final
     /// record is cut and reported in `recovered_truncated_tail`, and an
     /// unterminated final record gets its newline.
+    ///
+    /// When it creates the file or a directory, the new entries are made
+    /// durable before it returns: on Unix each directory that gained an
+    /// entry is fsync'd. On Windows std cannot open a directory to sync it,
+    /// so there only the file is synced.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, EventLogError> {
         let path = path.as_ref().to_path_buf();
         let file = open_for_writing(&path)?;
@@ -401,7 +539,10 @@ impl EventLog {
     /// data and is left in place when the handle drops (deleting it while
     /// another process is about to lock it could admit two writers). It is
     /// advisory: plain [`open`](Self::open) ignores it, so every writer of
-    /// a log must use `open_locked` for the exclusion to hold.
+    /// a log must use `open_locked` for the exclusion to hold. A locked
+    /// handle that finds the file changed by such a writer refuses to
+    /// append over it ([`EventLogError::ConcurrentWriter`]) and is
+    /// poisoned, but it cannot stop the other writer.
     pub fn open_locked(path: impl AsRef<Path>) -> Result<Self, EventLogError> {
         let path = path.as_ref().to_path_buf();
         let file = open_for_writing(&path)?;
@@ -472,7 +613,7 @@ impl EventLog {
             // Read-only: accepted as `open` accepts it, never repaired.
             (Tail::Unterminated, Access::ReadOnly) | (Tail::Clean, _) => {}
         }
-        file.seek(SeekFrom::End(0))?;
+        let expected_len = file.seek(SeekFrom::End(0))?;
         Ok(Self {
             path,
             file,
@@ -481,6 +622,7 @@ impl EventLog {
             recovered_truncated_tail: recovered,
             read_only: access == Access::ReadOnly,
             poisoned: None,
+            expected_len,
             lock,
             #[cfg(test)]
             fail_next_append_after: None,
@@ -539,8 +681,9 @@ impl EventLog {
         self.lock.is_some()
     }
 
-    /// True once a failed append could not be rolled back. The handle
-    /// then refuses every append; reopen the log to continue.
+    /// True once a failed append could not be rolled back, or another
+    /// writer changed the file under this handle. The handle then refuses
+    /// every append; reopen the log to continue.
     pub fn is_poisoned(&self) -> bool {
         self.poisoned.is_some()
     }
@@ -552,6 +695,17 @@ impl EventLog {
     /// the stored sequence without writing; with different content it is
     /// [`EventLogError::IdempotencyConflict`]. Refused on a read-only or
     /// poisoned handle.
+    ///
+    /// Before writing, the file's length must still be the one this
+    /// handle last left it at. Otherwise another writer appended to or cut
+    /// the log under this handle, so this record's sequence and chain link
+    /// would be stale and it would overwrite or fork that writer's records:
+    /// nothing is written, the handle is poisoned, and the append fails
+    /// with [`EventLogError::ConcurrentWriter`]. The check cannot close the
+    /// window between it and the write; only
+    /// [`open_locked`](Self::open_locked) on every writer excludes a second
+    /// writer. (The file is not opened in append mode: on Windows an append
+    /// handle cannot `set_len`, which rollback and torn-tail repair need.)
     pub fn append(&mut self, new: NewEvent) -> Result<u64, EventLogError> {
         if self.read_only {
             return Err(EventLogError::ReadOnly);
@@ -592,7 +746,20 @@ impl EventLog {
         ev.hash = compute_hash(&ev)?;
         let mut line = serde_json::to_string(&ev)?;
         line.push('\n');
-        let prev_len = self.file.metadata()?.len();
+        let prev_len = self.expected_len;
+        let found = self.file.metadata()?.len();
+        if found != prev_len {
+            let detail = format!(
+                "the log was {found} bytes long before appending event {}, not the {prev_len} this handle left it at: another writer changed it",
+                ev.event_id
+            );
+            self.poisoned = Some(detail);
+            return Err(EventLogError::ConcurrentWriter {
+                path: self.path.clone(),
+                expected: prev_len,
+                found,
+            });
+        }
         let written = (|| -> std::io::Result<()> {
             #[cfg(test)]
             if let Some(cut) = self.fail_next_append_after.take() {
@@ -620,6 +787,7 @@ impl EventLog {
             }
             return Err(e.into());
         }
+        self.expected_len = prev_len + line.len() as u64;
         self.by_id.insert(ev.event_id.clone(), seq);
         self.events.push(ev);
         Ok(seq)
@@ -1132,5 +1300,205 @@ mod tests {
             Err(EventLogError::IdempotencyConflict { sequence: 1, .. })
         ));
         assert_eq!(log.len(), 1);
+    }
+
+    /// Rewrites the log at `path` as a forger would: edits its records,
+    /// then recomputes every chain link and hash, so the chain itself
+    /// checks out. Returns the forged bytes.
+    fn forge(path: &Path, edit: impl FnOnce(&mut [ConsensusEvent])) -> Vec<u8> {
+        let mut events = EventLog::open_read_only(path)
+            .unwrap()
+            .all_events()
+            .to_vec();
+        edit(&mut events);
+        let mut bytes = Vec::new();
+        for i in 0..events.len() {
+            let prev_hash = expected_prev_hash(i.checked_sub(1).map(|j| &events[j]));
+            events[i].prev_hash = prev_hash;
+            events[i].hash = compute_hash(&events[i]).unwrap();
+            bytes.extend(serde_json::to_string(&events[i]).unwrap().into_bytes());
+            bytes.push(b'\n');
+        }
+        std::fs::write(path, &bytes).unwrap();
+        bytes
+    }
+
+    /// The error every way of opening `path` reports, checking that none
+    /// of them changed the file.
+    fn refusals(path: &Path) -> Vec<EventLogError> {
+        let bytes = std::fs::read(path).unwrap();
+        let errors = vec![
+            EventLog::open(path).unwrap_err(),
+            EventLog::open_locked(path).unwrap_err(),
+            EventLog::open_read_only(path).unwrap_err(),
+        ];
+        assert_eq!(std::fs::read(path).unwrap(), bytes, "refused, not repaired");
+        errors
+    }
+
+    #[test]
+    fn a_relabelled_record_is_refused_even_when_re_hashed() {
+        // Replay re-derives a recommendation only under the rules of its
+        // record's own schema version; 1.0 records are not re-derived at
+        // all. A forger who re-hashes the chain must not be able to pick
+        // the rules by relabelling a record.
+        let path = temp_log("relabelled.jsonl");
+        let run = RunId::new("run-1");
+        let mut log = EventLog::open(&path).unwrap();
+        log.append(task_event(&run, "e1")).unwrap();
+        log.append(fail_event(&run, "e2")).unwrap();
+        log.append(task_event(&RunId::new("run-2"), "e3")).unwrap();
+        drop(log);
+        let genuine = std::fs::read(&path).unwrap();
+
+        // A chained record labelled 1.0, which predates the chain.
+        forge(&path, |events| events[1].schema_version = "1.0".into());
+        for err in refusals(&path) {
+            match err {
+                EventLogError::HashChain { line: 2, detail } => {
+                    assert_eq!(detail, "schema 1.0 record with chain hash")
+                }
+                other => panic!("expected a refused 1.0 label, got {other:?}"),
+            }
+        }
+
+        // A record older than an earlier record of its own run.
+        std::fs::write(&path, &genuine).unwrap();
+        forge(&path, |events| events[1].schema_version = "1.1".into());
+        for err in refusals(&path) {
+            match err {
+                EventLogError::SchemaDowngrade {
+                    line: 2,
+                    run_id,
+                    found,
+                    earlier,
+                } => {
+                    assert_eq!(run_id, run);
+                    assert_eq!((found.as_str(), earlier.as_str()), ("1.1", SCHEMA_VERSION));
+                }
+                other => panic!("expected a downgrade, got {other:?}"),
+            }
+        }
+
+        // What writers do produce still opens: a run recorded under one
+        // version, a run continued under a newer one (a decision recorded
+        // after an upgrade), and another run on an older version.
+        std::fs::write(&path, &genuine).unwrap();
+        forge(&path, |events| {
+            events[0].schema_version = "1.1".into();
+            events[2].schema_version = "1.1".into();
+        });
+        let log = EventLog::open_read_only(&path).unwrap();
+        let versions: Vec<&str> = log
+            .all_events()
+            .iter()
+            .map(|e| e.schema_version.as_str())
+            .collect();
+        assert_eq!(versions, ["1.1", SCHEMA_VERSION, "1.1"]);
+        drop(log);
+        drop(EventLog::open(&path).unwrap());
+    }
+
+    #[test]
+    fn a_stale_handle_never_writes_over_another_writers_records() {
+        // RT-6: a writer whose view of the file is out of date would write
+        // at its old end, over records another writer committed.
+        let path = temp_log("stale-writer.jsonl");
+        let run = RunId::new("run-1");
+        let mut locked = EventLog::open_locked(&path).unwrap();
+        locked.append(task_event(&run, "e1")).unwrap();
+        // A plain open ignores the advisory lock and appends.
+        let mut other = EventLog::open(&path).unwrap();
+        assert_eq!(other.append(fail_event(&run, "p1")).unwrap(), 2);
+        drop(other);
+        let committed = std::fs::read(&path).unwrap();
+
+        let e2 = fail_event(&RunId::new("run-2"), "e2");
+        match locked.append(e2.clone()) {
+            Err(EventLogError::ConcurrentWriter {
+                path: p,
+                expected,
+                found,
+            }) => {
+                assert_eq!(p, path);
+                assert!(expected < found, "{expected} < {found}");
+                assert_eq!(found, committed.len() as u64);
+            }
+            other => panic!("expected ConcurrentWriter, got {other:?}"),
+        }
+        assert!(locked.is_poisoned());
+        assert_eq!(locked.len(), 1);
+        assert!(matches!(
+            locked.append(e2),
+            Err(EventLogError::Poisoned { .. })
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), committed, "nothing written");
+        drop(locked);
+
+        // The other writer's record survived, and the log is intact.
+        let mut log = EventLog::open_locked(&path).unwrap();
+        let ids: Vec<&str> = log
+            .all_events()
+            .iter()
+            .map(|e| e.event_id.as_str())
+            .collect();
+        assert_eq!(ids, ["e1", "p1"]);
+        assert_eq!(log.rebuild(&run).unwrap().state, RunState::Failed);
+
+        // A file cut under a handle is refused the same way.
+        let cut = log.all_events()[0].clone();
+        let first_line = serde_json::to_string(&cut).unwrap().len() as u64 + 1;
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(first_line)
+            .unwrap();
+        match log.append(task_event(&RunId::new("run-3"), "e3")) {
+            Err(EventLogError::ConcurrentWriter {
+                expected, found, ..
+            }) => {
+                assert_eq!((expected, found), (committed.len() as u64, first_line))
+            }
+            other => panic!("expected ConcurrentWriter, got {other:?}"),
+        }
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), first_line);
+    }
+
+    #[test]
+    fn open_creates_missing_directories_and_reopens_the_file_it_made() {
+        // On Unix this also runs the directory fsync of every new entry.
+        let root = temp_log("new-dirs");
+        let _ = std::fs::remove_dir_all(&root);
+        let path = root.join("a").join("b").join("events.jsonl");
+        let run = RunId::new("run-1");
+        let mut log = EventLog::open(&path).unwrap();
+        assert!(log.is_empty());
+        log.append(task_event(&run, "e1")).unwrap();
+        drop(log);
+        assert!(root.join("a").join("b").is_dir());
+        // An existing file is opened, never recreated or truncated.
+        let mut log = EventLog::open_locked(&path).unwrap();
+        assert_eq!(log.len(), 1);
+        log.append(fail_event(&run, "e2")).unwrap();
+        drop(log);
+        assert_eq!(EventLog::open_read_only(&path).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn readable_schema_versions_are_ordered() {
+        // The downgrade check relies on comparing versions numerically.
+        let orders: Vec<(u32, u32)> = READABLE_SCHEMA_VERSIONS
+            .iter()
+            .map(|v| schema_order(v).unwrap_or_else(|| panic!("{v} has no order")))
+            .collect();
+        assert!(orders.windows(2).all(|w| w[0] < w[1]), "{orders:?}");
+        assert!(is_downgrade("1.1", "1.2"));
+        assert!(!is_downgrade("1.2", "1.1"));
+        assert!(!is_downgrade("1.2", "1.2"));
+        assert!(!is_downgrade("1.10", "1.9"));
+        // Nothing is guessed about a version without an order.
+        assert!(is_downgrade("1.x", "1.2"));
+        assert!(!is_downgrade("1.x", "1.x"));
     }
 }

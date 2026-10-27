@@ -4,9 +4,10 @@
 //! [`RunReceipt`] is the original receipt. [`RunReceiptV2`] adds what the
 //! first one leaves out: the policy trace of the final round, the
 //! deliberation the human is deciding on (claims and their assessments,
-//! open objections, assumptions, uncertainties, revisions), the round of
-//! each verification, and the scope of the hash chain. Both are derived
-//! from a run's events at read time; neither is ever stored in the log.
+//! open and unevaluated objections, assumptions, uncertainties,
+//! revisions), the round of each verification, and the scope of the hash
+//! chain. Both are derived from a run's events at read time; neither is
+//! ever stored in the log.
 
 use crate::events::ModelInvocation;
 use crate::evidence::EvidenceVerification;
@@ -79,8 +80,9 @@ pub enum PolicyRule {
 }
 
 /// One policy check that keeps a run from `supported`, with the ids it
-/// concerns. Ids are listed once each, in the order the evaluation and
-/// verification records first name them.
+/// concerns. Evidence and claim ids are listed once each, in the order the
+/// evaluation and verification records first name them; `OpenItems` is the
+/// exception and lists item ids exactly as recorded, duplicates included.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub enum TraceReason {
@@ -93,7 +95,8 @@ pub enum TraceReason {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         abstain_reason: Option<String>,
     },
-    /// Challenge item ids the evaluation lists as unresolved, as recorded.
+    /// Challenge item ids the evaluation lists as unresolved, exactly as
+    /// recorded: in its order, and an id listed twice appears twice.
     OpenItems { item_ids: Vec<String> },
     /// The evaluation assesses no claim at all.
     NoAssessments,
@@ -101,8 +104,8 @@ pub enum TraceReason {
     UncorroboratedClaims { claim_ids: Vec<ClaimId> },
     /// Claims judged corroborated that cite no evidence of their own.
     ClaimsWithoutOwnEvidence { claim_ids: Vec<ClaimId> },
-    /// Cited supporting evidence with no `valid` integrity record
-    /// (unavailable, error, unchecked, or never retrieved).
+    /// Cited supporting evidence with no `valid` integrity record (invalid,
+    /// unavailable, error, unchecked, or never retrieved).
     CitedEvidenceNotValid { evidence_ids: Vec<EvidenceId> },
     /// No claim cites any supporting evidence, so nothing checked backs
     /// the run.
@@ -160,11 +163,17 @@ pub struct RunReceiptV2 {
     /// Stage and reason of a failed run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<ReceiptFailure>,
+    /// The recommendation as recorded. From schema 1.1 on, its kind,
+    /// rationale and unresolved assumptions were re-derived from the run's
+    /// records before this receipt was issued; a pre-1.1 one is shown as
+    /// recorded, unverified.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recommendation: Option<Recommendation>,
     /// The policy re-derived from the evaluation and verification records
     /// the recommendation was issued on. None when no recommendation was
-    /// issued, or for pre-1.1 records, which predate re-derivation.
+    /// issued, or for a pre-1.1 recommendation record, which predates
+    /// re-derivation. A recommendation recorded under schema 1.1 or later
+    /// always has one: no receipt is issued for it otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_trace: Option<PolicyTrace>,
     pub deliberation: Deliberation,
@@ -219,16 +228,26 @@ pub struct Deliberation {
     pub unmatched_assessments: Vec<ClaimAssessment>,
     /// Items the final evaluation lists as unresolved.
     pub open_items: Vec<OpenItem>,
+    /// Items of every challenge recorded after the final evaluation (or
+    /// with no evaluation at all), each with the round that raised it: the
+    /// run failed or stopped before any evaluation judged them. They are
+    /// open objections too, though no evaluation lists them.
+    pub unevaluated_items: Vec<OpenItem>,
     pub assumptions: Vec<String>,
     pub uncertainties: Vec<String>,
-    /// The open items of kind `missing_test`.
+    /// The open items of kind `missing_test`. Unevaluated items of that
+    /// kind stay in `unevaluated_items` only.
     pub missing_tests: Vec<OpenItem>,
     pub revisions: Vec<ReceiptRevision>,
-    /// Before protocol 1.3, each evaluation judged only the items of its
-    /// own round's challenge. These are the items raised in earlier rounds
-    /// that the final evaluation never listed: no later round judged them
-    /// again. Always empty for protocol 1.3 and later, which carries every
-    /// open item forward and requires a verdict on each in every round.
+    /// Items raised in rounds before the final one that the final
+    /// evaluation never listed as unresolved. Before protocol 1.3 each
+    /// evaluation judged only the items of its own round's challenge, so
+    /// no later round judged these again. Computed from the records for
+    /// every protocol, never from a schema label: a protocol that carries
+    /// open items forward leaves this empty only when its final evaluation
+    /// actually lists each earlier item. (No record carries per-item
+    /// verdicts yet; once evaluations do, an explicit verdict will count as
+    /// judging an item again.)
     pub earlier_round_objections_never_rejudged: Vec<UnrejudgedObjection>,
 }
 
@@ -254,11 +273,15 @@ pub struct ReceiptAssessment {
     pub note: String,
 }
 
-/// A challenge item the final evaluation lists as unresolved. Details are
-/// None when no recorded challenge contains an item with this id (pre-1.1
+/// A challenge item that is still open: listed as unresolved by the final
+/// evaluation ([`Deliberation::open_items`]), or raised after it
+/// ([`Deliberation::unevaluated_items`]). For a listed item, details are
+/// None when no recorded challenge contains an item with its id (pre-1.1
 /// evaluations listed challenge ids, not item ids).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct OpenItem {
+    /// Item id; for an unevaluated item, empty on pre-1.1 records, which
+    /// predate item ids.
     pub id: String,
     /// Round whose challenge raised the item.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -316,14 +339,17 @@ pub struct ReceiptAuthorization {
     pub note: Option<String>,
 }
 
-/// A verification record and the evaluation round it belongs to.
+/// A verification record and the evaluation round it belongs to. The
+/// record is nested, never flattened beside `round`: a field the record
+/// gains (schema 1.3 adds its own round) can then never collide with this
+/// receipt's tag.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RoundVerification {
-    /// 1-based evaluation round: the records after the k-th evaluation are
-    /// round k. 0 for a record made before any evaluation, which no policy
-    /// derivation reads.
+    /// 1-based evaluation round, from the record's position in the log:
+    /// the records after the k-th evaluation are round k. 0 for a record
+    /// made before any evaluation, which no policy derivation reads.
     pub round: u32,
-    #[serde(flatten)]
+    /// The verification record as stored.
     pub verification: EvidenceVerification,
 }
 
@@ -336,6 +362,11 @@ pub enum ChainScope {
     /// The run is a segment of a multi-run log: its records link to other
     /// runs' records, so verifying them needs the whole file.
     Log,
+    /// The run began before schema 1.1 and was continued after it: its
+    /// first records carry no hash chain and are not tamper-evident, and
+    /// the chain after them commits to them only by count
+    /// (`pre-1.1:<sequence>`), not by content.
+    PartlyChained,
     /// Pre-1.1 records carry no hash chain.
     Unchained,
 }
@@ -370,9 +401,13 @@ mod tests {
         for field in ["policy_trace", "deliberation", "chain", "verifications"] {
             assert!(receipt["properties"][field].is_object(), "{field}");
         }
-        // A round-tagged verification is one flat object.
+        let deliberation = &receipt["definitions"]["Deliberation"]["properties"];
+        assert!(deliberation["unevaluated_items"].is_object());
+        // A round-tagged verification nests the record beside its round,
+        // so no field the record gains can collide with the tag.
         let round = &receipt["definitions"]["RoundVerification"]["properties"];
-        assert!(round["round"].is_object() && round["evidence_id"].is_object());
+        assert!(round["round"].is_object() && round["verification"].is_object());
+        assert!(round["evidence_id"].is_null(), "not flattened");
 
         // Each trace reason is tagged by `reason`.
         let trace = schema::<PolicyTrace>();

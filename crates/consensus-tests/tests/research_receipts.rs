@@ -286,6 +286,17 @@ fn every_archived_run_has_a_receipt_v2_consistent_with_its_log() {
             never.iter().all(|o| o.raised_in_round < d.rounds),
             "{label}"
         );
+        // Items of a challenge no evaluation followed: only L06, which
+        // failed at its first evaluation, has any (counted from the raw
+        // JSONL, 2026-10-27).
+        let unevaluated = if label == "L06" { 10 } else { 0 };
+        assert_eq!(d.unevaluated_items.len(), unevaluated, "{label}");
+        assert!(
+            d.unevaluated_items
+                .iter()
+                .all(|i| i.raised_in_round == Some(d.rounds + 1) && i.kind.is_some()),
+            "{label}"
+        );
 
         // Verifications are the aggregate's, in order, each with its round.
         let flat: Vec<EvidenceVerification> = receipt
@@ -432,6 +443,43 @@ fn recorded_supported_runs_depend_on_objections_never_judged_again() {
         ])
     );
     assert_eq!(f03.deliberation.missing_tests.len(), 3);
+}
+
+#[test]
+fn a_run_that_failed_before_any_evaluation_still_shows_its_objections() {
+    let tmp = TempDir::new("unevaluated");
+    let m = manifest();
+    let receipts = receipts(&tmp.open_all(&m), &m);
+
+    // L06 failed at its first evaluation. The Critic had raised 10 items;
+    // none is an open item or an earlier-round objection, because nothing
+    // judged them, and the receipt still lists every one.
+    let l06 = &receipts["L06"];
+    assert_eq!(l06.failure.as_ref().unwrap().stage, "evaluate");
+    let d = &l06.deliberation;
+    assert_eq!(d.rounds, 0);
+    assert!(d.open_items.is_empty());
+    assert!(d.earlier_round_objections_never_rejudged.is_empty());
+    let ids: Vec<String> = d.unevaluated_items.iter().map(|i| i.id.clone()).collect();
+    let expected: Vec<String> = (7..=16).map(|n| format!("item-{n}")).collect();
+    assert_eq!(ids, expected);
+    assert!(d
+        .unevaluated_items
+        .iter()
+        .all(|i| i.raised_in_round == Some(1)));
+    let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+    for item in &d.unevaluated_items {
+        *kinds.entry(name!(item.kind.unwrap())).or_default() += 1;
+    }
+    assert_eq!(
+        kinds,
+        BTreeMap::from([
+            ("contradictory_evidence".to_string(), 2),
+            ("missing_test".to_string(), 4),
+            ("security_risk".to_string(), 1),
+            ("unsupported_claim".to_string(), 3),
+        ])
+    );
 }
 
 #[test]

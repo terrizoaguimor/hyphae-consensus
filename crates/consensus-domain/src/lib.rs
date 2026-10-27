@@ -31,16 +31,19 @@ pub use run::*;
 /// fail-closed evaluation contract and cross-round carry-forward. The
 /// runtime checks every 1.3 evaluation against the run's own record of
 /// open objections, retrieved records and earlier contradictions, both
-/// before recording it and on replay (`consensus_runtime::contract`).
-/// Carry-forward changes the inputs of the 1.2 rules, so the same
-/// deliberation can now derive `contested` where 1.2 derived `supported`.
+/// before recording it and on replay (`consensus_runtime::contract`);
+/// replay also re-derives each 1.3 verification record from the recorded
+/// evaluation, and refuses a run whose records go back to an earlier
+/// schema version. Carry-forward changes the inputs of the 1.2 rules, so
+/// the same deliberation can now derive `contested` where 1.2 derived
+/// `supported`.
 ///
 /// Every 1.3 change is additive. Each field added to an existing type
 /// reachable from [`ConsensusEvent`] is an `Option` or `Vec` with
-/// `#[serde(default, skip_serializing_if = ...)]`, so a 1.0-1.2 record
-/// parses and re-serializes byte for byte and its chain hash still
-/// verifies; no `HashMap`/`HashSet` appears in a serialized type. The
-/// 1.3 inventory:
+/// `#[serde(default, skip_serializing_if = ...)]`, so a 1.1-1.2 (chained)
+/// record parses and re-serializes byte for byte and its chain hash still
+/// verifies (1.0 records, which predate the chain, still parse); no
+/// `HashMap`/`HashSet` appears in a serialized type. The 1.3 inventory:
 /// - [`Evaluation::item_verdicts`] ([`ItemVerdict`], [`ItemStatus`]) and
 ///   [`Evaluation::cleared_contradictions`] ([`ClearedContradiction`]);
 /// - [`Recommendation::unresolved_uncertainties`];
@@ -56,8 +59,9 @@ pub use run::*;
 ///   `max_completion_tokens`, `schema_name`, `schema_sha256`,
 ///   `prompt_sha256`, `reasoning_effort`, `safety_identifier_sent`,
 ///   `attempts`;
-/// - [`EventPayload::RunFailed`]: `code` and `invocation` (a call whose
-///   document the runtime refused is still recorded);
+/// - [`EventPayload::RunFailed`]: `code` and `invocation` (a call the
+///   provider answered is still recorded when its output was refused, by
+///   the adapter or by the runtime's contract);
 ///   [`EventPayload::EvidenceUnavailable`]: `code`;
 /// - a new event, [`EventPayload::RecallProven`]: the request a proof
 ///   actually sealed, the ids it covers (none for an empty recall), the

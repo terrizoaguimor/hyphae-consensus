@@ -14,10 +14,49 @@ use thiserror::Error;
 pub enum ModelError {
     #[error("model call timed out")]
     Timeout,
-    #[error("model returned malformed structured output: {0}")]
-    MalformedOutput(String),
+    #[error("model returned malformed structured output: {reason}")]
+    MalformedOutput {
+        reason: String,
+        /// The call, when the provider answered it and its output was
+        /// then refused: it was made and billed, so the orchestrator
+        /// keeps it in `RunFailed.invocation` (audit finding TC-7).
+        /// `None` when no answered call stands behind the error.
+        invocation: Option<Box<ModelInvocation>>,
+    },
     #[error("model service unavailable: {0}")]
     Unavailable(String),
+}
+
+impl ModelError {
+    /// Malformed output with no answered call behind it (yet): see
+    /// [`after_call`](Self::after_call).
+    pub fn malformed(reason: impl Into<String>) -> Self {
+        Self::MalformedOutput {
+            reason: reason.into(),
+            invocation: None,
+        }
+    }
+
+    /// The same error, recording the answered call it refused. Only
+    /// malformed output follows an answer, so other errors are returned
+    /// unchanged.
+    pub fn after_call(self, call: ModelInvocation) -> Self {
+        match self {
+            Self::MalformedOutput { reason, .. } => Self::MalformedOutput {
+                reason,
+                invocation: Some(Box::new(call)),
+            },
+            other => other,
+        }
+    }
+
+    /// The answered call this error refused, if any.
+    pub fn invocation(&self) -> Option<&ModelInvocation> {
+        match self {
+            Self::MalformedOutput { invocation, .. } => invocation.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 /// Bounded context handed to a role call. Evidence content inside is data
@@ -47,6 +86,11 @@ pub struct RoleContext {
 /// judgment on every carried contradiction. The orchestrator checks it
 /// before recording anything and fails the run on a violation; it never
 /// completes or repairs a document, whichever client produced it.
+///
+/// A client that refuses a document after the provider answered returns
+/// [`ModelError::MalformedOutput`] with the call's invocation
+/// ([`ModelError::after_call`]), so the call is recorded even though no
+/// document is.
 pub trait ModelClient {
     fn propose(&mut self, task: &Task) -> Result<(Proposal, ModelInvocation), ModelError>;
     fn critique(

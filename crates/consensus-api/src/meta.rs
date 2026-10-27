@@ -10,7 +10,10 @@
 //! outcome or authorization. Every response is deserialized into a typed
 //! draft and cross-checked (claim/evidence references) before it becomes
 //! a domain document; any deviation is `ModelError::MalformedOutput` and
-//! fails the run safely in the orchestrator.
+//! fails the run safely in the orchestrator. Once the API has answered,
+//! the error carries the call's invocation (request id, tokens): the call
+//! was made and billed, so it stays in the run's record even though its
+//! document does not (audit finding TC-7).
 //!
 //! The Evaluator's ids decide the outcome, so `evaluate` never drops one
 //! (audit finding MA-1): every claim id, cited record id, item verdict
@@ -18,16 +21,21 @@
 //! the proposal, a record of the round context, an objection under
 //! evaluation or a carried contradiction, and none may repeat; a missing
 //! verdict or a second assessment of one claim is malformed too. The
-//! error names the field and the value. Only an omitted claim is still
-//! completed, as uncorroborated (fail-closed). Ids no decision reads
-//! (the Critic's `claim_id`/`evidence_refs`, the reviser's
+//! error names the field and the value, quoted at most
+//! [`MAX_QUOTED_CHARS`](consensus_runtime::contract::MAX_QUOTED_CHARS)
+//! characters long, since the message is persisted. Only an omitted
+//! claim is still completed, as uncorroborated (fail-closed). Ids no
+//! decision reads (the Critic's `claim_id`/`evidence_refs`, the reviser's
 //! `addressed_items`) are still filtered to known ids.
 //!
 //! Protocol 1.3 prompts carry the deliberation across rounds: the
 //! Evaluator is shown every objection still open (carried ones marked
 //! with the round they were raised in) and every carried contradiction,
 //! and must judge each; the Critic is shown the open objections and told
-//! not to repeat them; the reviser is shown every objection left open.
+//! not to repeat them; the reviser is shown every objection left open. An
+//! objection names its target claim only while that claim is part of the
+//! proposal shown: claim ids are minted anew on every revision, so an
+//! earlier proposal's id would name a claim that no longer exists.
 //!
 //! Evidence text is embedded in prompts inside explicit
 //! `UNTRUSTED_EVIDENCE` delimiters with instructions to treat it as data
@@ -35,7 +43,7 @@
 
 use crate::config::MetaConfig;
 use consensus_domain::*;
-use consensus_runtime::contract::OpenItem;
+use consensus_runtime::contract::{quote, OpenItem};
 use consensus_runtime::ports::{ModelClient, ModelError, RoleContext};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -247,7 +255,9 @@ impl MetaModelClient {
     }
 
     /// One schema-constrained call. Retries transient 429/5xx with
-    /// bounded backoff; timeouts and malformed payloads are terminal.
+    /// bounded backoff; timeouts and malformed payloads are terminal. Once
+    /// the API has answered, a refused answer carries the call's
+    /// invocation ([`ModelError::after_call`]).
     fn call<T: JsonSchema + for<'de> Deserialize<'de>>(
         &mut self,
         schema_name: &str,
@@ -255,7 +265,7 @@ impl MetaModelClient {
         user: &str,
     ) -> Result<(T, ModelInvocation), ModelError> {
         let mut schema = serde_json::to_value(schemars::schema_for!(T))
-            .map_err(|e| ModelError::MalformedOutput(format!("schema build: {e}")))?;
+            .map_err(|e| ModelError::malformed(format!("schema build: {e}")))?;
         strict_schema(&mut schema);
         let body = ChatRequest {
             model: self.cfg.model.clone(),
@@ -280,7 +290,7 @@ impl MetaModelClient {
         );
         let started = Instant::now();
         let mut attempt = 0u32;
-        let parsed: ChatResponse = loop {
+        let answered = loop {
             attempt += 1;
             match self
                 .http
@@ -292,9 +302,7 @@ impl MetaModelClient {
                 Ok(resp) => {
                     let status = resp.status();
                     if status.is_success() {
-                        break resp.json::<ChatResponse>().map_err(|e| {
-                            ModelError::MalformedOutput(format!("response envelope: {e}"))
-                        })?;
+                        break resp;
                     }
                     if (status.as_u16() == 429 || status.is_server_error())
                         && attempt <= self.cfg.max_retries
@@ -318,35 +326,17 @@ impl MetaModelClient {
                 }
             }
         };
-        let finish_reason = parsed.choices.first().and_then(|c| c.finish_reason.clone());
-        let content = parsed
-            .choices
-            .first()
-            .and_then(|c| c.message.content.clone())
-            .ok_or_else(|| {
-                ModelError::MalformedOutput("missing choices[0].message.content".into())
-            })?;
-        // Opt-in diagnostics: keep the raw structured output (model text
-        // only; never the prompt or the key) to audit what the adapter
-        // later filtered or defaulted.
-        if let Some(dir) = std::env::var_os("CONSENSUS_META_DEBUG_DIR").filter(|d| !d.is_empty()) {
-            let name = format!(
-                "{schema_name}-{}.json",
-                parsed.id.as_deref().unwrap_or("no-id")
-            );
-            let _ = std::fs::write(std::path::Path::new(&dir).join(name), &content);
-        }
-        let draft: T = serde_json::from_str(&content)
-            .map_err(|e| ModelError::MalformedOutput(format!("draft parse: {e}")))?;
-        let invocation = ModelInvocation {
+        // The API has answered: from here on the call is recorded,
+        // whatever becomes of its output.
+        let envelope = answered.json::<ChatResponse>();
+        let call = ModelInvocation {
             provider: "meta".into(),
-            // Exact identity: prefer the model string echoed by the API.
-            model: parsed.model.unwrap_or_else(|| self.cfg.model.clone()),
-            request_id: parsed.id,
+            model: self.cfg.model.clone(),
+            request_id: None,
             latency_ms: Some(started.elapsed().as_millis() as u64),
-            input_tokens: parsed.usage.as_ref().and_then(|u| u.prompt_tokens),
-            output_tokens: parsed.usage.as_ref().and_then(|u| u.completion_tokens),
-            finish_reason,
+            input_tokens: None,
+            output_tokens: None,
+            finish_reason: None,
             reasoning_tokens: None,
             max_completion_tokens: None,
             schema_name: Some(schema_name.to_string()),
@@ -356,7 +346,68 @@ impl MetaModelClient {
             safety_identifier_sent: None,
             attempts: Some(attempt),
         };
-        Ok((draft, invocation))
+        // An unreadable envelope names no request id or usage: the call is
+        // recorded with what is known (its tokens stay unknown).
+        let parsed = match envelope {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                let reason = format!("response envelope: {}", Self::truncate(&e.to_string(), 300));
+                return Err(ModelError::malformed(reason).after_call(call));
+            }
+        };
+        let content = parsed
+            .choices
+            .first()
+            .and_then(|c| c.message.content.clone());
+        // Opt-in diagnostics: keep the raw structured output (model text
+        // only; never the prompt or the key) to audit what the adapter
+        // later filtered or defaulted.
+        if let (Some(dir), Some(content)) = (
+            std::env::var_os("CONSENSUS_META_DEBUG_DIR").filter(|d| !d.is_empty()),
+            &content,
+        ) {
+            let name = format!(
+                "{schema_name}-{}.json",
+                parsed.id.as_deref().unwrap_or("no-id")
+            );
+            let _ = std::fs::write(std::path::Path::new(&dir).join(name), content);
+        }
+        let invocation = ModelInvocation {
+            // Exact identity: prefer the model string echoed by the API.
+            model: parsed.model.unwrap_or_else(|| self.cfg.model.clone()),
+            request_id: parsed.id,
+            input_tokens: parsed.usage.as_ref().and_then(|u| u.prompt_tokens),
+            output_tokens: parsed.usage.as_ref().and_then(|u| u.completion_tokens),
+            finish_reason: parsed.choices.first().and_then(|c| c.finish_reason.clone()),
+            ..call
+        };
+        let Some(content) = content else {
+            return Err(
+                ModelError::malformed("missing choices[0].message.content").after_call(invocation)
+            );
+        };
+        // Parse errors can quote the model's text (an invalid value, say):
+        // bounded, since the reason is persisted.
+        match serde_json::from_str::<T>(&content) {
+            Ok(draft) => Ok((draft, invocation)),
+            Err(e) => {
+                let reason = format!("draft parse: {}", Self::truncate(&e.to_string(), 300));
+                Err(ModelError::malformed(reason).after_call(invocation))
+            }
+        }
+    }
+
+    /// The document built from an answered call, paired with the call's
+    /// invocation; a refused document keeps the invocation on its error
+    /// instead, so the billed call is still recorded (TC-7).
+    fn answered<D>(
+        built: Result<D, ModelError>,
+        invocation: ModelInvocation,
+    ) -> Result<(D, ModelInvocation), ModelError> {
+        match built {
+            Ok(document) => Ok((document, invocation)),
+            Err(e) => Err(e.after_call(invocation)),
+        }
     }
 
     /// Neutralizes delimiter breakouts in untrusted text. Defense in
@@ -468,17 +519,17 @@ impl MetaModelClient {
 
     fn build_proposal(&mut self, run_id: &RunId, d: DraftProposal) -> Result<Proposal, ModelError> {
         if d.claims.len() > Self::MAX_CLAIMS_PER_PROPOSAL {
-            return Err(ModelError::MalformedOutput(format!(
+            return Err(ModelError::malformed(format!(
                 "draft has {} claims (cap {})",
                 d.claims.len(),
                 Self::MAX_CLAIMS_PER_PROPOSAL
             )));
         }
         if d.claims.is_empty() {
-            return Err(ModelError::MalformedOutput("draft has no claims".into()));
+            return Err(ModelError::malformed("draft has no claims"));
         }
         if let Some(n) = d.claims.iter().position(|c| c.statement.trim().is_empty()) {
-            return Err(ModelError::MalformedOutput(format!(
+            return Err(ModelError::malformed(format!(
                 "draft claim {} has an empty statement",
                 n + 1
             )));
@@ -508,17 +559,25 @@ impl MetaModelClient {
     }
 
     /// One objection as a role sees it: id, kind, target claim, when it
-    /// was raised (`None`: this round) and its description.
-    fn item_line(item: &ChallengeItem, raised_in_round: Option<u32>) -> String {
+    /// was raised (`None`: this round) and its description. The target
+    /// claim is named only while it is one of `claims`, the proposal the
+    /// role is shown: every revision mints new claim ids, so a carried
+    /// objection's claim id would otherwise name a claim that no longer
+    /// exists, next to the rule to assess every claim by its id.
+    fn item_line(item: &ChallengeItem, raised_in_round: Option<u32>, claims: &[Claim]) -> String {
         let raised = match raised_in_round {
             Some(round) => format!("raised in round {round}, still open"),
             None => "raised this round".to_string(),
         };
+        let claim = match &item.claim_id {
+            Some(id) if claims.iter().any(|c| &c.id == id) => id.to_string(),
+            Some(_) => "(from an earlier proposal)".to_string(),
+            None => "(none)".to_string(),
+        };
         format!(
-            "- id={} [{:?}] claim={:?} ({raised}) {}",
+            "- id={} [{:?}] claim={claim} ({raised}) {}",
             item.id,
             item.kind,
-            item.claim_id,
             Self::escape_untrusted(&item.description)
         )
     }
@@ -546,18 +605,18 @@ impl MetaModelClient {
         ctx: &RoleContext,
         drafts: Vec<DraftAssessment>,
     ) -> Result<Vec<ClaimAssessment>, ModelError> {
-        let malformed = |m: String| Err(ModelError::MalformedOutput(m));
+        let malformed = |m: String| Err(ModelError::malformed(m));
         for (n, a) in drafts.iter().enumerate() {
             if !proposal.claims.iter().any(|c| c.id.as_str() == a.claim_id) {
                 return malformed(format!(
-                    "assessments: claim_id {:?} is not a claim of the proposal",
-                    a.claim_id
+                    "assessments: claim_id {} is not a claim of the proposal",
+                    quote(&a.claim_id)
                 ));
             }
             if drafts[..n].iter().any(|b| b.claim_id == a.claim_id) {
                 return malformed(format!(
-                    "assessments: claim_id {:?} is assessed more than once",
-                    a.claim_id
+                    "assessments: claim_id {} is assessed more than once",
+                    quote(&a.claim_id)
                 ));
             }
             for (field, cited) in [
@@ -567,14 +626,16 @@ impl MetaModelClient {
                 for (m, id) in cited.iter().enumerate() {
                     if !ctx.evidence.iter().any(|e| e.id.as_str() == id) {
                         return malformed(format!(
-                            "assessments[{:?}].{field}: {id:?} is not a retrieved record",
-                            a.claim_id
+                            "assessments[{}].{field}: {} is not a retrieved record",
+                            quote(&a.claim_id),
+                            quote(id)
                         ));
                     }
                     if cited[..m].contains(id) {
                         return malformed(format!(
-                            "assessments[{:?}].{field}: {id:?} is listed more than once",
-                            a.claim_id
+                            "assessments[{}].{field}: {} is listed more than once",
+                            quote(&a.claim_id),
+                            quote(id)
                         ));
                     }
                 }
@@ -623,18 +684,18 @@ impl MetaModelClient {
         expected: &[&str],
         drafts: Vec<DraftItemVerdict>,
     ) -> Result<Vec<ItemVerdict>, ModelError> {
-        let malformed = |m: String| ModelError::MalformedOutput(m);
+        let malformed = |m: String| ModelError::malformed(m);
         for (n, v) in drafts.iter().enumerate() {
             if !expected.contains(&v.item_id.as_str()) {
                 return Err(malformed(format!(
-                    "item_verdicts: item_id {:?} is not an objection under evaluation",
-                    v.item_id
+                    "item_verdicts: item_id {} is not an objection under evaluation",
+                    quote(&v.item_id)
                 )));
             }
             if drafts[..n].iter().any(|w| w.item_id == v.item_id) {
                 return Err(malformed(format!(
-                    "item_verdicts: item_id {:?} has more than one verdict",
-                    v.item_id
+                    "item_verdicts: item_id {} has more than one verdict",
+                    quote(&v.item_id)
                 )));
             }
         }
@@ -650,10 +711,46 @@ impl MetaModelClient {
                         reason: v.reason.clone(),
                     })
                     .ok_or_else(|| {
-                        malformed(format!("item_verdicts: no verdict for item_id {id:?}"))
+                        malformed(format!(
+                            "item_verdicts: no verdict for item_id {}",
+                            quote(id)
+                        ))
                     })
             })
             .collect()
+    }
+
+    /// The evaluation a draft states, every id checked as described on
+    /// the helpers below; `expected` are the objections under evaluation,
+    /// in the order they were shown.
+    fn evaluation_from_draft(
+        &self,
+        proposal: &Proposal,
+        ctx: &RoleContext,
+        expected: &[&str],
+        draft: DraftEvaluation,
+    ) -> Result<Evaluation, ModelError> {
+        let assessments = Self::assessments_from_draft(proposal, ctx, draft.assessments)?;
+        let item_verdicts = Self::verdicts_from_draft(expected, draft.item_verdicts)?;
+        let cleared_contradictions = Self::cleared_from_draft(ctx, draft.cleared_contradictions)?;
+        // Derived, never asked for separately: exactly the open verdicts.
+        let unresolved_items = item_verdicts
+            .iter()
+            .filter(|v| v.status == ItemStatus::Unresolved)
+            .map(|v| v.item_id.clone())
+            .collect();
+        Ok(Evaluation {
+            schema_version: SCHEMA_VERSION.into(),
+            run_id: proposal.run_id.clone(),
+            target_proposal: proposal.id.clone(),
+            assessments,
+            unresolved_items,
+            item_verdicts,
+            cleared_contradictions,
+            abstain: draft.abstain,
+            abstain_reason: draft.abstain_reason,
+            created_at: (self.now)(),
+        })
     }
 
     /// Cleared contradictions as drafted. Only a carried contradiction can
@@ -670,15 +767,15 @@ impl MetaModelClient {
                 .iter()
                 .any(|id| id.as_str() == c.evidence_id)
             {
-                return Err(ModelError::MalformedOutput(format!(
-                    "cleared_contradictions: evidence_id {:?} is not a carried contradiction",
-                    c.evidence_id
+                return Err(ModelError::malformed(format!(
+                    "cleared_contradictions: evidence_id {} is not a carried contradiction",
+                    quote(&c.evidence_id)
                 )));
             }
             if drafts[..n].iter().any(|d| d.evidence_id == c.evidence_id) {
-                return Err(ModelError::MalformedOutput(format!(
-                    "cleared_contradictions: evidence_id {:?} is cleared more than once",
-                    c.evidence_id
+                return Err(ModelError::malformed(format!(
+                    "cleared_contradictions: evidence_id {} is cleared more than once",
+                    quote(&c.evidence_id)
                 )));
             }
         }
@@ -703,7 +800,8 @@ impl ModelClient for MetaModelClient {
             "You are the Proposer in a multi-agent engineering review.",
             &user,
         )?;
-        Ok((self.build_proposal(&task.run_id.clone(), draft)?, inv))
+        let built = self.build_proposal(&task.run_id.clone(), draft);
+        Self::answered(built, inv)
     }
 
     fn critique(
@@ -719,7 +817,7 @@ impl ModelClient for MetaModelClient {
             let lines: Vec<String> = ctx
                 .open_items
                 .iter()
-                .map(|o| Self::item_line(&o.item, Some(o.raised_in_round)))
+                .map(|o| Self::item_line(&o.item, Some(o.raised_in_round), &proposal.claims))
                 .collect();
             format!(
                 "\n\nObjections from earlier rounds that are still open (they stay on the record and the Evaluator judges each of them again). Do not repeat them; raise only new objections:\n{}",
@@ -745,12 +843,13 @@ impl ModelClient for MetaModelClient {
             .enumerate()
             .find(|(_, i)| Self::is_degenerate_description(&i.description))
         {
-            return Err(ModelError::MalformedOutput(format!(
+            let refused = ModelError::malformed(format!(
                 "challenge item {} of {} states no objection (description {:?})",
                 n + 1,
                 draft.items.len(),
                 Self::truncate(&item.description, 80)
-            )));
+            ));
+            return Err(refused.after_call(inv));
         }
         let known_claims: Vec<&ClaimId> = proposal.claims.iter().map(|c| &c.id).collect();
         let known_evidence: Vec<&EvidenceId> = ctx.evidence.iter().map(|e| &e.id).collect();
@@ -796,7 +895,7 @@ impl ModelClient for MetaModelClient {
         let expected = Self::under_evaluation(ctx, challenge);
         let items: Vec<String> = expected
             .iter()
-            .map(|(item, raised)| Self::item_line(item, *raised))
+            .map(|(item, raised)| Self::item_line(item, *raised, &proposal.claims))
             .collect();
         let contradictions: Vec<String> = ctx
             .carried_contradictions
@@ -818,30 +917,8 @@ impl ModelClient for MetaModelClient {
             &user,
         )?;
         let expected_ids: Vec<&str> = expected.iter().map(|(i, _)| i.id.as_str()).collect();
-        let assessments = Self::assessments_from_draft(proposal, ctx, draft.assessments)?;
-        let item_verdicts = Self::verdicts_from_draft(&expected_ids, draft.item_verdicts)?;
-        let cleared_contradictions = Self::cleared_from_draft(ctx, draft.cleared_contradictions)?;
-        // Derived, never asked for separately: exactly the open verdicts.
-        let unresolved_items = item_verdicts
-            .iter()
-            .filter(|v| v.status == ItemStatus::Unresolved)
-            .map(|v| v.item_id.clone())
-            .collect();
-        Ok((
-            Evaluation {
-                schema_version: SCHEMA_VERSION.into(),
-                run_id: proposal.run_id.clone(),
-                target_proposal: proposal.id.clone(),
-                assessments,
-                unresolved_items,
-                item_verdicts,
-                cleared_contradictions,
-                abstain: draft.abstain,
-                abstain_reason: draft.abstain_reason,
-                created_at: (self.now)(),
-            },
-            inv,
-        ))
+        let built = self.evaluation_from_draft(proposal, ctx, &expected_ids, draft);
+        Self::answered(built, inv)
     }
 
     fn revise(
@@ -861,7 +938,7 @@ impl ModelClient for MetaModelClient {
                 let shown = expected
                     .iter()
                     .find(|(item, _)| &item.id == id)
-                    .map(|(item, raised)| Self::item_line(item, *raised))
+                    .map(|(item, raised)| Self::item_line(item, *raised, &proposal.claims))
                     .unwrap_or_else(|| format!("- id={id}"));
                 match evaluation.item_verdicts.iter().find(|v| &v.item_id == id) {
                     Some(v) if !v.reason.trim().is_empty() => format!(
@@ -922,24 +999,23 @@ impl ModelClient for MetaModelClient {
             .into_iter()
             .filter(|id| known_items.contains(&id.as_str()))
             .collect();
-        let new_proposal = self.build_proposal(
-            &proposal.run_id.clone(),
-            DraftProposal {
-                summary: draft.summary,
-                plan_steps: draft.plan_steps,
-                claims: draft.claims,
-                assumptions: draft.assumptions,
-                uncertainties: draft.uncertainties,
-            },
-        );
-        Ok((
-            Revision {
+        let built = self
+            .build_proposal(
+                &proposal.run_id.clone(),
+                DraftProposal {
+                    summary: draft.summary,
+                    plan_steps: draft.plan_steps,
+                    claims: draft.claims,
+                    assumptions: draft.assumptions,
+                    uncertainties: draft.uncertainties,
+                },
+            )
+            .map(|new_proposal| Revision {
                 schema_version: SCHEMA_VERSION.into(),
-                proposal: new_proposal?,
+                proposal: new_proposal,
                 supersedes: proposal.id.clone(),
                 addressed_items: addressed,
-            },
-            inv,
-        ))
+            });
+        Self::answered(built, inv)
     }
 }

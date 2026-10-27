@@ -144,8 +144,9 @@ pub struct HumanAuthorization {
     pub idempotency_key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// Schema 1.3: the authority the decision was taken under. Absent on
-    /// earlier records, which read as unspecified, never as operator
+    /// Schema 1.3: the authority the decision was taken under. It stays
+    /// `None` until the operator and public routes set it, and on every
+    /// earlier record; `None` reads as unspecified, never as operator
     /// authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authority: Option<Authority>,

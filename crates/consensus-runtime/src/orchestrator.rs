@@ -15,10 +15,12 @@
 //! round's context holds every record retrieved so far in the run, the
 //! objections still open and the contradictions not yet cleared, all read
 //! from the run's aggregate. Each model document is checked against the
-//! [`contract`](crate::contract) before it is recorded; a violation fails
-//! the run at that call's stage, with the refused call kept in the
-//! record. The recommendation is derived from the recorded evaluation and
-//! verifications, exactly the inputs replay re-derives it from.
+//! [`contract`] before it is recorded; a violation fails the run at that
+//! call's stage, with the refused call kept in the record. A call the
+//! adapter refused after the provider answered is kept the same way
+//! ([`ModelError::invocation`]). The recommendation is derived from the
+//! recorded evaluation and verifications, exactly the inputs replay
+//! re-derives it from.
 
 use crate::clock::{Clock, IdGen};
 use crate::contract::{self, ContractViolation};
@@ -68,7 +70,7 @@ pub mod codes {
 fn model_error_code(e: &ModelError) -> &'static str {
     match e {
         ModelError::Timeout => codes::MODEL_TIMEOUT,
-        ModelError::MalformedOutput(_) => codes::MODEL_MALFORMED_OUTPUT,
+        ModelError::MalformedOutput { .. } => codes::MODEL_MALFORMED_OUTPUT,
         ModelError::Unavailable(_) => codes::MODEL_UNAVAILABLE,
     }
 }
@@ -240,10 +242,11 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
     /// integrity-checked and verified for that round; and the objections
     /// and contradictions the previous evaluation left open are shown
     /// again and must be judged again. A proposal, challenge or evaluation
-    /// that breaks the [`contract`](crate::contract) is refused before it
-    /// is recorded: the run fails at that call's stage (code
-    /// `proposal_contract`, `challenge_contract` or `evaluation_contract`)
-    /// and the refused call is kept in `RunFailed.invocation`. A revision
+    /// that breaks the [`contract`] is refused before it is recorded: the
+    /// run fails at that call's stage (code `proposal_contract`,
+    /// `challenge_contract` or `evaluation_contract`) and the refused call
+    /// is kept in `RunFailed.invocation`, as is an answered call whose
+    /// output the adapter refused (code `model_malformed_output`). A revision
     /// follows only while objections stay open, the result is not blocked,
     /// the round made progress (it resolved at least one objection the
     /// previous evaluation had left open) and the round bound allows.
@@ -503,38 +506,18 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
 
             // Combined verification records: integrity from the verifier,
             // factual/relevance from the evaluation. Never cross-derived.
-            // One per record of the round context, tagged with the round.
+            // One per record of the round context, tagged with the round;
+            // replay re-derives all but the integrity status with the same
+            // function.
             for (ev, check) in ctx.evidence.iter().zip(checks) {
-                let relevant = evaluation
-                    .assessments
-                    .iter()
-                    .any(|a| a.relevant_evidence.contains(&ev.id));
-                let contradicted = evaluation
-                    .assessments
-                    .iter()
-                    .any(|a| a.contradicting_evidence.contains(&ev.id));
-                let corroborating = evaluation
-                    .assessments
-                    .iter()
-                    .any(|a| a.corroborated && a.relevant_evidence.contains(&ev.id));
+                let (factual_status, relevance_status) =
+                    contract::verification_statuses(&evaluation, &ev.id);
                 let verification = EvidenceVerification {
                     schema_version: SCHEMA_VERSION.into(),
                     evidence_id: ev.id.clone(),
                     integrity_status: check.status,
-                    factual_status: if contradicted {
-                        FactualStatus::Contradicted
-                    } else if corroborating {
-                        FactualStatus::Corroborated
-                    } else if relevant {
-                        FactualStatus::Uncorroborated
-                    } else {
-                        FactualStatus::NotAssessed
-                    },
-                    relevance_status: if relevant || contradicted {
-                        RelevanceStatus::Relevant
-                    } else {
-                        RelevanceStatus::Irrelevant
-                    },
+                    factual_status,
+                    relevance_status,
                     verifier: check.verifier,
                     verified_anchor: check.verified_anchor,
                     detail: check.detail,
@@ -708,7 +691,10 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         )
     }
 
-    /// A model call that returned an error instead of a document.
+    /// A model call that returned an error instead of a document. When the
+    /// provider had answered (the adapter refused its output), the call
+    /// stays on the record (`RunFailed.invocation`) with its request id
+    /// and tokens.
     fn model_failed<S: EventSink>(
         &mut self,
         sink: &mut S,
@@ -716,12 +702,13 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         stage: &str,
         error: &ModelError,
     ) -> Result<RunAggregate, OrchestratorError> {
-        self.fail(
+        self.fail_with(
             sink,
             agg,
             stage,
             model_error_code(error),
             &error.to_string(),
+            error.invocation().cloned(),
         )
     }
 
@@ -1212,6 +1199,267 @@ mod tests {
         let mut orch = orchestrator(model, s.memory, s.verifier);
         orch.run(&mut log, s.input).unwrap();
         assert_eq!(code(&log).as_deref(), Some(codes::MODEL_TIMEOUT));
+
+        // Every other code, each from the smallest run that records it:
+        // RunFailed.code for a failure, EvidenceUnavailable.code for a
+        // degraded retrieval, always next to its English reason.
+        let mut recorded: Vec<&str> = vec!["shutdown", codes::MODEL_TIMEOUT];
+        let mut note = |code: &'static str, log: &EventLog| {
+            let found = log.all_events().iter().any(|e| match &e.payload {
+                EventPayload::RunFailed {
+                    code: c, reason, ..
+                }
+                | EventPayload::EvidenceUnavailable {
+                    code: c, reason, ..
+                } => c.as_deref() == Some(code) && !reason.is_empty(),
+                _ => false,
+            });
+            assert!(found, "{code} is not recorded next to a reason");
+            recorded.push(code);
+        };
+        let control = RunControl::new();
+        control.cancel(CancelReason::Owner);
+        note(
+            "cancelled",
+            &deliberate_tripped("code-cancelled.jsonl", &control).1,
+        );
+        let control = RunControl::with_deadline(Instant::now());
+        note(
+            "deadline",
+            &deliberate_tripped("code-deadline.jsonl", &control).1,
+        );
+
+        let reference = || retry_constraint_scenario().model;
+        let memory = || retry_constraint_scenario().memory;
+        let mut model = reference();
+        model.critiques.clear();
+        model
+            .critiques
+            .push_back(Err(ModelError::malformed("missing field `items`")));
+        note(
+            codes::MODEL_MALFORMED_OUTPUT,
+            &run_log("code-malformed.jsonl", model, memory(), None),
+        );
+        note(
+            codes::MODEL_UNAVAILABLE,
+            &run_log(
+                "code-unavailable.jsonl",
+                FakeModelClient::new(),
+                memory(),
+                None,
+            ),
+        );
+        let mut model = reference();
+        model.tokens_per_call = (400, 200);
+        note(
+            codes::TOKEN_BUDGET_EXCEEDED,
+            &run_log("code-budget.jsonl", model, memory(), Some(1_000)),
+        );
+        let mut model = reference();
+        model.omit_usage = true;
+        note(
+            codes::TOKEN_USAGE_MISSING,
+            &run_log("code-usage.jsonl", model, memory(), None),
+        );
+
+        // The contract codes: a repeated claim id, reused item ids and a
+        // missing verdict, each refused before it is recorded.
+        let mut model = reference();
+        model.proposals[0].as_mut().unwrap().claims[1].id = ClaimId::new("claim-1");
+        note(
+            codes::PROPOSAL_CONTRACT,
+            &run_log("code-proposal.jsonl", model, memory(), None),
+        );
+        let mut model = reference();
+        let reused = model.critiques[0].as_ref().unwrap().items.clone();
+        model.critiques[1].as_mut().unwrap().items = reused;
+        note(
+            codes::CHALLENGE_CONTRACT,
+            &run_log("code-challenge.jsonl", model, memory(), None),
+        );
+        let mut model = reference();
+        model.evaluations[0].as_mut().unwrap().item_verdicts.pop();
+        note(
+            codes::EVALUATION_CONTRACT,
+            &run_log("code-evaluation.jsonl", model, memory(), None),
+        );
+
+        // Retrieval codes: offline, a backend error, and the per-run cap
+        // (five claims recalling five records each: 25 for a cap of 20).
+        note(
+            codes::MEMORY_UNAVAILABLE,
+            &run_log(
+                "code-offline.jsonl",
+                reference(),
+                FakeMemoryClient::offline(),
+                None,
+            ),
+        );
+        note(
+            codes::MEMORY_ERROR,
+            &run_log("code-memory-error.jsonl", reference(), FailingMemory, None),
+        );
+        let topics = ["alpha", "bravo", "charlie", "delta", "echo"];
+        let records = topics
+            .iter()
+            .flat_map(|t| {
+                (0..5).map(move |j| {
+                    let content = format!("{t}topic record {j}");
+                    crate::scenarios::evidence(
+                        &format!("ev-{t}-{j}"),
+                        "demo-repo",
+                        "fact",
+                        &content,
+                    )
+                })
+            })
+            .collect();
+        let mut model = FakeModelClient::new();
+        model.proposals.push_back(Ok(crate::scenarios::proposal(
+            "p1",
+            "s",
+            topics
+                .iter()
+                .map(|t| crate::scenarios::claim(&format!("c-{t}"), &format!("{t}topic")))
+                .collect(),
+        )));
+        note(
+            codes::EVIDENCE_CAP,
+            &run_log(
+                "code-cap.jsonl",
+                model,
+                FakeMemoryClient::new(records),
+                None,
+            ),
+        );
+
+        // A restart closes a run left mid-deliberation.
+        let s = retry_constraint_scenario();
+        let mut log = EventLog::open(temp_log("code-interrupted.jsonl")).unwrap();
+        let mut orch = orchestrator(s.model, s.memory, s.verifier);
+        create(&mut orch, &mut log, s.input);
+        let recovery = mark_interrupted_runs(&mut log, &mut orch.ids, TS.into()).unwrap();
+        assert_eq!(recovery.interrupted.len(), 1);
+        note(codes::INTERRUPTED, &log);
+
+        for code in [
+            "cancelled",
+            "shutdown",
+            "deadline",
+            codes::EVALUATION_CONTRACT,
+            codes::CHALLENGE_CONTRACT,
+            codes::PROPOSAL_CONTRACT,
+            codes::MODEL_TIMEOUT,
+            codes::MODEL_MALFORMED_OUTPUT,
+            codes::MODEL_UNAVAILABLE,
+            codes::TOKEN_BUDGET_EXCEEDED,
+            codes::TOKEN_USAGE_MISSING,
+            codes::INTERRUPTED,
+            codes::MEMORY_UNAVAILABLE,
+            codes::MEMORY_ERROR,
+            codes::EVIDENCE_CAP,
+        ] {
+            assert!(recorded.contains(&code), "{code} is never exercised");
+        }
+    }
+
+    /// One run of `model` against `memory` (every proof Valid) with the
+    /// reference task and an optional token cap; returns its log.
+    fn run_log<Mem: MemoryClient>(
+        name: &str,
+        model: FakeModelClient,
+        memory: Mem,
+        max_run_tokens: Option<u64>,
+    ) -> EventLog {
+        let mut log = EventLog::open(temp_log(name)).unwrap();
+        let mut limits = RunLimits::default();
+        if let Some(cap) = max_run_tokens {
+            limits.max_run_tokens = cap;
+        }
+        let mut orch = Orchestrator {
+            model,
+            memory,
+            verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
+            clock: FixedClock::new(TS),
+            ids: SequentialIdGen::new(),
+            limits,
+        };
+        orch.run(&mut log, retry_constraint_scenario().input)
+            .unwrap();
+        log
+    }
+
+    /// A memory backend whose every recall fails with a backend error.
+    struct FailingMemory;
+
+    impl MemoryClient for FailingMemory {
+        fn recall(
+            &mut self,
+            _project: &ProjectId,
+            _query: &str,
+            _limit: usize,
+        ) -> Result<Vec<EvidenceReference>, MemoryError> {
+            Err(MemoryError::Backend("index unreadable".into()))
+        }
+        fn status(&mut self) -> Result<MemoryStatus, MemoryError> {
+            Err(MemoryError::Backend("index unreadable".into()))
+        }
+    }
+
+    #[test]
+    fn an_answered_call_whose_output_was_refused_stays_on_the_record() {
+        // TC-7: a client that refuses a document after the provider
+        // answered hands the call back on its error; the run records it.
+        let s = retry_constraint_scenario();
+        let answered = ModelInvocation {
+            provider: "fake".into(),
+            model: "muse-wonder-1.0".into(),
+            request_id: Some("fake-refused-critique".into()),
+            latency_ms: Some(1),
+            input_tokens: Some(7),
+            output_tokens: Some(3),
+            finish_reason: Some("stop".into()),
+            reasoning_tokens: None,
+            max_completion_tokens: None,
+            schema_name: Some("DraftChallenge".into()),
+            schema_sha256: None,
+            prompt_sha256: None,
+            reasoning_effort: None,
+            safety_identifier_sent: None,
+            attempts: Some(1),
+        };
+        let mut model = s.model;
+        model.critiques.clear();
+        model.critiques.push_back(Err(ModelError::malformed(
+            "challenge item 1 of 1 states no objection",
+        )
+        .after_call(answered.clone())));
+        let mut log = EventLog::open(temp_log("refused-answer.jsonl")).unwrap();
+        let mut orch = orchestrator(model, s.memory, s.verifier);
+        let agg = orch.run(&mut log, s.input).unwrap();
+        match &log.all_events().last().expect("a record").payload {
+            EventPayload::RunFailed {
+                stage,
+                code,
+                invocation,
+                ..
+            } => {
+                assert_eq!(stage, "critique");
+                assert_eq!(code.as_deref(), Some(codes::MODEL_MALFORMED_OUTPUT));
+                assert_eq!(invocation.as_ref(), Some(&answered));
+            }
+            other => panic!("expected RunFailed last, got {other:?}"),
+        }
+        assert_eq!(agg.invocations.len(), 2, "propose and the refused critique");
+        assert_eq!(agg.invocations[1], answered);
+        let receipt = build_receipt(&log, &agg.run_id, TS.into()).unwrap();
+        assert_eq!(receipt.model_invocations, agg.invocations);
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "replays");
+        // An error with no answer behind it records no call.
+        assert!(ModelError::Timeout
+            .after_call(answered)
+            .invocation()
+            .is_none());
     }
 
     #[test]

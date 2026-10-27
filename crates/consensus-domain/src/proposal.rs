@@ -103,10 +103,10 @@ pub struct ClaimAssessment {
 // copies doc comments into it: keep the doc model-facing, and keep the
 // variants undocumented (variant docs turn the plain string `enum` into a
 // `oneOf`).
-/// Evaluator judgment on one Critic objection (schema 1.3): `resolved`
-/// when the proposal as written no longer has the problem or the
-/// retrieved evidence shows the objection is mistaken; `unresolved` when
-/// it still applies, so it stays open into the next round.
+/// Evaluator judgment on one Critic objection: `resolved` when the
+/// proposal as written no longer has the problem or the retrieved
+/// evidence shows the objection is mistaken; `unresolved` when it still
+/// applies, so it stays open into the next round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemStatus {

@@ -9,7 +9,7 @@ use consensus_runtime::clock::{FixedClock, SequentialIdGen};
 use consensus_runtime::contract::ContractViolation;
 use consensus_runtime::fakes::*;
 use consensus_runtime::orchestrator::{
-    build_receipt, Orchestrator, TaskInput, MAX_EVIDENCE_PER_RUN,
+    build_receipt, record_human_decision, Orchestrator, TaskInput, MAX_EVIDENCE_PER_RUN,
 };
 use consensus_runtime::policy::PolicyVersion;
 use consensus_runtime::scenarios::*;
@@ -656,17 +656,204 @@ fn the_recommendation_carries_the_final_proposals_uncertainties() {
     );
 }
 
+#[test]
+fn a_proposal_or_revision_repeating_a_claim_id_fails_the_run() {
+    // One assessment must never cover two claims. The refused document is
+    // not recorded; the call that produced it is (RunFailed.invocation).
+    let mut model = FakeModelClient::new();
+    model.proposals.push_back(Ok(proposal(
+        "p1",
+        "s",
+        vec![
+            claim("c1", "Payment retries are capped at 3 attempts"),
+            claim("c1", "Payment retries back off with jitter"),
+        ],
+    )));
+    let mut log = EventLog::open(temp_log("repeated-claim-propose.jsonl")).unwrap();
+    let mut orch = orchestrator(model, FakeMemoryClient::new(vec![]));
+    let agg = orch.run(&mut log, input()).unwrap();
+    let (stage, code, reason) = failure(&log);
+    assert_eq!(
+        (stage.as_str(), code.as_deref()),
+        ("propose", Some("proposal_contract"))
+    );
+    assert!(reason.contains("claim_ids_unique"), "{reason}");
+    assert!(reason.contains("\"c1\""), "{reason}");
+    let proposals = count(&log, &agg.run_id, |p| {
+        matches!(p, EventPayload::ProposalSubmitted { .. })
+    });
+    assert_eq!(proposals, 0, "the refused proposal is not recorded");
+    assert_eq!(agg.invocations.len(), 1, "the refused propose call is");
+    let receipt = build_receipt(&log, &agg.run_id, TS.into()).unwrap();
+    assert_eq!(receipt.model_invocations.len(), 1);
+    assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg);
+
+    // The same in a revision, after one open objection.
+    let c1 = || vec![claim("c1", "Payment retries are capped at 3 attempts")];
+    let mut model = FakeModelClient::new();
+    model.proposals.push_back(Ok(proposal("p1", "s", c1())));
+    model.critiques.push_back(Ok(challenge(
+        "chal-1",
+        vec![item(
+            "item-1",
+            ChallengeKind::MissingTest,
+            "c1",
+            "No test covers the cap",
+        )],
+    )));
+    model.evaluations.push_back(Ok(judged(
+        vec![assessment("c1", false, &[], &[])],
+        vec![verdict("item-1", ItemStatus::Unresolved, "no test")],
+        false,
+    )));
+    let mut twice = c1();
+    twice.push(claim("c1", "Payment retries back off with jitter"));
+    model
+        .revisions
+        .push_back(Ok(revision("p2", &["Add a cap test"], twice)));
+    let mut log = EventLog::open(temp_log("repeated-claim-revise.jsonl")).unwrap();
+    let mut orch = orchestrator(model, FakeMemoryClient::new(vec![]));
+    let agg = orch.run(&mut log, input()).unwrap();
+    let (stage, code, reason) = failure(&log);
+    assert_eq!(
+        (stage.as_str(), code.as_deref()),
+        ("revise", Some("proposal_contract"))
+    );
+    assert!(reason.contains("claim_ids_unique"), "{reason}");
+    assert!(reason.contains("\"c1\""), "{reason}");
+    let revisions = count(&log, &agg.run_id, |p| {
+        matches!(p, EventPayload::RevisionSubmitted { .. })
+    });
+    assert_eq!(revisions, 0, "the refused revision is not recorded");
+    assert_eq!(agg.invocations.len(), 4, "the refused revise call is");
+    assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg);
+}
+
+#[test]
+fn every_claim_is_assessed_once_citing_only_retrieved_records() {
+    // TC-2 through the orchestrator: the scripted fake gets no exemption
+    // from the claim rules either. Each evaluation breaks one of them.
+    let claims = || {
+        vec![
+            claim("c1", "Payment retries are capped at 3 attempts"),
+            claim("c2", "Payment retries back off with jitter"),
+        ]
+    };
+    let cap = || assessment("c1", true, &["ev-cap"], &[]);
+    let jitter = || assessment("c2", false, &[], &[]);
+    let cases: Vec<(&str, Vec<ClaimAssessment>, &[&str])> = vec![
+        (
+            "omitted claim",
+            vec![cap()],
+            &["one_assessment_per_claim", "\"c2\" has no assessment"],
+        ),
+        (
+            "unknown claim",
+            vec![cap(), jitter(), assessment("c9", true, &["ev-cap"], &[])],
+            &["one_assessment_per_claim", "\"c9\" is not a claim"],
+        ),
+        (
+            "claim assessed twice",
+            vec![cap(), jitter(), assessment("c1", false, &[], &["ev-cap"])],
+            &[
+                "one_assessment_per_claim",
+                "\"c1\" is assessed more than once",
+            ],
+        ),
+        (
+            "citation never retrieved",
+            vec![assessment("c1", true, &["ev-cap", "ev-9"], &[]), jitter()],
+            &["cited_evidence_retrieved", "\"ev-9\""],
+        ),
+    ];
+    for (label, assessments, fragments) in cases {
+        let mut model = FakeModelClient::new();
+        model.proposals.push_back(Ok(proposal("p1", "s", claims())));
+        model.critiques.push_back(Ok(challenge("chal-1", vec![])));
+        model
+            .evaluations
+            .push_back(Ok(evaluation(assessments, &[], false)));
+        let memory = FakeMemoryClient::new(vec![evidence(
+            "ev-cap",
+            DEMO_PROJECT,
+            "constraint",
+            "Constraint: payment retries are capped at 3 attempts.",
+        )]);
+        let name = format!("claim-rules-{}.jsonl", label.replace(' ', "-"));
+        let mut log = EventLog::open(temp_log(&name)).unwrap();
+        let mut orch = orchestrator(model, memory);
+        let agg = orch.run(&mut log, input()).unwrap();
+        let (stage, code, reason) = failure(&log);
+        assert_eq!(
+            (stage.as_str(), code.as_deref()),
+            ("evaluate", Some("evaluation_contract")),
+            "{label}"
+        );
+        for fragment in fragments {
+            assert!(reason.contains(fragment), "{label}: {reason}");
+        }
+        assert!(agg.recommendation.is_none(), "{label}");
+        assert_eq!(count(&log, &agg.run_id, is_evaluation), 0, "{label}");
+        assert_eq!(agg.invocations.len(), 3, "{label}");
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "{label}");
+    }
+}
+
+#[test]
+fn a_10_kb_item_id_keeps_the_recorded_reason_bounded() {
+    // Review R13-4: the reason is persisted in the hash-chained log, so a
+    // model-supplied value is quoted at most 80 characters long.
+    let huge = "x".repeat(10 * 1024);
+    let mut model = FakeModelClient::new();
+    model.proposals.push_back(Ok(proposal(
+        "p1",
+        "Cap retries",
+        vec![claim("c1", "Payment retries are capped at 3 attempts")],
+    )));
+    model.critiques.push_back(Ok(challenge(
+        "chal-1",
+        vec![item(
+            "item-1",
+            ChallengeKind::MissingTest,
+            "c1",
+            "No test covers the cap",
+        )],
+    )));
+    model.evaluations.push_back(Ok(judged(
+        vec![assessment("c1", false, &[], &[])],
+        vec![
+            verdict("item-1", ItemStatus::Unresolved, "no test"),
+            verdict(&huge, ItemStatus::Unresolved, "invented"),
+        ],
+        false,
+    )));
+    let mut log = EventLog::open(temp_log("huge-item-id.jsonl")).unwrap();
+    let mut orch = orchestrator(model, FakeMemoryClient::new(vec![]));
+    let agg = orch.run(&mut log, input()).unwrap();
+    let (stage, code, reason) = failure(&log);
+    assert_eq!(
+        (stage.as_str(), code.as_deref()),
+        ("evaluate", Some("evaluation_contract"))
+    );
+    assert!(reason.contains("one_verdict_per_item"), "{reason}");
+    assert!(reason.contains("…[truncated]"), "{reason}");
+    assert!(reason.len() < 400, "{} bytes recorded", reason.len());
+    assert_eq!(agg.failure_reason.as_deref(), Some(reason.as_str()));
+}
+
 // --- Replay: a forged 1.3 log fails, and 1.3 records hash stably. ---
 
 /// Writes `events` as a validly chained log: what a forger who recomputes
 /// the unsigned SHA-256 chain would produce (the recipe research/README.md
 /// gives: `hash` is sha256 of `prev_hash` followed by the record with
-/// `"hash":""`).
+/// `"hash":""`). Sequences are renumbered from 1, as a forger who removes
+/// or inserts a record would renumber them.
 fn write_rechained(path: &Path, events: &[ConsensusEvent]) {
     let mut prev = "genesis".to_string();
     let mut out = String::new();
-    for ev in events {
+    for (n, ev) in events.iter().enumerate() {
         let mut e = ev.clone();
+        e.sequence = n as u64 + 1;
         e.prev_hash = prev.clone();
         e.hash = String::new();
         let blanked = serde_json::to_string(&e).unwrap();
@@ -679,10 +866,11 @@ fn write_rechained(path: &Path, events: &[ConsensusEvent]) {
 }
 
 /// The reference run's events: two evaluations, the second resolving both
-/// carried items and clearing the carried contradiction.
-fn reference_events() -> (RunId, Vec<ConsensusEvent>) {
+/// carried items and clearing the carried contradiction. `name` is the
+/// source log's file, one per test, since tests run in parallel.
+fn reference_events(name: &str) -> (RunId, Vec<ConsensusEvent>) {
     let s = retry_constraint_scenario();
-    let mut log = EventLog::open(temp_log("forge-source.jsonl")).unwrap();
+    let mut log = EventLog::open(temp_log(name)).unwrap();
     let mut orch = Orchestrator {
         model: s.model,
         memory: s.memory,
@@ -720,7 +908,7 @@ fn forge(
 
 #[test]
 fn a_forged_1_3_log_fails_replay() {
-    let (run, events) = reference_events();
+    let (run, events) = reference_events("forge-source-forged.jsonl");
     let cases: Vec<(&str, Vec<ConsensusEvent>, ContractViolation)> = vec![
         (
             "missing verdict",
@@ -776,7 +964,7 @@ fn pre_1_3_records_are_never_held_to_the_contract() {
     // The same silent evaluation, recorded as a 1.2 run: replayed under
     // its own rules exactly as before protocol 1.3 (every archived run in
     // research/ is such a record).
-    let (run, events) = reference_events();
+    let (run, events) = reference_events("forge-source-relabeled.jsonl");
     let mut forged = forge(&events, 1, |e| {
         e.item_verdicts.clear();
         e.cleared_contradictions.clear();
@@ -791,6 +979,363 @@ fn pre_1_3_records_are_never_held_to_the_contract() {
         agg.recommendation.map(|r| r.kind),
         Some(RecommendationKind::Supported)
     );
+}
+
+/// Index in `events` of the `nth` (0-based) record whose payload is a
+/// `kind`.
+fn nth_record(events: &[ConsensusEvent], nth: usize, kind: fn(&EventPayload) -> bool) -> usize {
+    events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| kind(&e.payload))
+        .nth(nth)
+        .map(|(i, _)| i)
+        .expect("record to forge")
+}
+
+fn is_verification(p: &EventPayload) -> bool {
+    matches!(p, EventPayload::EvidenceVerified { .. })
+}
+
+fn is_recommendation(p: &EventPayload) -> bool {
+    matches!(p, EventPayload::RecommendationIssued { .. })
+}
+
+/// Replays `run` from `events` written as a re-chained log at `name`. The
+/// chain always verifies, so whatever refuses the log is replay.
+fn replay_rechained(
+    name: &str,
+    run: &RunId,
+    events: &[ConsensusEvent],
+) -> Result<RunAggregate, EventLogError> {
+    let path = temp_log(name);
+    write_rechained(&path, events);
+    let log = EventLog::open(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+    log.rebuild(run)
+}
+
+/// The transition error replay refused a log with.
+fn refused(label: &str, replayed: Result<RunAggregate, EventLogError>) -> TransitionError {
+    match replayed {
+        Err(EventLogError::Replay(e)) => e,
+        other => panic!("{label}: expected replay to refuse the log, got {other:?}"),
+    }
+}
+
+fn verification_mut(e: &mut ConsensusEvent) -> &mut EvidenceVerification {
+    match &mut e.payload {
+        EventPayload::EvidenceVerified { verification } => verification,
+        other => panic!("expected a verification, got {other:?}"),
+    }
+}
+
+fn recommendation_mut(e: &mut ConsensusEvent) -> &mut Recommendation {
+    match &mut e.payload {
+        EventPayload::RecommendationIssued { recommendation } => recommendation,
+        other => panic!("expected a recommendation, got {other:?}"),
+    }
+}
+
+#[test]
+fn one_record_of_a_1_3_run_relabeled_down_fails_replay() {
+    // Review R13-1: replay picks its checks by each record's own version,
+    // so a forger could relabel just the record a check would catch. A
+    // run's version never goes down, so the relabel itself is refused.
+    let (run, events) = reference_events("forge-source-downgrade.jsonl");
+    let mut forged = forge(&events, 1, |e| {
+        e.item_verdicts.retain(|v| v.item_id != "item-2")
+    });
+    let second = nth_record(&forged, 1, is_evaluation);
+    forged[second].schema_version = "1.2".into();
+    assert_eq!(
+        refused(
+            "evaluation relabeled 1.2",
+            replay_rechained("downgrade-evaluation.jsonl", &run, &forged)
+        ),
+        TransitionError::SchemaDowngrade {
+            from: SCHEMA_VERSION.into(),
+            to: "1.2".into(),
+        }
+    );
+
+    // `supported` over open objections: 1.0 predates recomputation, so a
+    // recommendation relabeled 1.0 used to be trusted as stored.
+    let explicit = Evaluation {
+        cleared_contradictions: vec![cleared("ev-cap", "c1 was dropped")],
+        ..judged(
+            vec![assessment("c2", true, &["ev-backoff"], &[])],
+            vec![
+                verdict(
+                    "item-1",
+                    ItemStatus::Unresolved,
+                    "the plan still sets 10 attempts",
+                ),
+                verdict("item-2", ItemStatus::Unresolved, "still no test"),
+            ],
+            false,
+        )
+    };
+    let (agg, log, _) = rt1_run("forge-source-rt1.jsonl", explicit);
+    assert_eq!(
+        agg.recommendation.map(|r| r.kind),
+        Some(RecommendationKind::Contested)
+    );
+    let mut upgraded = log.all_events().to_vec();
+    let at = nth_record(&upgraded, 0, is_recommendation);
+    recommendation_mut(&mut upgraded[at]).kind = RecommendationKind::Supported;
+    // Left at 1.3, the stored kind is recomputed and refused...
+    assert_eq!(
+        refused(
+            "upgraded at 1.3",
+            replay_rechained("upgrade-1-3.jsonl", &agg.run_id, &upgraded)
+        ),
+        TransitionError::RecommendationMismatch {
+            stored: RecommendationKind::Supported,
+            derived: RecommendationKind::Contested,
+        }
+    );
+    // ...and relabeled 1.0 it is refused before anything is trusted.
+    upgraded[at].schema_version = "1.0".into();
+    assert_eq!(
+        refused(
+            "upgraded and relabeled 1.0",
+            replay_rechained("upgrade-1-0.jsonl", &agg.run_id, &upgraded)
+        ),
+        TransitionError::SchemaDowngrade {
+            from: SCHEMA_VERSION.into(),
+            to: "1.0".into(),
+        }
+    );
+}
+
+#[test]
+fn an_archived_1_2_run_still_takes_a_1_3_decision() {
+    // Honest runs only move up: today's binary records a decision on a run
+    // the 2026-10-27 battery recorded under schema 1.2 (a temporary copy;
+    // the archive itself is never opened writable).
+    let archived = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("crate sits two levels below the repository root")
+        .join("research/2026-10-27/live-battery-2026-10-27-prefix.jsonl");
+    let path = temp_log("archived-1-2-decided.jsonl");
+    std::fs::copy(&archived, &path).unwrap();
+    let mut log = EventLog::open(&path).unwrap();
+    let run = log.all_events()[0].run_id.clone();
+    assert!(log.events_for(&run).all(|e| e.schema_version == "1.2"));
+    assert_eq!(
+        log.rebuild(&run).unwrap().state,
+        RunState::AwaitingHumanApproval
+    );
+    let decided = record_human_decision(
+        &mut log,
+        HumanAuthorization {
+            schema_version: SCHEMA_VERSION.into(),
+            run_id: run.clone(),
+            authorized_by: "mario".into(),
+            approved: false,
+            decided_at: TS.into(),
+            idempotency_key: "p13-upgrade".into(),
+            note: None,
+            authority: Some(Authority::Operator),
+        },
+        TS.into(),
+    )
+    .unwrap();
+    assert_eq!(decided.state, RunState::Rejected);
+    assert_eq!(
+        log.events_for(&run)
+            .last()
+            .map(|e| e.schema_version.as_str()),
+        Some(SCHEMA_VERSION)
+    );
+    assert_eq!(
+        decided.highest_schema_version.as_deref(),
+        Some(SCHEMA_VERSION)
+    );
+    drop(log);
+    assert_eq!(
+        EventLog::open(&path).unwrap().rebuild(&run).unwrap(),
+        decided
+    );
+}
+
+/// A one-round run contested by a recorded contradiction: c1 is
+/// corroborated by ev-a and contradicted by ev-b.
+fn contradicted_run_events(name: &str) -> (RunId, Vec<ConsensusEvent>) {
+    let mut model = FakeModelClient::new();
+    model.proposals.push_back(Ok(proposal(
+        "p1",
+        "Cap retries",
+        vec![claim("c1", "Payment retries are capped at 3 attempts")],
+    )));
+    model.critiques.push_back(Ok(challenge("chal-1", vec![])));
+    model.evaluations.push_back(Ok(evaluation(
+        vec![assessment("c1", true, &["ev-a"], &["ev-b"])],
+        &[],
+        false,
+    )));
+    let memory = FakeMemoryClient::new(vec![
+        evidence(
+            "ev-a",
+            DEMO_PROJECT,
+            "constraint",
+            "Constraint: payment retries are capped at 3 attempts.",
+        ),
+        evidence(
+            "ev-b",
+            DEMO_PROJECT,
+            "incident",
+            "Incident: payment retries were raised to 10 attempts in 2026-08.",
+        ),
+    ]);
+    let mut log = EventLog::open(temp_log(name)).unwrap();
+    let mut orch = orchestrator(model, memory);
+    let agg = orch.run(&mut log, input()).unwrap();
+    assert_eq!(
+        agg.recommendation.map(|r| r.kind),
+        Some(RecommendationKind::Contested)
+    );
+    (agg.run_id, log.all_events().to_vec())
+}
+
+/// The reference task with ev-constraint's proof Invalid: blocked after
+/// round 1.
+fn invalid_proof_events(name: &str) -> (RunId, Vec<ConsensusEvent>) {
+    let mut s = retry_constraint_scenario();
+    s.verifier
+        .by_id
+        .insert(EvidenceId::new("ev-constraint"), IntegrityStatus::Invalid);
+    let mut log = EventLog::open(temp_log(name)).unwrap();
+    let mut orch = Orchestrator {
+        model: s.model,
+        memory: s.memory,
+        verifier: s.verifier,
+        clock: FixedClock::new(TS),
+        ids: SequentialIdGen::new(),
+        limits: RunLimits::default(),
+    };
+    let agg = orch.run(&mut log, s.input).unwrap();
+    assert_eq!(
+        agg.recommendation.map(|r| r.kind),
+        Some(RecommendationKind::Blocked)
+    );
+    (agg.run_id, log.all_events().to_vec())
+}
+
+#[test]
+fn a_forged_1_3_verification_fails_replay() {
+    // Review R13-2: in protocol 1.3 each verification is a function of the
+    // recorded evaluation and the retrieved records (all but integrity),
+    // and the policy reads exactly those records. Each forgery below kept
+    // its chain valid and, before replay re-derived them, replayed clean.
+
+    // A contradiction recorded as corroboration, and the kind upgraded to
+    // what the policy then derives.
+    let (run, events) = contradicted_run_events("forge-source-contradicted.jsonl");
+    let mut forged = events.clone();
+    let ev_b = nth_record(&forged, 1, is_verification);
+    assert_eq!(
+        verification_mut(&mut forged[ev_b]).evidence_id,
+        EvidenceId::new("ev-b")
+    );
+    verification_mut(&mut forged[ev_b]).factual_status = FactualStatus::Corroborated;
+    let at = nth_record(&forged, 0, is_recommendation);
+    recommendation_mut(&mut forged[at]).kind = RecommendationKind::Supported;
+    assert_eq!(
+        refused(
+            "contradiction flipped",
+            replay_rechained("forged-verification-flipped.jsonl", &run, &forged)
+        ),
+        TransitionError::Contract(ContractViolation::VerificationStatus {
+            evidence: EvidenceId::new("ev-b"),
+            stored: (FactualStatus::Corroborated, RelevanceStatus::Relevant),
+            derived: (FactualStatus::Contradicted, RelevanceStatus::Relevant),
+        })
+    );
+
+    // The Invalid record's verification dropped (the record stays
+    // retrieved), and the kind set to what the policy derives without it.
+    let (run, events) = invalid_proof_events("forge-source-invalid.jsonl");
+    let mut forged = events.clone();
+    let invalid = nth_record(&forged, 0, is_verification);
+    assert_eq!(
+        verification_mut(&mut forged[invalid]).integrity_status,
+        IntegrityStatus::Invalid
+    );
+    forged.remove(invalid);
+    let at = nth_record(&forged, 0, is_recommendation);
+    recommendation_mut(&mut forged[at]).kind = RecommendationKind::Contested;
+    assert_eq!(
+        refused(
+            "invalid proof dropped",
+            replay_rechained("forged-verification-dropped.jsonl", &run, &forged)
+        ),
+        TransitionError::Contract(ContractViolation::UnverifiedRecord(EvidenceId::new(
+            "ev-constraint"
+        )))
+    );
+
+    // One-field forgeries of the reference run's first verification
+    // (ev-constraint, round 1).
+    let (run, events) = reference_events("forge-source-verification.jsonl");
+    let first = nth_record(&events, 0, is_verification);
+    let edited = |edit: fn(&mut EvidenceVerification)| {
+        let mut forged = events.clone();
+        edit(verification_mut(&mut forged[first]));
+        forged
+    };
+    let mut duplicated = events.clone();
+    let mut copy = events[first].clone();
+    copy.event_id = EventId::new("evt-forged-copy");
+    duplicated.insert(first + 1, copy);
+    let mut early = events.clone();
+    let moved = early.remove(first);
+    early.insert(nth_record(&early, 0, is_evaluation), moved);
+    let cases: Vec<(&str, Vec<ConsensusEvent>, TransitionError)> = vec![
+        (
+            "round tag",
+            edited(|v| v.round = Some(2)),
+            TransitionError::Contract(ContractViolation::VerificationRound {
+                evidence: EvidenceId::new("ev-constraint"),
+                stored: Some(2),
+                expected: 1,
+            }),
+        ),
+        (
+            "record never retrieved",
+            edited(|v| v.evidence_id = EvidenceId::new("ev-9")),
+            TransitionError::Contract(ContractViolation::VerifiedUnretrieved(EvidenceId::new(
+                "ev-9",
+            ))),
+        ),
+        (
+            "verified twice",
+            duplicated,
+            TransitionError::Contract(ContractViolation::VerifiedTwice(EvidenceId::new(
+                "ev-constraint",
+            ))),
+        ),
+        (
+            "before its evaluation",
+            early,
+            TransitionError::InvalidTransition {
+                state: RunState::EvidenceReview,
+                event: "evidence_verified",
+            },
+        ),
+    ];
+    for (label, forged, expected) in cases {
+        let name = format!("forged-verification-{}.jsonl", label.replace(' ', "-"));
+        assert_eq!(
+            refused(label, replay_rechained(&name, &run, &forged)),
+            expected,
+            "{label}"
+        );
+    }
+    // The unforged events replay to the recorded outcome.
+    let agg = replay_rechained("forged-verification-none.jsonl", &run, &events).unwrap();
+    assert_eq!(agg.state, RunState::AwaitingHumanApproval);
 }
 
 /// A run whose single evaluation judges three objections.

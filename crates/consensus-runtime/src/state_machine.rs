@@ -11,9 +11,18 @@
 //! from the events what each evaluation must judge, the run's open
 //! objections, retrieved records and uncleared contradictions, and
 //! `apply` checks every `EvaluationSubmitted`, challenge and proposal
-//! against the [`contract`](crate::contract), exactly as the orchestrator
-//! did before recording them. Earlier records are tracked the same way
-//! but never checked: they replay exactly as before.
+//! against the [`contract`], exactly as the orchestrator did before
+//! recording them. It also re-derives the runtime's own verification
+//! records from the recorded evaluation and requires one per retrieved
+//! record before a recommendation. Earlier records are tracked the same
+//! way but never checked: they replay exactly as before.
+//!
+//! Because each record is checked by its own schema version, a run's
+//! records never go back to an earlier version
+//! ([`TransitionError::SchemaDowngrade`]): one record of a 1.3 run
+//! relabeled 1.2 would otherwise skip the very check that catches its
+//! forgery. Honest runs only move up, e.g. a newer binary recording a
+//! decision on an archived run.
 
 use crate::contract::{self, ContractViolation, EvaluationContext, OpenItem};
 use consensus_domain::*;
@@ -51,6 +60,12 @@ pub enum TransitionError {
     /// A schema 1.3+ record breaks the protocol 1.3 contract.
     #[error("protocol 1.3 contract: {0}")]
     Contract(#[from] ContractViolation),
+    /// A record ranks below a schema version the run already recorded
+    /// ([`contract::schema_rank`]).
+    #[error(
+        "a schema {to:?} record follows a schema {from:?} record of the same run; a run's schema version never goes down"
+    )]
+    SchemaDowngrade { from: String, to: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -92,6 +107,9 @@ pub struct RunAggregate {
     /// Records an evaluation listed as contradicting a claim, minus those
     /// a later evaluation cleared, in order of first contradiction.
     pub contradicted: Vec<EvidenceId>,
+    /// The highest schema version among the run's records so far, in
+    /// [`contract::schema_rank`] order; no later record may rank below it.
+    pub highest_schema_version: Option<String>,
 }
 
 impl RunAggregate {
@@ -116,6 +134,7 @@ impl RunAggregate {
             open_items: Vec::new(),
             retrieved: Vec::new(),
             contradicted: Vec::new(),
+            highest_schema_version: None,
         }
     }
 
@@ -150,6 +169,17 @@ impl RunAggregate {
         }
         if self.state.is_terminal() {
             return Err(TransitionError::Terminal { state: self.state });
+        }
+        // The checks below follow each record's own schema version, so a
+        // run's records may keep or raise it but never lower it.
+        let rank = contract::schema_rank(&event.schema_version);
+        if let Some(highest) = &self.highest_schema_version {
+            if rank < contract::schema_rank(highest) {
+                return Err(TransitionError::SchemaDowngrade {
+                    from: highest.clone(),
+                    to: event.schema_version.clone(),
+                });
+            }
         }
         // Protocol 1.3 checks apply to records of schema 1.3 and later.
         let contract = contract::binds(&event.schema_version);
@@ -215,6 +245,29 @@ impl RunAggregate {
                     ],
                     "evidence_verified",
                 )?;
+                // Protocol 1.3: the runtime derives each verification from
+                // the round's recorded evaluation, after it, one per record
+                // retrieved so far, so replay re-derives it (all but the
+                // integrity status, which only the verifier can give).
+                if contract {
+                    self.require(
+                        &[RunState::Evaluated, RunState::Abstained],
+                        "evidence_verified",
+                    )?;
+                    let evaluation = self.last_evaluation.as_ref().ok_or(
+                        TransitionError::InvalidTransition {
+                            state: self.state,
+                            event: "evidence_verified",
+                        },
+                    )?;
+                    contract::validate_verification(
+                        self.round(),
+                        &self.retrieved,
+                        &self.round_verifications,
+                        evaluation,
+                        verification,
+                    )?;
+                }
                 self.verifications.push(verification.clone());
                 self.round_verifications.push(verification.clone());
             }
@@ -345,6 +398,12 @@ impl RunAggregate {
                 {
                     return Err(TransitionError::AbstainKindMismatch);
                 }
+                // Protocol 1.3: the policy reads one verification of every
+                // retrieved record for this round; one left out (an invalid
+                // proof, say) would silently change its inputs.
+                if contract {
+                    contract::validate_round_verified(&self.retrieved, &self.round_verifications)?;
+                }
                 // Schema 1.1+: never trust the stored kind — recompute it
                 // from the tracked evaluation + this round's verification
                 // records with the rules of the record's own schema
@@ -394,6 +453,13 @@ impl RunAggregate {
                 self.failure_reason = Some(reason.clone());
                 self.state = RunState::Failed;
             }
+        }
+        if self
+            .highest_schema_version
+            .as_deref()
+            .is_none_or(|highest| rank > contract::schema_rank(highest))
+        {
+            self.highest_schema_version = Some(event.schema_version.clone());
         }
         self.event_count += 1;
         Ok(())
@@ -783,6 +849,9 @@ mod tests {
         );
     }
 
+    /// The round-1 verification of ev1 that `to_abstained`'s evaluation
+    /// implies; tagged with its round from schema 1.3, as the runtime
+    /// records it.
     fn contradicted_verification(schema: &str) -> EventPayload {
         EventPayload::EvidenceVerified {
             verification: EvidenceVerification {
@@ -795,7 +864,7 @@ mod tests {
                 verified_anchor: None,
                 detail: None,
                 checked_at: "2026-10-26T00:00:00Z".into(),
-                round: None,
+                round: contract::binds(schema).then_some(1),
                 proof_ref: None,
                 report: None,
             },
@@ -818,12 +887,18 @@ mod tests {
     #[test]
     fn replay_rederives_each_run_with_its_recorded_rules() {
         // A 1.1 run (abstained over a recorded contradiction) must keep
-        // replaying under the 1.1 order, and stays tamper-checked.
+        // replaying under the 1.1 order, and stays tamper-checked. 1.2
+        // and 1.3 records both follow the 1.2 order.
         for (schema, stored, derived) in [
             (
                 "1.1",
                 RecommendationKind::Abstained,
                 RecommendationKind::Abstained,
+            ),
+            (
+                "1.2",
+                RecommendationKind::Contested,
+                RecommendationKind::Contested,
             ),
             (
                 SCHEMA_VERSION,
@@ -834,6 +909,11 @@ mod tests {
                 "1.1",
                 RecommendationKind::Contested,
                 RecommendationKind::Abstained,
+            ),
+            (
+                "1.2",
+                RecommendationKind::Abstained,
+                RecommendationKind::Contested,
             ),
             (
                 SCHEMA_VERSION,
@@ -1120,9 +1200,9 @@ mod tests {
         for schema in ["1.2", SCHEMA_VERSION] {
             let run = RunId::new("run-1");
             let mut agg = RunAggregate::new(run.clone());
-            agg.apply(&ev(
+            agg.apply(&ev_at(
                 &run,
-                1,
+                schema,
                 Actor::Human { id: "mario".into() },
                 EventPayload::TaskCreated { task: task(&run) },
             ))
@@ -1149,6 +1229,154 @@ mod tests {
                         "c1"
                     )))
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn a_runs_schema_version_never_goes_down() {
+        let run = RunId::new("run-1");
+        let created = |schema: &str| {
+            let mut agg = RunAggregate::new(run.clone());
+            agg.apply(&ev_at(
+                &run,
+                schema,
+                Actor::Human { id: "mario".into() },
+                EventPayload::TaskCreated { task: task(&run) },
+            ))
+            .unwrap();
+            agg
+        };
+        let proposed = |schema: &str| {
+            ev_at(
+                &run,
+                schema,
+                Actor::Agent {
+                    role: AgentRole::Proposer,
+                },
+                EventPayload::ProposalSubmitted {
+                    proposal: proposal(&run),
+                    invocation: invocation(),
+                },
+            )
+        };
+
+        // Down, by one minor version or to the unchained 1.0: refused, and
+        // the aggregate is left exactly as it was.
+        for lower in ["1.2", "1.0"] {
+            let mut agg = created(SCHEMA_VERSION);
+            let before = agg.clone();
+            assert_eq!(
+                agg.apply(&proposed(lower)).unwrap_err(),
+                TransitionError::SchemaDowngrade {
+                    from: SCHEMA_VERSION.into(),
+                    to: lower.into(),
+                }
+            );
+            assert_eq!(agg, before);
+        }
+        // Level or up is how honest runs look (a newer binary may append
+        // to an older run); the highest version so far is what counts.
+        for (first, then) in [("1.2", "1.2"), ("1.0", "1.1"), ("1.2", SCHEMA_VERSION)] {
+            let mut agg = created(first);
+            agg.apply(&proposed(then)).unwrap();
+            assert_eq!(agg.highest_schema_version.as_deref(), Some(then));
+        }
+        // A version that does not parse ranks last, so nothing parseable
+        // may follow it.
+        let mut agg = created("x");
+        assert_eq!(
+            agg.apply(&proposed(SCHEMA_VERSION)).unwrap_err(),
+            TransitionError::SchemaDowngrade {
+                from: "x".into(),
+                to: SCHEMA_VERSION.into(),
+            }
+        );
+    }
+
+    #[test]
+    fn verifications_are_rederived_from_schema_1_3_only() {
+        for schema in ["1.2", SCHEMA_VERSION] {
+            let checked = contract::binds(schema);
+            let (agg, run) = to_abstained(&[], schema);
+            let at = |seq, payload| {
+                let mut e = ev(&run, seq, Actor::Runtime, payload);
+                e.schema_version = schema.into();
+                e
+            };
+            // `to_abstained`'s evaluation lists ev1 as contradicting c1.
+            let mut flipped = contradicted_verification(schema);
+            if let EventPayload::EvidenceVerified { verification } = &mut flipped {
+                verification.factual_status = FactualStatus::Corroborated;
+            }
+            let flipped = agg.clone().apply(&at(6, flipped));
+            // The verification of ev1 left out: the policy would read no
+            // contradiction and derive Abstained instead of Contested.
+            let unverified = agg.clone().apply(&at(
+                6,
+                recommendation(RecommendationKind::Abstained, schema),
+            ));
+            if checked {
+                assert_eq!(
+                    flipped.unwrap_err(),
+                    TransitionError::Contract(ContractViolation::VerificationStatus {
+                        evidence: EvidenceId::new("ev1"),
+                        stored: (FactualStatus::Corroborated, RelevanceStatus::Relevant),
+                        derived: (FactualStatus::Contradicted, RelevanceStatus::Relevant),
+                    })
+                );
+                assert_eq!(
+                    unverified.unwrap_err(),
+                    TransitionError::Contract(ContractViolation::UnverifiedRecord(
+                        EvidenceId::new("ev1")
+                    ))
+                );
+            } else {
+                flipped.unwrap();
+                unverified.unwrap();
+            }
+
+            // A verification recorded before the round's evaluation.
+            let mut early = RunAggregate::new(run.clone());
+            for (seq, actor, payload) in [
+                (
+                    1,
+                    Actor::Human { id: "mario".into() },
+                    EventPayload::TaskCreated { task: task(&run) },
+                ),
+                (
+                    2,
+                    Actor::Agent {
+                        role: AgentRole::Proposer,
+                    },
+                    EventPayload::ProposalSubmitted {
+                        proposal: proposal(&run),
+                        invocation: invocation(),
+                    },
+                ),
+                (
+                    3,
+                    Actor::Runtime,
+                    EventPayload::EvidenceRetrieved {
+                        evidence: record("ev1"),
+                    },
+                ),
+            ] {
+                let mut e = ev(&run, seq, actor, payload);
+                e.schema_version = schema.into();
+                early.apply(&e).unwrap();
+            }
+            let result = early.apply(&at(4, contradicted_verification(schema)));
+            if checked {
+                assert_eq!(
+                    result.unwrap_err(),
+                    TransitionError::InvalidTransition {
+                        state: RunState::EvidenceReview,
+                        event: "evidence_verified",
+                    }
+                );
+            } else {
+                result.unwrap();
             }
         }
     }

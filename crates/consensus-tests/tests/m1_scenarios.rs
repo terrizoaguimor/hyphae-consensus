@@ -196,9 +196,9 @@ fn malformed_model_output_fails_at_that_stage() {
             "Payment timeouts are caused by insufficient retries",
         )],
     )));
-    model.critiques.push_back(Err(ModelError::MalformedOutput(
-        "missing field `items`".into(),
-    )));
+    model
+        .critiques
+        .push_back(Err(ModelError::malformed("missing field `items`")));
     let mut log = EventLog::open(temp_log("malformed.jsonl")).unwrap();
     let mut orch = orchestrator(
         model,

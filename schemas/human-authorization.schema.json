@@ -16,7 +16,7 @@
       "type": "boolean"
     },
     "authority": {
-      "description": "Schema 1.3: the authority the decision was taken under. Absent on earlier records, which read as unspecified, never as operator authority.",
+      "description": "Schema 1.3: the authority the decision was taken under. It stays `None` until the operator and public routes set it, and on every earlier record; `None` reads as unspecified, never as operator authority.",
       "anyOf": [
         {
           "$ref": "#/definitions/Authority"

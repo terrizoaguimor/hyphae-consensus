@@ -115,7 +115,7 @@
       }
     },
     "ItemStatus": {
-      "description": "Evaluator judgment on one Critic objection (schema 1.3): `resolved` when the proposal as written no longer has the problem or the retrieved evidence shows the objection is mistaken; `unresolved` when it still applies, so it stays open into the next round.",
+      "description": "Evaluator judgment on one Critic objection: `resolved` when the proposal as written no longer has the problem or the retrieved evidence shows the objection is mistaken; `unresolved` when it still applies, so it stays open into the next round.",
       "type": "string",
       "enum": [
         "resolved",

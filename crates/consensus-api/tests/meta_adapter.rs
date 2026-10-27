@@ -10,7 +10,7 @@ use consensus_domain::*;
 use consensus_runtime::clock::{FixedClock, SequentialIdGen};
 use consensus_runtime::contract::OpenItem;
 use consensus_runtime::fakes::{FakeMemoryClient, FakeProofVerifier};
-use consensus_runtime::orchestrator::{Orchestrator, TaskInput};
+use consensus_runtime::orchestrator::{build_receipt, Orchestrator, TaskInput};
 use consensus_runtime::ports::{ModelClient, ModelError, RoleContext};
 use consensus_runtime::{EventLog, RunAggregate, RunLimits};
 use std::io::{Read, Write};
@@ -204,7 +204,7 @@ fn malformed_content_is_malformed_output_error() {
     let server = serve(vec![(200, envelope("this is not json"))]);
     let mut c = client(server.base_url);
     match c.propose(&task()) {
-        Err(ModelError::MalformedOutput(_)) => {}
+        Err(ModelError::MalformedOutput { .. }) => {}
         other => panic!("expected MalformedOutput, got {other:?}"),
     }
 }
@@ -273,14 +273,14 @@ fn evaluate_rejects_unknown_ids_and_still_completes_omitted_claims() {
         carried_contradictions: vec![],
     };
     match c.evaluate(&proposal, &challenge, &ctx) {
-        Err(ModelError::MalformedOutput(msg)) => {
+        Err(ModelError::MalformedOutput { reason: msg, .. }) => {
             assert!(msg.contains("relevant_evidence"), "{msg}");
             assert!(msg.contains("\"ev-hallucinated\""), "{msg}");
         }
         other => panic!("expected MalformedOutput, got {other:?}"),
     }
     match c.evaluate(&proposal, &challenge, &ctx) {
-        Err(ModelError::MalformedOutput(msg)) => {
+        Err(ModelError::MalformedOutput { reason: msg, .. }) => {
             assert!(msg.contains("item_verdicts"), "{msg}");
             assert!(msg.contains("\"item-unknown\""), "{msg}");
         }
@@ -421,7 +421,7 @@ fn proposal_claim_count_is_bounded() {
         let server = serve(vec![(200, envelope(draft))]);
         let mut c = client(server.base_url);
         match c.propose(&task()) {
-            Err(ModelError::MalformedOutput(_)) => {}
+            Err(ModelError::MalformedOutput { .. }) => {}
             other => panic!("expected MalformedOutput, got {other:?}"),
         }
     }
@@ -471,7 +471,7 @@ fn label_only_challenge_items_are_malformed() {
         let server = serve(vec![(200, envelope(&draft_challenge(degenerate)))]);
         let mut c = client(server.base_url);
         match c.critique(&proposal, &RoleContext::default()) {
-            Err(ModelError::MalformedOutput(msg)) => {
+            Err(ModelError::MalformedOutput { reason: msg, .. }) => {
                 assert!(msg.contains("item 2 of 2"), "{msg}")
             }
             other => panic!("{degenerate:?}: expected MalformedOutput, got {other:?}"),
@@ -493,7 +493,9 @@ fn empty_claim_statement_is_malformed() {
     let server = serve(vec![(200, envelope(draft))]);
     let mut c = client(server.base_url);
     match c.propose(&task()) {
-        Err(ModelError::MalformedOutput(msg)) => assert!(msg.contains("claim 2"), "{msg}"),
+        Err(ModelError::MalformedOutput { reason: msg, .. }) => {
+            assert!(msg.contains("claim 2"), "{msg}")
+        }
         other => panic!("expected MalformedOutput, got {other:?}"),
     }
 }
@@ -660,7 +662,7 @@ fn renamed_or_missing_draft_fields_are_malformed_never_empty() {
         let server = serve(vec![(200, envelope(draft))]);
         let mut c = client(server.base_url);
         match c.evaluate(&proposal, &challenge, &ctx) {
-            Err(ModelError::MalformedOutput(msg)) => {
+            Err(ModelError::MalformedOutput { reason: msg, .. }) => {
                 assert!(msg.contains("missing field"), "{msg}")
             }
             other => panic!("expected MalformedOutput for {draft}, got {other:?}"),
@@ -815,14 +817,98 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
     let mut c = client(server.base_url);
     for (draft, expected) in &cases {
         match c.evaluate(&proposal, &challenge, &ctx) {
-            Err(ModelError::MalformedOutput(msg)) => {
+            Err(ModelError::MalformedOutput {
+                reason: msg,
+                invocation,
+            }) => {
                 for fragment in *expected {
                     assert!(msg.contains(fragment), "{fragment} missing from {msg}");
                 }
+                // The API answered: the refused call keeps its record.
+                let inv = invocation.unwrap_or_else(|| panic!("no invocation for {draft}"));
+                assert_eq!(inv.request_id.as_deref(), Some("chatcmpl-test-1"));
+                assert_eq!((inv.input_tokens, inv.output_tokens), (Some(100), Some(50)));
+                assert_eq!(inv.schema_name.as_deref(), Some("DraftEvaluation"));
             }
             other => panic!("expected MalformedOutput for {draft}, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn every_refused_answer_keeps_its_invocation() {
+    // Audit TC-7 / review R13-3: once the API has answered, the call was
+    // made and billed, so a refusal carries its invocation whatever the
+    // reason; only a call that never got an answer carries none.
+    let no_content = serde_json::json!({
+        "id": "chatcmpl-test-1",
+        "model": "muse-wonder-1.0",
+        "choices": [{ "message": { "role": "assistant", "content": null }, "finish_reason": "content_filter" }],
+        "usage": { "prompt_tokens": 100, "completion_tokens": 50 }
+    })
+    .to_string();
+    let no_claims =
+        r#"{"summary":"s","plan_steps":[],"claims":[],"assumptions":[],"uncertainties":[]}"#;
+    for (label, response, request_id) in [
+        (
+            "draft parse",
+            (200, envelope("not json")),
+            Some("chatcmpl-test-1"),
+        ),
+        (
+            "missing content",
+            (200, no_content),
+            Some("chatcmpl-test-1"),
+        ),
+        (
+            "no claims",
+            (200, envelope(no_claims)),
+            Some("chatcmpl-test-1"),
+        ),
+        // An unreadable envelope names no request id or usage: the call is
+        // still recorded, its tokens unknown.
+        ("unreadable envelope", (200, "<html>".to_string()), None),
+    ] {
+        let server = serve(vec![response]);
+        let mut c = client(server.base_url);
+        match c.propose(&task()) {
+            Err(e @ ModelError::MalformedOutput { .. }) => {
+                let inv = e.invocation().unwrap_or_else(|| panic!("{label}: {e}"));
+                assert_eq!(inv.provider, "meta", "{label}");
+                assert_eq!(inv.request_id.as_deref(), request_id, "{label}");
+                assert_eq!(inv.schema_name.as_deref(), Some("DraftProposal"), "{label}");
+                assert_eq!(inv.attempts, Some(1), "{label}");
+                let tokens = request_id.map(|_| 100);
+                assert_eq!(inv.input_tokens, tokens, "{label}");
+            }
+            other => panic!("{label}: expected MalformedOutput, got {other:?}"),
+        }
+    }
+    // A label-only critique item is refused after the answer too.
+    let server = serve(vec![(
+        200,
+        envelope(&draft_challenge("constraint_conflict")),
+    )]);
+    let mut c = client(server.base_url);
+    let refused = c
+        .critique(
+            &one_claim_proposal("Raise retries to 10"),
+            &RoleContext::default(),
+        )
+        .unwrap_err();
+    assert_eq!(
+        refused.invocation().and_then(|i| i.schema_name.as_deref()),
+        Some("DraftChallenge")
+    );
+    // No answer, nothing to record.
+    let server = serve(vec![(500, "{}".into())]);
+    let mut c = client(server.base_url);
+    let unanswered = c.propose(&task()).unwrap_err();
+    assert!(
+        matches!(unanswered, ModelError::Unavailable(_)),
+        "{unanswered}"
+    );
+    assert!(unanswered.invocation().is_none());
 }
 
 fn temp_log(name: &str) -> std::path::PathBuf {
@@ -995,6 +1081,24 @@ fn every_ma1_variant_fails_evaluate_and_never_reaches_supported() {
         assert!(reason.contains(named), "{label}: {reason}");
         assert_eq!(evaluations_recorded(&log), 0, "{label}");
         assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "{label} replays");
+        // The refused evaluate call was billed: it is on the record and in
+        // the receipt, next to the propose and critique calls.
+        assert_eq!(agg.invocations.len(), 3, "{label}");
+        let receipt = build_receipt(&log, &agg.run_id, "2026-10-27T09:00:00Z".into()).unwrap();
+        let schemas: Vec<Option<&str>> = receipt
+            .model_invocations
+            .iter()
+            .map(|i| i.schema_name.as_deref())
+            .collect();
+        assert_eq!(
+            schemas,
+            [
+                Some("DraftProposal"),
+                Some("DraftChallenge"),
+                Some("DraftEvaluation")
+            ],
+            "{label}"
+        );
     }
 
     let control = ma1_evaluation(corroborated(), ("item-5", "resolved"));
@@ -1067,6 +1171,11 @@ fn rt1_round_two_silence_cannot_reach_supported_through_the_adapter() {
     assert!(
         reason.contains("no verdict for item_id \"item-4\""),
         "{reason}"
+    );
+    assert_eq!(
+        agg.invocations.len(),
+        6,
+        "the evaluate call the adapter refused is recorded"
     );
 
     // Verdicts given, but silent on the round-1 contradiction: refused by
@@ -1157,6 +1266,16 @@ fn prompts_carry_open_objections_and_contradictions_across_rounds() {
         prompt.contains("Do not repeat them; raise only new objections"),
         "{prompt}"
     );
+    // Review R13-5: item-4 targeted claim-2 of an earlier proposal; the
+    // current proposal only has claim-1, so no prompt may name claim-2.
+    let stale = |prompt: &str| {
+        assert!(!prompt.contains("claim-2"), "{prompt}");
+        assert!(
+            prompt.contains("id=item-4 [ConstraintConflict] claim=(from an earlier proposal)"),
+            "{prompt}"
+        );
+    };
+    stale(&prompt);
 
     // The Evaluator judges the carried objection, this round's, and the
     // carried contradiction; verdicts come back in the order shown.
@@ -1197,6 +1316,12 @@ fn prompts_carry_open_objections_and_contradictions_across_rounds() {
     assert!(prompt.contains("Carried contradictions"), "{prompt}");
     assert!(prompt.contains("- ev-cap"), "{prompt}");
     assert!(prompt.contains("never leave one out"), "{prompt}");
+    stale(&prompt);
+    // This round's objection targets a current claim, named as such.
+    assert!(
+        prompt.contains("id=item-10 [MissingTest] claim=claim-1 (raised this round)"),
+        "{prompt}"
+    );
     assert_eq!(evaluation.unresolved_items, ["item-4", "item-10"]);
     let ids: Vec<&str> = evaluation
         .item_verdicts
@@ -1223,7 +1348,39 @@ fn prompts_carry_open_objections_and_contradictions_across_rounds() {
         "{prompt}"
     );
     assert!(prompt.contains("address every open objection"), "{prompt}");
+    stale(&prompt);
     assert_eq!(revision.addressed_items, ["item-4", "item-10"]);
+}
+
+#[test]
+fn a_10_kb_item_id_keeps_the_recorded_reason_bounded_through_the_adapter() {
+    // Review R13-4: the reason lands in the hash-chained log, so a value
+    // the model sends is quoted at most 80 characters long.
+    let huge = "x".repeat(10 * 1024);
+    let evaluation = ma1_evaluation(
+        serde_json::json!([draft_assessment("claim-2", true, &["ev-1"], &[])]),
+        (&huge, "unresolved"),
+    );
+    let drafts = [
+        MA1_PROPOSAL.to_string(),
+        MA1_CRITIQUE.to_string(),
+        evaluation,
+    ];
+    let records = vec![record(
+        "ev-1",
+        "Constraint: outbound retries must be capped at 3 attempts with jitter.",
+    )];
+    let (agg, log, calls) = deliberate_through_adapter("ma1-huge-id.jsonl", &drafts, records);
+    assert_eq!(calls, 3);
+    let (stage, code, reason) = run_failure(&log);
+    assert_eq!(
+        (stage.as_str(), code.as_deref()),
+        ("evaluate", Some("model_malformed_output"))
+    );
+    assert!(reason.contains("item_verdicts"), "{reason}");
+    assert!(reason.contains("…[truncated]"), "{reason}");
+    assert!(reason.len() < 400, "{} bytes recorded", reason.len());
+    assert_eq!(agg.failure_reason.as_deref(), Some(reason.as_str()));
 }
 
 #[test]

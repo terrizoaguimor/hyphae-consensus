@@ -46,8 +46,29 @@
 //! ([`validate_claims`]: claim ids are unique within a proposal, so one
 //! assessment cannot cover two claims).
 //!
+//! On replay the records the runtime itself derives in a 1.3 round are
+//! held to the run's record as well, so a forged verification fails
+//! replay too. Only the integrity status comes from outside the record
+//! (the proof verifier), so only it is taken as written:
+//! - `verification_derived` ([`validate_verification`]): an
+//!   `EvidenceVerified` recorded after the round's evaluation verifies a
+//!   record the run retrieved, once in the round, is tagged with the
+//!   round, and states the factual and relevance status that evaluation
+//!   gives the record ([`verification_statuses`]);
+//! - `round_fully_verified` ([`validate_round_verified`]): the
+//!   recommendation follows a verification of every retrieved record, so
+//!   none can be left out of the policy's inputs.
+//!
 //! Records before schema 1.3 predate the contract and are never checked
-//! against it ([`binds`]): they replay exactly as they always did.
+//! against it ([`binds`]): they replay exactly as they always did. A
+//! run's records never go back to an earlier schema version
+//! ([`schema_rank`]): the state machine refuses a downgrade, so no single
+//! record of a 1.3 run can be relabeled out of these checks.
+//!
+//! Every value a violation message quotes is cut at [`MAX_QUOTED_CHARS`]
+//! characters ([`quote`]): the message is persisted as `RunFailed.reason`
+//! in the hash-chained log, which is exported verbatim, so its length
+//! never follows the length of a model's output.
 
 use consensus_domain::*;
 use thiserror::Error;
@@ -79,22 +100,26 @@ pub struct EvaluationContext {
 }
 
 /// A broken contract rule and the value that broke it. The message
-/// starts with the rule's name ([`rule`](Self::rule)).
+/// starts with the rule's name ([`rule`](Self::rule)) and quotes each
+/// value through [`quote`], so it stays bounded.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ContractViolation {
-    #[error("one_assessment_per_claim: claim {:?} has no assessment", .0.as_str())]
+    #[error("one_assessment_per_claim: claim {} has no assessment", quote(.0.as_str()))]
     UnassessedClaim(ClaimId),
-    #[error("one_assessment_per_claim: claim {:?} is assessed more than once", .0.as_str())]
+    #[error(
+        "one_assessment_per_claim: claim {} is assessed more than once",
+        quote(.0.as_str())
+    )]
     DuplicateAssessment(ClaimId),
     #[error(
-        "one_assessment_per_claim: {:?} is not a claim of the proposal under evaluation",
-        .0.as_str()
+        "one_assessment_per_claim: {} is not a claim of the proposal under evaluation",
+        quote(.0.as_str())
     )]
     UnknownClaim(ClaimId),
     #[error(
-        "cited_evidence_retrieved: {field} of claim {:?} names {:?}, a record this run never retrieved",
-        .claim.as_str(),
-        .evidence.as_str()
+        "cited_evidence_retrieved: {field} of claim {} names {}, a record this run never retrieved",
+        quote(.claim.as_str()),
+        quote(.evidence.as_str())
     )]
     UnretrievedEvidence {
         claim: ClaimId,
@@ -102,43 +127,55 @@ pub enum ContractViolation {
         field: &'static str,
         evidence: EvidenceId,
     },
-    #[error("one_verdict_per_item: item {0:?} has no verdict")]
+    #[error("one_verdict_per_item: item {} has no verdict", quote(.0))]
     MissingVerdict(String),
-    #[error("one_verdict_per_item: item {0:?} has more than one verdict")]
+    #[error("one_verdict_per_item: item {} has more than one verdict", quote(.0))]
     DuplicateVerdict(String),
     #[error(
-        "one_verdict_per_item: {0:?} is not an item under evaluation (open from an earlier round or raised in this one)"
+        "one_verdict_per_item: {} is not an item under evaluation (open from an earlier round or raised in this one)",
+        quote(.0)
     )]
     UnknownItem(String),
-    #[error("resolved_needs_reason: item {0:?} is resolved without a reason")]
+    #[error(
+        "resolved_needs_reason: item {} is resolved without a reason",
+        quote(.0)
+    )]
     ResolvedWithoutReason(String),
     #[error(
-        "unresolved_matches_verdicts: unresolved_items lists {0:?}, which has no unresolved verdict"
+        "unresolved_matches_verdicts: unresolved_items lists {}, which has no unresolved verdict",
+        quote(.0)
     )]
     UnresolvedWithoutVerdict(String),
-    #[error("unresolved_matches_verdicts: unresolved_items lists {0:?} more than once")]
+    #[error(
+        "unresolved_matches_verdicts: unresolved_items lists {} more than once",
+        quote(.0)
+    )]
     UnresolvedListedTwice(String),
     #[error(
-        "unresolved_matches_verdicts: item {0:?} has an unresolved verdict but is missing from unresolved_items"
+        "unresolved_matches_verdicts: item {} has an unresolved verdict but is missing from unresolved_items",
+        quote(.0)
     )]
     UnresolvedNotListed(String),
     #[error(
-        "carried_contradiction_judged: {:?}, contradicted in an earlier round, is neither listed as contradicting again nor cleared",
-        .0.as_str()
+        "carried_contradiction_judged: {}, contradicted in an earlier round, is neither listed as contradicting again nor cleared",
+        quote(.0.as_str())
     )]
     SilentContradiction(EvidenceId),
-    #[error("carried_contradiction_judged: {:?} is cleared without a reason", .0.as_str())]
+    #[error(
+        "carried_contradiction_judged: {} is cleared without a reason",
+        quote(.0.as_str())
+    )]
     ClearedWithoutReason(EvidenceId),
     #[error(
-        "cleared_is_carried: {:?} is not a contradiction carried from an earlier round",
-        .0.as_str()
+        "cleared_is_carried: {} is not a contradiction carried from an earlier round",
+        quote(.0.as_str())
     )]
     ClearedNotCarried(EvidenceId),
-    #[error("cleared_is_carried: {:?} is cleared more than once", .0.as_str())]
+    #[error("cleared_is_carried: {} is cleared more than once", quote(.0.as_str()))]
     ClearedTwice(EvidenceId),
     #[error(
-        "cleared_is_carried: {:?} is cleared and listed as contradicting in the same evaluation",
-        .0.as_str()
+        "cleared_is_carried: {} is cleared and listed as contradicting in the same evaluation",
+        quote(.0.as_str())
     )]
     ClearedAndContradicting(EvidenceId),
     #[error("item_ids_unique: challenge item {index} has an empty id")]
@@ -146,13 +183,48 @@ pub enum ContractViolation {
         /// 1-based position of the item in its challenge.
         index: usize,
     },
-    #[error("item_ids_unique: item id {0:?} is already used in this run")]
+    #[error("item_ids_unique: item id {} is already used in this run", quote(.0))]
     ReusedItemId(String),
     #[error(
-        "claim_ids_unique: claim id {:?} appears more than once in the proposal",
-        .0.as_str()
+        "claim_ids_unique: claim id {} appears more than once in the proposal",
+        quote(.0.as_str())
     )]
     DuplicateClaimId(ClaimId),
+    #[error(
+        "verification_derived: {} is verified, but this run never retrieved it",
+        quote(.0.as_str())
+    )]
+    VerifiedUnretrieved(EvidenceId),
+    #[error(
+        "verification_derived: {} is verified more than once in the round",
+        quote(.0.as_str())
+    )]
+    VerifiedTwice(EvidenceId),
+    #[error(
+        "verification_derived: the verification of {} is tagged round {stored:?}, but it is recorded in round {expected}",
+        quote(.evidence.as_str())
+    )]
+    VerificationRound {
+        evidence: EvidenceId,
+        stored: Option<u32>,
+        expected: u32,
+    },
+    #[error(
+        "verification_derived: the verification of {} records {stored:?}, but the round's evaluation gives it {derived:?}",
+        quote(.evidence.as_str())
+    )]
+    VerificationStatus {
+        evidence: EvidenceId,
+        /// (factual, relevance) as recorded.
+        stored: (FactualStatus, RelevanceStatus),
+        /// (factual, relevance) as [`verification_statuses`] derives them.
+        derived: (FactualStatus, RelevanceStatus),
+    },
+    #[error(
+        "round_fully_verified: {}, retrieved in this run, has no verification in the round the recommendation closes",
+        quote(.0.as_str())
+    )]
+    UnverifiedRecord(EvidenceId),
 }
 
 impl ContractViolation {
@@ -178,7 +250,42 @@ impl ContractViolation {
             | Self::ClearedAndContradicting(_) => "cleared_is_carried",
             Self::EmptyItemId { .. } | Self::ReusedItemId(_) => "item_ids_unique",
             Self::DuplicateClaimId(_) => "claim_ids_unique",
+            Self::VerifiedUnretrieved(_)
+            | Self::VerifiedTwice(_)
+            | Self::VerificationRound { .. }
+            | Self::VerificationStatus { .. } => "verification_derived",
+            Self::UnverifiedRecord(_) => "round_fully_verified",
         }
+    }
+}
+
+/// Longest value, in characters, that a violation message quotes. The
+/// values are model-supplied (or backend-supplied) and the message is
+/// persisted in the hash-chained log.
+pub const MAX_QUOTED_CHARS: usize = 80;
+
+/// `value` quoted the way `{:?}` quotes it, with anything past
+/// [`MAX_QUOTED_CHARS`] characters cut and marked `…[truncated]` after
+/// the closing quote. Short values quote exactly as `{:?}` would.
+pub fn quote(value: &str) -> String {
+    if value.chars().count() <= MAX_QUOTED_CHARS {
+        format!("{value:?}")
+    } else {
+        let cut: String = value.chars().take(MAX_QUOTED_CHARS).collect();
+        format!("{cut:?}…[truncated]")
+    }
+}
+
+/// Order of schema versions: `(major, minor)` for a `major.minor`
+/// version; any other string ranks after every such version (as
+/// [`binds`] reads it), so an unknown record is checked rather than
+/// trusted. The state machine refuses a record that ranks below one the
+/// run already holds.
+pub fn schema_rank(schema_version: &str) -> (u32, u32) {
+    let mut parts = schema_version.split('.').map(|p| p.parse::<u32>().ok());
+    match (parts.next().flatten(), parts.next().flatten(), parts.next()) {
+        (Some(major), Some(minor), None) => (major, minor),
+        _ => (u32::MAX, u32::MAX),
     }
 }
 
@@ -187,11 +294,7 @@ impl ContractViolation {
 /// `major.minor` counts as later, so an unknown record is checked rather
 /// than trusted (the event log refuses such records anyway).
 pub fn binds(schema_version: &str) -> bool {
-    let mut parts = schema_version.split('.').map(|p| p.parse::<u32>().ok());
-    match (parts.next().flatten(), parts.next().flatten(), parts.next()) {
-        (Some(major), Some(minor), None) => (major, minor) >= (1, 3),
-        _ => true,
-    }
+    schema_rank(schema_version) >= (1, 3)
 }
 
 /// Checks `evaluation` against every evaluation rule. Rules are checked
@@ -337,6 +440,105 @@ pub fn validate_claims(proposal: &Proposal) -> Result<(), ContractViolation> {
         }
     }
     Ok(())
+}
+
+/// The factual and relevance status `evaluation` gives the record
+/// `evidence`, as a protocol 1.3 `EvidenceVerified` records them next to
+/// the proof check's integrity status. Factual: contradicted when some
+/// assessment lists the record as contradicting; otherwise corroborated
+/// when a corroborated claim cites it; otherwise uncorroborated when any
+/// claim cites it; otherwise not assessed. Relevance: relevant when it is
+/// cited or contradicting at all, irrelevant otherwise. The orchestrator
+/// derives each verification with this function and replay re-derives it
+/// with the same one.
+pub fn verification_statuses(
+    evaluation: &Evaluation,
+    evidence: &EvidenceId,
+) -> (FactualStatus, RelevanceStatus) {
+    let relevant = evaluation
+        .assessments
+        .iter()
+        .any(|a| a.relevant_evidence.contains(evidence));
+    let contradicted = evaluation
+        .assessments
+        .iter()
+        .any(|a| a.contradicting_evidence.contains(evidence));
+    let corroborating = evaluation
+        .assessments
+        .iter()
+        .any(|a| a.corroborated && a.relevant_evidence.contains(evidence));
+    let factual = if contradicted {
+        FactualStatus::Contradicted
+    } else if corroborating {
+        FactualStatus::Corroborated
+    } else if relevant {
+        FactualStatus::Uncorroborated
+    } else {
+        FactualStatus::NotAssessed
+    };
+    let relevance = if relevant || contradicted {
+        RelevanceStatus::Relevant
+    } else {
+        RelevanceStatus::Irrelevant
+    };
+    (factual, relevance)
+}
+
+/// `verification_derived`: `verification`, recorded in `round` after the
+/// round's `evaluation`, verifies a record of `retrieved` (every record
+/// the run retrieved) that is not yet in `verified` (the verifications
+/// recorded since that evaluation), carries the round's number, and
+/// states the statuses [`verification_statuses`] derives. The integrity
+/// status is the proof verifier's and is taken as written.
+pub fn validate_verification(
+    round: u32,
+    retrieved: &[EvidenceReference],
+    verified: &[EvidenceVerification],
+    evaluation: &Evaluation,
+    verification: &EvidenceVerification,
+) -> Result<(), ContractViolation> {
+    let id = &verification.evidence_id;
+    if !retrieved.iter().any(|e| &e.id == id) {
+        return Err(ContractViolation::VerifiedUnretrieved(id.clone()));
+    }
+    if verified.iter().any(|v| &v.evidence_id == id) {
+        return Err(ContractViolation::VerifiedTwice(id.clone()));
+    }
+    if verification.round != Some(round) {
+        return Err(ContractViolation::VerificationRound {
+            evidence: id.clone(),
+            stored: verification.round,
+            expected: round,
+        });
+    }
+    let stored = (verification.factual_status, verification.relevance_status);
+    let derived = verification_statuses(evaluation, id);
+    if stored != derived {
+        return Err(ContractViolation::VerificationStatus {
+            evidence: id.clone(),
+            stored,
+            derived,
+        });
+    }
+    Ok(())
+}
+
+/// `round_fully_verified`: every record of `retrieved` has a verification
+/// in `verified` (those recorded since the round's evaluation), so the
+/// policy reads the whole round context. Together with
+/// [`validate_verification`] this makes `verified` exactly one
+/// verification per retrieved record.
+pub fn validate_round_verified(
+    retrieved: &[EvidenceReference],
+    verified: &[EvidenceVerification],
+) -> Result<(), ContractViolation> {
+    match retrieved
+        .iter()
+        .find(|e| !verified.iter().any(|v| v.evidence_id == e.id))
+    {
+        Some(e) => Err(ContractViolation::UnverifiedRecord(e.id.clone())),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]
@@ -616,37 +818,200 @@ mod tests {
         }
     }
 
+    /// One violation of every kind, each quoting `value` wherever it
+    /// quotes a model- or backend-supplied value.
+    fn every_violation(value: &str) -> Vec<ContractViolation> {
+        let claim = || ClaimId::new(value);
+        let record = || EvidenceId::new(value);
+        vec![
+            ContractViolation::UnassessedClaim(claim()),
+            ContractViolation::DuplicateAssessment(claim()),
+            ContractViolation::UnknownClaim(claim()),
+            ContractViolation::UnretrievedEvidence {
+                claim: claim(),
+                field: "relevant_evidence",
+                evidence: record(),
+            },
+            ContractViolation::MissingVerdict(value.into()),
+            ContractViolation::DuplicateVerdict(value.into()),
+            ContractViolation::UnknownItem(value.into()),
+            ContractViolation::ResolvedWithoutReason(value.into()),
+            ContractViolation::UnresolvedWithoutVerdict(value.into()),
+            ContractViolation::UnresolvedListedTwice(value.into()),
+            ContractViolation::UnresolvedNotListed(value.into()),
+            ContractViolation::SilentContradiction(record()),
+            ContractViolation::ClearedWithoutReason(record()),
+            ContractViolation::ClearedNotCarried(record()),
+            ContractViolation::ClearedTwice(record()),
+            ContractViolation::ClearedAndContradicting(record()),
+            ContractViolation::EmptyItemId { index: 9 },
+            ContractViolation::ReusedItemId(value.into()),
+            ContractViolation::DuplicateClaimId(claim()),
+            ContractViolation::VerifiedUnretrieved(record()),
+            ContractViolation::VerifiedTwice(record()),
+            ContractViolation::VerificationRound {
+                evidence: record(),
+                stored: Some(9),
+                expected: 2,
+            },
+            ContractViolation::VerificationStatus {
+                evidence: record(),
+                stored: (FactualStatus::Corroborated, RelevanceStatus::Relevant),
+                derived: (FactualStatus::Contradicted, RelevanceStatus::Relevant),
+            },
+            ContractViolation::UnverifiedRecord(record()),
+        ]
+    }
+
     #[test]
     fn every_violation_message_names_its_rule_and_value() {
-        let all = [
-            ContractViolation::UnassessedClaim(ClaimId::new("c9")),
-            ContractViolation::DuplicateAssessment(ClaimId::new("c9")),
-            ContractViolation::UnknownClaim(ClaimId::new("c9")),
-            ContractViolation::UnretrievedEvidence {
-                claim: ClaimId::new("c9"),
-                field: "relevant_evidence",
-                evidence: EvidenceId::new("v9"),
-            },
-            ContractViolation::MissingVerdict("v9".into()),
-            ContractViolation::DuplicateVerdict("v9".into()),
-            ContractViolation::UnknownItem("v9".into()),
-            ContractViolation::ResolvedWithoutReason("v9".into()),
-            ContractViolation::UnresolvedWithoutVerdict("v9".into()),
-            ContractViolation::UnresolvedListedTwice("v9".into()),
-            ContractViolation::UnresolvedNotListed("v9".into()),
-            ContractViolation::SilentContradiction(EvidenceId::new("v9")),
-            ContractViolation::ClearedWithoutReason(EvidenceId::new("v9")),
-            ContractViolation::ClearedNotCarried(EvidenceId::new("v9")),
-            ContractViolation::ClearedTwice(EvidenceId::new("v9")),
-            ContractViolation::ClearedAndContradicting(EvidenceId::new("v9")),
-            ContractViolation::EmptyItemId { index: 9 },
-            ContractViolation::ReusedItemId("v9".into()),
-            ContractViolation::DuplicateClaimId(ClaimId::new("c9")),
-        ];
-        for v in all {
+        for v in every_violation("v9") {
             let message = v.to_string();
             assert!(message.starts_with(&format!("{}: ", v.rule())), "{message}");
             assert!(message.contains('9'), "{message}");
         }
+    }
+
+    #[test]
+    fn quoted_values_are_bounded_whatever_the_model_sends() {
+        // Short values quote exactly as `{:?}` does.
+        assert_eq!(quote("item-5"), "\"item-5\"");
+        assert_eq!(quote("a\"b"), "\"a\\\"b\"");
+        let at_cap = "x".repeat(MAX_QUOTED_CHARS);
+        assert_eq!(quote(&at_cap), format!("{at_cap:?}"));
+        // A 10 KB id is cut after the cap, and says so.
+        let long = "x".repeat(10 * 1024);
+        assert_eq!(
+            quote(&long),
+            format!("{:?}…[truncated]", "x".repeat(MAX_QUOTED_CHARS))
+        );
+        for v in every_violation(&long) {
+            let message = v.to_string();
+            assert!(message.len() < 400, "{} bytes: {message}", message.len());
+            assert!(message.starts_with(&format!("{}: ", v.rule())), "{message}");
+        }
+    }
+
+    #[test]
+    fn schema_versions_rank_by_major_then_minor_with_unknown_last() {
+        let ranked = ["1.0", "1.1", "1.2", "1.3", "1.10", "2.0", "x"];
+        for pair in ranked.windows(2) {
+            assert!(schema_rank(pair[0]) < schema_rank(pair[1]), "{pair:?}");
+        }
+        assert_eq!(schema_rank(SCHEMA_VERSION), (1, 3));
+        for unknown in ["", "1.3.1", "1", "1.x", "v1.3"] {
+            assert_eq!(schema_rank(unknown), schema_rank("x"), "{unknown:?}");
+        }
+    }
+
+    fn verification_of(
+        id: &str,
+        round: Option<u32>,
+        factual: FactualStatus,
+        relevance: RelevanceStatus,
+    ) -> EvidenceVerification {
+        EvidenceVerification {
+            schema_version: SCHEMA_VERSION.into(),
+            evidence_id: EvidenceId::new(id),
+            integrity_status: IntegrityStatus::Valid,
+            factual_status: factual,
+            relevance_status: relevance,
+            verifier: Some("test".into()),
+            verified_anchor: None,
+            detail: None,
+            checked_at: TS.into(),
+            round,
+            proof_ref: None,
+            report: None,
+        }
+    }
+
+    #[test]
+    fn a_verification_is_exactly_what_the_rounds_evaluation_implies() {
+        use crate::scenarios::evidence;
+        // c1 is corroborated by ev-a; c2 cites ev-b and is contradicted by
+        // ev-c; nothing mentions ev-d.
+        let e = evaluation(
+            vec![
+                assessment("c1", true, &["ev-a"], &[]),
+                assessment("c2", false, &["ev-b"], &["ev-c"]),
+            ],
+            &[],
+            false,
+        );
+        use FactualStatus as F;
+        use RelevanceStatus as R;
+        for (id, expected) in [
+            ("ev-a", (F::Corroborated, R::Relevant)),
+            ("ev-b", (F::Uncorroborated, R::Relevant)),
+            ("ev-c", (F::Contradicted, R::Relevant)),
+            ("ev-d", (F::NotAssessed, R::Irrelevant)),
+        ] {
+            assert_eq!(
+                verification_statuses(&e, &EvidenceId::new(id)),
+                expected,
+                "{id}"
+            );
+        }
+
+        let retrieved: Vec<EvidenceReference> = ["ev-a", "ev-c"]
+            .iter()
+            .map(|id| evidence(id, "p", "fact", "Retries are capped"))
+            .collect();
+        let ok_a = verification_of("ev-a", Some(2), F::Corroborated, R::Relevant);
+        let ok_c = verification_of("ev-c", Some(2), F::Contradicted, R::Relevant);
+        validate_verification(2, &retrieved, &[], &e, &ok_a).unwrap();
+        validate_verification(2, &retrieved, std::slice::from_ref(&ok_a), &e, &ok_c).unwrap();
+        let check = |verified: &[EvidenceVerification], v: &EvidenceVerification| {
+            validate_verification(2, &retrieved, verified, &e, v)
+        };
+        assert_eq!(
+            check(
+                &[],
+                &verification_of("ev-d", Some(2), F::NotAssessed, R::Irrelevant)
+            ),
+            Err(ContractViolation::VerifiedUnretrieved(EvidenceId::new(
+                "ev-d"
+            )))
+        );
+        assert_eq!(
+            check(std::slice::from_ref(&ok_a), &ok_a),
+            Err(ContractViolation::VerifiedTwice(EvidenceId::new("ev-a")))
+        );
+        for round in [None, Some(1), Some(3)] {
+            assert_eq!(
+                check(
+                    &[],
+                    &verification_of("ev-a", round, F::Corroborated, R::Relevant)
+                ),
+                Err(ContractViolation::VerificationRound {
+                    evidence: EvidenceId::new("ev-a"),
+                    stored: round,
+                    expected: 2,
+                })
+            );
+        }
+        // A contradiction recorded as corroboration, or as irrelevant.
+        for stored in [
+            (F::Corroborated, R::Relevant),
+            (F::Contradicted, R::Irrelevant),
+        ] {
+            assert_eq!(
+                check(&[], &verification_of("ev-c", Some(2), stored.0, stored.1)),
+                Err(ContractViolation::VerificationStatus {
+                    evidence: EvidenceId::new("ev-c"),
+                    stored,
+                    derived: (F::Contradicted, R::Relevant),
+                })
+            );
+        }
+
+        // The recommendation needs every retrieved record verified.
+        validate_round_verified(&retrieved, &[ok_a.clone(), ok_c]).unwrap();
+        validate_round_verified(&[], &[]).unwrap();
+        assert_eq!(
+            validate_round_verified(&retrieved, &[ok_a]),
+            Err(ContractViolation::UnverifiedRecord(EvidenceId::new("ev-c")))
+        );
     }
 }

@@ -117,8 +117,9 @@ pub enum EventPayload {
         /// Schema 1.3: stable machine code next to the English `reason`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<String>,
-        /// Schema 1.3: the model call whose document the runtime refused,
-        /// so the call (and its tokens) still appears in the run's record.
+        /// Schema 1.3: the model call whose output was refused after the
+        /// provider answered it (by the adapter, or by the runtime's
+        /// contract), so the call and its tokens stay in the run's record.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         invocation: Option<ModelInvocation>,
     },

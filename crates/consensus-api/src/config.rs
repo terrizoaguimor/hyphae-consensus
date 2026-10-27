@@ -73,6 +73,9 @@ pub struct HyphaeConfig {
     pub personal_collection: Option<String>,
     pub work_collection: Option<String>,
     pub journal_collection: Option<String>,
+    /// Operator-pinned expected proof anchor (obtained out-of-band).
+    /// When set, records anchored elsewhere verify as Invalid.
+    pub expected_anchor: Option<String>,
 }
 
 impl HyphaeConfig {
@@ -98,6 +101,7 @@ impl HyphaeConfig {
             personal_collection: collection("CONSENSUS_HYPHAE_PERSONAL_COLLECTION"),
             work_collection: collection("CONSENSUS_HYPHAE_WORK_COLLECTION"),
             journal_collection: collection("CONSENSUS_HYPHAE_JOURNAL_COLLECTION"),
+            expected_anchor: collection("CONSENSUS_HYPHAE_EXPECTED_ANCHOR"),
         })
     }
 

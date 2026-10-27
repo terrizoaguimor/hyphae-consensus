@@ -8,8 +8,7 @@
     "created_at",
     "run_id",
     "schema_version",
-    "target_proposal",
-    "unresolved_challenges"
+    "target_proposal"
   ],
   "properties": {
     "abstain": {
@@ -40,8 +39,9 @@
     "target_proposal": {
       "type": "string"
     },
-    "unresolved_challenges": {
-      "description": "Challenge ids the evaluator judges still unresolved after review.",
+    "unresolved_items": {
+      "description": "Challenge ITEM ids the evaluator judges still unresolved.",
+      "default": [],
       "type": "array",
       "items": {
         "type": "string"

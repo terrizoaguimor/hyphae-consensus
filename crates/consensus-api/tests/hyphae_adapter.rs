@@ -1,6 +1,6 @@
 //! Hyphae adapter tests over an in-memory MCP transport and a scripted
 //! command runner. These verify OUR protocol handling and status
-//! mapping â€” they do not simulate Hyphae's cryptography. The live probe
+//! mapping — they do not simulate Hyphae's cryptography. The live probe
 //! against a real binary is `#[ignore]`d and env-gated.
 
 use consensus_api::config::HyphaeConfig;
@@ -76,12 +76,19 @@ fn recall_accepts_text_content_fallback() {
 
 #[test]
 fn recall_falls_back_to_unproven_when_proof_generation_fails() {
-    // Mirrors the observed pinned-build behavior: prove=true returns a
+    // Mirrors the observed pinned-build behavior (envelope captured live
+    // from the Linux 4.0.0 container on 2026-10-26): prove=true returns a
     // tool-error envelope inside structuredContent, plain recall works.
     let mut t = transport_with(json!({
+        "isError": false,
         "structuredContent": {
             "schema": "hyphae-native-mcp-tool-error-v2",
-            "error": {"category": "corruption", "message": "native durable state is invalid"}
+            "error": {
+                "category": "corruption",
+                "code": "corruption",
+                "message": "native durable state is invalid",
+                "retry": "after-recovery"
+            }
         }
     }));
     t.script(
@@ -101,6 +108,15 @@ fn recall_falls_back_to_unproven_when_proof_generation_fails() {
     assert!(
         out[0].proof_file.is_none(),
         "unproven fallback must not fabricate artifacts"
+    );
+    // The failure reason travels with the record, category included: the
+    // live message alone ("native durable state is invalid") never says
+    // "corruption", and the runtime classifies on that word.
+    let reason = out[0].proof_error.as_deref().expect("proof_error recorded");
+    assert!(reason.contains("corruption"), "{reason}");
+    assert!(
+        reason.contains("native durable state is invalid"),
+        "{reason}"
     );
     let calls: Vec<Value> = client
         .into_transport()
@@ -149,33 +165,34 @@ fn evidence_with_proof() -> EvidenceReference {
         anchor: Some("ab".repeat(32)),
         proof_file: Some("/tmp/p.hyproof".into()),
         witness_file: Some("/tmp/w.hywit".into()),
+        proof_error: None,
     }
 }
 
 #[test]
 fn proof_verifier_maps_exit_codes_to_integrity_only() {
-    let mut ok = HyphaeProofVerifier {
-        binary: "hyphae".into(),
-        runner: ScriptedRunner(Ok((0, String::new())), vec![]),
-    };
+    let mut ok = HyphaeProofVerifier::new(
+        "hyphae".into(),
+        ScriptedRunner(Ok((0, String::new())), vec![]),
+    );
     let check = ok.verify(&evidence_with_proof());
     assert_eq!(check.status, IntegrityStatus::Valid);
     let argv = &ok.runner.1[0];
     assert_eq!(&argv[1..3], ["proof".to_string(), "verify".to_string()]);
     assert!(argv.contains(&"--anchor".to_string()));
 
-    let mut bad = HyphaeProofVerifier {
-        binary: "hyphae".into(),
-        runner: ScriptedRunner(Ok((1, "digest mismatch".into())), vec![]),
-    };
+    let mut bad = HyphaeProofVerifier::new(
+        "hyphae".into(),
+        ScriptedRunner(Ok((1, "digest mismatch".into())), vec![]),
+    );
     let check = bad.verify(&evidence_with_proof());
     assert_eq!(check.status, IntegrityStatus::Invalid);
     assert!(check.detail.unwrap().contains("digest mismatch"));
 
-    let mut spawn_fail = HyphaeProofVerifier {
-        binary: "hyphae-missing".into(),
-        runner: ScriptedRunner(Err("spawn hyphae-missing: not found".into()), vec![]),
-    };
+    let mut spawn_fail = HyphaeProofVerifier::new(
+        "hyphae-missing".into(),
+        ScriptedRunner(Err("spawn hyphae-missing: not found".into()), vec![]),
+    );
     assert_eq!(
         spawn_fail.verify(&evidence_with_proof()).status,
         IntegrityStatus::VerificationError
@@ -183,11 +200,40 @@ fn proof_verifier_maps_exit_codes_to_integrity_only() {
 }
 
 #[test]
+fn transport_exit_codes_are_verification_errors_not_invalid() {
+    // Docker/usage failures (125-127, unknown flags) are infrastructure
+    // errors; only an actual verifier rejection is Invalid.
+    let mut docker_down = HyphaeProofVerifier::new(
+        "wrapper".into(),
+        ScriptedRunner(
+            Ok((125, "docker: Cannot connect to the Docker daemon".into())),
+            vec![],
+        ),
+    );
+    assert_eq!(
+        docker_down.verify(&evidence_with_proof()).status,
+        IntegrityStatus::VerificationError
+    );
+}
+
+#[test]
+fn pinned_anchor_mismatch_is_invalid_without_running_verifier() {
+    let mut v = HyphaeProofVerifier::new(
+        "hyphae".into(),
+        ScriptedRunner(Ok((0, String::new())), vec![]),
+    );
+    v.expected_anchor = Some("cd".repeat(32));
+    let check = v.verify(&evidence_with_proof());
+    assert_eq!(check.status, IntegrityStatus::Invalid);
+    assert!(v.runner.1.is_empty(), "pinned-anchor check must run first");
+}
+
+#[test]
 fn missing_proof_artifacts_are_unavailable_never_valid() {
-    let mut v = HyphaeProofVerifier {
-        binary: "hyphae".into(),
-        runner: ScriptedRunner(Ok((0, String::new())), vec![]),
-    };
+    let mut v = HyphaeProofVerifier::new(
+        "hyphae".into(),
+        ScriptedRunner(Ok((0, String::new())), vec![]),
+    );
     let mut ev = evidence_with_proof();
     ev.proof_file = None;
     let check = v.verify(&ev);

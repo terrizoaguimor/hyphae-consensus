@@ -36,7 +36,7 @@
   },
   "definitions": {
     "ChallengeItem": {
-      "description": "One specific objection raised by the Critic against a claim or plan.",
+      "description": "One specific objection raised by the Critic against a claim or plan. Items carry stable ids so resolution is tracked per objection, not per challenge document.",
       "type": "object",
       "required": [
         "description",
@@ -60,6 +60,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "id": {
+          "default": "",
+          "type": "string"
         },
         "kind": {
           "$ref": "#/definitions/ChallengeKind"

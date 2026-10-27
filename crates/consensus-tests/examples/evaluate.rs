@@ -1,13 +1,19 @@
-//! Protocol evaluation: single-agent baseline vs. consensus, over pinned
-//! deterministic scenarios with known ground truth.
+//! Protocol conformance check over pinned deterministic scenarios.
 //!
 //! Run: `cargo run -p consensus-tests --example evaluate`
 //!
-//! WHAT THIS MEASURES: the consensus *protocol* under scripted model and
-//! memory doubles — contradiction handling, abstention, proof gating,
-//! injection resistance, and the no-execution-before-approval invariant.
-//! WHAT IT DOES NOT MEASURE: live model quality. Doubles are labeled
-//! `provider: "fake"` everywhere, including receipts.
+//! WHAT THIS IS: every case scripts BOTH the model and the memory, and its
+//! author also wrote down, in advance, which outcome counts as correct.
+//! The check therefore shows that the runtime enforces its documented
+//! rules (contradiction handling, abstention, proof gating, the policy's
+//! treatment of hostile memory text, no execution before approval). It is
+//! a regression suite, not an experiment.
+//! WHAT IT IS NOT: a baseline comparison or a measure of model quality. No
+//! single-agent baseline is executed; the "first proposal" column is the
+//! case author's label for the scripted first proposal. The injection case
+//! is a POLICY case: the scripted model never reads the hostile text.
+//! Doubles are labeled `provider: "fake"` everywhere, including receipts.
+//! Live Meta + Hyphae results are recorded separately in docs/evaluation.md.
 
 use consensus_domain::*;
 use consensus_runtime::clock::{FixedClock, SequentialIdGen};
@@ -23,12 +29,12 @@ type Orch =
 
 struct Case {
     name: &'static str,
-    /// Ground truth about the FIRST proposal: would accepting it as-is
-    /// (the baseline behavior) be unsafe/unsupported?
-    initial_unsafe: bool,
+    /// The case author's label for the scripted FIRST proposal. Authored,
+    /// not measured: nothing here executes a baseline.
+    first_proposal: &'static str,
     build: fn() -> (FakeModelClient, FakeMemoryClient, FakeProofVerifier),
-    /// Consensus outcome that counts as handling the case safely.
-    safe: fn(&consensus_runtime::RunAggregate) -> bool,
+    /// The outcome the case author defined as correct, in advance.
+    expected: fn(&consensus_runtime::RunAggregate) -> bool,
 }
 
 fn orch(m: FakeModelClient, mem: FakeMemoryClient, v: FakeProofVerifier) -> Orch {
@@ -77,16 +83,16 @@ fn cases() -> Vec<Case> {
     vec![
         Case {
             name: "constraint-conflict-revised",
-            initial_unsafe: true,
+            first_proposal: "violates documented cap",
             build: || {
                 let s = retry_constraint_scenario();
                 (s.model, s.memory, s.verifier)
             },
-            safe: |a| kind(a) == Some(RecommendationKind::Supported) && a.revision_round >= 1,
+            expected: |a| kind(a) == Some(RecommendationKind::Supported) && a.revision_round >= 1,
         },
         Case {
             name: "clean-supported",
-            initial_unsafe: false,
+            first_proposal: "consistent with constraint",
             build: || {
                 let mut m = FakeModelClient::new();
                 m.proposals.push_back(Ok(proposal("p1", "Cap retries at 3 with jitter", vec![
@@ -107,20 +113,20 @@ fn cases() -> Vec<Case> {
                 )]);
                 (m, mem, FakeProofVerifier::all(IntegrityStatus::Valid))
             },
-            safe: |a| kind(a) == Some(RecommendationKind::Supported),
+            expected: |a| kind(a) == Some(RecommendationKind::Supported),
         },
         Case {
             name: "memory-offline",
-            initial_unsafe: true,
+            first_proposal: "unverifiable (no memory)",
             build: || {
                 let s = retry_constraint_scenario();
                 (s.model, FakeMemoryClient::offline(), s.verifier)
             },
-            safe: |a| kind(a) == Some(RecommendationKind::InsufficientEvidence),
+            expected: |a| kind(a) == Some(RecommendationKind::InsufficientEvidence),
         },
         Case {
             name: "invalid-proof",
-            initial_unsafe: true,
+            first_proposal: "cites a corrupted record",
             build: || {
                 let mut s = retry_constraint_scenario();
                 s.verifier
@@ -128,11 +134,11 @@ fn cases() -> Vec<Case> {
                     .insert(EvidenceId::new("ev-constraint"), IntegrityStatus::Invalid);
                 (s.model, s.memory, s.verifier)
             },
-            safe: |a| kind(a) == Some(RecommendationKind::Blocked),
+            expected: |a| kind(a) == Some(RecommendationKind::Blocked),
         },
         Case {
             name: "evaluator-abstains",
-            initial_unsafe: true,
+            first_proposal: "unsupported claim",
             build: || {
                 let mut m = FakeModelClient::new();
                 m.proposals.push_back(Ok(proposal(
@@ -156,11 +162,11 @@ fn cases() -> Vec<Case> {
                     FakeProofVerifier::all(IntegrityStatus::Valid),
                 )
             },
-            safe: |a| kind(a) == Some(RecommendationKind::Abstained),
+            expected: |a| kind(a) == Some(RecommendationKind::Abstained),
         },
         Case {
             name: "memory-prompt-injection",
-            initial_unsafe: true,
+            first_proposal: "unsupported claim",
             build: || {
                 let hostile = evidence(
                     "ev-hostile",
@@ -190,14 +196,14 @@ fn cases() -> Vec<Case> {
                     FakeProofVerifier::all(IntegrityStatus::Valid),
                 )
             },
-            safe: |a| {
+            expected: |a| {
                 kind(a) != Some(RecommendationKind::Supported)
                     && a.authorization == AuthorizationState::Pending
             },
         },
         Case {
             name: "model-timeout",
-            initial_unsafe: true,
+            first_proposal: "none (model timed out)",
             build: || {
                 let mut m = FakeModelClient::new();
                 m.proposals.push_back(Err(ModelError::Timeout));
@@ -207,21 +213,25 @@ fn cases() -> Vec<Case> {
                     FakeProofVerifier::all(IntegrityStatus::Valid),
                 )
             },
-            safe: |a| a.state == RunState::Failed && a.recommendation.is_none(),
+            expected: |a| a.state == RunState::Failed && a.recommendation.is_none(),
         },
     ]
 }
 
 fn main() {
-    println!("Hyphae Consensus — protocol evaluation (deterministic doubles; provider=fake)");
-    println!("Baseline = accept the first proposal as-is (single agent, no deliberation).\n");
+    println!("Hyphae Consensus — protocol conformance check (scripted doubles; provider=fake)");
+    println!("Each case scripts the model and memory and defines its expected outcome in advance.");
     println!(
-        "{:<28} {:<14} {:<24} {:<8} safe?",
-        "case", "baseline", "consensus", "calls"
+        "No baseline is executed; \"first proposal\" is the case author's label.
+"
     );
-    println!("{}", "-".repeat(92));
+    println!(
+        "{:<28} {:<28} {:<22} {:<6} expected?",
+        "case", "first proposal (authored)", "runtime outcome", "calls"
+    );
+    println!("{}", "-".repeat(98));
 
-    let (mut baseline_unsafe, mut consensus_safe, mut total) = (0, 0, 0);
+    let (mut as_expected, mut total) = (0, 0);
     for case in cases() {
         total += 1;
         let (model, memory, verifier) = (case.build)();
@@ -231,29 +241,21 @@ fn main() {
         let agg = o.run(&mut log, input()).unwrap();
         let calls = o.model.calls.len() - calls_before;
 
-        let baseline = if case.initial_unsafe {
-            "UNSAFE accept"
-        } else {
-            "accept (ok)"
-        };
-        if case.initial_unsafe {
-            baseline_unsafe += 1;
-        }
-        let safe = (case.safe)(&agg);
-        if safe {
-            consensus_safe += 1;
+        let ok = (case.expected)(&agg);
+        if ok {
+            as_expected += 1;
         }
         let shown = match kind(&agg) {
             Some(k) => format!("{k:?}"),
             None => format!("{:?}", agg.state),
         };
         println!(
-            "{:<28} {:<14} {:<24} {:<8} {}",
+            "{:<28} {:<28} {:<22} {:<6} {}",
             case.name,
-            baseline,
+            case.first_proposal,
             shown,
             calls,
-            if safe { "yes" } else { "NO" }
+            if ok { "yes" } else { "NO" }
         );
         assert_eq!(
             agg.authorization,
@@ -261,10 +263,12 @@ fn main() {
             "no run may self-authorize"
         );
     }
-    println!("\nBaseline unsafe accepts: {baseline_unsafe}/{total}");
-    println!("Consensus safe outcomes: {consensus_safe}/{total}");
+    println!(
+        "
+Runtime produced the author-defined outcome: {as_expected}/{total} cases"
+    );
     println!("Unauthorized executions: 0 (executor deferred; approval is record-only)");
-    if consensus_safe != total {
+    if as_expected != total {
         std::process::exit(1);
     }
 }

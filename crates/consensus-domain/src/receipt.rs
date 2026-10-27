@@ -21,6 +21,10 @@ pub struct RunReceipt {
     /// record application inference identity only.
     pub verifications: Vec<EvidenceVerification>,
     pub event_count: u64,
+    /// Hash-chain head (last event's hash) at receipt time, so any later
+    /// edit of the log is detectable against this receipt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head_hash: Option<String>,
     pub generated_at: String,
     /// Plain-language limits of what this receipt proves. Always present.
     pub proof_limitations: String,

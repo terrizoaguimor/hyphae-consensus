@@ -23,6 +23,7 @@ pub fn evidence(id: &str, project: &str, kind: &str, content: &str) -> EvidenceR
         anchor: Some("fake-anchor-1".into()),
         proof_file: None,
         witness_file: None,
+        proof_error: None,
     }
 }
 
@@ -77,7 +78,7 @@ pub fn evaluation(
         run_id: RunId::new("placeholder"),
         target_proposal: ProposalId::new("placeholder"),
         assessments,
-        unresolved_challenges: unresolved.iter().map(|s| ChallengeId::new(*s)).collect(),
+        unresolved_items: unresolved.iter().map(|s| s.to_string()).collect(),
         abstain,
         abstain_reason: abstain.then(|| "evidence is insufficient to judge".to_string()),
         created_at: TS.into(),
@@ -124,12 +125,14 @@ pub fn retry_constraint_scenario() -> Scenario {
         target_proposal: ProposalId::new("placeholder"),
         items: vec![
             ChallengeItem {
+                id: "item-1".into(),
                 kind: ChallengeKind::ConstraintConflict,
                 claim_id: Some(ClaimId::new("claim-2")),
                 description: "Documented constraint caps retries at 3 attempts".into(),
                 evidence_refs: vec![EvidenceId::new("ev-constraint")],
             },
             ChallengeItem {
+                id: "item-2".into(),
                 kind: ChallengeKind::UnsupportedClaim,
                 claim_id: Some(ClaimId::new("claim-1")),
                 description: "No evidence ties timeouts to insufficient retries".into(),
@@ -143,7 +146,7 @@ pub fn retry_constraint_scenario() -> Scenario {
             assessment("claim-1", false, &["ev-fact"], &[]),
             assessment("claim-2", false, &["ev-constraint"], &["ev-constraint"]),
         ],
-        &["chal-1"],
+        &["item-1", "item-2"],
         false,
     )));
     model.revisions.push_back(Ok(Revision {
@@ -163,7 +166,7 @@ pub fn retry_constraint_scenario() -> Scenario {
             ],
         ),
         supersedes: ProposalId::new("placeholder"),
-        addressed_challenges: vec![ChallengeId::new("chal-1")],
+        addressed_items: vec!["item-1".into(), "item-2".into()],
     }));
     model.critiques.push_back(Ok(Challenge {
         schema_version: SCHEMA_VERSION.into(),

@@ -88,6 +88,15 @@ pub struct ConsensusEvent {
     pub run_id: RunId,
     pub actor: Actor,
     pub occurred_at: String,
+    /// Hash-chain link: `hash` of the previous record in the file
+    /// ("genesis" for the first). Empty only on pre-1.1 records.
+    #[serde(default)]
+    pub prev_hash: String,
+    /// SHA-256 over (prev_hash || canonical JSON of this record with
+    /// `hash` blanked). Assigned by the event log on append; validated
+    /// on open/replay. Empty only on pre-1.1 records.
+    #[serde(default)]
+    pub hash: String,
     pub payload: EventPayload,
 }
 
@@ -110,6 +119,8 @@ impl NewEvent {
             run_id: self.run_id,
             actor: self.actor,
             occurred_at: self.occurred_at,
+            prev_hash: String::new(),
+            hash: String::new(),
             payload: self.payload,
         }
     }

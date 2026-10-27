@@ -45,6 +45,7 @@ pub trait ModelClient {
         proposal: &Proposal,
         challenge: &Challenge,
         evaluation: &Evaluation,
+        ctx: &RoleContext,
     ) -> Result<(Revision, ModelInvocation), ModelError>;
 }
 

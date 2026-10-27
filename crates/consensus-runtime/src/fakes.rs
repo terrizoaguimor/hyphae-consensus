@@ -87,6 +87,7 @@ impl ModelClient for FakeModelClient {
         proposal: &Proposal,
         _ch: &Challenge,
         _e: &Evaluation,
+        _c: &RoleContext,
     ) -> Result<(Revision, ModelInvocation), ModelError> {
         self.calls.push("revise".into());
         let inv = self.invocation("revise");
@@ -184,11 +185,15 @@ impl ProofVerifier for FakeProofVerifier {
             .get(&evidence.id)
             .copied()
             .unwrap_or(self.default);
+        // Receipts carry this text: a simulated proof must say so there,
+        // not only in the UI.
         ProofCheck {
             status,
             verifier: Some("fake-verifier".into()),
             verified_anchor: evidence.anchor.clone(),
-            detail: Some(format!("scripted outcome: {status:?}")),
+            detail: Some(format!(
+                "SIMULATED proof (scripted outcome, no cryptography checked): {status:?}"
+            )),
         }
     }
 }

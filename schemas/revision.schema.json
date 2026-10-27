@@ -4,14 +4,14 @@
   "description": "A revision is a new proposal document that supersedes an earlier one.",
   "type": "object",
   "required": [
-    "addressed_challenges",
     "proposal",
     "schema_version",
     "supersedes"
   ],
   "properties": {
-    "addressed_challenges": {
-      "description": "Which challenges this revision claims to address, by id.",
+    "addressed_items": {
+      "description": "Which challenge ITEMS this revision claims to address, by item id.",
+      "default": [],
       "type": "array",
       "items": {
         "type": "string"

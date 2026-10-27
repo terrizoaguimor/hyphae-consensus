@@ -21,7 +21,11 @@ pub use receipt::*;
 pub use run::*;
 
 /// Schema version stamped on every serialized contract in this crate.
-pub const SCHEMA_VERSION: &str = "1.0";
+/// 1.1: per-item challenge ids, event hash chain, proof_error field.
+pub const SCHEMA_VERSION: &str = "1.1";
+
+/// Versions the event log can still read (additive/aliased changes only).
+pub const READABLE_SCHEMA_VERSIONS: [&str; 2] = ["1.0", "1.1"];
 
 /// The three logical agent roles. Roles may share one underlying model;
 /// they differ in instructions, context, and tool permissions.

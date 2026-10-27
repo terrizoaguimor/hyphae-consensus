@@ -41,8 +41,9 @@ pub struct Revision {
     pub schema_version: String,
     pub proposal: Proposal,
     pub supersedes: ProposalId,
-    /// Which challenges this revision claims to address, by id.
-    pub addressed_challenges: Vec<ChallengeId>,
+    /// Which challenge ITEMS this revision claims to address, by item id.
+    #[serde(default, alias = "addressed_challenges")]
+    pub addressed_items: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -57,8 +58,12 @@ pub enum ChallengeKind {
 }
 
 /// One specific objection raised by the Critic against a claim or plan.
+/// Items carry stable ids so resolution is tracked per objection, not
+/// per challenge document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ChallengeItem {
+    #[serde(default)]
+    pub id: String,
     pub kind: ChallengeKind,
     /// Claim under challenge, when the objection targets one claim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,8 +104,9 @@ pub struct Evaluation {
     pub run_id: RunId,
     pub target_proposal: ProposalId,
     pub assessments: Vec<ClaimAssessment>,
-    /// Challenge ids the evaluator judges still unresolved after review.
-    pub unresolved_challenges: Vec<ChallengeId>,
+    /// Challenge ITEM ids the evaluator judges still unresolved.
+    #[serde(default, alias = "unresolved_challenges")]
+    pub unresolved_items: Vec<String>,
     /// True when the evaluator cannot reach a supported judgment and the
     /// correct behavior is to abstain rather than guess.
     pub abstain: bool,

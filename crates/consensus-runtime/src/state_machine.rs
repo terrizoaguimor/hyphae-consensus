@@ -29,8 +29,13 @@ pub enum TransitionError {
     RunMismatch,
     #[error("duplicate task creation for run")]
     DuplicateTask,
-    #[error("abstained runs may only receive an abstained recommendation")]
+    #[error("abstained runs may only receive an abstained or blocked recommendation")]
     AbstainKindMismatch,
+    #[error("stored recommendation {stored:?} does not match derived {derived:?}")]
+    RecommendationMismatch {
+        stored: RecommendationKind,
+        derived: RecommendationKind,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -46,6 +51,11 @@ pub struct RunAggregate {
     pub verifications: Vec<EvidenceVerification>,
     pub invocations: Vec<ModelInvocation>,
     pub event_count: u64,
+    /// Latest evaluation and the verifications recorded after it —
+    /// exactly the inputs the orchestrator's policy derivation used.
+    /// Replay recomputes the recommendation from these (schema 1.1+).
+    pub last_evaluation: Option<Evaluation>,
+    pub round_verifications: Vec<EvidenceVerification>,
 }
 
 impl RunAggregate {
@@ -62,6 +72,8 @@ impl RunAggregate {
             verifications: Vec::new(),
             invocations: Vec::new(),
             event_count: 0,
+            last_evaluation: None,
+            round_verifications: Vec::new(),
         }
     }
 
@@ -117,6 +129,7 @@ impl RunAggregate {
                     "evidence_verified",
                 )?;
                 self.verifications.push(verification.clone());
+                self.round_verifications.push(verification.clone());
             }
             EventPayload::ChallengeSubmitted { invocation, .. } => {
                 self.require(
@@ -136,6 +149,8 @@ impl RunAggregate {
             } => {
                 self.require(&[RunState::EvidenceReview], "evaluation_submitted")?;
                 self.invocations.push(invocation.clone());
+                self.last_evaluation = Some(evaluation.clone());
+                self.round_verifications.clear();
                 self.state = if evaluation.abstain {
                     RunState::Abstained
                 } else {
@@ -160,10 +175,32 @@ impl RunAggregate {
                     &[RunState::Evaluated, RunState::Abstained],
                     "recommendation_issued",
                 )?;
+                // An invalid proof outranks abstention in the policy, so an
+                // abstained run may still be Blocked — but never upgraded.
                 if self.state == RunState::Abstained
-                    && recommendation.kind != RecommendationKind::Abstained
+                    && !matches!(
+                        recommendation.kind,
+                        RecommendationKind::Abstained | RecommendationKind::Blocked
+                    )
                 {
                     return Err(TransitionError::AbstainKindMismatch);
+                }
+                // Schema 1.1+: never trust the stored kind — recompute it
+                // from the tracked evaluation + this round's verification
+                // records, exactly as the orchestrator derived it. A log
+                // edited to upgrade its own outcome fails replay. Legacy
+                // records predate the current policy and skip recompute.
+                if event.schema_version == SCHEMA_VERSION {
+                    if let Some(eval) = &self.last_evaluation {
+                        let derived =
+                            crate::policy::derive_recommendation(eval, &self.round_verifications);
+                        if derived != recommendation.kind {
+                            return Err(TransitionError::RecommendationMismatch {
+                                stored: recommendation.kind,
+                                derived,
+                            });
+                        }
+                    }
                 }
                 self.recommendation = Some(recommendation.clone());
                 self.state = RunState::AwaitingHumanApproval;
@@ -226,6 +263,8 @@ mod tests {
             run_id: run.clone(),
             actor,
             occurred_at: "2026-10-26T00:00:00Z".into(),
+            prev_hash: String::new(),
+            hash: String::new(),
             payload,
         }
     }
@@ -302,7 +341,7 @@ mod tests {
                     run_id: run.clone(),
                     target_proposal: ProposalId::new("prop-1"),
                     assessments: vec![],
-                    unresolved_challenges: vec![],
+                    unresolved_items: vec![],
                     abstain: false,
                     abstain_reason: None,
                     created_at: "2026-10-26T00:00:00Z".into(),
@@ -312,6 +351,106 @@ mod tests {
         ))
         .unwrap_err(); // evaluation requires EvidenceReview first
         (agg, run)
+    }
+
+    #[test]
+    fn replay_recomputes_recommendation_and_rejects_forged_kind() {
+        let run = RunId::new("run-1");
+        let mut agg = RunAggregate::new(run.clone());
+        let agent = |role| Actor::Agent { role };
+        agg.apply(&ev(
+            &run,
+            1,
+            Actor::Human { id: "mario".into() },
+            EventPayload::TaskCreated { task: task(&run) },
+        ))
+        .unwrap();
+        agg.apply(&ev(
+            &run,
+            2,
+            agent(AgentRole::Proposer),
+            EventPayload::ProposalSubmitted {
+                proposal: proposal(&run),
+                invocation: invocation(),
+            },
+        ))
+        .unwrap();
+        agg.apply(&ev(
+            &run,
+            3,
+            agent(AgentRole::Critic),
+            EventPayload::ChallengeSubmitted {
+                challenge: Challenge {
+                    schema_version: SCHEMA_VERSION.into(),
+                    id: ChallengeId::new("chal-1"),
+                    run_id: run.clone(),
+                    target_proposal: ProposalId::new("prop-1"),
+                    items: vec![],
+                    created_at: "2026-10-26T00:00:00Z".into(),
+                },
+                invocation: invocation(),
+            },
+        ))
+        .unwrap();
+        // Uncorroborated claim, no evidence: policy derives
+        // InsufficientEvidence. A stored Supported must fail replay.
+        agg.apply(&ev(
+            &run,
+            4,
+            agent(AgentRole::EvidenceEvaluator),
+            EventPayload::EvaluationSubmitted {
+                evaluation: Evaluation {
+                    schema_version: SCHEMA_VERSION.into(),
+                    run_id: run.clone(),
+                    target_proposal: ProposalId::new("prop-1"),
+                    assessments: vec![ClaimAssessment {
+                        claim_id: ClaimId::new("c1"),
+                        corroborated: false,
+                        relevant_evidence: vec![],
+                        contradicting_evidence: vec![],
+                        note: "no evidence".into(),
+                    }],
+                    unresolved_items: vec![],
+                    abstain: false,
+                    abstain_reason: None,
+                    created_at: "2026-10-26T00:00:00Z".into(),
+                },
+                invocation: invocation(),
+            },
+        ))
+        .unwrap();
+        let rec = |kind| EventPayload::RecommendationIssued {
+            recommendation: Recommendation {
+                schema_version: SCHEMA_VERSION.into(),
+                kind,
+                rationale: "r".into(),
+                unresolved_assumptions: vec![],
+                issued_at: "2026-10-26T00:00:00Z".into(),
+            },
+        };
+        let err = agg
+            .apply(&ev(
+                &run,
+                5,
+                Actor::Runtime,
+                rec(RecommendationKind::Supported),
+            ))
+            .unwrap_err();
+        assert_eq!(
+            err,
+            TransitionError::RecommendationMismatch {
+                stored: RecommendationKind::Supported,
+                derived: RecommendationKind::InsufficientEvidence,
+            }
+        );
+        agg.apply(&ev(
+            &run,
+            5,
+            Actor::Runtime,
+            rec(RecommendationKind::InsufficientEvidence),
+        ))
+        .unwrap();
+        assert_eq!(agg.state, RunState::AwaitingHumanApproval);
     }
 
     #[test]
@@ -385,6 +524,34 @@ mod tests {
             ))
             .unwrap_err();
         assert!(matches!(err, TransitionError::Terminal { .. }));
+    }
+
+    #[test]
+    fn revision_beyond_round_limit_is_rejected() {
+        let run = RunId::new("run-1");
+        let mut agg = RunAggregate::new(run.clone());
+        agg.state = RunState::Evaluated;
+        agg.revision_round = MAX_REVISION_ROUNDS;
+        let revision = Revision {
+            schema_version: SCHEMA_VERSION.into(),
+            proposal: proposal(&run),
+            supersedes: ProposalId::new("prop-1"),
+            addressed_items: vec![],
+        };
+        let err = agg
+            .apply(&ev(
+                &run,
+                1,
+                Actor::Agent {
+                    role: AgentRole::Proposer,
+                },
+                EventPayload::RevisionSubmitted {
+                    revision,
+                    invocation: invocation(),
+                },
+            ))
+            .unwrap_err();
+        assert_eq!(err, TransitionError::RoundLimit);
     }
 
     #[test]

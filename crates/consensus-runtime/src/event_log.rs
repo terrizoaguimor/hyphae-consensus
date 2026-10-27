@@ -11,8 +11,16 @@
 //!   no-op returning the original sequence (safe retries).
 //! - Replay is read-only and deterministic; it performs no external
 //!   effects and cannot re-trigger authorization or execution.
+//! - Since schema 1.1, every record carries a SHA-256 hash-chain link
+//!   (`prev_hash`/`hash`) validated on open: editing or deleting a past
+//!   record is detectable. Pre-1.1 records (empty hashes) form a legacy
+//!   prefix that is readable but not chain-verified; the first chained
+//!   record anchors to `pre-1.1:<last legacy sequence>`.
+//! - A failed append rolls the file back to its previous length, so a
+//!   partial write never masquerades as a committed record.
 
-use consensus_domain::{ConsensusEvent, EventId, NewEvent, RunId, SCHEMA_VERSION};
+use consensus_domain::{ConsensusEvent, EventId, NewEvent, RunId, READABLE_SCHEMA_VERSIONS};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -35,12 +43,88 @@ pub enum EventLogError {
     },
     #[error("duplicate event_id in stored log at line {line}")]
     DuplicateStoredId { line: usize },
-    #[error("unsupported schema_version {found:?} at line {line} (expected {SCHEMA_VERSION:?})")]
+    #[error("unsupported schema_version {found:?} at line {line}")]
     SchemaVersion { line: usize, found: String },
+    #[error("hash chain broken at line {line}: {detail}")]
+    HashChain { line: usize, detail: String },
     #[error("replay transition failed: {0}")]
     Replay(#[from] TransitionError),
     #[error("serialization failed: {0}")]
     Serde(#[from] serde_json::Error),
+}
+
+/// Chain anchor for the first record of an empty log.
+const GENESIS: &str = "genesis";
+
+/// SHA-256 over (`prev_hash` || canonical JSON of the record with
+/// `hash` blanked), lowercase hex. Serde struct serialization is
+/// field-order deterministic, so the same record always hashes the
+/// same; verification re-serializes the parsed record identically.
+fn compute_hash(event: &ConsensusEvent) -> Result<String, serde_json::Error> {
+    let mut blanked = event.clone();
+    blanked.hash.clear();
+    let canonical = serde_json::to_string(&blanked)?;
+    let mut hasher = Sha256::new();
+    hasher.update(event.prev_hash.as_bytes());
+    hasher.update(canonical.as_bytes());
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+
+/// Expected `prev_hash` for the record after `prev` (None = log start).
+fn expected_prev_hash(prev: Option<&ConsensusEvent>) -> String {
+    match prev {
+        None => GENESIS.to_string(),
+        Some(p) if p.hash.is_empty() => format!("pre-1.1:{}", p.sequence),
+        Some(p) => p.hash.clone(),
+    }
+}
+
+/// Validate one record's chain link against the accepted prefix.
+/// Empty-hash records are a legacy (pre-1.1) prefix only: schema must
+/// be "1.0", `prev_hash` must also be empty, and no chained record may
+/// precede them.
+fn validate_chain_link(
+    prev: Option<&ConsensusEvent>,
+    ev: &ConsensusEvent,
+    line: usize,
+) -> Result<(), EventLogError> {
+    let broken = |detail: String| EventLogError::HashChain { line, detail };
+    if ev.hash.is_empty() {
+        if ev.schema_version != "1.0" {
+            return Err(broken(format!(
+                "schema {} record without chain hash",
+                ev.schema_version
+            )));
+        }
+        if !ev.prev_hash.is_empty() {
+            return Err(broken("legacy record carries a prev_hash".into()));
+        }
+        if let Some(p) = prev {
+            if !p.hash.is_empty() {
+                return Err(broken("unhashed record after hash-chain start".into()));
+            }
+        }
+        return Ok(());
+    }
+    let expected = expected_prev_hash(prev);
+    if ev.prev_hash != expected {
+        return Err(broken(format!(
+            "prev_hash mismatch: stored {:?}, expected {:?}",
+            ev.prev_hash, expected
+        )));
+    }
+    let computed = compute_hash(ev)?;
+    if computed != ev.hash {
+        return Err(broken(format!(
+            "hash mismatch: stored {}, computed {}",
+            ev.hash, computed
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -97,7 +181,7 @@ impl EventLog {
                 }
                 match serde_json::from_str::<ConsensusEvent>(trimmed) {
                     Ok(ev) => {
-                        if ev.schema_version != SCHEMA_VERSION {
+                        if !READABLE_SCHEMA_VERSIONS.contains(&ev.schema_version.as_str()) {
                             return Err(EventLogError::SchemaVersion {
                                 line: line_no,
                                 found: ev.schema_version.clone(),
@@ -114,6 +198,7 @@ impl EventLog {
                         if by_id.insert(ev.event_id.clone(), ev.sequence).is_some() {
                             return Err(EventLogError::DuplicateStoredId { line: line_no });
                         }
+                        validate_chain_link(events.last(), &ev, line_no)?;
                         events.push(ev);
                         offset += line.len() + 1;
                         valid_len = offset;
@@ -180,18 +265,42 @@ impl EventLog {
         self.events.iter().filter(move |e| &e.run_id == run_id)
     }
 
+    /// `hash` of the last record in the file (the chain head), or None
+    /// for an empty or pre-1.1-only log. Receipts carry this so a
+    /// verifier can confirm the exported run is the chain tip they saw.
+    pub fn head_hash(&self) -> Option<&str> {
+        self.events
+            .last()
+            .map(|e| e.hash.as_str())
+            .filter(|h| !h.is_empty())
+    }
+
     /// Append one event. Idempotent on `event_id`. Returns the sequence.
+    /// Assigns the chain link, fsyncs, and only then commits in memory;
+    /// any failure rolls the file back to its previous length.
     pub fn append(&mut self, new: NewEvent) -> Result<u64, EventLogError> {
         if let Some(seq) = self.by_id.get(&new.event_id) {
             return Ok(*seq);
         }
         let seq = self.events.len() as u64 + 1;
-        let ev = new.into_sequenced(seq);
+        let mut ev = new.into_sequenced(seq);
+        ev.prev_hash = expected_prev_hash(self.events.last());
+        ev.hash = compute_hash(&ev)?;
         let mut line = serde_json::to_string(&ev)?;
         line.push('\n');
-        self.file.write_all(line.as_bytes())?;
-        self.file.flush()?;
-        self.file.sync_all()?;
+        let prev_len = self.file.metadata()?.len();
+        let written = (|| -> std::io::Result<()> {
+            self.file.write_all(line.as_bytes())?;
+            self.file.flush()?;
+            self.file.sync_all()
+        })();
+        if let Err(e) = written {
+            // Roll back the partial append; the event never committed.
+            let _ = self.file.set_len(prev_len);
+            let _ = self.file.seek(SeekFrom::End(0));
+            let _ = self.file.sync_all();
+            return Err(e.into());
+        }
         self.by_id.insert(ev.event_id.clone(), seq);
         self.events.push(ev);
         Ok(seq)
@@ -302,6 +411,45 @@ mod tests {
         assert_eq!(log.append(fail_event(&run, "e2")).unwrap(), 2);
         let agg = log.rebuild(&run).unwrap();
         assert_eq!(agg.state, RunState::Failed);
+    }
+
+    #[test]
+    fn tampered_record_breaks_hash_chain() {
+        let path = temp_log("tampered.jsonl");
+        let run = RunId::new("run-1");
+        {
+            let mut log = EventLog::open(&path).unwrap();
+            log.append(task_event(&run, "e1")).unwrap();
+            log.append(fail_event(&run, "e2")).unwrap();
+            assert_eq!(log.head_hash().map(str::len), Some(64));
+        }
+        let content = std::fs::read_to_string(&path).unwrap();
+        // Edit the stored title without touching the hashes.
+        let forged = content.replacen("\"title\":\"t\"", "\"title\":\"forged\"", 1);
+        assert_ne!(forged, content);
+        std::fs::write(&path, forged).unwrap();
+        match EventLog::open(&path) {
+            Err(EventLogError::HashChain { line, .. }) => assert_eq!(line, 1),
+            other => panic!("expected HashChain error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn legacy_1_0_prefix_opens_and_chains_to_new_records() {
+        let path = temp_log("legacy.jsonl");
+        let run = RunId::new("run-1");
+        // A raw pre-1.1 line: schema 1.0, no hash fields at all.
+        let legacy = r#"{"schema_version":"1.0","sequence":1,"event_id":"e1","run_id":"run-1","actor":{"kind":"human","id":"mario"},"occurred_at":"2026-10-26T00:00:00Z","payload":{"type":"task_created","task":{"schema_version":"1.0","id":"task-1","run_id":"run-1","project_id":"p","title":"t","description":"d","created_at":"2026-10-26T00:00:00Z"}}}"#;
+        std::fs::write(&path, format!("{legacy}\n")).unwrap();
+        let mut log = EventLog::open(&path).unwrap();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log.head_hash(), None);
+        log.append(fail_event(&run, "e2")).unwrap();
+        assert_eq!(log.all_events()[1].prev_hash, "pre-1.1:1");
+        assert_eq!(log.head_hash().map(str::len), Some(64));
+        // Reopen revalidates the mixed chain.
+        let log = EventLog::open(&path).unwrap();
+        assert_eq!(log.len(), 2);
     }
 
     #[test]

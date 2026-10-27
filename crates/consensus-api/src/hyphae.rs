@@ -247,13 +247,21 @@ impl<T: McpTransport> HyphaeMemoryClient<T> {
                     .map(|s| s.contains("tool-error"))
                     .unwrap_or(false);
             if is_tool_error {
-                let message = structured
-                    .get("error")
-                    .and_then(|e| e.get("message"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown tool error");
+                let error = structured.get("error");
+                let field = |key: &str| {
+                    error
+                        .and_then(|e| e.get(key))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                };
+                let message = field("message").unwrap_or_else(|| "unknown tool error".into());
+                // Keep the category: the live corruption envelope says
+                // "corruption" only there, never in `message`.
+                let category = field("category")
+                    .or_else(|| field("code"))
+                    .unwrap_or_else(|| "uncategorized".into());
                 return Err(MemoryError::Backend(format!(
-                    "tool {name} failed: {message}"
+                    "tool {name} failed ({category}): {message}"
                 )));
             }
             return Ok(structured.clone());
@@ -297,6 +305,7 @@ impl<T: McpTransport> HyphaeMemoryClient<T> {
             anchor: get(&["anchor", "anchor_digest", "anchor_hex"]),
             proof_file: get(&["proof_path", "proof_file", "proofOut", "proof_out"]),
             witness_file: get(&["witness_path", "witness_file", "witnessOut", "witness_out"]),
+            proof_error: None,
         }
     }
 }
@@ -310,19 +319,24 @@ impl<T: McpTransport> MemoryClient for HyphaeMemoryClient<T> {
     ) -> Result<Vec<EvidenceReference>, MemoryError> {
         // Proofs are requested first. Some deployments fail proof
         // generation while plain recall works (observed on the pinned
-        // 4.0.0 build); degrading to an unproven recall keeps evidence
-        // usable while integrity honestly reports `unavailable`
-        // downstream — it never upgrades to verified.
+        // 4.0.0 build). The unproven records are still returned, but each
+        // carries the failure reason in `proof_error`: the runtime treats
+        // a corruption-class reason as `Invalid` (Blocked) and any other
+        // as `Unavailable`. It never upgrades to verified.
         let proven = self.call_tool(
             "hyphae_memory_recall",
             json!({"project": project.as_str(), "query": query, "limit": limit, "prove": true}),
         );
-        let value = match proven {
-            Ok(v) => v,
-            Err(_) => self.call_tool(
-                "hyphae_memory_recall",
-                json!({"project": project.as_str(), "query": query, "limit": limit, "prove": false}),
-            )?,
+        let (value, proof_error) = match proven {
+            Ok(v) => (v, None),
+            Err(e) => {
+                let reason = e.to_string();
+                let v = self.call_tool(
+                    "hyphae_memory_recall",
+                    json!({"project": project.as_str(), "query": query, "limit": limit, "prove": false}),
+                )?;
+                (v, Some(reason))
+            }
         };
         let items: Vec<Value> = match &value {
             Value::Array(a) => a.clone(),
@@ -332,7 +346,16 @@ impl<T: McpTransport> MemoryClient for HyphaeMemoryClient<T> {
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
-        Ok(items.iter().map(|i| self.map_record(project, i)).collect())
+        Ok(items
+            .iter()
+            .map(|i| {
+                let mut rec = self.map_record(project, i);
+                if rec.proof_file.is_none() {
+                    rec.proof_error = proof_error.clone();
+                }
+                rec
+            })
+            .collect())
     }
 
     fn status(&mut self) -> Result<MemoryStatus, MemoryError> {
@@ -367,9 +390,26 @@ impl CommandRunner for SystemCommandRunner {
 }
 
 /// Integrity-only verifier backed by `hyphae proof verify`.
+///
+/// Trust note: by default the anchor is taken from the same recall
+/// response that delivered the proof, so verification then proves
+/// internal consistency against that server-supplied anchor. Operators
+/// can pin `expected_anchor` (obtained out-of-band); records anchored
+/// elsewhere are then reported `Invalid` without invoking the verifier.
 pub struct HyphaeProofVerifier<R: CommandRunner> {
     pub binary: String,
     pub runner: R,
+    pub expected_anchor: Option<String>,
+}
+
+impl<R: CommandRunner> HyphaeProofVerifier<R> {
+    pub fn new(binary: String, runner: R) -> Self {
+        Self {
+            binary,
+            runner,
+            expected_anchor: None,
+        }
+    }
 }
 
 impl<R: CommandRunner> ProofVerifier for HyphaeProofVerifier<R> {
@@ -386,6 +426,18 @@ impl<R: CommandRunner> ProofVerifier for HyphaeProofVerifier<R> {
                 detail: Some("no proof/witness/anchor artifacts available for this record".into()),
             };
         };
+        if let Some(expected) = &self.expected_anchor {
+            if !expected.eq_ignore_ascii_case(anchor) {
+                return ProofCheck {
+                    status: IntegrityStatus::Invalid,
+                    verifier: Some("operator-pinned anchor".into()),
+                    verified_anchor: Some(anchor.clone()),
+                    detail: Some(format!(
+                        "record anchor does not match operator-pinned anchor {expected}"
+                    )),
+                };
+            }
+        }
         let argv: Vec<String> = vec![
             self.binary.clone(),
             "proof".into(),
@@ -404,15 +456,31 @@ impl<R: CommandRunner> ProofVerifier for HyphaeProofVerifier<R> {
                 verified_anchor: Some(anchor.clone()),
                 detail: Some("offline verifier accepted proof against anchor".into()),
             },
-            Ok((code, stderr)) => ProofCheck {
-                status: IntegrityStatus::Invalid,
-                verifier: Some("hyphae proof verify".into()),
-                verified_anchor: Some(anchor.clone()),
-                detail: Some(format!(
-                    "verifier exited {code}: {}",
-                    stderr.chars().take(300).collect::<String>()
-                )),
-            },
+            Ok((code, stderr)) => {
+                // Only a verifier rejection is Invalid. Transport/usage
+                // failures (docker 125-127, unknown flags, missing
+                // files) are infrastructure errors, never proof that a
+                // record was tampered with.
+                let lower = stderr.to_lowercase();
+                let rejection = lower.contains("mismatch")
+                    || lower.contains("invalid")
+                    || lower.contains("corrupt")
+                    || lower.contains("digest");
+                let status = if rejection && !(125..=127).contains(&code) {
+                    IntegrityStatus::Invalid
+                } else {
+                    IntegrityStatus::VerificationError
+                };
+                ProofCheck {
+                    status,
+                    verifier: Some("hyphae proof verify".into()),
+                    verified_anchor: Some(anchor.clone()),
+                    detail: Some(format!(
+                        "verifier exited {code}: {}",
+                        stderr.chars().take(300).collect::<String>()
+                    )),
+                }
+            }
             Err(e) => ProofCheck {
                 status: IntegrityStatus::VerificationError,
                 verifier: Some("hyphae proof verify".into()),

@@ -36,6 +36,12 @@ pub struct EvidenceReference {
     /// Local witness artifact path paired with `proof_file`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub witness_file: Option<String>,
+    /// Set when proof generation for this record was attempted and
+    /// failed upstream (e.g. a backend corruption signal). Integrity
+    /// derivation treats corruption-class messages as `Invalid`, other
+    /// failures as `Unavailable` — the reason is never silently dropped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof_error: Option<String>,
 }
 
 /// Cryptographic integrity axis only.

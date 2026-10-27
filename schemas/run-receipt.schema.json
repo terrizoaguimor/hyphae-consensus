@@ -28,6 +28,13 @@
     "generated_at": {
       "type": "string"
     },
+    "head_hash": {
+      "description": "Hash-chain head (last event's hash) at receipt time, so any later edit of the log is detectable against this receipt.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "model_invocations": {
       "description": "Every model call made during the run, with exact model identity.",
       "type": "array",

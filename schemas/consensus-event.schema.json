@@ -20,11 +20,21 @@
       "description": "Idempotency key: re-appending an event with an existing id is a no-op that returns the original sequence.",
       "type": "string"
     },
+    "hash": {
+      "description": "SHA-256 over (prev_hash || canonical JSON of this record with `hash` blanked). Assigned by the event log on append; validated on open/replay. Empty only on pre-1.1 records.",
+      "default": "",
+      "type": "string"
+    },
     "occurred_at": {
       "type": "string"
     },
     "payload": {
       "$ref": "#/definitions/EventPayload"
+    },
+    "prev_hash": {
+      "description": "Hash-chain link: `hash` of the previous record in the file (\"genesis\" for the first). Empty only on pre-1.1 records.",
+      "default": "",
+      "type": "string"
     },
     "run_id": {
       "type": "string"
@@ -140,7 +150,7 @@
       }
     },
     "ChallengeItem": {
-      "description": "One specific objection raised by the Critic against a claim or plan.",
+      "description": "One specific objection raised by the Critic against a claim or plan. Items carry stable ids so resolution is tracked per objection, not per challenge document.",
       "type": "object",
       "required": [
         "description",
@@ -164,6 +174,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "id": {
+          "default": "",
+          "type": "string"
         },
         "kind": {
           "$ref": "#/definitions/ChallengeKind"
@@ -248,8 +262,7 @@
         "created_at",
         "run_id",
         "schema_version",
-        "target_proposal",
-        "unresolved_challenges"
+        "target_proposal"
       ],
       "properties": {
         "abstain": {
@@ -280,8 +293,9 @@
         "target_proposal": {
           "type": "string"
         },
-        "unresolved_challenges": {
-          "description": "Challenge ids the evaluator judges still unresolved after review.",
+        "unresolved_items": {
+          "description": "Challenge ITEM ids the evaluator judges still unresolved.",
+          "default": [],
           "type": "array",
           "items": {
             "type": "string"
@@ -554,6 +568,13 @@
         },
         "project_id": {
           "type": "string"
+        },
+        "proof_error": {
+          "description": "Set when proof generation for this record was attempted and failed upstream (e.g. a backend corruption signal). Integrity derivation treats corruption-class messages as `Invalid`, other failures as `Unavailable` — the reason is never silently dropped.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "proof_file": {
           "description": "Local proof artifact path for offline verification, when the backend writes proofs to disk (Hyphae memory profile does).",
@@ -880,14 +901,14 @@
       "description": "A revision is a new proposal document that supersedes an earlier one.",
       "type": "object",
       "required": [
-        "addressed_challenges",
         "proposal",
         "schema_version",
         "supersedes"
       ],
       "properties": {
-        "addressed_challenges": {
-          "description": "Which challenges this revision claims to address, by id.",
+        "addressed_items": {
+          "description": "Which challenge ITEMS this revision claims to address, by item id.",
+          "default": [],
           "type": "array",
           "items": {
             "type": "string"

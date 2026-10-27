@@ -39,6 +39,13 @@
     "project_id": {
       "type": "string"
     },
+    "proof_error": {
+      "description": "Set when proof generation for this record was attempted and failed upstream (e.g. a backend corruption signal). Integrity derivation treats corruption-class messages as `Invalid`, other failures as `Unavailable` — the reason is never silently dropped.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "proof_file": {
       "description": "Local proof artifact path for offline verification, when the backend writes proofs to disk (Hyphae memory profile does).",
       "type": [

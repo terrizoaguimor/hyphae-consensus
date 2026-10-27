@@ -25,6 +25,13 @@ pub enum OrchestratorError {
     Transition(#[from] TransitionError),
 }
 
+/// Hard bound on distinct evidence records processed per run, so a
+/// model emitting many claims cannot cause unbounded proof-verification
+/// processes or prompt growth. Records past the cap are dropped and the
+/// drop is recorded. Recall calls are bounded separately: one per claim
+/// per round, with claims capped by the model adapter.
+pub const MAX_EVIDENCE_PER_RUN: usize = 20;
+
 #[derive(Debug, Clone)]
 pub struct TaskInput {
     pub project_id: ProjectId,
@@ -92,18 +99,27 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         // Stages 2-5, bounded by revision rounds and a no-progress exit.
         let (final_kind, evaluation, all_verifications) = loop {
             // Retrieve evidence per claim (read-only memory access).
+            // Retrieval is performed by the runtime, never by a model,
+            // so these events are attributed to Actor::Runtime.
             let mut evidence: Vec<EvidenceReference> = Vec::new();
+            let mut capped = 0usize;
             for claim in &proposal.claims {
                 match self.memory.recall(&task.project_id, &claim.statement, 5) {
                     Ok(records) => {
                         for rec in records {
+                            // Already-seen records stay usable in later
+                            // rounds; only NEW records count against the cap.
+                            if !seen_evidence.contains(&rec.id)
+                                && seen_evidence.len() >= MAX_EVIDENCE_PER_RUN
+                            {
+                                capped += 1;
+                                continue;
+                            }
                             if seen_evidence.insert(rec.id.clone()) {
                                 self.emit(
                                     log,
                                     &mut agg,
-                                    Actor::Agent {
-                                        role: AgentRole::EvidenceEvaluator,
-                                    },
+                                    Actor::Runtime,
                                     EventPayload::EvidenceRetrieved {
                                         evidence: rec.clone(),
                                     },
@@ -118,9 +134,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                         self.emit(
                             log,
                             &mut agg,
-                            Actor::Agent {
-                                role: AgentRole::EvidenceEvaluator,
-                            },
+                            Actor::Runtime,
                             EventPayload::EvidenceUnavailable {
                                 query: claim.statement.clone(),
                                 reason: e.to_string(),
@@ -129,11 +143,41 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                     }
                 }
             }
+            if capped > 0 {
+                // The cap degrades evidence; it must never do so silently.
+                self.emit(
+                    log,
+                    &mut agg,
+                    Actor::Runtime,
+                    EventPayload::EvidenceUnavailable {
+                        query: "(per-run evidence cap)".into(),
+                        reason: format!(
+                            "{capped} additional record(s) not processed: per-run cap of {MAX_EVIDENCE_PER_RUN} distinct records reached"
+                        ),
+                    },
+                )?;
+            }
             // Integrity pre-checks (events emitted after evaluation so the
-            // three orthogonal axes land in one record).
+            // three orthogonal axes land in one record). Records whose
+            // proof GENERATION failed upstream carry `proof_error`:
+            // corruption-class signals count as Invalid (never silently
+            // downgraded), other failures as Unavailable.
             let mut checks: HashMap<EvidenceId, ProofCheck> = HashMap::new();
             for ev in &evidence {
-                checks.insert(ev.id.clone(), self.verifier.verify(ev));
+                let check = match &ev.proof_error {
+                    Some(reason) => ProofCheck {
+                        status: if reason.to_lowercase().contains("corrupt") {
+                            IntegrityStatus::Invalid
+                        } else {
+                            IntegrityStatus::Unavailable
+                        },
+                        verifier: Some("recall(prove) upstream".into()),
+                        verified_anchor: ev.anchor.clone(),
+                        detail: Some(reason.clone()),
+                    },
+                    None => self.verifier.verify(ev),
+                };
+                checks.insert(ev.id.clone(), check);
             }
             let ctx = RoleContext {
                 evidence: evidence.clone(),
@@ -229,7 +273,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             }
             let all_verifications = round_verifications;
             let final_kind = derive_recommendation(&evaluation, &all_verifications);
-            let unresolved = evaluation.unresolved_challenges.len();
+            let unresolved = evaluation.unresolved_items.len();
 
             let no_progress = prev_unresolved.map(|p| unresolved >= p).unwrap_or(false);
             prev_unresolved = Some(unresolved);
@@ -241,7 +285,8 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             if !should_revise {
                 break (final_kind, evaluation, all_verifications);
             }
-            let (revision, inv) = match self.model.revise(&proposal, &challenge, &evaluation) {
+            let (revision, inv) = match self.model.revise(&proposal, &challenge, &evaluation, &ctx)
+            {
                 Ok(v) => v,
                 Err(e) => return self.fail(log, agg, "revise", &e.to_string()),
             };
@@ -289,6 +334,9 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             occurred_at: self.clock.now(),
             payload,
         };
+        // Validate before persisting: the log must never hold a record
+        // that replay would reject (that would poison the whole run).
+        agg.clone().apply(&new.clone().into_sequenced(0))?;
         let seq = log.append(new)?;
         let stored = &log.all_events()[(seq - 1) as usize];
         agg.apply(stored)?;
@@ -315,15 +363,20 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
     }
 }
 
-/// Record a human approval/rejection. Idempotent on
-/// `authorization.idempotency_key`: a retry returns the recorded outcome
-/// without appending. Performs NO external action (executor deferred).
+/// Record a human approval/rejection. Idempotent per run on
+/// `authorization.idempotency_key` (scoped by run id, so reusing a key
+/// across runs cannot silently swallow a decision): a retry returns the
+/// recorded outcome without appending. Performs NO external action
+/// (executor deferred).
 pub fn record_human_decision(
     log: &mut EventLog,
     authorization: HumanAuthorization,
     occurred_at: String,
 ) -> Result<RunAggregate, OrchestratorError> {
-    let event_id = EventId::new(format!("human-decision:{}", authorization.idempotency_key));
+    let event_id = EventId::new(format!(
+        "human-decision:{}:{}",
+        authorization.run_id, authorization.idempotency_key
+    ));
     if log.contains(&event_id) {
         return Ok(log.rebuild(&authorization.run_id)?);
     }
@@ -344,6 +397,62 @@ pub fn record_human_decision(
     Ok(log.rebuild(&run_id)?)
 }
 
+/// Outcome of [`mark_interrupted_runs`].
+#[derive(Debug, Default)]
+pub struct Recovery {
+    /// Runs closed as `Failed{stage:"interrupted"}`.
+    pub interrupted: Vec<RunId>,
+    /// Runs whose recorded history fails replay. Left untouched (a broken
+    /// history is never rewritten) and reported, so one bad run cannot
+    /// stop the console from starting; the console shows them as failed.
+    pub unreplayable: Vec<(RunId, String)>,
+}
+
+/// Startup recovery: runs left mid-deliberation by a dead process are
+/// closed as `Failed{stage:"interrupted"}` instead of lingering forever.
+/// Runs awaiting a human are legitimate resting states and are kept.
+pub fn mark_interrupted_runs(
+    log: &mut EventLog,
+    ids: &mut impl IdGen,
+    now: String,
+) -> Result<Recovery, OrchestratorError> {
+    let mut run_ids: Vec<RunId> = Vec::new();
+    for ev in log.all_events() {
+        if !run_ids.contains(&ev.run_id) {
+            run_ids.push(ev.run_id.clone());
+        }
+    }
+    let mut recovery = Recovery::default();
+    for run_id in run_ids {
+        let mut agg = match log.rebuild(&run_id) {
+            Ok(agg) => agg,
+            Err(e) => {
+                recovery.unreplayable.push((run_id, e.to_string()));
+                continue;
+            }
+        };
+        if agg.task.is_some()
+            && !agg.state.is_terminal()
+            && agg.state != RunState::AwaitingHumanApproval
+        {
+            let new = NewEvent {
+                event_id: EventId::new(ids.next("evt")),
+                run_id: run_id.clone(),
+                actor: Actor::Runtime,
+                occurred_at: now.clone(),
+                payload: EventPayload::RunFailed {
+                    reason: "process restarted before the run completed".into(),
+                    stage: "interrupted".into(),
+                },
+            };
+            let seq = log.append(new)?;
+            agg.apply(&log.all_events()[(seq - 1) as usize])?;
+            recovery.interrupted.push(run_id);
+        }
+    }
+    Ok(recovery)
+}
+
 /// Build the redacted run receipt from replayed state.
 pub fn build_receipt(
     log: &EventLog,
@@ -360,6 +469,11 @@ pub fn build_receipt(
         model_invocations: agg.invocations,
         verifications: agg.verifications,
         event_count: agg.event_count,
+        head_hash: log
+            .events_for(run_id)
+            .last()
+            .map(|e| e.hash.clone())
+            .filter(|h| !h.is_empty()),
         generated_at,
         proof_limitations: RunReceipt::DEFAULT_LIMITATIONS.into(),
     })

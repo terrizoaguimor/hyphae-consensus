@@ -81,8 +81,11 @@ Notes:
 - The MCP adapter allows ONE active tool call; `hyphae_call` opens one
   session per call.
 - Proof artifacts accumulate under `<HOME>/.local/state/hyphae/proofs/`
-  (each witness is a full copy of the data directory, ~3 MB); prune old
-  ones when no receipt under review references them.
+  (each witness is a full copy of the data directory, ~3 MB, including the
+  WAL with forgotten records and the access-control catalog). Keep them
+  private. Never prune a witness that a recorded run in `research/`
+  references: archive it outside the container first, with the owner's
+  approval.
 
 ## Probe, verify, forget
 

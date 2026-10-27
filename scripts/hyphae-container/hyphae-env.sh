@@ -47,8 +47,9 @@ hyphae_store() {
 
 # Proven recall needs the WHOLE data directory to fit in one MCP response:
 # the proof carries the complete directory witness, and `hyphae mcp` caps a
-# response at 4 MiB. Past roughly 3.8 MB of data the response is refused
-# and reported, again, as "corruption". Keep the store small.
+# response at 4 MiB. Proofs failed once the data directory reached about
+# 3.85 MB (the documented ceiling is "about 3.9 MB"); the oversized response
+# is refused and reported, again, as "corruption". Keep the store small.
 hyphae_store_bytes() {
   du -b -s "$HYPHAE_DATA" | cut -f1
 }

@@ -64,9 +64,12 @@ mod tests {
         assert_eq!(used, Ok(3));
     }
 
-    /// This test encodes the stored constraint and FAILS against any
-    /// policy that raises the cap above 3 attempts. It is the
-    /// machine-checkable form of the memory the Critic retrieves.
+    /// This test encodes the stored constraint for one proposed policy:
+    /// it checks its own literal `RetryPolicy { max_attempts: 3,
+    /// jitter_ms: 50 }`, not `RetryPolicy::default()` or any configured
+    /// policy. Correction (2026-10-27 audit, DOC-8): earlier text said it
+    /// fails for any policy above 3 attempts, and seeded memory record 5
+    /// still says so; the test does not inspect other policies.
     #[test]
     fn constraint_cap_is_three_attempts() {
         let proposed = RetryPolicy { max_attempts: 3, jitter_ms: 50 };

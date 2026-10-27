@@ -28,7 +28,14 @@ against a stored record:
 7. **fact** — "Fact: in the 2026-08 outage, retry bursts from payment clients
    amplified an upstream slowdown into a full outage."
 
+Correction (2026-10-27 audit, DOC-8): record 5 overstates the test. The
+test `constraint_cap_is_three_attempts` asserts only on its own literal
+`RetryPolicy { max_attempts: 3, jitter_ms: 50 }`; it never checks
+`RetryPolicy::default()` or a configured policy, so raising the default to
+10 attempts would not make it fail. The record is kept as seeded, because
+the recorded runs in `research/` cite it by id (live run R06 among them).
+
 The reported bug: payment requests intermittently time out under load
 because the default `RetryPolicy` allows a single attempt. The naive fix
-(raise the limit to 10) violates constraint 1, record 5's test, and decision
+(raise the limit to 10) violates constraint 1, record 5's description of the test (see the correction above), and decision
 6, and fact 2 contradicts it. The compliant fix is 3 attempts with jitter.

@@ -154,3 +154,36 @@ identically.
   write part of its record and fail; the test shows the file is rolled back
   byte-for-byte, the event is absent, a fresh open sees a valid log with no
   torn tail, and the same handle commits the retry.
+
+## Amendment — 2026-10-27 independent audit (corrections; no code change)
+
+The independent audit of `72e422a`
+(`docs/reviews/2026-10-27-independent-audit.md`) found statements in this ADR
+that do not match the code. They are corrected here; the decisions above are
+kept as written.
+
+- **Decision 4 and both amendments: "progress is measured per item" and
+  "per-item no-progress exit".** Not so. The no-progress exit compares the
+  number of unresolved items in the new round with the previous round
+  (`unresolved >= previous` in the orchestrator), and the Meta adapter mints new
+  item ids every round, so no item is tracked across rounds (audit finding
+  RT-7). Ids did make the second revision round reachable. Set-based progress
+  is planned together with cross-round carry-forward (portal plan, work item
+  A2).
+- **Decisions 2 and 3: the policy sees only the final round.** Objections and
+  contradictions recorded in earlier rounds are not carried into later rounds or
+  into the policy's input (RT-1), and the Meta adapter silently drops Evaluator
+  ids that are not byte-exact (MA-1). Both can lead to `supported` while an
+  objection or contradiction is still open; see the threat model's "Known gaps"
+  section. Planned fixes: A2 and A1.
+- **Decision 6 and the Consequences: no async adapter.** M2 did not introduce an
+  async Meta adapter. The adapter uses `reqwest::blocking`, the orchestrator is
+  synchronous, and the console runs it on a blocking thread
+  (`docs/adr/0002-meta-model-adapter.md`, decision 7; audit finding DOC-10).
+- **The 1.1 amendment's "Limit": what a receipt's `head_hash` covers.** It is
+  the hash of the run's last event at receipt time, not the head of the log
+  file. The chain is log-wide, so verifying one run's receipt needs the whole
+  file, and edits made after that event are outside the receipt (DOC-9, RT-4).
+- **Decision 9: superseded.** On 2026-10-27 the owner chose the Apache License
+  2.0 for this repository (`LICENSE`, `NOTICE`, README "Competition boundary").
+  Hyphae keeps its own license and is not relicensed.

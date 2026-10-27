@@ -5,6 +5,8 @@
 Meta Global AI Developer Hackathon 2026 · Indie Developer track · Push the Frontier
 Development window: October 26 – November 4, 2026 · Owner: Mario (independent developer)
 
+Independent project; not affiliated with, sponsored by, or endorsed by Meta.
+
 Hyphae Consensus coordinates three Meta-AI agent roles — **Proposer**, **Critic**, and
 **Evidence Evaluator** — that propose solutions to software-engineering problems,
 challenge each other's assumptions, and revise conclusions. The **runtime** (not a
@@ -16,32 +18,61 @@ or can approve, but the Evaluator's judgments are the policy's main input, so "m
 never decide" holds in form, not in substance. Nothing is executed before a human
 approves (the executor is deferred: approval records a decision only).
 
-> **Status (2026-10-27, owner-decision round; schema 1.2).**
+> **Status (2026-10-27, owner-decision round; schema 1.2; corrected the same day
+> after the independent audit).**
 > Typed contracts, deterministic state machine, hash-chained crash-safe event log,
 > Meta Model API adapter (strict structured output), Hyphae MCP read-only adapter +
-> offline proof verifier, Axum/SSE operator console, synthetic demo repository, a
-> 10-case scripted protocol conformance check, and live batteries. **Live status:**
+> offline proof verifier, Axum operator console with an SSE replay endpoint,
+> synthetic demo repository, a 10-case scripted protocol conformance check, and
+> live batteries. **Live status:**
 > Hyphae proofs now verify end to end. `hyphae proof verify` re-executes each recall
 > against its sealed witness, checked against an operator-pinned anchor. The earlier
 > "corruption" answers were never data corruption: the daemon's socket sat inside
 > its data directory, and later the store outgrew the 4 MiB MCP response that
 > carries the witness (ADR-0003). Across 18 live runs on 2026-10-27 (real Meta API,
-> `muse-wonder-1.0`, and real Hyphae memory), one reached `supported` with every
-> cited record verified (R06). Two defects in this round's own changes surfaced
-> live and were fixed. On the final code all 8 runs ended `contested`: every
-> final-round claim was corroborated by verified memory, but the Critic's
-> objections about missing tests and unproven risks stay open, and the unchanged
-> policy grants `supported` only when none is open. A hostile note with a valid
+> `muse-wonder-1.0`, and real Hyphae memory), one counted run reached `supported`
+> with every cited record verified (R06). P02 also reached `supported` but does
+> not count (`docs/evaluation.md` §5.1). Two defects surfaced live and were
+> fixed: the first Evaluator wording, new in this round, which let objections
+> that still applied count as resolved, as in P02; and field-name drift under
+> non-strict structured output, a fail-open that had existed since the first
+> commit and was exposed live in this round. On the final code all 8
+> runs ended `contested`. Only the 6 runs of the final battery (F01–F06) had every
+> final-round claim corroborated by verified memory, with the Critic's open
+> objections about missing tests and unproven risks as the remaining blocker (the
+> unchanged policy grants `supported` only when none is open). In the two
+> hostile-note runs, H02's final round corroborated 1 of 4 claims, and H01's
+> final round had claims with contradicting evidence. A hostile note with a valid
 > proof was treated as contradicting data, never as instructions
 > (`docs/evaluation.md` §5). Hyphae runs
 > its pinned Linux build in a local Docker container, because the Windows build's
 > Agent Memory surface does not start on this host (`docs/journal.md`). Demo modes
-> are labeled everywhere (`fake` with simulated proofs vs. live).
+> are labeled in the launch form and in every verification record and receipt
+> (`fake-verifier`, `SIMULATED proof`), but the console's result views show a
+> simulated proof with the same `valid` badge as a real one (audit finding UI-4).
+>
+> **Independent audit (2026-10-27).** A read-only, adversarially verified audit
+> of commit `72e422a` (`docs/reviews/2026-10-27-independent-audit.md`)
+> reproduced every gate and battery number above and found two fail-open paths
+> toward `supported`. MA-1: Evaluator ids that are not byte-exact are silently
+> dropped, which can empty the list of open objections or hide a contradiction.
+> RT-1: objections and contradictions from earlier rounds are never shown or
+> judged again, because the policy reads only the final round. Fixes are in
+> progress on branch `feat/public-portal`. Until they land, read R06's
+> `supported` with that caveat: its 7 round-1 objections were never re-judged.
+> The console must stay on loopback; it is not safe to expose (audit SEC-1 to
+> SEC-11).
 
 ## Competition boundary: pre-existing vs. newly developed work
 
-This repository is an **independent** project created for the hackathon. It consumes
+This repository is a new project created for the hackathon. It consumes
 pre-existing open-source technology through documented public interfaces only.
+
+**Hyphae is the owner's own earlier work.** Hyphae Core and Hyphae Agent Memory are
+Mario Gutiérrez's own earlier open-source project (Apache-2.0, copyright Celiums
+Solutions LLC). It was frozen at commit `418a3da` (2026-09-24), before the hackathon
+began; Hyphae's `main` had no commits after kickoff as of 2026-10-27. This project
+uses Hyphae only through its public interfaces and does not claim it as new work.
 
 **Pre-existing (NOT built for this hackathon, NOT claimed as new work):**
 
@@ -76,9 +107,21 @@ forked, or modified by this project.
   adversarial integration tests, a scripted protocol conformance check, and a live
   Meta + Hyphae battery (`docs/evaluation.md`).
 
-**Licensing of this repository: undecided.** No license is granted by this repository
-until the owner explicitly selects one. Hyphae is consumed only via its public
-interfaces; no Hyphae code is redistributed here.
+**License.** This repository is licensed under the Apache License 2.0 (`LICENSE`),
+copyright 2026 Mario Gutiérrez; see `NOTICE`. The license covers this repository
+only: Hyphae is not relicensed. It keeps its own license and notices, it is consumed
+only via its public interfaces, and no Hyphae code is redistributed here.
+Third-party Rust crates keep their own licenses.
+
+## AI assistance
+
+Development used AI coding assistants: Meta's Muse Code (with Muse Wonder Full)
+and Anthropic's Claude. Commits where Claude contributed carry a
+`Co-Authored-By: Claude …` trailer, and the briefs and reports of the headless
+Claude runs are kept in `docs/reviews/` (index: `docs/reviews/README.md`). All
+inference inside the product uses Meta's Model API only (`muse-wonder-1.0`); the
+coding assistants are not part of the product and never appear in receipts. The
+owner reviews and authorizes every change.
 
 ## What works when Hyphae is offline
 
@@ -88,20 +131,32 @@ retrieval fails per claim and an `evidence_unavailable` event records the reason
 evidence is retrieved, so no verification record exists at all, and with no checked
 evidence the policy can never return `supported`: the run ends `insufficient_evidence`,
 `contested` (unresolved Critic items), or `abstained`, depending on the Evaluator.
-Uncertainty is surfaced, never converted into confidence.
+Uncertainty is surfaced, never converted into confidence. This per-claim path applies
+once a run has started. With `memory=hyphae`, a console run whose Hyphae MCP process
+cannot be started or connected answers HTTP 502 and records no run at all
+(corrected 2026-10-27, audit finding DOC-10).
 
 ## Integrity proofs: what they do and do not establish
 
-A valid Hyphae proof establishes that a recalled record matches its anchored snapshot
-under Hyphae's documented assumptions. It does **not** establish that the content is
-true, relevant, or complete, or that a model reasoned from it. This is why
-`EvidenceVerification` keeps integrity, factual corroboration, and relevance as three
-independent fields. A `supported` recommendation requires **every** claim to be
+A valid Hyphae proof establishes that the recall it seals reproduces against its
+anchored snapshot under Hyphae's documented assumptions. Hyphae's proof seals each
+record's text, but this adapter does not yet check that a proof is a memory proof,
+or byte-compare the record text it gives the models against the proof, so `Valid`
+attests the proof Hyphae returned with the record, not that the displayed text
+matches it (corrected 2026-10-27, audit finding HY-1). A valid proof does **not**
+establish that the content is true, relevant, or complete, or that a model reasoned
+from it. This is why `EvidenceVerification` keeps integrity, factual corroboration,
+and relevance as three independent fields. A `supported` recommendation requires **every** claim to be
 corroborated by at least one record that the claim itself cites, a valid proof on
 every cited record, no contradicting record (cited or not), no Critic item the
 Evaluator still judges unresolved, and no invalid proof anywhere in the retrieved
 set. A recorded contradiction outranks an abstention (`contested`, schema 1.2), so
-abstaining cannot hide it. `Valid` means `hyphae proof verify` re-executed the
+abstaining cannot hide it. These conditions are checked against the final round
+only, and two of them can currently fail open: the Meta adapter drops unresolved-item
+and evidence ids that are not byte-exact (MA-1), and objections or contradictions
+from earlier rounds are not carried into the final round (RT-1). "Every claim" is
+enforced by the Meta adapter, which completes omitted claims as uncorroborated, not
+by the runtime policy (TC-2). `Valid` means `hyphae proof verify` re-executed the
 recall against its sealed witness and reproduced the result; one proof covers a
 whole recall. By default the proof anchor comes from the same server response as
 the proof, which shows internal consistency only; pin an out-of-band anchor with
@@ -113,11 +168,12 @@ the proof, which shows internal consistency only; pin an out-of-band anchor with
 |---|---|
 | `crates/consensus-domain` | Typed contracts only; no I/O |
 | `crates/consensus-runtime` | State machine, event log, orchestration, policy, ports, fakes |
-| `crates/consensus-api` | Meta + Hyphae adapters, Axum/SSE operator console, scripted CLI demo |
+| `crates/consensus-api` | Meta + Hyphae adapters, Axum operator console (with an SSE replay endpoint), scripted CLI demo |
 | `crates/consensus-tests` | Deterministic integration and adversarial scenarios |
 
 Architecture decisions: `docs/adr/0001-m1-architecture.md`. Threat model:
-`docs/threat-model.md`. Implementation journal: `docs/journal.md`.
+`docs/threat-model.md`. Implementation journal: `docs/journal.md`. Reviews, agent
+briefs and the 2026-10-27 independent audit: `docs/reviews/README.md`.
 
 ## Setup and verification (M1)
 
@@ -127,12 +183,11 @@ MSVC build tools on Windows (see the
 The toolchain is pinned in `rust-toolchain.toml`.
 
 ```powershell
-cargo test --workspace                                        # 89 tests (+2 ignored live), deterministic
+cargo test --workspace                                        # 107 tests (+2 ignored live), deterministic
 cargo run -p consensus-domain --example write_schemas         # regenerate schemas/ (1.2)
 cargo run -p consensus-tests --example evaluate               # scripted protocol conformance check
+$env:CONSENSUS_EVENT_LOG = "$env:TEMP\hc-console.jsonl"       # a fresh log, never one in demo-run/ or research/
 cargo run -p consensus-api -- serve                           # operator console → http://127.0.0.1:8787/
-cargo run -p consensus-api                                    # scripted CLI demo (alternative)
-cargo run -p consensus-api -- --approve                       # record approval (no execution occurs)
 ```
 
 The console prints a per-process **operator token** at startup; the decision panel
@@ -141,10 +196,31 @@ run additionally requires a note. Live modes (console `model=meta` / `memory=hyp
 and the gated tests) read credentials from the environment — see `.env.example` and
 `scripts/hyphae-container/README.md`. Without them the API returns an explicit
 configuration error instead of silently falling back; `model=fake` with a non-fake
-memory is rejected rather than ignored.
+memory is rejected rather than ignored. However, `model` and `memory` default to
+`fake` when omitted, and unknown request fields are ignored, so a request with a
+misspelled field (for example `memroy`) runs the live Meta model against simulated
+proofs (audit finding UI-5).
 
-The demo persists events to `demo-run/events.jsonl` (git-ignored). Re-running replays
-the log instead of calling models again; delete `demo-run/` for a fresh run.
+The scripted CLI demo is the same binary without `serve`: with no arguments it runs
+the reference scenario to `AwaitingHumanApproval`, and `--approve` or `--reject`
+also records a decision (no execution occurs). It always uses `demo-run/events.jsonl`
+under the current working directory, and replays the first run it finds there
+instead of calling models again. Run it from an empty scratch directory: build once
+with `cargo build -p consensus-api`, then, from that directory, start the
+repository's `target\debug\consensus-api.exe` by its full path. For a fresh run,
+use a new empty directory.
+
+**Never delete `demo-run/`.** The git-ignored `demo-run/` in the repository root
+holds the original live research data behind `docs/evaluation.md`: the battery
+logs, the run records with their receipts, the raw model drafts and the Hyphae
+recovery files. `research/` holds byte-identical copies of its event logs and run
+records (`research/README.md`); the raw drafts and the recovery files exist only in
+`demo-run/`. Never point the console or the CLI demo at a log in either place:
+`EventLog::open` opens a log read-write and can repair a torn tail, and the console
+appends new runs, decisions and startup-recovery events. The console's default
+log, `demo-run/events.jsonl`, already holds the 2026-10-26 evening runs of
+`docs/evaluation.md` §4, so set `CONSENSUS_EVENT_LOG` to a fresh file before
+`serve`, as above; the file and its folder are created on first use.
 
 No credentials are needed for M1. From M2 onward, copy `.env.example` to your
 environment configuration; secrets must come from environment variables, never files
@@ -157,19 +233,32 @@ committed to this repository.
   authentication).
 - No execution before approval: the executor is deferred through M3; approval currently
   only records the decision.
-- Bounded debate and cost: at most 2 revision rounds plus a no-progress exit measured
-  per Critic item (a revision may also follow an abstention that still lists
-  unresolved items); at most 9 model calls, 20 distinct evidence records, and
+- Bounded debate and cost: at most 2 revision rounds plus a no-progress exit that
+  stops revising when the number of unresolved Critic items does not drop from one
+  round to the next (corrected 2026-10-27: earlier text said the exit was measured
+  per item; it compares counts, and item ids are new every round, audit finding
+  RT-7). A revision may also follow an abstention that still lists unresolved
+  items. At most 9 model calls, 20 distinct evidence records, and
   `CONSENSUS_MAX_RUN_TOKENS` (default 150,000) input + output tokens per run, enforced
-  by the runtime; at most 12 claims per proposal from the Meta adapter. A run that
-  crosses the token cap fails with stage `token_budget`.
+  by the runtime after each call, so a run can overshoot by one call; at most 12
+  claims per proposal from the Meta adapter. A run that crosses the token cap fails
+  with stage `token_budget`.
 - Tamper-evident history: events are SHA-256 hash-chained and verified on open; replay
-  recomputes every recommendation and rejects a forged one; receipts carry the chain
-  head. The chain is unsigned, so it is evident, not proof, against a full rewrite.
+  recomputes every recommendation recorded under schema 1.1 or later and rejects a
+  forged one. Each receipt carries `head_hash`, the hash of the run's last event at
+  receipt time. The chain is log-wide: every record links to the previous record in
+  the file, whichever run it belongs to, so verifying one run's receipt needs the
+  whole log file, and edits after the run's last event are outside that receipt
+  (corrected 2026-10-27, audit findings DOC-9 and RT-4). The chain is unsigned, so it
+  is evident, not proof, against a full rewrite.
 - Replay never repeats external effects: replay is read-only state reconstruction.
-- Retrieved memory and other models' outputs are untrusted data, never instructions:
-  they are delimited, escaped, and truncated in prompts, and no model output can
-  authorize. That is a mitigation, not a guarantee. The scripted injection test is a
-  *policy* test; prompt-level behavior was observed live (`docs/evaluation.md`).
+- Retrieved memory and other models' outputs are untrusted data, never instructions,
+  and no model output can authorize. In prompts, retrieved evidence is delimited,
+  escaped, and truncated to 2,000 characters, and the proposal is delimited and
+  escaped; Critic item descriptions and Evaluator notes are escaped but sit outside
+  the delimited blocks, and the escaping matches exact-case delimiters only
+  (corrected 2026-10-27, audit findings MA-6 and MA-7). That is a mitigation, not a
+  guarantee. The scripted injection test is a *policy* test; prompt-level behavior
+  was observed live (`docs/evaluation.md`).
 - Agents receive read-only memory access by contract; writes are a separate
   runtime-service trait (`MemoryAdmin`) that agent-facing code cannot reach.

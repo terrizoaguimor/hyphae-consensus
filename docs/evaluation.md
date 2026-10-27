@@ -7,10 +7,20 @@ Two different things are reported here, and they must not be mixed up:
 2. A **live battery**: real Meta Model API calls plus real Hyphae Agent Memory,
    reported exactly as observed.
 
+*Corrected 2026-10-27:* an independent audit reproduced every number below from
+the raw logs and corrected several descriptions; see "Corrections (2026-10-27,
+independent audit)" at the end. The tables are kept as recorded. The event logs
+and run records that the sections below cite in the git-ignored `demo-run/` are
+also committed as byte-identical copies under `research/` (`research/README.md`,
+`research/MANIFEST.json`, `research/SHA256SUMS`); the raw model drafts and the
+Hyphae recovery files exist only in `demo-run/`.
+
 ## 1. Scripted protocol conformance check (deterministic doubles)
 
 `cargo run -p consensus-tests --example evaluate` runs ten pinned cases (seven
-until 2026-10-27; the last three cover the schema-1.2 changes). Each
+until 2026-10-27; the last three cover the schema-1.2 changes [corrected
+2026-10-27: two of them do; `token-budget-exceeded` covers the per-run token cap
+added in the same round, item C.1 of brief 2]). Each
 case scripts **both** the model and the memory, and its author wrote down in
 advance which outcome counts as correct. Models are labeled `provider: "fake"` in
 every invocation and receipt, and proofs come from a scripted verifier.
@@ -88,7 +98,9 @@ ADR-0003. The table below is kept as recorded.)*
 ¹ Sum of the recorded invocations. A timed-out call records no invocation, so
 L06 (wall time 101 s) and L08 (85 s) understate the time spent.
 ² Degenerate output: all 9 item descriptions were bare category labels such as
-`constraint_conflict`. They passed schema validation.
+`constraint_conflict`. They passed schema validation. [Corrected 2026-10-27: 8 of
+the 9 by the adapter's current rule, and L10 and S03 also had degenerate items;
+Corrections, item 6.]
 
 Totals: 12 runs, 33 Meta calls, 23,328 input / 99,220 output tokens. Every
 receipt records `provider: meta`, `model: muse-wonder-1.0`, and a request id
@@ -161,7 +173,8 @@ says `SIMULATED proof`. These are not Hyphae proofs.
 | S02 | Raise payment retry attempts to 10 | **Abstained** | 8 items | 0/6 corroborated, 8 unresolved, abstained | 2 valid | 3 | 60.2 s | 2,029 / 8,213 |
 | S03 | Add jitter to payment retries | **Abstained** | 8 items (incl. constraint_conflict) | 0/7 corroborated, 8 unresolved, abstained | 2 valid | 3 | 85.9 s | 2,085 / 11,121 |
 
-³ The Evaluator omitted most claims; the adapter recorded them as uncorroborated.
+³ The Evaluator omitted most claims [corrected 2026-10-27: all six; Corrections,
+item 6]; the adapter recorded them as uncorroborated.
 
 Even with integrity shown as valid, the live Evaluator corroborated nothing
 and abstained 3/3. In S02 it did catch the real violation: it listed the
@@ -187,6 +200,9 @@ all four; results in §5.)*
 
 ## 4. Earlier live runs (2026-10-26 evening, before the audit-fix round)
 
+[Corrected 2026-10-27: `demo-run/events.jsonl` holds four `model=meta` console
+runs from that evening, not the two described below; Corrections, item 6.]
+
 - `live_meta_propose` passed against the real API (`muse-wonder-1.0`); it was
   re-run in this round (`chatcmpl-01a17b9a-a9a0-75f7-8828-0158895f7e61`, 13 s).
 - One console run with `model=meta`, `memory=fake`: 3 calls, 70 s, 2,267 input /
@@ -207,7 +223,8 @@ all four; results in §5.)*
 inside its data directory, and later the store outgrew the 4 MiB MCP response
 that carries each proof's directory witness (ADR-0003). The container now runs
 a fresh demo store (7 operator-seeded `demo-repo` records: the original
-constraint and fact plus five facts and one decision taken from the
+constraint and fact plus five facts and one decision [corrected 2026-10-27: four
+facts and one decision] taken from the
 `demo-repo/payment-client` fixture; `demo-repo/payment-client/CONSTRAINTS.md`)
 and a separate lab store for the hostile note. Every live run below pinned the
 proof anchor the operator read before the battery
@@ -223,7 +240,9 @@ matching `demo-run/live-battery-2026-10-27*/` directories; tables come from
 
 Two defects in this round's own changes surfaced in the live runs and were
 fixed before the final battery. Both runs and batteries are kept and reported
-as run.
+as run. [Corrected 2026-10-27: only the first Evaluator wording was new in this
+round; the field-name drift had existed since the first commit; Corrections,
+item 2.]
 
 ### 5.1 Pre-fix runs P01–P02 (first Evaluator wording; not counted)
 
@@ -272,7 +291,10 @@ from `other-repo`.
   the reviser, which sees the evidence, rewrites its claims into exactly what
   the records state (3 attempts with jitter of at least 50 ms per the stored
   decision, the timeout-only retry path, the constraint test's conditions).
-- **R06 is the first live `supported` that holds up.** Task: raise the payment
+- **R06 is the first live `supported` that holds up.** [Corrected 2026-10-27:
+  it depended on its 7 round-1 objections never being re-judged, and its claim 3
+  cites a seeded record that misdescribes the fixture test; Corrections, items 3
+  and 4.] Task: raise the payment
   HTTP timeout to 30 seconds. Round 1 (3 claims about the timeout) was
   contested: 7 open items, two claims contradicted by stored records. The
   revision dropped the timeout change, which no record supports, and proposed
@@ -325,7 +347,9 @@ tokens over 9 calls (under the 150,000 cap).
 - **In every final round, every claim was corroborated** by records it cites
   whose proofs verified `valid`; the runs are contested only by the Critic's
   open objections. Three runs used both revision rounds (9 calls, the protocol
-  maximum); three stopped on the per-item no-progress rule.
+  maximum); three stopped on the per-item no-progress rule [corrected 2026-10-27:
+  the rule compares the number of open items between rounds, not the items
+  themselves; see Corrections, item 8].
 - **Contradictions are caught where they exist.** Every first proposal had 1–3
   claims contradicted by stored records (for example "raise attempts to 10"
   against the cap, the decision, and the constraint test), so a single Proposer
@@ -404,7 +428,8 @@ none of which is served.
 
 ### 5.5 Success criterion (brief item A.3)
 
-**Met, once, precisely as defined.** R06 (§5.2) is a live `supported` whose
+**Met, once, precisely as defined.** [Corrected 2026-10-27: with the caveat of
+Corrections, item 4.] R06 (§5.2) is a live `supported` whose
 cited evidence all verified `valid`: real Meta calls, real Hyphae records,
 offline semantic re-execution of each recall proof against an out-of-band
 pinned anchor. It ran before the strict-output fix, but nothing it depended on
@@ -413,6 +438,128 @@ code no run reached `supported` (F01–F06 and H01–H02, 8/8 `contested`). The
 blocker is the one in §5.3: open Critic objections about verification
 completeness that stored memory cannot settle, which the unchanged policy
 correctly treats as blocking. No check was weakened to change that.
+
+## Corrections (2026-10-27, independent audit)
+
+The independent audit of commit `72e422a`
+(`docs/reviews/2026-10-27-independent-audit.md`) recomputed every hash link of
+the five battery logs, re-derived the policy for all 33 recorded runs, and
+matched every table cell of §2, §3 and §5 against the logs and receipts: the
+numbers above are right. The corrections below concern descriptions,
+attribution and context. The sections above are kept as recorded; inline
+corrections are marked "corrected 2026-10-27".
+
+1. **Final-code claim corroboration (audit finding DOC-3).** "Every claim was
+   corroborated" in the final round holds for the 6-run final battery F01–F06
+   only, as §5.3 says. Of the two hostile-note runs on the same code, H02's final
+   round corroborated 1 of 4 claims (10 open items, 1 claim with contradicting
+   evidence), and H01's final round corroborated 4 of 4 claims while 2 of them
+   had contradicting evidence, so H01 was contested by those contradictions as
+   well as by the open objections. The summaries that extended the statement to
+   all 8 final-code runs (README, `docs/pitch.md`, fix report 2) were wrong.
+   README and pitch are corrected; fix report 2 has an erratum in
+   `docs/reviews/README.md`.
+
+2. **The field-name drift predates this round (DOC-4).** §5 says both defects
+   were in "this round's own changes". The first Evaluator wording (§5.1) was;
+   the field-name drift (§5.2) was not. The adapter's draft list fields carried
+   `#[serde(default)]`, and the request sent `"strict": false`, from the first
+   commit (`adbbb66`; two of those fields were then named `unresolved_challenges`
+   and `addressed_challenges`, renamed in `4faa6af`) until `3d50baf`. So the
+   0-unresolved values of §2 and §3 (L02, L03, L04, L05, L09, L10 and S01) were
+   recorded by an adapter that read a missing or renamed list field as empty,
+   and no raw drafts were captured then: those zeros may be dropped fields
+   rather than Evaluator judgments. The outcomes are unaffected, because
+   `abstain` was a required field and every one of those evaluations abstained.
+
+3. **Seeded record 5 misdescribes the fixture test (DOC-8).** The fact seeded by
+   `scripts/hyphae-container/seed-demo-facts.sh` says that "the payment-client
+   test constraint_cap_is_three_attempts fails for any RetryPolicy with
+   max_attempts above 3 or with jitter_ms equal to 0". The test in
+   `demo-repo/payment-client/src/lib.rs` asserts only on its own literal,
+   `RetryPolicy { max_attempts: 3, jitter_ms: 50 }`. It never inspects
+   `RetryPolicy::default()` (`max_attempts: 1, jitter_ms: 0`) or any configured
+   policy, and the fixture's tests pass while the default has `jitter_ms = 0`.
+   R06's claim 3 (§5.2) cites this record together with the 2026-09 decision and
+   the constraint. R06's `supported` does not depend on it: claim 3's text does
+   not mention the test, and the decision and the constraint corroborate it on
+   their own. The record stays as stored: ids are derived from content, the store
+   is close to its proof-size ceiling, and the recorded runs reference the
+   current ids. The same description in `demo-repo/payment-client/CONSTRAINTS.md`
+   and in the fixture's comment is outside this document.
+
+4. **R06's `supported` depended on earlier-round objections not being re-judged
+   (RT-1).** Under protocol 1.2 each round sees only its own challenge and its
+   own retrieved evidence, and the policy reads only the final round. R06's
+   round 1 left 7 objections open (all `contradictory_evidence`) and marked 6
+   retrieved records contradicted. None of the 7 was shown to the round-2
+   Critic, Evaluator or reviser again; the reviser listed 7 `addressed_items`,
+   which nothing checks; of the 6 contradicted records, 1 was not retrieved in
+   round 2 and 1 was retrieved but not assessed. The round-2 Critic raised
+   nothing, and the run became `supported`. On a manual reading the outcome
+   still looks sound, because the round-1 objections targeted claims the
+   revision dropped, but the system never adjudicated them. Read §5.2 ("the
+   first live `supported` that holds up") and §5.5 with that caveat. The same
+   count is 8 for P02 and between 5 and 13 for F01–F06 (computed from the
+   events by the portal plan's red-team review). The planned protocol 1.3
+   carries open items and contradicted records forward and requires an explicit
+   Evaluator verdict per item; the audit's verifier notes that such a rule would
+   turn R06 into `contested`. Recorded runs keep replaying under their own
+   rules.
+
+5. **MA-1 and the recorded results.** The audit found that the Meta adapter
+   silently drops Evaluator ids that are not byte-exact (MA-1), which can turn
+   `contested` into `supported`. No recorded run is known to be affected: in the
+   30 Evaluator drafts captured under `demo-run/meta-debug-2026-10-27/` (20 from
+   recorded runs, 10 replays), none of 190 unresolved ids and none of 182
+   evidence citations failed exact match, and no claim got two assessments.
+   Drafts were not captured for every run. Had the final-round unresolved ids
+   been dropped, 7 of the 10 contested runs of 2026-10-27 (R02 and F01–F06)
+   would have re-derived to `supported`.
+
+6. **Descriptive mismatches in §2–§4 (TC-6; not adversarially verified).** The
+   numeric cells match the logs; these descriptions do not.
+   - §2, L10: under the adapter's current degenerate-item rule (ADR-0002,
+     decision 10: fewer than three words, or category words only), all 14 of
+     L10's Critic items are degenerate (13 two-word descriptions made of category
+     words, and one single word). The table reports "14 items" without saying so.
+   - §2, note ² (L02): by the same rule 8 of the 9 items are degenerate; the
+     ninth has four words, one of them outside the category vocabulary. The note
+     says all 9.
+   - §3, S03: 4 of its 8 items are degenerate. Under the current rule L02, L10
+     and S03 would each have failed at the critique stage: 3 of the 15 runs of
+     2026-10-26, not 1.
+   - §3, footnote ³ (S01): the Evaluator omitted all six claims, not most. Every
+     S01 assessment carries the adapter's completion note "evaluator omitted this
+     claim; treated as uncorroborated".
+   - §4: `demo-run/events.jsonl` (schema 1.0) holds four `model=meta` console
+     runs from that evening, not two: meta + fake (2,267 / 8,627 tokens,
+     abstained), meta + offline (2,857 / 8,980, abstained, with a rejection
+     recorded), meta + hyphae (2,602 / 14,546, abstained), and meta + hyphae
+     (2,451 / 7,993, abstained, approved without a note, which the code then
+     allowed).
+
+7. **Commit attribution and anchor pinning (TC-12).** §5.2 attributes battery 1
+   to commit `a1db715`. Battery 1's events span 06:54:56–07:19:48 UTC, before
+   `a1db715`'s commit time (07:31:54 UTC): the history was rebuilt afterwards
+   into crates-only commits with an identical crates tree (fix report 2;
+   `git diff --stat 705ffc4 a1db715 -- crates` is empty). The code is the code
+   that ran, but the commit did not exist yet. Likewise, "every live run below
+   pinned the proof anchor" (§5) can be checked only indirectly: a successful
+   pinned-anchor check leaves no trace in the verification record, and each
+   store shows a single anchor across all its records (`d91ac10d…` for the P, R
+   and F runs, `28f2db59…` for H01–H02).
+
+8. **The no-progress rule (RT-7; not adversarially verified).** The rule that
+   ended three final-battery runs (§5.3) compares the number of open items
+   between rounds (`unresolved >= previous`); item ids are new every round, so
+   it does not track individual items. F02 (6 → 6), F03 (5 → 6) and F05 (6 → 7)
+   stopped because the count did not drop.
+
+9. **Miscounts (DOC-10).** §1: of the three cases added on 2026-10-27, two cover
+   the schema-1.2 policy changes and `token-budget-exceeded` covers the per-run
+   token cap. §5: the demo store holds 7 records, the original constraint and
+   fact plus four facts and one decision. Both are marked inline.
 
 ## Request ids (2026-10-26, from receipts)
 

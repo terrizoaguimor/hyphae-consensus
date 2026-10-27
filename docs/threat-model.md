@@ -1,8 +1,13 @@
 # Threat model — Hyphae Consensus
 
 Date: 2026-10-26 (M1; revised in the audit-fix round, schema 1.1; and on
-2026-10-27, schema 1.2) ·
+2026-10-27, schema 1.2; known gaps added on 2026-10-27 after the independent
+audit) ·
 Companion to `docs/adr/0001-m1-architecture.md`
+
+The mitigations below describe the code at `72e422a`. Several are weaker than
+they read, and the console must never be exposed publicly: see "Known gaps found
+by the 2026-10-27 audit" at the end.
 
 ## Trust boundaries
 
@@ -80,7 +85,9 @@ Companion to `docs/adr/0001-m1-architecture.md`
    demonstrated; no faked cryptography.
 
 5. **Endless debate / resource exhaustion.** Max 2 revision rounds plus a
-   no-progress exit measured per challenge item (tested:
+   no-progress exit measured per challenge item [corrected 2026-10-27: the exit
+   compares the number of unresolved items between rounds, not the items
+   themselves, and item ids are new every round (audit finding RT-7)] (tested:
    `no_progress_exits_instead_of_looping`, `two_revision_rounds_are_reachable_and_bounded`,
    `revision_beyond_round_limit_is_rejected`). Bounds per run: at most 9 model
    calls; at most one recall per claim per round, with claims capped at 12 per
@@ -172,6 +179,77 @@ Companion to `docs/adr/0001-m1-architecture.md`
     (`fake_model_with_real_memory_is_rejected_not_substituted`), and simulated proofs
     say `SIMULATED` in every verification record, so receipts cannot pass them off
     as cryptography.
+
+## Known gaps found by the 2026-10-27 audit
+
+An independent, adversarially verified audit of `72e422a`
+(`docs/reviews/2026-10-27-independent-audit.md`) found the gaps below. Each
+qualifies a threat above. Severities are the verified ones; the ids in brackets
+are the work items of the approved portal plan. None is fixed at the time of
+writing.
+
+- **MA-1, high: the Meta adapter drops Evaluator signals that block `supported`**
+  (threats 3 and 11) [A1]. Unresolved-item, relevant and contradicting ids that
+  are not byte-exact known ids are silently dropped, and only the first
+  assessment per claim is kept. A formatting drift such as `Item-5` for `item-5`
+  empties the open objections or hides a contradiction, and the run can be
+  `supported`. Latent: in 30 captured live drafts no id failed exact match. The
+  fix makes an unknown or duplicate id malformed output and validates every
+  evaluation for every `ModelClient`.
+- **RT-1, high: earlier-round objections and contradictions are forgotten**
+  (threats 3 and 5) [A2]. Each round sees only its own challenge and its own
+  retrieved evidence, item ids are new every round, and the policy and replay
+  read only the final round. R06's 7 round-1 objections were never re-judged.
+  The fix carries open items and contradicted records forward, with an explicit
+  Evaluator verdict per item (protocol 1.3).
+- **TC-2, medium: "every claim assessed" is enforced only by the Meta adapter**
+  (threat 3) [A1]. The policy never sees the proposal, so a different
+  `ModelClient` that omits a claim could produce `supported`. Not reachable with
+  today's two clients.
+- **TC-4, low: the real Hyphae adapter relabels every recalled record with the
+  requested project** (threat 9) [A5]. It ignores the record's own `project` and
+  `scope`, so isolation is tested only against the fake, whose labels differ, and
+  a foreign record would leave no trace in the log.
+- **SEC-1 to SEC-11: the console router must never be exposed** (threats 10 and
+  12) [C2, C3, C5, C7; B1–B3]. In summary: every run can be listed and read
+  without authentication, and a tunnel turns the loopback bind into the internet
+  (SEC-1, high); anonymous callers can start unlimited live runs billed to the
+  server's key (SEC-2, high); the caller chooses the Hyphae project (SEC-3,
+  medium); one `std::sync::Mutex` is held for whole live runs and taken inside
+  async handlers, and the verifier has no timeout (SEC-4, high); the synchronous
+  POST outlasts Cloudflare's proxy read timeout (SEC-5, high); every read
+  re-parses the whole log, which anonymous fake runs can grow without limit
+  (SEC-6, high); SSE replay is unauthenticated and uncapped (SEC-7, medium);
+  request fields have no limits (SEC-8, medium); internal errors, up to 300
+  characters of upstream error bodies, verifier output and container paths are
+  persisted into events that anyone can read, which threat 10 did not consider
+  (SEC-9, medium); the operator token is printed to stdout and compared in
+  non-constant time, and recorded identities are self-asserted (SEC-10, low);
+  and with no Host or Origin check, DNS rebinding makes any page the operator
+  visits a same-origin client of the loopback console (SEC-11, medium), so
+  "binds to loopback" (threat 12) is not a complete boundary either.
+- **HY-1, medium: a `Valid` proof is not bound to the record it labels**
+  (threat 13) [A5, B11]. The adapter does not check that the verified proof is a
+  memory proof, and does not compare the record's id or text with the proof.
+  (The anchor comparison is not missing: `hyphae proof verify` itself rejects a
+  proof whose anchor differs from the one passed in.)
+- **HY-4, medium: Hyphae's catch-all `corruption` code becomes `Invalid`**
+  (threat 4) [A5; a dedicated `generation_failed` status is a post-hackathon
+  owner decision]. Hyphae reports capacity limits, special files in the data
+  directory and other proof-generation failures with the same `corruption` code
+  as real corruption, so failures that involve no tampering appear as invalid
+  proofs and block the run. This is fail-closed by design; the gap is the label,
+  which reads as tampering. All 9 `blocked` runs of 2026-10-26 were of this kind.
+- **Also qualifying the threats above:** delimiter neutralization matches
+  exact-case closers only, so mixed-case, whitespace and fullwidth variants pass,
+  and Critic descriptions and Evaluator notes sit outside the delimited blocks
+  (MA-6, MA-7, threat 2) [C6]; the console shows simulated proofs with the same
+  `valid` badge as real ones, although every record and receipt says SIMULATED
+  (UI-4, threat 14) [B4, E5]; a receipt's `head_hash` is the hash of the run's last
+  event in a log-wide chain, so verifying one run needs the whole file and edits
+  after that event are outside the receipt (RT-4, DOC-9, threat 6) [B1, A3]; no
+  lock prevents a second process from writing the same log, which can silently
+  overwrite a recorded decision (RT-6, TC-3, threat 6) [A4].
 
 ## Out of scope
 

@@ -1,6 +1,19 @@
 # Demo script / video storyboard (target ≤ 3 minutes)
 
-Setup before recording: `cargo run -p consensus-api -- serve`, open
+> **Superseded (2026-10-27).** This storyboard was written for the loopback
+> operator console. The approved portal plan replaces it with a demo and video
+> script for the public portal (work item F5). Until that rewrite, keep these
+> rules: never present a scripted or simulated run as live; label recorded or
+> sped-up footage on screen; and never delete `demo-run/`, which holds the
+> original live research data. If R06 is shown, say that its 7 round-1
+> objections were never re-judged and that one record it cites misdescribes the
+> fixture test (`docs/evaluation.md`, "Corrections (2026-10-27, independent
+> audit)", items 3 and 4).
+
+Setup before recording: set `CONSENSUS_EVENT_LOG` to a new file outside
+`demo-run/` and `research/` (added 2026-10-27; the default log is research
+data), then
+`cargo run -p consensus-api -- serve`, open
 http://127.0.0.1:8787/, and paste the operator token the server prints at
 startup into the decision panel (approvals are refused without it). For
 the live cut, set `META_API_KEY` (and, for the Hyphae segment, the
@@ -28,6 +41,12 @@ present a scripted run as live.
 | 7 | 2:25–2:45 | Terminal: `cargo test` + evaluate table + live table | 89 tests; scripted conformance 10/10 (author-defined outcomes, not a baseline: say so); then the live Meta + Hyphae battery tables exactly as recorded, including the contested final battery. |
 | 8 | 2:45–3:00 | README boundary section | Close on honesty: Hyphae is pre-existing and pinned; the consensus layer is the new work; proofs attest integrity, not truth. |
 
-Reproducibility: every screen above is produced by committed code and
-fixtures (`demo-repo/`, `crates/consensus-tests/examples/evaluate.rs`).
-Delete `demo-run/` for a clean take.
+Reproducibility (corrected 2026-10-27): the scripted screens are produced by
+committed code and fixtures (`demo-repo/`,
+`crates/consensus-tests/examples/evaluate.rs`). The live segments (R06's
+receipt, the H01/H02 runs, the live tables) come from the recorded research
+data: the originals in the git-ignored `demo-run/`, byte-identical copies in
+`research/`. For a clean take, start the console with `CONSENSUS_EVENT_LOG`
+pointing at a new file outside `demo-run/` and `research/`. Never delete
+`demo-run/`: it holds the originals, and the only copy of the raw model drafts
+and the Hyphae recovery files.

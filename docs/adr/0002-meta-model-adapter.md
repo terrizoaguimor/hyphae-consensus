@@ -112,3 +112,40 @@ key) **has been run and passes** against the real API: first on
 13 s), and on 2026-10-27 with the new prompts
 (`chatcmpl-01a17c1b-9061-7231-a59c-07ebb1cecf91`, 20 s). Full live runs are
 recorded in `docs/evaluation.md`.
+
+## Note — 2026-10-27 independent audit
+
+The independent audit of `72e422a`
+(`docs/reviews/2026-10-27-independent-audit.md`) qualifies several decisions
+above. The decisions are kept as written; this note records what the audit
+found.
+
+- **Decisions 3 and 8: dropping unknown ids is the MA-1 fail-open, not a
+  conservative check.** Unresolved-item, relevant and contradicting ids that
+  are not byte-exact known ids are dropped silently, and only the first
+  assessment per claim is kept. An emptied `unresolved_items` list, or a dropped
+  contradiction, can then let the policy return `supported` although the
+  Evaluator said an objection still applies. Nothing records what was dropped,
+  and the adapter test asserts the drop as intended. It is latent: in 30 captured
+  live drafts no id failed exact match. Planned fix (portal plan, work item A1):
+  an unknown or duplicate id is `MalformedOutput`, and every evaluation is
+  validated in the runtime for every `ModelClient`.
+- **Decision 11: uncertainties are not yet carried to the human.** The
+  recommendation's `unresolved_assumptions` copies the proposal's assumptions
+  only; its uncertainties appear neither in the recommendation nor in the
+  receipt (audit finding DOC-7). Planned: receipts v2 and schema 1.3 (A3, A6).
+- **Decision 11: "live run R01" means the pre-fix run P01**, stored as
+  `demo-run/live-battery-2026-10-27-prefix/R01-reference.json`. The R01 of
+  `docs/evaluation.md` §5.2 is a later run (DOC-10).
+- **Decision 5: "read once".** `MetaConfig::from_env` runs on every run creation
+  and on every `/api/health` request (DOC-10). The key itself never reaches
+  argv, events or receipts, but up to 300 characters of an upstream error body
+  are stored in `RunFailed.reason`, and child processes inherit the whole
+  environment (MA-4, DOC-6). Planned: C5, C6.
+- **Decision 6: neutralization matches exact-case delimiters only.** Mixed-case,
+  whitespace and fullwidth closers pass, the record `kind` and ids are inserted
+  without escaping, and Critic descriptions, Evaluator notes and the abstention
+  reason sit outside the delimited blocks (MA-6, MA-7). Planned: C6.
+- **Decision 4: retries.** 429 and every 5xx, 504 included, are retried after
+  250 and 500 ms without honoring `Retry-After`, against Meta's error-handling
+  guidance (MA-8, not adversarially verified). Planned: C6.

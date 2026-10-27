@@ -213,7 +213,46 @@
   uncertainties into the recommendation; pruning proof artifacts and archived
   stores in the container.
 
+## 2026-10-27 (afternoon) — independent audit and the public-portal plan
+
+- A read-only, multi-agent audit of `72e422a`: seven dimensions, each
+  challenged by an adversarial verifier, four research sweeps, a completeness
+  critic, and a three-lens red team of the resulting plan. Report:
+  `docs/reviews/2026-10-27-independent-audit.md`. Every documented gate and
+  battery number reproduced (89 passed + 2 ignored; evaluate 10/10; 585 chained
+  records recomputed; 33 recommendations re-derived; no credential in the
+  history or in `demo-run/`).
+- 91 findings. Two fail-open paths toward `supported`: MA-1 (Evaluator ids
+  that are not byte-exact are dropped silently) and RT-1 (earlier-round
+  objections and contradictions are never re-judged; R06's 7 round-1
+  objections were not). The console router must never be exposed publicly
+  (SEC-1 to SEC-11).
+- Owner decisions: Apache-2.0 for this repository (copyright Mario Gutiérrez;
+  `NOTICE`; Hyphae is not relicensed); a public portal with guided (simulated),
+  live (owner key, curated presets, caps) and recorded-showcase modes; no hosted
+  BYOK; cross-round carry-forward (protocol 1.3); a sealed Hyphae snapshot for
+  public live runs; daily and lifetime spend caps. Work continues on branch
+  `feat/public-portal`, with one local commit per verified milestone.
+- When this entry was written, the branch held `35297e7` (LICENSE, SPDX
+  headers, Cargo license fields, `publish = false`, ignore rules), `e1304f2`
+  (runtime refactor for plan item B2: `EventSink`, `create_task`/`deliberate`
+  split, `RunControl` checkpoints) and `ff0d2fb` (byte-identical research
+  archive in `research/` with MANIFEST and replay tests, plan item D1). The
+  documentation change that adds this entry also adds `NOTICE`, the audit
+  report, dated corrections and errata across the docs, and an index of
+  `docs/reviews/`.
+- Corrections to the entry above: pushing is no longer pending, because
+  `origin/main` was pushed to `72e422a` on 2026-10-27; the license is decided.
+
 ## Backlog
+
+*Status 2026-10-27 (independent audit):* M2, M3, the operator console and the
+synthetic demo repo are done. The baseline comparison was never executed
+(`docs/evaluation.md` §1); the portal plan offers an optional single-model
+baseline battery that needs the owner's spend approval. The "submission pack" is
+now the plan's work items F1–F5. The deferred "multi-run persistence beyond one
+JSONL log per deployment" is replaced by per-run logs (plan item B1). The list
+below is kept as written.
 
 **Must have:** M2 Meta adapter (structured output vs. `schemas/`, timeouts/retries/
 budgets, gated live test) · M3 Hyphae MCP adapter + proof verification + adversarial

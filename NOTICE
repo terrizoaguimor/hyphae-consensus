@@ -1,0 +1,17 @@
+Hyphae Consensus
+Copyright 2026 Mario Gutiérrez
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository interoperates with Hyphae (Hyphae Core and Hyphae Agent
+Memory, https://github.com/Hyphae-Research-Foundation/hyphae, pinned at
+commit 418a3da717c2f9ba0cf095423f392b3d496cb607), a separate Apache-2.0
+project by Celiums Solutions LLC. Hyphae is consumed only through its public
+interfaces. No Hyphae source code is included in this repository, and Hyphae
+is not relicensed by it.
+
+"Hyphae" is a trademark of Celiums Solutions LLC, used in the name
+"Hyphae Consensus" with its permission.
+
+Hyphae Consensus is an independent project; it is not affiliated with,
+sponsored by, or endorsed by Meta.

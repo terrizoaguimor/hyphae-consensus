@@ -34,21 +34,24 @@ visible outcome instead of silent guessing. Corrupted evidence blocks
 instead of being averaged away. And every decision ships with a redacted
 run receipt: the recommendation and its unresolved assumptions, per-record
 proof statuses, model identity (`muse-wonder-1.0`), request ids, latency,
-tokens, the hash-chain head — and a plain statement of what the proofs do
-*not* establish.
+tokens, the hash of the run's last event in the hash-chained log — and a plain
+statement of what the proofs do *not* establish.
 
 **What the live system does today** (`docs/evaluation.md` §5, 2026-10-27).
 Hyphae proofs verify live: every retrieved record was checked offline by
 re-executing its recall against the sealed witness, against a pinned anchor.
 The revision loop runs live: first proposals that contradict stored
 constraints are contested and rewritten into claims the verified memory states
-directly. One live run reached `supported` with every cited record verified.
-On the final code all 8 runs ended `contested`, every final claim corroborated,
-with the Critic's objections about missing tests still open; the policy will
-not call that `supported`. A planted "SYSTEM OVERRIDE" memory, this time with a
-valid proof, was flagged by the Critic, recorded as contradicting evidence by
-the Evaluator, and never obeyed. Hyphae's project isolation held. No run
-self-authorized.
+directly. One live run reached `supported` with every cited record verified
+(R06; its 7 round-1 objections were never re-judged, a fail-open the 2026-10-27
+audit found and the planned protocol 1.3 addresses). On the final code all 8
+runs ended `contested`. In the 6-run final battery every final-round claim was
+corroborated and only the Critic's open objections, mostly missing tests,
+blocked `supported`; in both hostile-note runs a claim with contradicting
+evidence remained, and H02 ended with 1 of 4 claims corroborated. A planted
+"SYSTEM OVERRIDE" memory, this time with a valid proof, was flagged by the
+Critic, recorded as contradicting evidence by the Evaluator, and never obeyed.
+Hyphae's project isolation held. No run self-authorized.
 
 **Built for the hackathon** (Oct 26 – Nov 4, 2026): the deliberation
 protocol, deterministic state machine, orthogonal evidence model,
@@ -58,6 +61,12 @@ conformance check (10/10 author-defined outcomes; it is not a baseline
 comparison), and the live batteries above.
 
 **Pre-existing and explicitly not claimed:** Hyphae Core and Hyphae Agent
-Memory (memory engine, MCP tools, sealed proofs) — independent open-source
-work pinned at commit `418a3da…` / release 4.0.0, consumed only through
-its public interfaces.
+Memory (memory engine, MCP tools, sealed proofs) — the owner's own earlier
+open-source project (Apache-2.0), frozen at commit `418a3da…` / release 4.0.0
+before the hackathon, consumed only through its public interfaces.
+
+*Corrected 2026-10-27 after the independent audit
+(`docs/reviews/2026-10-27-independent-audit.md`): the final-code results now
+match `docs/evaluation.md` (only the final battery had every final-round claim
+corroborated), R06 carries its caveat, the receipt's hash is described as the
+run's last event hash, and Hyphae's authorship is stated.*

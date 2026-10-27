@@ -1,5 +1,19 @@
 # Mission Control frontend — implementation notes
 
+> **Superseded (2026-10-27).** These notes describe the loopback operator console
+> (`crates/consensus-api/src/console.html`) as merged into `main` in `c3ba8a1`.
+> The approved portal plan replaces this UI with a new Mission Control frontend
+> (work items E1–E9) and the backend contract below with an asynchronous,
+> session-scoped API (B1–B5, C1–C8); the legacy console is planned to survive only
+> as a loopback operator tool. The text below is kept as written, with two
+> corrections: the branch `feat/mission-control` was merged (`c3ba8a1`), and Hyphae
+> proofs verify live since 2026-10-27 (constraint 4 below), so "true Hyphae proof
+> integration" is no longer future work. The independent audit of 2026-10-27
+> (`docs/reviews/2026-10-27-independent-audit.md`) also found that the result views
+> show simulated proofs with the same `valid` badge as real ones (UI-4), that
+> Approve and Reject act on a global selection that can differ from the run on
+> screen (UI-3), and several accessibility gaps (UI-8).
+
 Date: 2026-10-27  
 Branch: `feat/mission-control`  
 Status: initial operator UI delivered; live streaming and true Hyphae proof integration remain future work.

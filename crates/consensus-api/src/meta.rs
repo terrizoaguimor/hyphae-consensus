@@ -48,7 +48,7 @@ Assess every claim. Set corroborated=true only when a retrieved record whose int
 A record whose integrity is not Valid cannot corroborate anything. \
 If no record settles a claim, set corroborated=false for it: an unsettled claim is reported per claim, not by abstaining. \
 List in contradicting_evidence every record that conflicts with a claim. \
-In unresolved_items, list by ITEM id exactly which objections remain unresolved; an objection is resolved only when the retrieved evidence or the proposal itself settles it. \
+In unresolved_items, list by ITEM id every Critic objection that still applies to the proposal as written, including objections the evidence confirms; an objection is resolved only when the proposal already satisfies it or the retrieved evidence shows it is mistaken. \
 Set abstain=true only when the evidence is too sparse or inconsistent to assess the claims at all, and say why in abstain_reason.";
 
 #[derive(Debug, Deserialize, JsonSchema)]

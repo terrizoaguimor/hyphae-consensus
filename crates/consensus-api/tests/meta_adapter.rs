@@ -487,6 +487,11 @@ fn prompts_ask_for_record_checkable_claims_and_evidence_based_judgment() {
     assert!(prompt.contains("integrity is Valid directly states what the claim asserts"));
     assert!(prompt.contains("not by abstaining"));
     assert!(prompt.contains("cannot corroborate anything"));
+    // Live R01 (2026-10-27): "resolved when the evidence settles it" was
+    // read as "confirmed objections are resolved". A valid objection must
+    // stay unresolved until the proposal no longer has the problem.
+    assert!(prompt.contains("still applies to the proposal as written"));
+    assert!(prompt.contains("including objections the evidence confirms"));
 
     // After an abstention the reviser sees the Evaluator's reason.
     let draft = r#"{"summary":"Cap retries","plan_steps":[],"claims":[{"statement":"Retries are capped at 3 attempts with jitter"}],"assumptions":[],"uncertainties":[],"addressed_items":[]}"#;

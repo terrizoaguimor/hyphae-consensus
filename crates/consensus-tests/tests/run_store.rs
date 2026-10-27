@@ -10,8 +10,8 @@ use consensus_runtime::ports::{ModelClient, ModelError, RoleContext};
 use consensus_runtime::scenarios::{retry_constraint_scenario, TS};
 use consensus_runtime::{
     EventLog, EventLogError, EventPublisher, FixedClock, IndexKind, NullPublisher, Orchestrator,
-    Owner, Retention, RunAggregate, RunControl, RunLimits, RunStore, SequentialIdGen, SharedRunLog,
-    TransitionError, UuidIdGen,
+    Owner, Retention, RunAggregate, RunControl, RunLimits, RunStore, RunStoreError,
+    SequentialIdGen, SharedRunLog, TransitionError,
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -145,13 +145,39 @@ fn concurrent_runs_stay_isolated_ordered_and_gap_free() {
         }
     }
 
-    // One `created` record per run, and the index verifies from scratch.
+    // One `created` record per run, the rest checkpoints (each run is
+    // awaiting its decision), and the index verifies from scratch.
+    let heads: BTreeSet<(RunId, String)> = runs
+        .iter()
+        .map(|(run_id, _, _, log)| {
+            let head = log.read(|l| l.head_hash().unwrap().to_owned()).unwrap();
+            (run_id.clone(), head)
+        })
+        .collect();
     drop(runs);
     let records = open_store(&root).index_records().unwrap();
-    assert_eq!(records.len(), RUNS);
-    assert!(records.iter().all(|r| r.kind == IndexKind::Created));
-    let indexed: BTreeSet<RunId> = records.into_iter().map(|r| r.run_id).collect();
+    let created: Vec<_> = records
+        .iter()
+        .filter(|r| r.kind == IndexKind::Created)
+        .collect();
+    assert_eq!(created.len(), RUNS);
+    assert!(records
+        .iter()
+        .all(|r| matches!(r.kind, IndexKind::Created | IndexKind::Checkpoint)));
+    let indexed: BTreeSet<RunId> = created.iter().map(|r| r.run_id.clone()).collect();
     assert_eq!(indexed, distinct);
+    // Each run's latest checkpoint is its log's head.
+    let latest: BTreeSet<(RunId, String)> = distinct
+        .iter()
+        .map(|run_id| {
+            let last = records
+                .iter()
+                .rfind(|r| &r.run_id == run_id && r.kind == IndexKind::Checkpoint)
+                .unwrap();
+            (run_id.clone(), last.head_hash.clone().unwrap())
+        })
+        .collect();
+    assert_eq!(latest, heads);
 }
 
 #[test]
@@ -227,6 +253,68 @@ fn a_decision_race_on_a_stored_run_records_one_decision_and_one_terminal_head() 
     assert_eq!(handle.log().head_hash(), Some(winner.hash.as_str()));
 }
 
+#[test]
+fn a_stored_run_is_read_by_its_owner_alone_and_reading_changes_nothing() {
+    let root = TempDir::new("reads");
+    let store = open_store(&root);
+    let owner = Owner::session(b"visitor");
+    let run = store.create_run(owner.clone(), Retention::VISITOR).unwrap();
+    let run_id = run.run_id().clone();
+    let mut log = run.into_shared(Arc::new(NullPublisher));
+    let agg = deliberate(&mut log);
+    // While its writer holds the run, the run is read through the writer.
+    assert!(matches!(
+        store.read_run(run_id.as_str(), &owner),
+        Err(RunStoreError::InUse(_))
+    ));
+    let live = log.snapshot_from(0).unwrap();
+    drop(log);
+    let path = store.runs_dir().join(format!("{run_id}.jsonl"));
+    let bytes = std::fs::read(&path).unwrap();
+
+    // Two readers at once see exactly what was written and replayed.
+    let views: Vec<_> = (0..2)
+        .map(|_| store.read_run(run_id.as_str(), &owner).unwrap())
+        .collect();
+    for view in &views {
+        assert_eq!(view.events(), live);
+        assert_eq!(*view.aggregate(), agg);
+        assert_eq!(view.meta().owner, owner);
+    }
+    // Meanwhile the run cannot be taken over.
+    assert!(matches!(
+        store.open_run(run_id.as_str()),
+        Err(RunStoreError::InUse(_))
+    ));
+    // Anyone else hears that the run does not exist.
+    for stranger in [
+        Owner::session(b"someone else"),
+        Owner::Operator,
+        Owner::Showcase,
+    ] {
+        assert!(matches!(
+            store.read_run(run_id.as_str(), &stranger),
+            Err(RunStoreError::UnknownRun(_))
+        ));
+    }
+    drop(views);
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        bytes,
+        "reading wrote nothing"
+    );
+    // The owner can still decide.
+    let decided = store
+        .open_run_as(run_id.as_str(), &owner)
+        .unwrap()
+        .into_shared(Arc::new(NullPublisher))
+        .append_validated(decision(&run_id, true))
+        .unwrap();
+    let terminal = store.index_records().unwrap().pop().unwrap();
+    assert_eq!(terminal.kind, IndexKind::Terminal);
+    assert_eq!(terminal.head_hash, Some(decided.hash));
+}
+
 /// The reference model, except that its first critique panics, as a bug
 /// in an adapter would: the deliberating thread dies without recording
 /// a terminal event.
@@ -295,7 +383,7 @@ fn a_run_whose_deliberation_died_is_closed_when_the_store_starts_again() {
     // the OS does for a process that dies. The lock was not held during
     // the model call, so nothing is poisoned and the file is intact.
     let store = open_store(&root);
-    let report = store.recover(&mut UuidIdGen).unwrap();
+    let report = store.recover().unwrap();
     assert_eq!(report.interrupted, vec![run_id.clone()], "{report:?}");
     assert_eq!(report.terminal_recorded, vec![run_id.clone()]);
     assert!(report.unreplayable.is_empty() && report.inconsistent.is_empty());

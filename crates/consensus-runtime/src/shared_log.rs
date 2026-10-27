@@ -13,37 +13,70 @@
 //!    (an event after a terminal one, a second decision) is refused
 //!    before anything is written;
 //! 3. append: sequence, chain hash, write and fsync;
-//! 4. clone the stored record and release the lock;
-//! 5. publish the record to the run's [`EventPublisher`].
+//! 4. for a run kept in a [`RunStore`](crate::run_store::RunStore),
+//!    record the run's head in the run index when the record leaves the
+//!    run at a checkpoint (its task recorded, awaiting a decision) or ends
+//!    it, still under the lock, so the index follows the run's sequence
+//!    order;
+//! 5. clone the stored record and release the lock;
+//! 6. publish the record to the run's [`EventPublisher`].
 //!
 //! A refused or failed append is therefore never published, and every
-//! published record is already on disk. The publisher runs without the
-//! lock, so a slow or panicking subscriber can neither stall nor poison
-//! the run's writers. The price: two clones appending at the same moment
-//! may publish out of sequence order. Subscribers dedupe by sequence and
-//! fill a gap from [`SharedRunLog::snapshot_from`], which reads the
-//! durable log; one that subscribes first and then takes a snapshot
-//! misses nothing.
+//! published record is already on disk.
+//!
+//! Publication runs on the appending thread, after the lock is released.
+//! A slow publisher delays that writer's return (and that record's
+//! subscribers), never another writer's append. A publisher that panics
+//! is caught: the record stays stored and acknowledged, the failure is
+//! counted ([`SharedRunLog::publish_failures`]), and nothing unwinds into
+//! the writer, which may be the orchestrator mid-deliberation.
+//!
+//! Publication order is not sequence order: two clones appending at
+//! almost the same moment may publish in either order (publishing under
+//! the lock would fix the order, at the cost of letting one slow
+//! publisher stall every writer of the run). A record a publisher dropped
+//! or a panic lost leaves a gap the same way. Subscribers therefore
+//! dedupe by sequence, fill every gap from
+//! [`SharedRunLog::snapshot_from`], which reads the durable log, and end
+//! a stream only once the run's durable head is terminal. One that
+//! subscribes first and then takes a snapshot misses nothing.
 //!
 //! The runtime crate stays free of an async runtime: [`EventPublisher`]
 //! is a plain trait, which the server implements over its per-run
 //! broadcast channels.
 
 use crate::event_log::{EventLog, EventLogError};
-use crate::run_store::RunLease;
+use crate::run_store::{IndexKind, RunLease};
 use crate::sink::EventSink;
 use crate::state_machine::{RunAggregate, TransitionError};
-use consensus_domain::{ConsensusEvent, NewEvent, RunId};
+use consensus_domain::{ConsensusEvent, EventPayload, NewEvent, RunId, RunState};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Receives every record a [`SharedRunLog`] stores, once it is durable.
 pub trait EventPublisher: Send + Sync {
     /// Called once per newly stored record, after its fsync and without
-    /// the run's lock held. A retried event id that is already stored
-    /// publishes nothing. Should not block: a server forwards to a
+    /// the run's lock held, on the thread that appended it. A retried
+    /// event id that is already stored publishes nothing. Should not
+    /// block, since the writer waits for it: a server forwards to a
     /// bounded channel and lets a lagging subscriber reconcile from the
-    /// log.
+    /// log. A panic here is caught and counted, never passed to the
+    /// writer.
     fn publish(&self, event: &ConsensusEvent);
+}
+
+/// True when a record for `record_run` with `payload` does not belong in
+/// `run_id`'s log: it names another run, or it is a task for another run.
+/// The store refuses a log holding such a record, so no writer may store
+/// one.
+pub(crate) fn names_another_run(
+    run_id: &RunId,
+    record_run: &RunId,
+    payload: &EventPayload,
+) -> bool {
+    record_run != run_id
+        || matches!(payload, EventPayload::TaskCreated { task } if task.run_id != *run_id)
 }
 
 /// A publisher without subscribers.
@@ -65,6 +98,8 @@ pub struct SharedRunLog {
     /// exclusive lock file, held while any clone lives, and its run
     /// index. None for a bare log.
     lease: Option<Arc<RunLease>>,
+    /// Publications that panicked, across every clone.
+    publish_failures: Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for SharedRunLog {
@@ -78,20 +113,24 @@ impl std::fmt::Debug for SharedRunLog {
 
 impl SharedRunLog {
     /// Shares `log`, which must hold only `run_id`'s events (one run per
-    /// file) and replay cleanly.
+    /// file, every task this run's) and replay cleanly.
     ///
     /// No ownership lock is taken here, so nothing stops a second
     /// [`EventLog`] over the same file, in this process or another, from
     /// writing beside it. Runs kept in a
     /// [`RunStore`](crate::run_store::RunStore) are shared through
     /// [`RunHandle::into_shared`](crate::run_store::RunHandle::into_shared),
-    /// which holds the run's exclusive lock and indexes its terminal head.
+    /// which holds the run's exclusive lock and indexes its heads.
     pub fn new(
         run_id: RunId,
         log: EventLog,
         publisher: Arc<dyn EventPublisher>,
     ) -> Result<Self, EventLogError> {
-        if log.all_events().iter().any(|e| e.run_id != run_id) {
+        if log
+            .all_events()
+            .iter()
+            .any(|e| names_another_run(&run_id, &e.run_id, &e.payload))
+        {
             return Err(TransitionError::RunMismatch.into());
         }
         log.rebuild(&run_id)?;
@@ -100,6 +139,7 @@ impl SharedRunLog {
             log: Arc::new(Mutex::new(log)),
             publisher,
             lease: None,
+            publish_failures: Arc::default(),
         })
     }
 
@@ -115,6 +155,7 @@ impl SharedRunLog {
             log: Arc::new(Mutex::new(log)),
             publisher,
             lease: Some(lease),
+            publish_failures: Arc::default(),
         }
     }
 
@@ -125,22 +166,27 @@ impl SharedRunLog {
     /// Appends `new` if the run's stored history allows it, then
     /// publishes the stored record (see the module docs for the steps).
     ///
-    /// - An event for another run is refused (`RunMismatch`) before the
-    ///   lock is taken.
+    /// - An event for another run, or a task naming another run, is
+    ///   refused (`RunMismatch`) before the lock is taken: the store would
+    ///   refuse the log forever after.
     /// - An `event_id` that is already stored returns the stored record,
     ///   as [`EventSink`] requires. It is neither validated again (a
     ///   retried decision must not fail because its first attempt ended
     ///   the run) nor published again.
     /// - A transition the stored history refuses is
     ///   [`EventLogError::Replay`]; nothing is written or published.
-    /// - When the record ends the run and the run belongs to a store, its
-    ///   head is recorded in the run index before the record is
+    /// - When the run belongs to a store and the record records its task,
+    ///   leaves it awaiting a decision or ends it, the run's head is
+    ///   recorded in the run index under the lock, before the record is
     ///   published.
+    /// - A publisher that panics does not make the append fail: the
+    ///   record is stored, and the panic is counted in
+    ///   [`publish_failures`](Self::publish_failures).
     pub fn append_validated(&self, new: NewEvent) -> Result<ConsensusEvent, EventLogError> {
-        if new.run_id != self.run_id {
+        if names_another_run(&self.run_id, &new.run_id, &new.payload) {
             return Err(TransitionError::RunMismatch.into());
         }
-        let (stored, terminal) = {
+        let stored = {
             let mut log = self.lock()?;
             if log.contains(&new.event_id) {
                 return EventSink::append(&mut *log, new);
@@ -148,17 +194,37 @@ impl SharedRunLog {
             // Validate against the history on disk, not against a copy a
             // writer kept: another clone may have appended since.
             let mut probe = log.rebuild(&self.run_id)?;
+            let task = matches!(new.payload, EventPayload::TaskCreated { .. });
             probe.apply(&new.clone().into_sequenced(0))?;
             let stored = EventSink::append(&mut *log, new)?;
-            (stored, probe.state.is_terminal())
-        };
-        if terminal {
             if let Some(lease) = &self.lease {
-                lease.record_terminal(&stored);
+                if probe.state.is_terminal() {
+                    lease.record_head(IndexKind::Terminal, &stored);
+                } else if task || probe.state == RunState::AwaitingHumanApproval {
+                    lease.record_head(IndexKind::Checkpoint, &stored);
+                }
             }
-        }
-        self.publisher.publish(&stored);
+            stored
+        };
+        self.publish(&stored);
         Ok(stored)
+    }
+
+    /// Publications that panicked so far, across every clone. Each such
+    /// record is stored all the same; its subscribers miss it until they
+    /// fill the gap from [`snapshot_from`](Self::snapshot_from).
+    pub fn publish_failures(&self) -> u64 {
+        self.publish_failures.load(Ordering::SeqCst)
+    }
+
+    fn publish(&self, stored: &ConsensusEvent) {
+        // The record is durable and the lock released; a panic in the
+        // publisher must not reach the writer, which would abandon a
+        // deliberation whose record was in fact stored.
+        let published = catch_unwind(AssertUnwindSafe(|| self.publisher.publish(stored)));
+        if published.is_err() {
+            self.publish_failures.fetch_add(1, Ordering::SeqCst);
+        }
     }
 
     /// Stored records with `sequence > after`, in sequence order: `0`
@@ -224,7 +290,7 @@ mod tests {
     use consensus_domain::*;
     use std::path::{Path, PathBuf};
     use std::sync::mpsc;
-    use std::sync::{Barrier, OnceLock};
+    use std::sync::{Barrier, Condvar, OnceLock};
 
     fn temp_log(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -704,6 +770,7 @@ mod tests {
                 log: log.log.clone(),
                 publisher: Arc::new(NullPublisher),
                 lease: None,
+                publish_failures: Arc::default(),
             };
             ender.second.set(second).unwrap();
 
@@ -913,5 +980,273 @@ mod tests {
             matches!(err, EventLogError::Replay(TransitionError::RunMismatch)),
             "{err}"
         );
+    }
+
+    #[test]
+    fn a_task_naming_another_run_is_neither_stored_nor_published() {
+        let path = temp_log("foreign-task.jsonl");
+        let run = RunId::new("run-foreign-task");
+        let recorder = Arc::new(Recorder::default());
+        let log = shared(&path, &run, recorder.clone());
+        // The record names this run; the task inside it names another,
+        // which the state machine alone does not check.
+        let mut foreign = task_event(&run, "e1");
+        if let EventPayload::TaskCreated { task } = &mut foreign.payload {
+            task.run_id = RunId::new("run-elsewhere");
+        }
+        let err = log.append_validated(foreign.clone()).unwrap_err();
+        assert!(
+            matches!(err, EventLogError::Replay(TransitionError::RunMismatch)),
+            "{err}"
+        );
+        assert!(log.snapshot_from(0).unwrap().is_empty());
+        assert!(recorder.events().is_empty(), "nothing published");
+        drop(log);
+        assert!(std::fs::read(&path).unwrap().is_empty(), "nothing written");
+        // A log that already holds such a task is refused when shared.
+        let mut raw = EventLog::open(&path).unwrap();
+        raw.append(foreign).unwrap();
+        drop(raw);
+        let err = SharedRunLog::new(run, EventLog::open(&path).unwrap(), Arc::new(NullPublisher))
+            .unwrap_err();
+        assert!(
+            matches!(err, EventLogError::Replay(TransitionError::RunMismatch)),
+            "{err}"
+        );
+    }
+
+    /// Panics on the record with sequence `at`, as a buggy subscriber
+    /// would, and records the others.
+    struct PanicsAt {
+        at: u64,
+        seen: Recorder,
+    }
+
+    impl EventPublisher for PanicsAt {
+        fn publish(&self, event: &ConsensusEvent) {
+            if event.sequence == self.at {
+                panic!("subscriber bug at record {}", event.sequence);
+            }
+            self.seen.publish(event);
+        }
+    }
+
+    #[test]
+    fn a_panicking_publisher_never_unwinds_into_the_writer() {
+        let path = temp_log("panicking-publisher.jsonl");
+        let publisher = Arc::new(PanicsAt {
+            at: 3,
+            seen: Recorder::default(),
+        });
+        let mut log = shared(&path, &RunId::new("run-panicking"), publisher.clone());
+        // The deliberation runs to its end although one publication
+        // panicked in the orchestrator's own thread.
+        let agg = deliberate_to_awaiting(&mut log);
+        assert_eq!(log.publish_failures(), 1);
+        assert!(!log.is_poisoned());
+        let stored = log.snapshot_from(0).unwrap();
+        assert_eq!(stored.len() as u64, agg.event_count);
+        // Every record is stored, the lost one included; only its
+        // publication is missing.
+        let published: Vec<u64> = publisher.seen.events().iter().map(|e| e.sequence).collect();
+        let expected: Vec<u64> = (1..=agg.event_count).filter(|seq| *seq != 3).collect();
+        assert_eq!(published, expected);
+        drop(log);
+        assert_eq!(EventLog::open(&path).unwrap().all_events(), stored);
+    }
+
+    /// What a server's stream (B3) does with the records a run publishes:
+    /// it sends each sequence once and in order, fills any gap from
+    /// [`SharedRunLog::snapshot_from`], and ends once, right after the
+    /// record that makes the run's durable head terminal.
+    struct Stream {
+        log: SharedRunLog,
+        /// The run as replayed from what the stream sent: a frame out of
+        /// order would fail to apply.
+        run: RunAggregate,
+        sent: Vec<u64>,
+        ends: u32,
+        filled_from_log: u32,
+    }
+
+    impl Stream {
+        fn on_published(&mut self, event: ConsensusEvent) {
+            if self.ends > 0 {
+                return;
+            }
+            let next = self.sent.len() as u64 + 1;
+            let frames = match event.sequence {
+                seq if seq < next => return,
+                seq if seq == next => vec![event],
+                _ => {
+                    self.filled_from_log += 1;
+                    self.log.snapshot_from(next - 1).unwrap()
+                }
+            };
+            for frame in frames {
+                self.run.apply(&frame).unwrap();
+                self.sent.push(frame.sequence);
+                if self.run.state.is_terminal() {
+                    self.ends += 1;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// How long the stream test waits for one step before it fails, so a
+    /// regression fails the test instead of hanging it.
+    const STEP: std::time::Duration = std::time::Duration::from_secs(30);
+
+    /// Forwards records to a stream, except that the record at `lost`
+    /// panics (a subscriber bug, caught by the log) and the record at
+    /// `held` waits until the record after it has gone out: the stream
+    /// gets those two the other way round.
+    struct Reordering {
+        lost: u64,
+        held: u64,
+        to_stream: Mutex<mpsc::Sender<ConsensusEvent>>,
+        holding: Mutex<Option<mpsc::Sender<()>>>,
+        released: (Mutex<bool>, Condvar),
+    }
+
+    impl EventPublisher for Reordering {
+        fn publish(&self, event: &ConsensusEvent) {
+            if event.sequence == self.lost {
+                panic!("subscriber bug: record {} lost", event.sequence);
+            }
+            if event.sequence == self.held {
+                if let Some(holding) = self.holding.lock().unwrap().take() {
+                    holding.send(()).unwrap();
+                }
+                let (released, changed) = &self.released;
+                let released = released.lock().unwrap();
+                let (released, _) = changed
+                    .wait_timeout_while(released, STEP, |released| !*released)
+                    .unwrap();
+                assert!(
+                    *released,
+                    "the record after {} was never published",
+                    self.held
+                );
+            }
+            self.to_stream.lock().unwrap().send(event.clone()).unwrap();
+            if event.sequence == self.held + 1 {
+                let (released, changed) = &self.released;
+                *released.lock().unwrap() = true;
+                changed.notify_all();
+            }
+        }
+    }
+
+    #[test]
+    fn a_stream_dedupes_fills_gaps_from_the_log_and_ends_once_at_the_terminal_head() {
+        let run = RunId::new("run-stream");
+        // The deliberation's last record is the recommendation; the human
+        // decision that follows it ends the run.
+        let held = {
+            let path = temp_log("stream-reference.jsonl");
+            let mut log = shared(&path, &run, Arc::new(NullPublisher));
+            deliberate_to_awaiting(&mut log).event_count
+        };
+        let path = temp_log("stream.jsonl");
+        let (to_stream, published) = mpsc::channel();
+        let (holding, recommendation_held) = mpsc::channel();
+        let publisher = Arc::new(Reordering {
+            lost: 3,
+            held,
+            to_stream: Mutex::new(to_stream),
+            holding: Mutex::new(Some(holding)),
+            released: (Mutex::new(false), Condvar::new()),
+        });
+        let log = shared(&path, &run, publisher.clone());
+
+        // The stream reads the durable log through a handle without a
+        // publisher, so the channel closes once the run's writers are gone.
+        let stream = {
+            let log = SharedRunLog {
+                run_id: run.clone(),
+                log: log.log.clone(),
+                publisher: Arc::new(NullPublisher),
+                lease: None,
+                publish_failures: Arc::default(),
+            };
+            let run = run.clone();
+            std::thread::spawn(move || {
+                let mut stream = Stream {
+                    log,
+                    run: RunAggregate::new(run),
+                    sent: Vec::new(),
+                    ends: 0,
+                    filled_from_log: 0,
+                };
+                for event in published {
+                    stream.on_published(event);
+                }
+                stream
+            })
+        };
+        let deliberation = {
+            let mut writer = log.clone();
+            std::thread::spawn(move || deliberate_to_awaiting(&mut writer))
+        };
+        // The recommendation is stored and its publication held back; the
+        // decision is recorded and published first.
+        recommendation_held
+            .recv_timeout(STEP)
+            .expect("the deliberation never reached its recommendation");
+        let decision = log
+            .append_validated(decision_event(&run, true, "approve"))
+            .unwrap();
+        assert_eq!(decision.sequence, held + 1);
+        deliberation.join().unwrap();
+        assert_eq!(log.publish_failures(), 1, "the lost record's panic");
+        drop(log);
+        drop(publisher);
+
+        let stream = stream.join().unwrap();
+        let expected: Vec<u64> = (1..=held + 1).collect();
+        assert_eq!(stream.sent, expected, "every record once, in order");
+        assert_eq!(stream.ends, 1, "the stream ended once");
+        assert_eq!(stream.run.state, RunState::Approved);
+        // Two gaps: the lost record, and the decision before the
+        // recommendation.
+        assert!(stream.filled_from_log >= 2, "{}", stream.filled_from_log);
+    }
+
+    /// Windows locks are mandatory: while another handle holds the whole
+    /// log file locked, the log's write fails as a full disk or a failing
+    /// device would. A fault seam that needs no hook in the event log.
+    #[cfg(windows)]
+    #[test]
+    fn an_append_the_disk_refuses_is_neither_stored_nor_published() {
+        let path = temp_log("disk-refuses.jsonl");
+        let run = RunId::new("run-disk-refuses");
+        let recorder = Arc::new(Recorder::default());
+        let log = shared(&path, &run, recorder.clone());
+        let task = log.append_validated(task_event(&run, "e1")).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+
+        let blocker = std::fs::File::open(&path).unwrap();
+        blocker.lock().unwrap();
+        let err = log
+            .append_validated(fail_event(&run, "e2", "propose"))
+            .unwrap_err();
+        blocker.unlock().unwrap();
+        drop(blocker);
+        assert!(matches!(err, EventLogError::Io(_)), "{err}");
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "nothing written");
+        assert_eq!(log.snapshot_from(0).unwrap(), vec![task.clone()]);
+        assert_eq!(recorder.events(), vec![task.clone()], "nothing published");
+
+        // Once the disk takes writes again, the same event is stored and
+        // published once.
+        let ended = log
+            .append_validated(fail_event(&run, "e2", "propose"))
+            .unwrap();
+        assert_eq!(ended.sequence, 2);
+        assert_eq!(recorder.events(), [task, ended]);
+        drop(log);
+        assert_eq!(EventLog::open(&path).unwrap().len(), 2);
     }
 }

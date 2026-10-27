@@ -91,6 +91,26 @@
   run unchanged once that surface starts. The owner's primary Agent
   Memory directory does not exist on this machine and was never touched;
   all Hyphae state created here lives under `hyphae-isolated/` (git-ignored).
+  Follow-up probes (same evening): the memory profile was also tried over
+  the native local endpoint (named pipe) and with no collection flags —
+  six variants total, all dying at startup with the identical error before
+  answering `initialize`, while the full MCP profile answers normally with
+  the same keys. 4.0.0 remains the latest published release. The console
+  now runs with full Hyphae environment configured, so `memory=hyphae`
+  surfaces the true upstream connection failure (HTTP 502) instead of a
+  configuration error, and will work unchanged once the upstream surface
+  starts.
+- **Docker unblock (same night, owner-directed):** the pinned Linux build
+  runs in a local container (`debian:trixie-slim`, named volume) where
+  `agent setup`, the daemon, seeding, and `mcp --profile memory` all work.
+  The adapter gained an honest degradation: tool-error envelopes inside
+  `structuredContent` are errors, and failed proof generation retries
+  unproven (integrity `unavailable`, never fabricated). A `docker exec`
+  stdio wrapper (`scripts/hyphae-docker.cmd`) lets the Windows host drive
+  the container's MCP and `proof verify` with container paths throughout.
+  `live_hyphae_probe` passed; a full live Meta+Hyphae run retrieved the
+  real seeded evidence and abstained. Runbook:
+  `scripts/hyphae-container/README.md`.
 
 ## Backlog
 

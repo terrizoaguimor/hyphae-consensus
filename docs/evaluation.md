@@ -46,15 +46,24 @@ The same behaviors are locked in as regression tests:
   explicitly refusing to treat valid proof status as factual support.
   Reported as observed; no re-runs were performed to fish for `supported`.
 
-### Hyphae — BLOCKED UPSTREAM (2026-10-26)
+### Hyphae — live via Linux container (2026-10-26, supersedes earlier note)
 
-The pinned 4.0.0 Windows binary is installed and checksum-verified, and an
-isolated deployment was provisioned with documented commands only
-(memory-schema collections, security bootstrap, role-ceilinged reader key,
-HTTP serve). The Agent Memory surface itself does not start:
-`agent setup|status|doctor|configure` and `mcp --profile memory` all exit
-with `native product request is invalid`, reproduced outside any sandbox
-in the owner's terminal, while the full-profile MCP works with the same
-transport and credentials. `live_hyphae_probe` and the adversarial proof
-case remain gated and unrun; they execute unchanged once the memory
-profile starts. Details in `docs/journal.md`.
+The pinned **Windows** 4.0.0 build's Agent Memory surface does not start
+on this host (`agent setup|status|doctor|configure` and
+`mcp --profile memory` exit with `native product request is invalid`,
+reproduced in the owner's terminal). The pinned **Linux** build of the
+same release works: it now runs in a local Docker container
+(`scripts/hyphae-container/README.md`), provisioned by the official
+`agent setup`, with the two demo memories seeded.
+
+- `live_hyphae_probe` **passed** against the container (tools:
+  `hyphae_memory_recall`, `hyphae_memory_status`; work collection: 2
+  memories) through the `docker exec` stdio wrapper.
+- One full live console run (`model=meta`, `memory=hyphae`): real evidence
+  retrieved from Hyphae; outcome **abstained** (0/6 claims corroborated).
+- Known upstream limitation: `recall(prove=true)` fails with
+  `corruption: native durable state is invalid` while plain recall works
+  (reproduced on Windows bind mount and native Docker volume). The
+  adapter retries unproven and reports integrity `unavailable`; the
+  adversarial proof case therefore remains undemonstrated — claiming it
+  would require the upstream proof path to work.

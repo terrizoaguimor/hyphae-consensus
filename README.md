@@ -17,11 +17,16 @@ approves.
 > (structured output, tested against a local fake server), Hyphae MCP read-only adapter
 > + offline proof verifier (tested against in-memory/scripted transports), Axum/SSE
 > operator console, synthetic demo repository, and a 7-case baseline-vs-consensus
-> protocol evaluation. **Live status:** Meta verified end-to-end against the real
+> protocol evaluation. **Live status:** Meta and Hyphae both verified end-to-end;
+> Hyphae runs its pinned Linux build in a local Docker container because the
+> Windows build's Agent Memory surface does not start on this host. Meta verified against the real
 > API (one full console run; the live Evaluator abstained — see
-> `docs/evaluation.md`). The Hyphae live probe is blocked by the upstream Windows
+> `docs/evaluation.md`). The Hyphae live probe passes against the container; one
+> full Meta+Hyphae run retrieved real evidence and abstained. Upstream Windows
 > 4.0.0 Agent Memory surface, which fails to start on this machine even via its
-> official `agent setup` (evidence in `docs/journal.md`); the adapter is tested
+> official `agent setup` (evidence in `docs/journal.md`), and upstream
+> `recall(prove=true)` currently fails while plain recall works, so integrity is
+> reported `unavailable` live; the adapter is tested
 > against scripted transports and the gated probe runs unchanged once upstream
 > starts. Demo modes are labeled (`fake` vs live) everywhere.
 

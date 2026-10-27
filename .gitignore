@@ -3,6 +3,7 @@
 /demo-run
 /tools
 /hyphae-isolated
+/hyphae-linux
 .env
 *.jsonl
 *.key

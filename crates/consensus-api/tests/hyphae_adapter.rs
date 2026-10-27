@@ -1,6 +1,6 @@
 //! Hyphae adapter tests over an in-memory MCP transport and a scripted
 //! command runner. These verify OUR protocol handling and status
-//! mapping — they do not simulate Hyphae's cryptography. The live probe
+//! mapping â€” they do not simulate Hyphae's cryptography. The live probe
 //! against a real binary is `#[ignore]`d and env-gated.
 
 use consensus_api::config::HyphaeConfig;
@@ -13,18 +13,18 @@ use serde_json::{json, Value};
 
 fn transport_with(recall_result: Value) -> InMemoryTransport {
     let mut t = InMemoryTransport::default();
-    t.responses.insert(
-        "initialize".into(),
+    t.script(
+        "initialize",
         json!({"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "hyphae"}}),
     );
-    t.responses.insert(
-        "tools/list".into(),
+    t.script(
+        "tools/list",
         json!({"tools": [
             {"name": "hyphae_memory_recall"},
             {"name": "hyphae_memory_status"}
         ]}),
     );
-    t.responses.insert("tools/call".into(), recall_result);
+    t.script("tools/call", recall_result);
     t
 }
 
@@ -75,11 +75,51 @@ fn recall_accepts_text_content_fallback() {
 }
 
 #[test]
+fn recall_falls_back_to_unproven_when_proof_generation_fails() {
+    // Mirrors the observed pinned-build behavior: prove=true returns a
+    // tool-error envelope inside structuredContent, plain recall works.
+    let mut t = transport_with(json!({
+        "structuredContent": {
+            "schema": "hyphae-native-mcp-tool-error-v2",
+            "error": {"category": "corruption", "message": "native durable state is invalid"}
+        }
+    }));
+    t.script(
+        "tools/call",
+        json!({
+            "structuredContent": {"memories": [{
+                "id": "77", "text": "Constraint: cap retries at 3", "kind": "constraint"
+            }], "proof": null}
+        }),
+    );
+    let mut client = HyphaeMemoryClient::connect(t).unwrap();
+    let out = client
+        .recall(&ProjectId::new("demo-repo"), "retries", 5)
+        .unwrap();
+    assert_eq!(out.len(), 1);
+    assert!(out[0].content.contains("cap retries"));
+    assert!(
+        out[0].proof_file.is_none(),
+        "unproven fallback must not fabricate artifacts"
+    );
+    let calls: Vec<Value> = client
+        .into_transport()
+        .requests
+        .iter()
+        .filter(|(m, _)| m == "tools/call")
+        .map(|(_, p)| p.clone())
+        .collect();
+    assert_eq!(calls.len(), 2, "expected proven attempt + unproven retry");
+    assert_eq!(calls[0]["arguments"]["prove"], json!(true));
+    assert_eq!(calls[1]["arguments"]["prove"], json!(false));
+}
+
+#[test]
 fn connect_rejects_surface_without_memory_recall() {
     let mut t = InMemoryTransport::default();
-    t.responses.insert("initialize".into(), json!({}));
-    t.responses.insert(
-        "tools/list".into(),
+    t.script("initialize", json!({}));
+    t.script(
+        "tools/list",
         json!({"tools": [{"name": "hyphae_native_search_lexical"}]}),
     );
     match HyphaeMemoryClient::connect(t) {

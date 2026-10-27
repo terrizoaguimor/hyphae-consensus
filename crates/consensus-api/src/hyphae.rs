@@ -32,22 +32,37 @@ pub trait McpTransport {
     fn notify(&mut self, method: &str, params: Value) -> Result<(), MemoryError>;
 }
 
-/// Scripted in-memory transport for tests: answers by method name and
-/// records every request for assertions.
+/// Scripted in-memory transport for tests: answers by method name from
+/// per-method queues (the last scripted response repeats) and records
+/// every request for assertions.
 #[derive(Default)]
 pub struct InMemoryTransport {
-    pub responses: std::collections::HashMap<String, Value>,
+    pub responses: std::collections::HashMap<String, std::collections::VecDeque<Value>>,
     pub requests: Vec<(String, Value)>,
+}
+
+impl InMemoryTransport {
+    pub fn script(&mut self, method: &str, response: Value) {
+        self.responses
+            .entry(method.to_string())
+            .or_default()
+            .push_back(response);
+    }
 }
 
 impl McpTransport for InMemoryTransport {
     fn request(&mut self, method: &str, params: Value) -> Result<Value, MemoryError> {
         self.requests.push((method.to_string(), params));
-        self.responses.get(method).cloned().ok_or_else(|| {
+        let queue = self.responses.get_mut(method).ok_or_else(|| {
             MemoryError::Backend(format!(
                 "in-memory transport: no scripted response for {method}"
             ))
-        })
+        })?;
+        if queue.len() > 1 {
+            Ok(queue.pop_front().expect("non-empty queue"))
+        } else {
+            Ok(queue.front().cloned().expect("non-empty queue"))
+        }
     }
     fn notify(&mut self, method: &str, params: Value) -> Result<(), MemoryError> {
         self.requests.push((method.to_string(), params));
@@ -222,6 +237,25 @@ impl<T: McpTransport> HyphaeMemoryClient<T> {
             )));
         }
         if let Some(structured) = result.get("structuredContent") {
+            // Hyphae may report tool failures inside structuredContent as
+            // {"schema": "hyphae-native-mcp-tool-error-v2", "error": {...}}
+            // with isError=false. That is an error, not data.
+            let is_tool_error = structured.get("error").is_some()
+                && structured
+                    .get("schema")
+                    .and_then(Value::as_str)
+                    .map(|s| s.contains("tool-error"))
+                    .unwrap_or(false);
+            if is_tool_error {
+                let message = structured
+                    .get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown tool error");
+                return Err(MemoryError::Backend(format!(
+                    "tool {name} failed: {message}"
+                )));
+            }
             return Ok(structured.clone());
         }
         if let Some(text) = result
@@ -274,10 +308,22 @@ impl<T: McpTransport> MemoryClient for HyphaeMemoryClient<T> {
         query: &str,
         limit: usize,
     ) -> Result<Vec<EvidenceReference>, MemoryError> {
-        let value = self.call_tool(
+        // Proofs are requested first. Some deployments fail proof
+        // generation while plain recall works (observed on the pinned
+        // 4.0.0 build); degrading to an unproven recall keeps evidence
+        // usable while integrity honestly reports `unavailable`
+        // downstream — it never upgrades to verified.
+        let proven = self.call_tool(
             "hyphae_memory_recall",
             json!({"project": project.as_str(), "query": query, "limit": limit, "prove": true}),
-        )?;
+        );
+        let value = match proven {
+            Ok(v) => v,
+            Err(_) => self.call_tool(
+                "hyphae_memory_recall",
+                json!({"project": project.as_str(), "query": query, "limit": limit, "prove": false}),
+            )?,
+        };
         let items: Vec<Value> = match &value {
             Value::Array(a) => a.clone(),
             Value::Object(map) => ["memories", "results", "items", "records"]

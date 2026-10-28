@@ -123,7 +123,11 @@ function RunView({ locale, runId }: RunViewProps) {
             <dt>{t("header.outcome")}</dt>
             <dd data-run-field="outcome">
               {summary.recommendation === undefined || summary.recommendation === null ? (
-                t("header.noOutcome")
+                summary.state === "failed" ? (
+                  t("header.noOutcomeFailed")
+                ) : (
+                  t("header.noOutcome")
+                )
               ) : (
                 <>
                   <Badge

@@ -259,6 +259,7 @@
       "state": "State",
       "outcome": "Outcome",
       "noOutcome": "No recommendation yet",
+      "noOutcomeFailed": "None: the run failed",
       "recordsLabel": "Records",
       "revision": "Revision round",
       "runId": "Run id",
@@ -364,6 +365,7 @@
       "proofStatus": "proof {status}",
       "recommendation": "Recommendation",
       "noRecommendation": "No recommendation issued yet.",
+      "noRecommendationFailed": "No recommendation was issued: the run failed.",
       "model": "{model} via {provider}"
     },
     "explorer": {
@@ -444,6 +446,7 @@
       "objections": "Open objections",
       "noObjections": "No open objection.",
       "pending": "No recommendation yet: the run is still deliberating.",
+      "failedNoRecommendation": "No recommendation was issued: the run failed (see above).",
       "superseded": "This recommendation is for revised proposal {revised}, which replaced the original proposal {original}.",
       "supersededTask": "Task: {title}",
       "original": "Original proposal {id}",

@@ -311,6 +311,23 @@ for (const delivery of ["live", "replay"] as const) {
   });
 }
 
+test("pacing is announced when it starts and when it ends, not per record", async ({ page }) => {
+  await mockApi(page);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await openRun(page, "en");
+  const pacing = page.locator("[data-pacing='on']");
+  await expect(pacing.getByText(t("en", "Run.pacing.label"), { exact: true })).toBeVisible();
+  // One live region, saying that pacing started; the waiting count is not one.
+  const announcement = page.locator("[data-pacing-announcement]");
+  await expect(announcement).toHaveAttribute("role", "status");
+  await expect(announcement).toHaveText(t("en", "Run.pacing.started"));
+  await expect(page.locator("[data-pacing-pending]")).toBeVisible();
+  await expect(page.locator("[data-pacing-pending][role=status]")).toHaveCount(0);
+  await page.getByRole("button", { name: t("en", "Run.pacing.skip") }).click();
+  await expect(announcement).toHaveText(t("en", "Run.pacing.done"));
+  await expect(page.locator("[data-pacing='skipped']")).toContainText(t("en", "Run.pacing.skipped"));
+});
+
 test("the in-app Reduced motion setting turns pacing off", async ({ page }) => {
   await mockApi(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
@@ -699,6 +716,17 @@ for (const locale of ["en", "es"] as const) {
     await expect(failure).toContainText(t(locale, "Run.failure.detail", { stage: "evaluate", code: "budget_refused" }));
     // What the page shows (not the raw records under a closed disclosure).
     await expect(page.locator("main")).not.toContainText(english, { useInnerText: true });
+    // A failed run has no recommendation and never will: nothing reads "yet".
+    await expect(page.locator("[data-run-field='outcome']")).toHaveText(
+      t(locale, "Run.header.noOutcomeFailed"),
+    );
+    await expect(page.locator("[data-recommendation]")).toContainText(
+      t(locale, "Run.stage.noRecommendationFailed"),
+    );
+    await page.getByRole("tab", { name: t(locale, "Run.tabs.decision") }).click();
+    await expect(page.locator("[data-recommendation-none='failed']")).toHaveText(
+      t(locale, "Run.decision.failedNoRecommendation"),
+    );
     await page.getByRole("tab", { name: t(locale, "Run.tabs.explorer") }).click();
     await page.getByLabel(t(locale, "Run.explorer.filter")).selectOption("run_failed");
     const summary = page.locator("[data-explorer] tbody tr td:last-child > span");
@@ -709,6 +737,7 @@ for (const locale of ["en", "es"] as const) {
     await expect(page.locator("[data-run-failure='budget_refused']")).toHaveText(
       t(locale, "Run.failure.codes.budget_refused"),
     );
+    await expect(page.locator("[data-run-id]")).toContainText(t(locale, "Run.header.noOutcomeFailed"));
   });
 }
 

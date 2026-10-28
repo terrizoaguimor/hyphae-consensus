@@ -259,6 +259,7 @@
       "state": "Estado",
       "outcome": "Resultado",
       "noOutcome": "Nenhuma recomendação ainda",
+      "noOutcomeFailed": "Nenhum: a execução falhou",
       "recordsLabel": "Registros",
       "revision": "Rodada de revisão",
       "runId": "Id da execução",
@@ -364,6 +365,7 @@
       "proofStatus": "prova {status}",
       "recommendation": "Recomendação",
       "noRecommendation": "Nenhuma recomendação emitida ainda.",
+      "noRecommendationFailed": "Nenhuma recomendação foi emitida: a execução falhou.",
       "model": "{model} via {provider}"
     },
     "explorer": {
@@ -444,6 +446,7 @@
       "objections": "Objeções abertas",
       "noObjections": "Nenhuma objeção aberta.",
       "pending": "Nenhuma recomendação ainda: a execução ainda está deliberando.",
+      "failedNoRecommendation": "Nenhuma recomendação foi emitida: a execução falhou (veja acima).",
       "superseded": "Esta recomendação é para a proposta revisada {revised}, que substituiu a proposta original {original}.",
       "supersededTask": "Tarefa: {title}",
       "original": "Proposta original {id}",

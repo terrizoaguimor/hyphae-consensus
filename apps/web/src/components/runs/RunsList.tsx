@@ -196,7 +196,11 @@ export function RunsList({ locale }: RunsListProps) {
                     <dt>{t("outcome")}</dt>
                     <dd>
                       {run.recommendation === undefined || run.recommendation === null ? (
-                        tRun("header.noOutcome")
+                        run.state === "failed" ? (
+                          tRun("header.noOutcomeFailed")
+                        ) : (
+                          tRun("header.noOutcome")
+                        )
                       ) : (
                         <Badge
                           variant={RECOMMENDATION_VARIANTS[run.recommendation]}

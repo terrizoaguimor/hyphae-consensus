@@ -259,6 +259,7 @@
       "state": "État",
       "outcome": "Résultat",
       "noOutcome": "Pas encore de recommandation",
+      "noOutcomeFailed": "Aucun : l’exécution a échoué",
       "recordsLabel": "Enregistrements",
       "revision": "Tour de révision",
       "runId": "Id de l’exécution",
@@ -364,6 +365,7 @@
       "proofStatus": "preuve {status}",
       "recommendation": "Recommandation",
       "noRecommendation": "Aucune recommandation émise pour l’instant.",
+      "noRecommendationFailed": "Aucune recommandation n’a été émise : l’exécution a échoué.",
       "model": "{model} via {provider}"
     },
     "explorer": {
@@ -444,6 +446,7 @@
       "objections": "Objections ouvertes",
       "noObjections": "Aucune objection ouverte.",
       "pending": "Pas encore de recommandation : l’exécution délibère encore.",
+      "failedNoRecommendation": "Aucune recommandation n’a été émise : l’exécution a échoué (voir ci-dessus).",
       "superseded": "Cette recommandation porte sur la proposition révisée {revised}, qui a remplacé la proposition d’origine {original}.",
       "supersededTask": "Tâche : {title}",
       "original": "Proposition d’origine {id}",

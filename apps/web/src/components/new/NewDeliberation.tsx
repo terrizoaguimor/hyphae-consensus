@@ -286,7 +286,7 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
             />
           ))}
         </RadioList>
-      ) : (
+      ) : live.presets.length === 0 ? null : (
         <ul className="hc-preset-list" role="list" aria-label={t("presetLegend")}>
           {live.presets.map((preset) => (
             <li key={preset.id} className="hc-preset-item">

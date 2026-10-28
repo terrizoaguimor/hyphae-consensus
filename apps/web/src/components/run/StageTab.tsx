@@ -89,7 +89,7 @@ export function StageTab({ data }: StageTabProps) {
         <div className="hc-pacing" data-pacing={pacing}>
           {/* Announced twice only, when pacing starts and when it ends; the
               waiting count below is not a live region. */}
-          <p className="hc-visually-hidden" role="status">
+          <p className="hc-visually-hidden" role="status" data-pacing-announcement>
             {queued ? t("pacing.started") : pacedFrames > 0 ? t("pacing.done") : ""}
           </p>
           {pacing === "reduced" ? (
@@ -182,7 +182,11 @@ export function StageTab({ data }: StageTabProps) {
       <section className="hc-section" aria-labelledby="recommendation-heading" data-recommendation>
         <h3 id="recommendation-heading">{t("stage.recommendation")}</h3>
         {stage.recommendation === null || summary === null ? (
-          <p className="hc-supporting">{t("stage.noRecommendation")}</p>
+          <p className="hc-supporting">
+            {summary?.state === "failed"
+              ? t("stage.noRecommendationFailed")
+              : t("stage.noRecommendation")}
+          </p>
         ) : (
           <div className="hc-panel">
             <RecommendationLine

@@ -150,7 +150,9 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
       <section className="hc-section" aria-labelledby="decision-recommendation">
         <h3 id="decision-recommendation">{t("recommendation")}</h3>
         {recommendation === null ? (
-          <p className="hc-supporting">{t("pending")}</p>
+          <p className="hc-supporting" data-recommendation-none={detail.summary.state}>
+            {detail.summary.state === "failed" ? t("failedNoRecommendation") : t("pending")}
+          </p>
         ) : (
           <div className="hc-panel">
             <RecommendationLine kind={recommendation.kind} evidence={detail.summary.provenance.evidence} />

@@ -18,6 +18,24 @@ or can approve, but the Evaluator's judgments are the policy's main input, so "m
 never decide" holds in form, not in substance. Nothing is executed before a human
 approves (the executor is deferred: approval records a decision only).
 
+> **Status (2026-10-28 evening, branch `feat/public-portal`; nothing exposed yet).**
+> The public live mode is wired end to end in code and stays off until its gates pass.
+> It runs only over a sealed Hyphae snapshot whose manifest, record texts and verifier
+> binary are pinned and re-checked at every admission (a snapshot that fails disables
+> live mode, not the portal), behind a two-phase gate: geography, the adult attestation,
+> the evidence status and Turnstile before the single live slot is taken, then a daily
+> quota per network and a USD ledger reservation of the run's worst case, with every
+> Meta HTTP attempt metered. On the server the operator console is metered on the same
+> ledger, and `consensus-api ledger` lets the operator read, reset and reconcile it from
+> a shell. Receipts state what a valid proof does not establish (a record's text is not
+> byte-compared with the proof). The threat model v2 (`docs/threat-model.md`) maps each
+> threat to its code and tests and lists what is still open; of the release gates G1–G12,
+> the Linux correctness gate (G8) passes, supply chain (G12) is partial and the rest are
+> pending. The web portal has its typed API client, the live stream, New deliberation, My
+> runs and the run workspace's Live/Playback, Explorer and Decision views; the Evidence,
+> Proof, Audit and Meta API views are being built. Still ahead: the snapshot capture and
+> the counted protocol 1.3 battery (2026-10-29), the staging deployment and the video.
+>
 > **Status (2026-10-27 night, branch `feat/public-portal`; nothing exposed yet).**
 > Since the audit below: protocol 1.3 (ADR-0010) closes MA-1 and RT-1. The runtime
 > validates every evaluation (one assessment per claim, one explicit verdict per open

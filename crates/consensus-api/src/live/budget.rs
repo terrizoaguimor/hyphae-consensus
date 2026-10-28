@@ -9,9 +9,16 @@
 //! written atomically after every change) and `ledger.lock`. Every record
 //! is written with one `write_all` and fsync'd before the operation
 //! returns. Day files are the source of truth; the summary is derived from
-//! them and read back at open as a floor (a lifetime spend the summary
-//! remembers but the day files no longer show, or a trip they no longer
-//! show, is kept, and the snapshot reports the inconsistency).
+//! them and read back at open as a floor: lifetime spend and per-lane
+//! commitments the summary remembers but the day files no longer show, or
+//! a trip they no longer show, stay counted (as offsets fixed at open and
+//! carried into the next summary), the snapshot reports the
+//! inconsistency, and a floor that reaches the lifetime cap trips at open.
+//! The summary is honored only when it is at least as new as the newest
+//! record in the files; a record newer than the summary means the summary
+//! is the stale side (a crash between an append and its rewrite) and the
+//! files win. Today's commitments cannot be rebuilt from the summary: the
+//! lifetime figures are the protection when today's file is lost.
 //!
 //! **Sharing.** Every process that holds the key (`serve-public`, the
 //! operator console, staging scripts) opens its own [`Ledger`] on the same
@@ -500,7 +507,12 @@ pub struct LifetimeSummary {
     pub lifetime_spent_usd: Usd,
     /// Spent plus the worst case of every active reservation.
     pub lifetime_committed_usd: Usd,
+    /// The judge lane's share of `lifetime_committed_usd`.
     pub judge_committed_usd: Usd,
+    /// The public and operator lanes' share of `lifetime_committed_usd`
+    /// (derived as `lifetime − judge` when a summary predates the field).
+    #[serde(default)]
+    pub nonjudge_committed_usd: Usd,
     pub reservations: u64,
     pub unsettled_reservations: u64,
     pub tripped: bool,
@@ -899,14 +911,32 @@ struct Cursor {
     needs_newline: bool,
 }
 
+/// What the lifetime summary remembered at open that the day files no
+/// longer show, fixed once at open and added to every total from then on
+/// (and so carried into the next summary): lost history stays counted.
+#[derive(Default, Clone, Copy)]
+struct Offsets {
+    spent: Usd,
+    judge_committed: Usd,
+    nonjudge_committed: Usd,
+}
+
+impl Offsets {
+    fn is_zero(&self) -> bool {
+        self.spent.is_zero() && self.judge_committed.is_zero() && self.nonjudge_committed.is_zero()
+    }
+}
+
 #[derive(Default)]
 struct State {
     reservations: BTreeMap<ReservationId, ResState>,
     tripped: Option<Trip>,
     /// When the files were last read under the lock.
     last_catch_up: Option<Instant>,
+    /// The newest `at` among the records read from the day files.
+    last_record_at: Option<DateTime<Utc>>,
     cursors: BTreeMap<String, Cursor>,
-    spent_floor: Usd,
+    offsets: Offsets,
     inconsistent: Option<String>,
     active_public: u32,
     active_judge: u32,
@@ -1196,6 +1226,7 @@ impl Inner {
             lifetime_spent_usd: totals.lifetime_spent,
             lifetime_committed_usd: totals.lifetime_committed,
             judge_committed_usd: totals.judge_committed,
+            nonjudge_committed_usd: totals.nonjudge_committed,
             reservations: totals.reservations,
             unsettled_reservations: totals.unsettled,
             tripped: st.tripped.is_some(),
@@ -1213,6 +1244,68 @@ impl Inner {
         }
         std::fs::rename(&tmp, &path).map_err(|e| LedgerError::io(&path, e))?;
         sync_dir(&self.dir)
+    }
+
+    /// Reconciles the replayed day files with the summary at open. The
+    /// summary is written right after every record, so it is normally at
+    /// least as new as the newest record; then anything it remembers that
+    /// the files do not show (a lost or truncated day file) becomes an
+    /// offset that stays counted, and a trip it remembers is honored. When
+    /// the files hold a record newer than the summary, the summary is the
+    /// stale side (a crash between an append and the summary rewrite) and
+    /// the files are authoritative: no offset, no re-trip. Finally the
+    /// lifetime cap is checked, so a floor that reaches it trips at once.
+    fn apply_summary(&self, st: &mut State, summary: &LifetimeSummary) -> Result<(), LedgerError> {
+        let summary_at = parse_at(&summary.updated_at).ok();
+        let files_newer = match (summary_at, st.last_record_at) {
+            (Some(summary_at), Some(last)) => last > summary_at,
+            // No readable summary time, or no records: the summary stands.
+            _ => false,
+        };
+        if !files_newer {
+            let replayed = self.totals(st);
+            let nonjudge_in_summary = summary.nonjudge_committed_usd.max(
+                summary
+                    .lifetime_committed_usd
+                    .saturating_sub(summary.judge_committed_usd),
+            );
+            let offsets = Offsets {
+                spent: summary
+                    .lifetime_spent_usd
+                    .saturating_sub(replayed.lifetime_spent),
+                judge_committed: summary
+                    .judge_committed_usd
+                    .saturating_sub(replayed.judge_committed),
+                nonjudge_committed: nonjudge_in_summary.saturating_sub(replayed.nonjudge_committed),
+            };
+            if !offsets.is_zero() {
+                st.offsets = offsets;
+                st.inconsistent = Some(format!(
+                    "lifetime summary records {} spent and {} committed ({} judge), day files {} spent and {} committed ({} judge): the larger figures are used",
+                    summary.lifetime_spent_usd,
+                    summary.lifetime_committed_usd,
+                    summary.judge_committed_usd,
+                    replayed.lifetime_spent,
+                    replayed.lifetime_committed,
+                    replayed.judge_committed
+                ));
+            }
+            if summary.tripped && st.tripped.is_none() {
+                let reason = summary
+                    .trip_reason
+                    .clone()
+                    .unwrap_or_else(|| "unrecorded".into());
+                let code = summary.trip_code.unwrap_or(TripReason::Inconsistent);
+                st.tripped = Some(Trip::new(
+                    code,
+                    format!("summary_trip_not_in_day_files: {reason}"),
+                ));
+                st.inconsistent = Some(format!(
+                    "lifetime summary records a trip ({reason}) the day files do not"
+                ));
+            }
+        }
+        self.check_lifetime(st)
     }
 
     fn read_summary(&self) -> Result<Option<LifetimeSummary>, LedgerError> {
@@ -1280,12 +1373,16 @@ impl Inner {
                 }
             }
         }
-        if st.spent_floor > t.lifetime_spent {
-            let extra = st.spent_floor.saturating_sub(t.lifetime_spent);
-            t.lifetime_spent = st.spent_floor;
-            t.lifetime_committed = t.lifetime_committed.saturating_add(extra);
-            t.nonjudge_committed = t.nonjudge_committed.saturating_add(extra);
-        }
+        // History the summary remembers and the files lost, per lane.
+        let o = st.offsets;
+        t.lifetime_spent = t.lifetime_spent.saturating_add(o.spent);
+        t.judge_committed = t.judge_committed.saturating_add(o.judge_committed);
+        t.nonjudge_committed = t.nonjudge_committed.saturating_add(o.nonjudge_committed);
+        t.lifetime_committed = t
+            .lifetime_committed
+            .saturating_add(o.judge_committed)
+            .saturating_add(o.nonjudge_committed)
+            .max(t.lifetime_spent);
         t
     }
 
@@ -1413,6 +1510,10 @@ fn parse_record(path: &Path, offset: u64, line: &[u8]) -> Result<Record, LedgerE
 /// Applies one record; `Err` hands back a record whose reservation is not
 /// known yet.
 fn apply(st: &mut State, record: Record) -> Result<(), Record> {
+    // Stored records were validated by `validate_record`, and the ledger's
+    // own records come from `rfc3339`; the fallback is unreachable.
+    let at = parse_at(record.at()).unwrap_or_default();
+    st.last_record_at = Some(st.last_record_at.map_or(at, |last| last.max(at)));
     match record {
         Record::Reservation {
             id,
@@ -1421,9 +1522,6 @@ fn apply(st: &mut State, record: Record) -> Result<(), Record> {
             at,
             ..
         } => {
-            // Stored records were validated by `validate_record`, and the
-            // ledger's own records come from `rfc3339`; the fallback is
-            // unreachable.
             let at = parse_at(&at).unwrap_or_default();
             st.reservations.entry(id).or_insert(ResState {
                 lane,
@@ -1510,28 +1608,7 @@ impl Ledger {
         };
         ledger.locked(|inner, st| {
             if let Some(summary) = inner.read_summary()? {
-                let replayed = inner.totals(st).lifetime_spent;
-                if summary.lifetime_spent_usd > replayed {
-                    st.spent_floor = summary.lifetime_spent_usd;
-                    st.inconsistent = Some(format!(
-                        "lifetime summary records {} spent, day files {}: the larger figure is used",
-                        summary.lifetime_spent_usd, replayed
-                    ));
-                }
-                if summary.tripped && st.tripped.is_none() {
-                    let reason = summary
-                        .trip_reason
-                        .clone()
-                        .unwrap_or_else(|| "unrecorded".into());
-                    let code = summary.trip_code.unwrap_or(TripReason::Inconsistent);
-                    st.tripped = Some(Trip::new(
-                        code,
-                        format!("summary_trip_not_in_day_files: {reason}"),
-                    ));
-                    st.inconsistent = Some(format!(
-                        "lifetime summary records a trip ({reason}) the day files do not"
-                    ));
-                }
+                inner.apply_summary(st, &summary)?;
             }
             Ok::<(), LedgerError>(())
         })?;

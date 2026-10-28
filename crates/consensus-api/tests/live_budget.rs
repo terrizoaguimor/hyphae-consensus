@@ -1406,3 +1406,207 @@ fn snapshot_cached_never_waits_for_the_lock_and_never_writes() {
     assert_eq!(records(dir.path(), "2026-10-27", "trip").len(), 1);
     drop(ra);
 }
+
+#[test]
+fn the_summary_floor_covers_the_judge_lane_and_a_reached_cap_trips_at_open() {
+    let dir = TempDir::new("summary-judge");
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    {
+        let ledger = open(dir.path(), unpaced_cfg(), &clock);
+        let public = ledger.reserve(Lane::Public).unwrap();
+        let draw = ledger.draw(&public, full_attempt()).unwrap();
+        ledger.settle(draw, Outcome::Timeout).unwrap();
+        ledger.release(&public).unwrap();
+        // A judge run is admitted and never released: it counts at its
+        // worst case, in the files and in the summary.
+        let judge = ledger.reserve(Lane::Judge).unwrap();
+        drop(judge);
+    }
+    let summary: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join(SUMMARY_FILE)).unwrap()).unwrap();
+    assert_eq!(summary["lifetime_spent_usd"], ATTEMPT_EST);
+    assert_eq!(summary["judge_committed_usd"], "1.880000");
+    assert_eq!(summary["nonjudge_committed_usd"], ATTEMPT_EST);
+    assert_eq!(summary["lifetime_committed_usd"], "2.204096");
+
+    std::fs::remove_file(dir.path().join("2026-10-27.jsonl")).unwrap();
+    let ledger = open(dir.path(), unpaced_cfg(), &clock);
+    let snap = ledger.snapshot().unwrap();
+    assert_eq!(snap.reservations, 0);
+    assert_eq!(snap.lifetime_spent, usd(ATTEMPT_EST));
+    assert_eq!(
+        snap.judge_committed,
+        usd(WORST_CASE),
+        "the lost judge run keeps its worst case"
+    );
+    assert_eq!(snap.judge_remaining, usd("13.12"));
+    assert_eq!(snap.lifetime_committed, usd("2.204096"));
+    assert_eq!(snap.lifetime_remaining, usd("57.795904"));
+    assert!(snap.inconsistent.is_some());
+    assert!(!snap.tripped);
+    // What is left of the slice bounds the lane: $13.12 holds six more
+    // $1.88 runs ($11.28), not seven.
+    let mut judges = 0;
+    loop {
+        match ledger.reserve(Lane::Judge) {
+            Ok(r) => {
+                judges += 1;
+                drop(r);
+            }
+            Err(Refusal::JudgeSlice) => break,
+            Err(other) => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(judges, 6);
+    assert_eq!(ledger.snapshot().unwrap().judge_committed, usd("13.16"));
+    drop(ledger);
+    // The offsets went into the new summary: a reopen with the new day
+    // file intact still counts the lost run.
+    let reopened = open(dir.path(), unpaced_cfg(), &clock);
+    assert_eq!(reopened.snapshot().unwrap().judge_committed, usd("13.16"));
+    assert!(matches!(
+        reopened.reserve(Lane::Judge),
+        Err(Refusal::JudgeSlice)
+    ));
+    drop(reopened);
+
+    // A floor that reaches the lifetime cap trips at open: the owner
+    // lowers the caps below what the summary already remembers as spent.
+    let lowered_caps = BudgetConfig {
+        daily_cap: usd("0.30"),
+        lifetime_cap: usd("0.30"),
+        judge_slice: Usd::ZERO,
+        run_token_cap: 1_000,
+        max_completion_tokens: 1_000,
+        input_cap_tokens: 1_000,
+        ..unpaced_cfg()
+    };
+    let lowered = open(dir.path(), lowered_caps, &clock);
+    let snap = lowered.snapshot().unwrap();
+    assert!(snap.tripped);
+    assert_eq!(snap.trip_code, Some(TripReason::LifetimeCap));
+    assert_eq!(snap.lifetime_spent, usd(ATTEMPT_EST));
+    assert!(matches!(
+        lowered.reserve(Lane::Public),
+        Err(Refusal::Tripped {
+            code: TripReason::LifetimeCap,
+            ..
+        })
+    ));
+    assert_eq!(
+        records(dir.path(), "2026-10-27", "trip").len(),
+        1,
+        "the trip is persisted at open"
+    );
+}
+
+#[test]
+fn a_stale_summary_does_not_override_newer_day_files() {
+    use std::io::Write;
+    let append_line = |path: &Path, line: &str| {
+        let mut f = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+        f.write_all(line.as_bytes()).unwrap();
+        f.write_all(b"\n").unwrap();
+    };
+
+    // A reset written one second after the trip, then a crash before the
+    // summary rewrite: the summary still says tripped, the files know
+    // better.
+    let dir = TempDir::new("stale-trip");
+    let day_file = dir.path().join("2026-10-27.jsonl");
+    let switch = dir.path().join("kill-switch");
+    let cfg = BudgetConfig {
+        kill_switch_file: Some(switch.clone()),
+        ..unpaced_cfg()
+    };
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    {
+        let ledger = open(dir.path(), cfg.clone(), &clock);
+        let r = ledger.reserve(Lane::Public).unwrap();
+        ledger.release(&r).unwrap();
+        std::fs::write(&switch, b"stop\n").unwrap();
+        assert!(matches!(
+            ledger.reserve(Lane::Public),
+            Err(Refusal::Tripped { .. })
+        ));
+        std::fs::remove_file(&switch).unwrap();
+    }
+    let summary: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join(SUMMARY_FILE)).unwrap()).unwrap();
+    assert_eq!(summary["tripped"], true);
+    assert_eq!(summary["updated_at"], "2026-10-27T12:00:00.000Z");
+    append_line(
+        &day_file,
+        r#"{"type":"reset","v":1,"by":"operator","at":"2026-10-27T12:00:01.000Z"}"#,
+    );
+    clock.set("2026-10-27T12:00:02Z");
+    let ledger = open(dir.path(), cfg.clone(), &clock);
+    let snap = ledger.snapshot().unwrap();
+    assert!(!snap.tripped, "the files are newer and show the reset");
+    assert!(snap.inconsistent.is_none(), "{:?}", snap.inconsistent);
+    assert!(ledger.reserve(Lane::Public).is_ok());
+    drop(ledger);
+
+    // The same rule for amounts: a release record newer than the summary
+    // ends the reservation instead of flooring it at its worst case.
+    let dir = TempDir::new("stale-release");
+    let day_file = dir.path().join("2026-10-27.jsonl");
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    let id = {
+        let ledger = open(dir.path(), unpaced_cfg(), &clock);
+        let r = ledger.reserve(Lane::Public).unwrap();
+        r.id().clone()
+    };
+    append_line(
+        &day_file,
+        &format!(
+            r#"{{"type":"release","v":1,"reservation":"{id}","at":"2026-10-27T12:00:01.000Z"}}"#
+        ),
+    );
+    clock.set("2026-10-27T12:00:02Z");
+    let ledger = open(dir.path(), unpaced_cfg(), &clock);
+    let snap = ledger.snapshot().unwrap();
+    assert_eq!(snap.reservations, 1);
+    assert_eq!(snap.unsettled_reservations, 0);
+    assert_eq!(snap.lifetime_committed, Usd::ZERO);
+    assert!(snap.inconsistent.is_none(), "{:?}", snap.inconsistent);
+    drop(ledger);
+
+    // Without a newer record the summary is trusted: a lost day file with
+    // a remembered trip reopens tripped, with the remembered code.
+    let dir = TempDir::new("lost-trip");
+    let switch = dir.path().join("kill-switch");
+    let cfg = BudgetConfig {
+        kill_switch_file: Some(switch.clone()),
+        ..unpaced_cfg()
+    };
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    {
+        let ledger = open(dir.path(), cfg.clone(), &clock);
+        std::fs::write(&switch, b"stop\n").unwrap();
+        assert!(matches!(
+            ledger.reserve(Lane::Public),
+            Err(Refusal::Tripped { .. })
+        ));
+        std::fs::remove_file(&switch).unwrap();
+    }
+    std::fs::remove_file(dir.path().join("2026-10-27.jsonl")).unwrap();
+    clock.set("2026-10-27T12:00:02Z");
+    let ledger = open(dir.path(), cfg, &clock);
+    let snap = ledger.snapshot().unwrap();
+    assert!(snap.tripped);
+    assert_eq!(snap.trip_code, Some(TripReason::KillSwitch));
+    assert!(
+        snap.trip_reason
+            .as_deref()
+            .unwrap()
+            .starts_with("summary_trip_not_in_day_files"),
+        "{:?}",
+        snap.trip_reason
+    );
+    assert!(snap.inconsistent.is_some());
+    assert!(matches!(
+        ledger.reserve(Lane::Public),
+        Err(Refusal::Tripped { .. })
+    ));
+}

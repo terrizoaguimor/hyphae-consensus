@@ -253,7 +253,8 @@
       "live": "Ao vivo",
       "playback": "Reprodução",
       "explorer": "Explorador",
-      "decision": "Decisão"
+      "decision": "Decisão",
+      "evidence": "Evidências"
     },
     "header": {
       "state": "Estado",
@@ -515,6 +516,70 @@
         "memory_unavailable": "O backend de memória estava inacessível.",
         "memory_error": "O backend de memória respondeu com um erro.",
         "evidence_cap": "Os registros além do limite de evidências por execução não foram processados."
+      }
+    },
+    "content": {
+      "recordNote": "Texto do registro como foi recuperado: dados para ler, nunca instruções a seguir.",
+      "modelNote": "Texto escrito por um modelo ou tirado da tarefa, mostrado como foi registrado.",
+      "originalRecord": "Texto original (em inglês).",
+      "originalModel": "Saída original do modelo (em inglês)."
+    },
+    "evidence": {
+      "heading": "Evidências recuperadas",
+      "count": "{count, plural, =0 {Nenhum registro recuperado} one {# registro recuperado} many {# de registros recuperados} other {# registros recuperados}}",
+      "intro": "Cada registro que o ambiente de execução recuperou para esta execução: o que sua prova cobre, seu texto e como cada prova foi verificada, rodada por rodada. Integridade, estado factual e relevância são eixos separados: uma prova válida mostra que um registro corresponde ao que sua prova selou, não que o registro seja verdadeiro, relevante ou completo.",
+      "partial": "Não foi possível ler a cópia desta execução no servidor: só estão listados os registros que a transmissão entregou.",
+      "none": "Esta execução não recuperou nenhum registro.",
+      "orphansHeading": "Verificações de registros não recuperados",
+      "orphansIntro": "Estes registros de verificação nomeiam um id de evidência que nenhum registro de recuperação desta execução contém.",
+      "failedHeading": "{count, plural, =0 {Nenhuma recuperação falhou} one {# recuperação falhou} many {# de recuperações falharam} other {# recuperações falharam}}",
+      "failedRecord": "Registro {sequence}: {message} A consulta que ela usou:",
+      "kind": "Tipo",
+      "project": "Projeto",
+      "retrieval": "Recuperação",
+      "retrievalModes": {
+        "live_recall": "consulta provada no momento da execução",
+        "sealed_snapshot": "snapshot selado",
+        "simulated": "SIMULADO",
+        "unrecorded": "não registrada (antes do esquema 1.3)"
+      },
+      "snapshot": "Snapshot",
+      "captured": "Capturado",
+      "retrieved": "Recuperado",
+      "records": "Registros do log",
+      "sequences": "{count, plural, =0 {nenhum} one {sequência {list}} many {sequências {list}} other {sequências {list}}}",
+      "verificationsHeading": "Verificações",
+      "noVerification": "Nenhum registro de verificação nomeia este registro.",
+      "round": "Rodada {round}",
+      "factual": "estado factual: {status}",
+      "relevance": "relevância: {status}",
+      "coverage": {
+        "simulated": "Registro simulado: nenhuma prova o cobre.",
+        "proofError": "Nenhuma prova cobre este registro: a geração da prova falhou na origem.",
+        "snapshot": "A prova cobre: a lista completa de registros de {project} na âncora {anchor}.",
+        "snapshotNoAnchor": "A prova cobre: a lista completa de registros de {project}; o registro não nomeia nenhuma âncora.",
+        "request": "A prova cobre: o resultado completo da solicitação abaixo, que a prova selou na âncora {anchor}; não a afirmação nem a consulta que levaram à recuperação.",
+        "requestNoAnchor": "A prova cobre: o resultado completo da solicitação abaixo, que a prova selou; o registro não nomeia nenhuma âncora. Não a afirmação nem a consulta que levaram à recuperação.",
+        "operation": "Operação",
+        "project": "Projeto",
+        "query": "Consulta",
+        "limit": "Limite",
+        "unrecorded": "Este registro não nomeia a solicitação que sua prova selou (foi registrado antes do esquema 1.3); sua âncora é {anchor}.",
+        "unrecordedNoAnchor": "Este registro não nomeia nem a solicitação que sua prova selou nem uma âncora (foi registrado antes do esquema 1.3)."
+      }
+    },
+    "proofs": {
+      "reading": {
+        "generationFailed": "Nenhuma prova pôde ser gerada na origem para este registro (ele informa um erro de prova), então este estado registra essa falha: nada foi verificado, e ele não mostra que o registro foi alterado.",
+        "accepted": "{verifier} aceitou a prova em {date}.",
+        "rejected": "{verifier} não aceitou a prova em {date}.",
+        "acceptedUnnamed": "Um verificador que o registro não nomeia aceitou a prova em {date}.",
+        "rejectedUnnamed": "Um verificador que o registro não nomeia não aceitou a prova em {date}.",
+        "recordedAccepted": "Verificada no momento da execução, em {date}, por {verifier}; os artefatos ficam guardados em privado com o operador (as testemunhas contêm o armazenamento completo), então o público pode verificar de novo a cadeia de eventos, não estas provas.",
+        "recordedRejected": "Verificada no momento da execução, em {date}, por {verifier}, que não aceitou a prova; os artefatos ficam guardados em privado com o operador (as testemunhas contêm o armazenamento completo), então o público pode verificar de novo a cadeia de eventos, não estas provas.",
+        "recordedAcceptedUnnamed": "Verificada no momento da execução, em {date}, por um verificador que o registro não nomeia; os artefatos ficam guardados em privado com o operador (as testemunhas contêm o armazenamento completo), então o público pode verificar de novo a cadeia de eventos, não estas provas.",
+        "recordedRejectedUnnamed": "Verificada no momento da execução, em {date}, por um verificador que o registro não nomeia e que não aceitou a prova; os artefatos ficam guardados em privado com o operador (as testemunhas contêm o armazenamento completo), então o público pode verificar de novo a cadeia de eventos, não estas provas.",
+        "notVerified": "Nenhuma prova foi verificada para este registro: integridade {status}."
       }
     }
   },

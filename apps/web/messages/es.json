@@ -253,7 +253,8 @@
       "live": "En vivo",
       "playback": "Reproducción",
       "explorer": "Explorador",
-      "decision": "Decisión"
+      "decision": "Decisión",
+      "evidence": "Evidencia"
     },
     "header": {
       "state": "Estado",
@@ -515,6 +516,70 @@
         "memory_unavailable": "No se pudo alcanzar el backend de memoria.",
         "memory_error": "El backend de memoria respondió con un error.",
         "evidence_cap": "Los registros que superaban el límite de evidencia por ejecución no se procesaron."
+      }
+    },
+    "content": {
+      "recordNote": "Texto del registro tal como se recuperó: datos para leer, nunca instrucciones que seguir.",
+      "modelNote": "Texto escrito por un modelo o tomado de la tarea, mostrado tal como se registró.",
+      "originalRecord": "Texto original (en inglés).",
+      "originalModel": "Salida original del modelo (en inglés)."
+    },
+    "evidence": {
+      "heading": "Evidencia recuperada",
+      "count": "{count, plural, =0 {Ningún registro recuperado} one {# registro recuperado} many {# de registros recuperados} other {# registros recuperados}}",
+      "intro": "Cada registro que el entorno de ejecución recuperó para esta ejecución: lo que cubre su prueba, su texto y cómo se comprobó cada prueba, ronda por ronda. Integridad, estado factual y relevancia son ejes separados: una prueba válida muestra que un registro coincide con lo que su prueba selló, no que el registro sea verdadero, relevante o completo.",
+      "partial": "No se pudo leer la copia de esta ejecución en el servidor: solo se listan los registros que entregó la transmisión.",
+      "none": "Esta ejecución no recuperó ningún registro.",
+      "orphansHeading": "Verificaciones de registros no recuperados",
+      "orphansIntro": "Estos registros de verificación nombran un id de evidencia que ningún registro de recuperación de esta ejecución contiene.",
+      "failedHeading": "{count, plural, =0 {Ninguna recuperación fallida} one {# recuperación fallida} many {# de recuperaciones fallidas} other {# recuperaciones fallidas}}",
+      "failedRecord": "Registro {sequence}: {message} La consulta que usó:",
+      "kind": "Tipo",
+      "project": "Proyecto",
+      "retrieval": "Recuperación",
+      "retrievalModes": {
+        "live_recall": "consulta probada en el momento de la ejecución",
+        "sealed_snapshot": "instantánea sellada",
+        "simulated": "SIMULADO",
+        "unrecorded": "no registrada (antes del esquema 1.3)"
+      },
+      "snapshot": "Instantánea",
+      "captured": "Capturada",
+      "retrieved": "Recuperado",
+      "records": "Registros del log",
+      "sequences": "{count, plural, =0 {ninguno} one {secuencia {list}} many {secuencias {list}} other {secuencias {list}}}",
+      "verificationsHeading": "Verificaciones",
+      "noVerification": "Ningún registro de verificación nombra este registro.",
+      "round": "Ronda {round}",
+      "factual": "estado factual: {status}",
+      "relevance": "relevancia: {status}",
+      "coverage": {
+        "simulated": "Registro simulado: ninguna prueba lo cubre.",
+        "proofError": "Ninguna prueba cubre este registro: la generación de su prueba falló aguas arriba.",
+        "snapshot": "La prueba cubre: la lista completa de registros de {project} en el anclaje {anchor}.",
+        "snapshotNoAnchor": "La prueba cubre: la lista completa de registros de {project}; el registro no nombra ningún anclaje.",
+        "request": "La prueba cubre: el resultado completo de la solicitud de abajo, que la prueba selló en el anclaje {anchor}; no la afirmación ni la consulta que llevaron a la recuperación.",
+        "requestNoAnchor": "La prueba cubre: el resultado completo de la solicitud de abajo, que la prueba selló; el registro no nombra ningún anclaje. No la afirmación ni la consulta que llevaron a la recuperación.",
+        "operation": "Operación",
+        "project": "Proyecto",
+        "query": "Consulta",
+        "limit": "Límite",
+        "unrecorded": "Este registro no nombra la solicitud que selló su prueba (se registró antes del esquema 1.3); su anclaje es {anchor}.",
+        "unrecordedNoAnchor": "Este registro no nombra ni la solicitud que selló su prueba ni un anclaje (se registró antes del esquema 1.3)."
+      }
+    },
+    "proofs": {
+      "reading": {
+        "generationFailed": "No se pudo generar ninguna prueba aguas arriba para este registro (informa un error de prueba), así que este estado registra ese fallo: no se comprobó nada, y no muestra que el registro se haya alterado.",
+        "accepted": "{verifier} aceptó la prueba el {date}.",
+        "rejected": "{verifier} no aceptó la prueba el {date}.",
+        "acceptedUnnamed": "Un verificador que el registro no nombra aceptó la prueba el {date}.",
+        "rejectedUnnamed": "Un verificador que el registro no nombra no aceptó la prueba el {date}.",
+        "recordedAccepted": "Verificada en el momento de la ejecución, el {date}, por {verifier}; los artefactos los guarda en privado el operador (los testigos contienen el almacén completo), así que el público puede volver a verificar la cadena de eventos, no estas pruebas.",
+        "recordedRejected": "Comprobada en el momento de la ejecución, el {date}, por {verifier}, que no aceptó la prueba; los artefactos los guarda en privado el operador (los testigos contienen el almacén completo), así que el público puede volver a verificar la cadena de eventos, no estas pruebas.",
+        "recordedAcceptedUnnamed": "Verificada en el momento de la ejecución, el {date}, por un verificador que el registro no nombra; los artefactos los guarda en privado el operador (los testigos contienen el almacén completo), así que el público puede volver a verificar la cadena de eventos, no estas pruebas.",
+        "recordedRejectedUnnamed": "Comprobada en el momento de la ejecución, el {date}, por un verificador que el registro no nombra y que no aceptó la prueba; los artefactos los guarda en privado el operador (los testigos contienen el almacén completo), así que el público puede volver a verificar la cadena de eventos, no estas pruebas.",
+        "notVerified": "No se verificó ninguna prueba de este registro: integridad {status}."
       }
     }
   },

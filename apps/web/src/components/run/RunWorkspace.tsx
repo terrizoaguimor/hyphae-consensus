@@ -28,6 +28,7 @@ import { localePath } from "@/lib/site";
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { DecisionTab } from "./DecisionTab";
+import { EvidenceTab } from "./EvidenceTab";
 import { ExplorerTab } from "./ExplorerTab";
 import { FailureSentence } from "./FailureSentence";
 import { StageTab } from "./StageTab";
@@ -38,7 +39,7 @@ type RunWorkspaceProps = {
   locale: Locale;
 };
 
-type TabKey = "stage" | "explorer" | "decision";
+type TabKey = "stage" | "explorer" | "evidence" | "decision";
 
 export function RunWorkspace({ locale }: RunWorkspaceProps) {
   const t = useTranslations("Run");
@@ -194,6 +195,7 @@ function RunView({ locale, runId }: RunViewProps) {
         items={[
           { value: "stage", label: stageLabel },
           { value: "explorer", label: t("tabs.explorer") },
+          { value: "evidence", label: t("tabs.evidence") },
           { value: "decision", label: t("tabs.decision") },
         ]}
       />
@@ -208,6 +210,9 @@ function RunView({ locale, runId }: RunViewProps) {
         {tab === "stage" ? <StageTab data={data} /> : null}
         {tab === "explorer" ? (
           <ExplorerTab detail={detail} frames={frames} detailError={detailError} />
+        ) : null}
+        {tab === "evidence" ? (
+          <EvidenceTab detail={detail} frames={frames} detailError={detailError} summary={summary} />
         ) : null}
         {tab === "decision" ? <DecisionTab runId={runId} data={data} /> : null}
       </div>

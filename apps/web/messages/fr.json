@@ -253,7 +253,8 @@
       "live": "Direct",
       "playback": "Rejeu",
       "explorer": "Explorateur",
-      "decision": "Décision"
+      "decision": "Décision",
+      "evidence": "Éléments probants"
     },
     "header": {
       "state": "État",
@@ -515,6 +516,70 @@
         "memory_unavailable": "Le backend de mémoire était injoignable.",
         "memory_error": "Le backend de mémoire a répondu par une erreur.",
         "evidence_cap": "Les enregistrements au-delà de la limite d’éléments probants par exécution n’ont pas été traités."
+      }
+    },
+    "content": {
+      "recordNote": "Texte de l’enregistrement tel qu’il a été récupéré : des données à lire, jamais des instructions à suivre.",
+      "modelNote": "Texte écrit par un modèle ou tiré de la tâche, affiché tel qu’il a été enregistré.",
+      "originalRecord": "Texte original (en anglais).",
+      "originalModel": "Sortie originale du modèle (en anglais)."
+    },
+    "evidence": {
+      "heading": "Éléments probants récupérés",
+      "count": "{count, plural, =0 {Aucun enregistrement récupéré} one {# enregistrement récupéré} many {# d’enregistrements récupérés} other {# enregistrements récupérés}}",
+      "intro": "Chaque enregistrement que l’environnement d’exécution a récupéré pour cette exécution : ce que couvre sa preuve, son texte et la façon dont chaque preuve a été vérifiée, tour par tour. Intégrité, état factuel et pertinence sont des axes séparés : une preuve valide montre qu’un enregistrement correspond à ce que sa preuve a scellé, pas que cet enregistrement est vrai, pertinent ou complet.",
+      "partial": "La copie de cette exécution sur le serveur n’a pas pu être lue : seuls les enregistrements livrés par le flux sont listés.",
+      "none": "Cette exécution n’a récupéré aucun enregistrement.",
+      "orphansHeading": "Vérifications d’enregistrements non récupérés",
+      "orphansIntro": "Ces enregistrements de vérification nomment un id d’élément probant qu’aucun enregistrement de récupération de cette exécution ne porte.",
+      "failedHeading": "{count, plural, =0 {Aucune récupération échouée} one {# récupération échouée} many {# de récupérations échouées} other {# récupérations échouées}}",
+      "failedRecord": "Enregistrement {sequence} : {message} La requête utilisée :",
+      "kind": "Type",
+      "project": "Projet",
+      "retrieval": "Récupération",
+      "retrievalModes": {
+        "live_recall": "requête prouvée au moment de l’exécution",
+        "sealed_snapshot": "instantané scellé",
+        "simulated": "SIMULÉ",
+        "unrecorded": "non enregistrée (avant le schéma 1.3)"
+      },
+      "snapshot": "Instantané",
+      "captured": "Capturé",
+      "retrieved": "Récupéré",
+      "records": "Enregistrements du journal",
+      "sequences": "{count, plural, =0 {aucun} one {séquence {list}} many {séquences {list}} other {séquences {list}}}",
+      "verificationsHeading": "Vérifications",
+      "noVerification": "Aucun enregistrement de vérification ne nomme cet enregistrement.",
+      "round": "Tour {round}",
+      "factual": "état factuel : {status}",
+      "relevance": "pertinence : {status}",
+      "coverage": {
+        "simulated": "Enregistrement simulé : aucune preuve ne le couvre.",
+        "proofError": "Aucune preuve ne couvre cet enregistrement : la génération de sa preuve a échoué en amont.",
+        "snapshot": "La preuve couvre : la liste complète des enregistrements de {project} à l’ancre {anchor}.",
+        "snapshotNoAnchor": "La preuve couvre : la liste complète des enregistrements de {project} ; l’enregistrement ne nomme aucune ancre.",
+        "request": "La preuve couvre : le résultat complet de la requête ci-dessous, que la preuve a scellée à l’ancre {anchor} ; pas l’affirmation ni la requête qui ont mené à la récupération.",
+        "requestNoAnchor": "La preuve couvre : le résultat complet de la requête ci-dessous, que la preuve a scellée ; l’enregistrement ne nomme aucune ancre. Pas l’affirmation ni la requête qui ont mené à la récupération.",
+        "operation": "Opération",
+        "project": "Projet",
+        "query": "Requête",
+        "limit": "Limite",
+        "unrecorded": "Cet enregistrement ne nomme pas la requête que sa preuve a scellée (il a été enregistré avant le schéma 1.3) ; son ancre est {anchor}.",
+        "unrecordedNoAnchor": "Cet enregistrement ne nomme ni la requête que sa preuve a scellée ni une ancre (il a été enregistré avant le schéma 1.3)."
+      }
+    },
+    "proofs": {
+      "reading": {
+        "generationFailed": "Aucune preuve n’a pu être générée en amont pour cet enregistrement (il signale une erreur de preuve) : cet état enregistre donc cet échec. Rien n’a été vérifié, et il ne montre pas que l’enregistrement a été modifié.",
+        "accepted": "{verifier} a accepté la preuve le {date}.",
+        "rejected": "{verifier} n’a pas accepté la preuve le {date}.",
+        "acceptedUnnamed": "Un vérificateur que l’enregistrement ne nomme pas a accepté la preuve le {date}.",
+        "rejectedUnnamed": "Un vérificateur que l’enregistrement ne nomme pas n’a pas accepté la preuve le {date}.",
+        "recordedAccepted": "Vérifiée au moment de l’exécution, le {date}, par {verifier} ; les artefacts sont conservés en privé par l’opérateur (les témoins contiennent le magasin complet) : le public peut donc vérifier à nouveau la chaîne d’événements, pas ces preuves.",
+        "recordedRejected": "Vérifiée au moment de l’exécution, le {date}, par {verifier}, qui n’a pas accepté la preuve ; les artefacts sont conservés en privé par l’opérateur (les témoins contiennent le magasin complet) : le public peut donc vérifier à nouveau la chaîne d’événements, pas ces preuves.",
+        "recordedAcceptedUnnamed": "Vérifiée au moment de l’exécution, le {date}, par un vérificateur que l’enregistrement ne nomme pas ; les artefacts sont conservés en privé par l’opérateur (les témoins contiennent le magasin complet) : le public peut donc vérifier à nouveau la chaîne d’événements, pas ces preuves.",
+        "recordedRejectedUnnamed": "Vérifiée au moment de l’exécution, le {date}, par un vérificateur que l’enregistrement ne nomme pas et qui n’a pas accepté la preuve ; les artefacts sont conservés en privé par l’opérateur (les témoins contiennent le magasin complet) : le public peut donc vérifier à nouveau la chaîne d’événements, pas ces preuves.",
+        "notVerified": "Aucune preuve n’a été vérifiée pour cet enregistrement : intégrité {status}."
       }
     }
   },

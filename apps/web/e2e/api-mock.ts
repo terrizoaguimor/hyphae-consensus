@@ -109,6 +109,56 @@ export function liveModelDetail(flags: string[] = []): Json {
   return detail;
 }
 
+/** Test values of a sealed-snapshot capture (ADR-0008), in the record format. */
+export const SNAPSHOT_ANCHOR = "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168";
+
+/**
+ * The live-model run with sealed-snapshot evidence: every retrieved record
+ * carries the snapshot's id, capture time and the proof's own request (the
+ * complete record list of demo-repo), and every verification is a real
+ * verifier's (not simulated), with its report. Built from the retry fixture.
+ */
+export function sealedSnapshotDetail(): Json {
+  const detail = liveModelDetail();
+  for (const event of detail.events as Json[]) {
+    const payload = event.payload as Json;
+    if (payload.type === "evidence_retrieved") {
+      const evidence = payload.evidence as Json;
+      evidence.retrieval = "sealed_snapshot";
+      evidence.anchor = SNAPSHOT_ANCHOR;
+      evidence.snapshot_id = "snapshot-fixture-1";
+      evidence.captured_at = "2026-10-26T08:00:00Z";
+      evidence.proof_ref = "list-demo-repo";
+      evidence.proof_request = { operation: "list", project: "demo-repo", limit: 64 };
+    }
+    if (payload.type === "evidence_verified") {
+      const verification = payload.verification as Json;
+      verification.simulated = false;
+      verification.verifier = "hyphae proof verify";
+      verification.verified_anchor = SNAPSHOT_ANCHOR;
+      verification.proof_ref = "list-demo-repo";
+      verification.report = {
+        status: "verified",
+        scope: "semantic_reexecution",
+        kind: "memory",
+        anchor_digest: SNAPSHOT_ANCHOR,
+        proof_digest: "ab".repeat(32),
+        result_digest: "cd".repeat(32),
+      };
+      // A real verifier's raw output stays on the operator surface.
+      delete verification.detail;
+    }
+  }
+  for (const round of detail.rounds as Json[]) {
+    round.verifications = (detail.events as Json[])
+      .map((e) => e.payload as Json)
+      .filter((p) => p.type === "evidence_verified")
+      .map((p) => p.verification as Json)
+      .filter((v) => v.round === round.round);
+  }
+  return detail;
+}
+
 /** The frames fixture with every summary's provenance replaced and a delivery set. */
 export function framesWith(provenance: Json, delivery: "live" | "replay"): Json[] {
   return clone(fixture<Json[]>("sse-frames-retry.json")).map((frame) => {

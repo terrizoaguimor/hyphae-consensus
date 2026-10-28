@@ -234,8 +234,9 @@ pub fn capture_entry(spec: &Spec, dir: &Path) -> Value {
         .map(|m| m["id"].clone())
         .collect();
     let id = spec.id;
-    let proof = std::fs::read(dir.join("captures").join(format!("{id}.proof"))).unwrap();
-    let witness = std::fs::read(dir.join("captures").join(format!("{id}.witness"))).unwrap();
+    let digest = |suffix: &str| {
+        sha256_hex(&std::fs::read(dir.join("captures").join(format!("{id}{suffix}"))).unwrap())
+    };
     json!({
         "id": id,
         "operation": spec.operation,
@@ -245,8 +246,10 @@ pub fn capture_entry(spec: &Spec, dir: &Path) -> Value {
         "witness_file": format!("captures/{id}.witness"),
         "verify_file": format!("captures/{id}.verify.json"),
         "proof_blake3": spec.proof_blake3,
-        "proof_sha256": sha256_hex(&proof),
-        "witness_sha256": sha256_hex(&witness),
+        "proof_sha256": digest(".proof"),
+        "witness_sha256": digest(".witness"),
+        "response_sha256": digest(".response.json"),
+        "verify_sha256": digest(".verify.json"),
         "memory_ids": memory_ids,
         "verification": {"verified_at": VERIFIED_AT, "status": "verified", "kind": "memory",
                          "scope": "semantic_reexecution", "anchor_hex": ANCHOR}
@@ -344,17 +347,40 @@ pub fn swap_list_with_isolation(dir: &Path) {
 }
 
 /// The snapshot configuration for `dir` with the fixture anchor pinned and
-/// `binary` as the verifier (no mapped verifier directory).
+/// `binary` as the verifier (no mapped verifier directory, no digest pin).
 pub fn config(dir: &Path, binary: &str) -> SnapshotConfig {
+    pinned_config(dir, binary, None, None)
+}
+
+/// [`config`] with the digest pins: `manifest` as
+/// `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`, `binary_sha256` as
+/// `CONSENSUS_HYPHAE_BIN_SHA256` (then `binary` must be an absolute path).
+pub fn pinned_config(
+    dir: &Path,
+    binary: &str,
+    manifest: Option<&str>,
+    binary_sha256: Option<&str>,
+) -> SnapshotConfig {
     let vars = [
-        ("CONSENSUS_SNAPSHOT_DIR", dir.to_string_lossy().into_owned()),
-        ("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", ANCHOR.to_string()),
-        ("CONSENSUS_HYPHAE_BIN", binary.to_string()),
+        (
+            "CONSENSUS_SNAPSHOT_DIR",
+            Some(dir.to_string_lossy().into_owned()),
+        ),
+        ("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", Some(ANCHOR.to_string())),
+        ("CONSENSUS_HYPHAE_BIN", Some(binary.to_string())),
+        (
+            "CONSENSUS_SNAPSHOT_MANIFEST_SHA256",
+            manifest.map(str::to_string),
+        ),
+        (
+            "CONSENSUS_HYPHAE_BIN_SHA256",
+            binary_sha256.map(str::to_string),
+        ),
     ];
     SnapshotConfig::from_vars(|name| {
         vars.iter()
             .find(|(k, _)| *k == name)
-            .map(|(_, v)| v.clone())
+            .and_then(|(_, v)| v.clone())
     })
     .unwrap()
     .expect("a snapshot config")
@@ -365,15 +391,20 @@ pub fn verify_report(id: &str) -> String {
     fixture(&format!("{id}.verify.json"))
 }
 
-/// Rewrites the manifest's `proof_sha256` and `witness_sha256` from the
-/// files on disk, as a capture script computing them after a copy step
-/// would, then `SHA256SUMS`.
+/// Rewrites every capture file digest of the manifest (`response_sha256`,
+/// `proof_sha256`, `witness_sha256`, `verify_sha256`) from the files on
+/// disk, as a capture script computing them after a copy step would (or a
+/// consistent rewrite of the whole directory), then `SHA256SUMS`: only
+/// what binds the manifest itself (its pin) and the checks beyond the
+/// digests can still tell.
 pub fn recompute_digests(dir: &Path) {
     edit_manifest(dir, |m| {
         for capture in m["captures"].as_array_mut().unwrap() {
             for (field, file) in [
+                ("response_sha256", "response_file"),
                 ("proof_sha256", "proof_file"),
                 ("witness_sha256", "witness_file"),
+                ("verify_sha256", "verify_file"),
             ] {
                 let relative = capture[file].as_str().unwrap().to_string();
                 let bytes = std::fs::read(dir.join(relative)).unwrap();
@@ -395,6 +426,36 @@ pub fn edit_manifest(dir: &Path, edit: impl FnOnce(&mut Value)) {
     let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     edit(&mut manifest);
     std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+}
+
+/// The SHA-256 of the snapshot's `manifest.json` as it is now (the value
+/// `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` pins).
+pub fn manifest_sha256(dir: &Path) -> String {
+    sha256_hex(&std::fs::read(dir.join("manifest.json")).unwrap())
+}
+
+/// Records the file `binary` as the Hyphae build the snapshot was captured
+/// with: its real SHA-256 goes into the manifest's `hyphae.binary_sha256`
+/// (what a capture with that binary records), then `SHA256SUMS` is
+/// rewritten. Returns the digest, the value `CONSENSUS_HYPHAE_BIN_SHA256`
+/// pins, so a test can boot the fake binary through the pinned path.
+pub fn record_capture_binary(dir: &Path, binary: &str) -> String {
+    let digest = sha256_hex(&std::fs::read(binary).unwrap());
+    edit_manifest(dir, |m| m["hyphae"]["binary_sha256"] = json!(digest));
+    write_checksums(dir);
+    digest
+}
+
+/// Replaces a record's text in a capture's response file (the attack R6
+/// names: the proofs untouched, only the text a model reads changed);
+/// nothing else is rewritten.
+pub fn edit_record_text(dir: &Path, capture_id: &str, index: usize, text: &str) {
+    let path = dir
+        .join("captures")
+        .join(format!("{capture_id}.response.json"));
+    let mut response: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    response["memories"][index]["text"] = json!(text);
+    std::fs::write(&path, serde_json::to_string_pretty(&response).unwrap()).unwrap();
 }
 
 /// A fake `hyphae` binary under `root`: appends its arguments to the
@@ -460,6 +521,59 @@ pub fn fake_hyphae(root: &Path) -> (String, PathBuf) {
                 "done".into(),
                 format!("id=$(sed -n 's/^{PROOF_PREFIX}\\(.*\\)$/\\1/p' \"$proof\")"),
                 format!("cat \"{}/$id.verify.json\"", reports.display()),
+                String::new(),
+            ]
+            .join("\n"),
+        )
+    };
+    let path = root.join(name);
+    std::fs::write(&path, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    (path.to_string_lossy().into_owned(), log)
+}
+
+/// A stand-in for a REPLACED `CONSENSUS_HYPHAE_BIN` (review R6): it
+/// verifies nothing and prints the capture-time report stored next to the
+/// proof it is given (`captures/<id>.verify.json` for
+/// `captures/<id>.proof`), so every check it answers reproduces the
+/// digests the boot check expects, whatever the proof's bytes. Logs its
+/// invocations like [`fake_hyphae`]. Returns its path and the log file.
+pub fn report_printing_wrapper(root: &Path) -> (String, PathBuf) {
+    let log = root.join("wrapper-calls.log");
+    let (name, script) = if cfg!(windows) {
+        (
+            "lying-wrapper.cmd",
+            [
+                "@echo off".to_string(),
+                format!(">>\"{}\" echo %*", log.display()),
+                "set \"proof=\"".into(),
+                ":loop".into(),
+                "if \"%~1\"==\"\" goto done".into(),
+                "if \"%~1\"==\"--proof\" set \"proof=%~2\"".into(),
+                "shift".into(),
+                "goto loop".into(),
+                ":done".into(),
+                "type \"%proof:.proof=.verify.json%\"".into(),
+                String::new(),
+            ]
+            .join("\r\n"),
+        )
+    } else {
+        (
+            "lying-wrapper",
+            [
+                "#!/bin/sh".to_string(),
+                format!("printf '%s\\n' \"$*\" >> \"{}\"", log.display()),
+                "proof=".into(),
+                "while [ $# -gt 0 ]; do".into(),
+                "  if [ \"$1\" = \"--proof\" ]; then proof=$2; fi".into(),
+                "  shift".into(),
+                "done".into(),
+                "cat \"${proof%.proof}.verify.json\"".into(),
                 String::new(),
             ]
             .join("\n"),

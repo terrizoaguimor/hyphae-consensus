@@ -361,13 +361,21 @@ sudo tar -xzf /tmp/hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz -C /opt/hyphae
 sudo chown -R hyphae:hyphae /opt/hyphae
 sudo chmod 0755 /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae
 sudo ln -sfn /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae /opt/hyphae/bin/hyphae
-sha256sum /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae    # record: published out of band (ADR-0008 decision 2)
+sha256sum /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae    # record: CONSENSUS_HYPHAE_BIN_SHA256 (4.1), published out of band (ADR-0008 decision 2)
 sudo -u consensus /opt/hyphae/bin/hyphae --version
 rm /tmp/hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz
 ```
 
-The recorded digest of the extracted binary goes into the README and the submitted
-tag together with the snapshot anchor (ADR-0008 decision 2).
+The recorded digest of the extracted binary is the verifier pin,
+`CONSENSUS_HYPHAE_BIN_SHA256` (section 4.1). At boot `serve-public` hashes the file
+`CONSENSUS_HYPHAE_BIN` names (`/opt/hyphae/bin/hyphae`; the symbolic link is followed, as
+`exec` follows it, so the digest is the extracted binary's) before any verifier run, and
+refuses another file with `verifier_binary_mismatch` (section 8.6). The same digest must equal
+the snapshot manifest's `hyphae.binary_sha256`, the binary that produced and verified the
+captures (`capture_binary_mismatch` otherwise): compare them once the snapshot is on the
+server (section 3.3). The README and the release tag publish it together with the snapshot
+anchor and the manifest digest (ADR-0008 decision 2). The binary is hashed at boot only:
+after replacing it, restart the service.
 
 ### 3.3 Web export, research archive, sealed snapshot
 
@@ -437,6 +445,8 @@ scp -r <snapshot-id> <server>:/tmp/
 # server
 sudo mv /tmp/<snapshot-id> /var/lib/consensus/snapshots/<snapshot-id>
 ( cd /var/lib/consensus/snapshots/<snapshot-id> && sudo sha256sum -c --quiet SHA256SUMS ) && echo "snapshot verified"
+sudo sha256sum /var/lib/consensus/snapshots/<snapshot-id>/manifest.json            # must print the published manifest digest: CONSENSUS_SNAPSHOT_MANIFEST_SHA256
+sudo grep -o '"binary_sha256": "[0-9a-f]*"' /var/lib/consensus/snapshots/<snapshot-id>/manifest.json   # must be the binary digest of 3.2: CONSENSUS_HYPHAE_BIN_SHA256
 sudo chown -R consensus:consensus /var/lib/consensus/snapshots
 sudo find /var/lib/consensus/snapshots -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
 sudo chmod 0700 /var/lib/consensus/snapshots                      # nobody but the service user enters the tree
@@ -446,9 +456,20 @@ sudo -u cloudflared ls /var/lib/consensus/snapshots 2>&1 | grep -q 'Permission d
 
 The anchor for `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` is the shared anchor recorded in
 the snapshot's `manifest.json` (64 hex digits; `config.rs` normalises case and
-whitespace and refuses anything else). Both that line and `CONSENSUS_SNAPSHOT_DIR` are
-commented out in the `public.env` template until the snapshot is on the server;
-uncomment them now (with live mode still off they are only noticed, never read).
+whitespace and refuses anything else). The value of `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`
+is the SHA-256 of that `manifest.json`: the digest recorded on the owner machine after
+the last `snapshot_manifest.py build` (`docs/architecture/sealed-snapshot.md` section 3,
+step 5), equal to the `manifest.json` line of `SHA256SUMS` and to the digest the README
+and the release tag publish; the `sha256sum` line above must print it. Take the value
+from the publication, never from the copy in doubt: with it pinned, a `manifest.json` with
+any other digest does not load (`manifest_pin_mismatch`, section 8.6), and since the
+manifest holds the digest of every capture file, neither does a copy with one byte of a
+record text changed, whatever `SHA256SUMS` says. `CONSENSUS_HYPHAE_BIN_SHA256` is the
+binary digest of section 3.2, which the `grep` line above must show. Those four lines
+(`CONSENSUS_SNAPSHOT_DIR`, `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`,
+`CONSENSUS_SNAPSHOT_MANIFEST_SHA256`, `CONSENSUS_HYPHAE_BIN_SHA256`) are commented out in
+the `public.env` template until the snapshot is on the server; uncomment and fill them
+now (with live mode still off they are only noticed, never read).
 
 ### 3.4 Users, directories, binary, units, templates: `install.sh`
 
@@ -496,9 +517,11 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_WEB_ROOT` | `/var/lib/consensus/web` | default is relative `apps/web/out`; the CSP manifest is found at `<web root>/csp-manifest.json` |
 | `CONSENSUS_PUBLIC_MODE` | `true` | refuses `CONSENSUS_META_DEBUG_DIR` and development-only behaviour (`config.rs`) |
 | `CONSENSUS_META_API_KEY_FILE` | `/run/credentials/consensus-public.service/meta.key` | parallel lane; the path systemd gives a `LoadCredential=meta.key:...` for this unit (`/run/credentials/UNITNAME`, `[SD-1]`) |
-| `CONSENSUS_HYPHAE_BIN` | `/opt/hyphae/bin/hyphae` | section 3.2 |
+| `CONSENSUS_HYPHAE_BIN` | `/opt/hyphae/bin/hyphae` | section 3.2; an absolute path, which it must be with `CONSENSUS_HYPHAE_BIN_SHA256` set (a relative path or a bare name then stops startup naming it) |
+| `CONSENSUS_HYPHAE_BIN_SHA256` | the extracted binary's sha256, 64 hex (section 3.2) | optional to the code, set in production; commented out in the template until the capture exists (section 3.3); must equal the manifest's `hyphae.binary_sha256`; at boot another file is `verifier_binary_mismatch` and a snapshot of another build `capture_binary_mismatch`, either leaving live mode unavailable (section 8.6); with live mode enabled a malformed value stops startup naming it |
 | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` | the snapshot's anchor, 64 hex | mandatory for every non-simulated mode (ADR-0008 decision 5); commented out in the template until the capture exists (section 3.3); with live mode enabled a missing or malformed value stops startup naming it |
 | `CONSENSUS_SNAPSHOT_DIR` | `/var/lib/consensus/snapshots/<snapshot-id>` | commented out in the template until the capture exists; read only with `CONSENSUS_LIVE_ENABLED=true` (with live mode off a set value earns one `[snapshot]` notice and nothing is loaded); unset with live mode on stops startup; a snapshot that does not boot leaves the portal up with live mode unavailable (section 8.6); `CONSENSUS_SNAPSHOT_VERIFIER_DIR` stays unset (native verifier, same paths) |
+| `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` | the published sha256 of the snapshot's `manifest.json`, 64 hex (section 3.3) | optional to the code, set in production; commented out in the template until the capture exists; a manifest with another digest does not load (`manifest_pin_mismatch`, live mode unavailable, section 8.6); with live mode enabled a malformed value stops startup naming it |
 | `CONSENSUS_LIVE_ENABLED` | `false` until section 8.7, then `true` | `live/config.rs` |
 | `CONSENSUS_LIVE_LEDGER_DIR` | `/var/lib/consensus/ledger/staging` during staging; `/var/lib/consensus/ledger/public` from go-live | required when enabled; one directory per phase, so production starts at zero (section 4.5) |
 | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | `/etc/consensus/judge-codes.sha256`, set only once the file has at least one digest | an empty digest file is a configuration error (`live/judge.rs`) |
@@ -1317,9 +1340,16 @@ sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 
 ```
 
 **What a good boot shows.** With live mode enabled, the journal has `Sealed snapshot evidence:
-<snapshot-id> (project demo-repo, 7 records, anchor <12 hex>…, captured <time>, proofs
-re-verified at boot <time>)` and `Public live mode: enabled on the owner's key (...)`, no
-`[snapshot]` line, and `/api/v1/ready` answers `"ready":true` with `"evidence_ok":true`. With
+<snapshot-id> (project demo-repo, 7 records, anchor <12 hex>…, manifest sha256 pinned <12
+hex>…, verifier binary sha256 pinned <12 hex>…, captured <time>, proofs re-verified at boot
+<time>)` and `Public live mode: enabled on the owner's key (...)`, no `[snapshot]` line, and
+`/api/v1/ready` answers `"ready":true` with `"evidence_ok":true`. The two pinned prefixes must
+be those of the published manifest and binary digests (sections 3.2, 3.3); the line shows
+prefixes only, never a whole digest or a path. `manifest not pinned
+(CONSENSUS_SNAPSHOT_MANIFEST_SHA256 unset)` or `verifier binary not pinned
+(CONSENSUS_HYPHAE_BIN_SHA256 unset)` in its place means that pin is missing from
+`public.env`: live mode runs, but nothing at runtime ties the directory or the binary to the
+published digests; set it before go-live. With
 live mode disabled there is no snapshot line at all, or, when `CONSENSUS_SNAPSHOT_DIR` is set
 anyway, the one notice `[snapshot] CONSENSUS_SNAPSHOT_DIR is set, but public live mode is
 disabled (CONSENSUS_LIVE_ENABLED): the snapshot is not loaded or verified`.
@@ -1341,21 +1371,28 @@ to fix, then `sudo systemctl restart consensus-public`:
 | Code | Meaning | Remedy |
 |---|---|---|
 | `snapshot_dir_missing` | `CONSENSUS_SNAPSHOT_DIR` names no directory (not copied yet) | copy the snapshot (section 3.3) |
-| `checksums_invalid`, `checksums_incomplete`, `checksums_mismatch`, `digest_mismatch`, `file_unreadable`, `file_too_large`, `symlink_refused`, `layout_too_deep` | the directory is not the captured one byte for byte | re-copy it and run `sha256sum -c SHA256SUMS` in it (section 3.3) |
+| `checksums_invalid`, `checksums_incomplete`, `checksums_mismatch`, `digest_mismatch`, `file_unreadable`, `file_too_large`, `symlink_refused`, `layout_too_deep` | the directory is not the captured one byte for byte (`digest_mismatch` while `sha256sum -c SHA256SUMS` passes: a capture file, a record text say, was changed and the listing regenerated over it) | re-copy it from the owner machine and run `sha256sum -c SHA256SUMS` in it (section 3.3) |
+| `manifest_pin_mismatch` | the SHA-256 of `manifest.json` is not `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`: this is not the published snapshot, or the pin is wrong | re-copy the published snapshot (section 3.3), or correct the pin to the digest the README and the release tag publish; never pin a digest computed from the copy in doubt |
 | `pinned_anchor_mismatch` | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` is not the manifest's `anchor_hex` | set the anchor published with the snapshot |
+| `verifier_binary_mismatch` | the file `CONSENSUS_HYPHAE_BIN` names is missing, unreadable, not a regular file, or does not hash to `CONSENSUS_HYPHAE_BIN_SHA256` (nothing ran it) | reinstall the release binary (section 3.2) and compare its `sha256sum` with the pin |
+| `capture_binary_mismatch` | the pinned binary is not the build the snapshot was captured with (`manifest.hyphae.binary_sha256`) | install the capture's build (section 3.2), or deploy a snapshot captured with the installed one |
 | `project_mismatch` | the snapshot serves another project than the presets' `demo-repo` | deploy the `demo-repo` snapshot |
 | `boot_verification_failed` | `hyphae proof verify` refused a served capture, or its digests are not the capture-time ones | run `sandbox-probe.sh` (above) on the deployed directory; a sandbox error is a unit change under gate G9 |
 | any other `manifest_*`, `capture_*`, `response_invalid`, `memory_ids_mismatch`, `foreign_record`, `store_mismatch`, `verify_record_invalid`, `proof_shared` | the manifest or a capture is not the documented one | re-copy the snapshot; `python -I scripts/snapshot_manifest.py check <dir>` on the owner machine names the file |
 
-The same state follows any change to the served files after boot (a proof, witness or
-`manifest.json` deleted, truncated or replaced): the next status read (`/ready`,
+The same state follows any change to the served files after boot (a response, proof,
+witness, capture-time report or `manifest.json` deleted, truncated or replaced; an edited
+record text included): the next status read (`/ready`,
 `/capabilities` or an admission; the routes reuse a read for at most two seconds, an
 admission always re-hashes) logs `[snapshot] live evidence unavailable: <code>` and turns
 live mode unavailable, and the first read after the files are the verified ones again logs
 `[snapshot] live evidence ok again`, without a restart. A run whose files are swapped
-under it records its proofs `invalid` and is blocked. A configuration
-error (live mode enabled with `CONSENSUS_SNAPSHOT_DIR` unset, or a missing or malformed
-`CONSENSUS_HYPHAE_EXPECTED_ANCHOR`) still stops startup with `error: <VARIABLE>: ...`
+under it records its proofs `invalid` and is blocked. The verifier binary is not re-hashed
+after boot: replacing it takes a restart to be checked. A configuration
+error (live mode enabled with `CONSENSUS_SNAPSHOT_DIR` unset, a missing or malformed
+`CONSENSUS_HYPHAE_EXPECTED_ANCHOR`, a `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` or
+`CONSENSUS_HYPHAE_BIN_SHA256` that is not 64 hex digits, a relative `CONSENSUS_HYPHAE_BIN`
+with the binary pinned) still stops startup with `error: <VARIABLE>: ...`
 (`journalctl -u consensus-public -n 50`).
 
 **Why the probe exists.** Guided runs never call Hyphae (`guided.rs` uses
@@ -1387,8 +1424,9 @@ set on a transient unit; none of the unit's is expected to be one.
 `/api/v1/ready` reports the run store (index head, tampering, tail repair), the
 showcase status, active and queued runs and `shutting_down` (`api/v1.rs` `ready`), and,
 with live mode enabled, `live.ledger_ok`, `live.tripped` and `live.evidence_ok`: the
-boot check of ADR-0008 decision 1 (kind, scope, anchor, binding) and the files still
-being the verified ones. It carries the boolean only; the reason code is in the journal
+boot check of ADR-0008 decision 1 (kind, scope, anchor, binding, the digest pins) and the
+files still being the verified ones. It carries the boolean only (a pin that does not hold
+reads `"evidence_ok":false` like any other boot failure); the reason code is in the journal
 (`[snapshot] ...`, above). `/api/v1/health` is static facts only: version, schema,
 policy, `contract_sha256`, `executor: disabled` (`api/types.rs`).
 

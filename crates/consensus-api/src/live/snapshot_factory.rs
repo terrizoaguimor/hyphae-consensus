@@ -9,23 +9,31 @@
 //! snapshot is never loaded or verified, and a set `CONSENSUS_SNAPSHOT_DIR`
 //! earns one notice ([`UNUSED_NOTICE`]). With live mode enabled:
 //! - a configuration error (`CONSENSUS_SNAPSHOT_DIR` unset, a missing or
-//!   malformed `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`, an unusable verifier
+//!   malformed `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`, a digest pin
+//!   `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` or `CONSENSUS_HYPHAE_BIN_SHA256`
+//!   that is not 64 hex digits, a `CONSENSUS_HYPHAE_BIN` that is not an
+//!   absolute path while the binary is pinned, an unusable verifier
 //!   setting) stops startup naming its variable (the unset directory in
 //!   [`crate::server::build_live_gate`]);
-//! - a snapshot that does not load, verify, or serve the presets' project
-//!   (`snapshot_dir_missing`, `checksums_mismatch`, `digest_mismatch`,
-//!   `pinned_anchor_mismatch`, `boot_verification_failed`,
-//!   `project_mismatch`, ...) does not stop the portal: live mode runs on
+//! - a snapshot that does not load, verify, match its pins or serve the
+//!   presets' project (`snapshot_dir_missing`, `checksums_mismatch`,
+//!   `digest_mismatch`, `manifest_pin_mismatch`, `pinned_anchor_mismatch`,
+//!   `verifier_binary_mismatch`, `capture_binary_mismatch`,
+//!   `boot_verification_failed`, `project_mismatch`, ...) does not stop
+//!   the portal: live mode runs on
 //!   [`UnavailableEvidence`], whose status carries the code and which
 //!   builds nothing, so guided mode, the showcase and the static site
 //!   serve while every live admission is `503 live_unavailable`, `/ready`
 //!   reports `live.evidence_ok: false` and `/capabilities` reports
 //!   `live_enabled: false` (ADR-0008 decision 1: the mode is disabled and
 //!   says why);
-//! - a snapshot that boots is loaded, checked and verified with `hyphae
-//!   proof verify` ([`SnapshotMemoryClient::from_snapshot`]) before the
-//!   server listens, and one line without a path is printed
-//!   ([`SnapshotFactory::startup_line`]).
+//! - a snapshot that boots is loaded (its manifest compared with the pin
+//!   first, when set), its verifier binary checked against its pin
+//!   ([`snapshot::check_verifier_binary`], when set), and verified with
+//!   `hyphae proof verify` ([`SnapshotMemoryClient::from_snapshot`]) before
+//!   the server listens, and one line without a path is printed
+//!   ([`SnapshotFactory::startup_line`]): it says whether the manifest and
+//!   the verifier binary are pinned, with a digest prefix only.
 //!
 //! **Admissions and runs.** Every admission re-checks the served files in
 //! full ([`SnapshotMemoryClient::check_artifacts`]) and refuses with a
@@ -60,7 +68,7 @@
 use super::gate::{DeliberationFactory, FactoryError, FactoryStatus, SNAPSHOT_DIR_VAR};
 use super::presets::PRESET_PROJECT;
 use crate::api::READY_CACHE_TTL;
-use crate::config::SnapshotConfig;
+use crate::config::{SnapshotConfig, HYPHAE_BIN_SHA256_VAR, MANIFEST_SHA256_VAR};
 use crate::hyphae::{HyphaeProofVerifier, SystemCommandRunner};
 use crate::meta::MetaModelClient;
 use crate::runs::Deliberation;
@@ -107,7 +115,8 @@ pub const OK_AGAIN_LINE: &str = "[snapshot] live evidence ok again";
 /// while live mode is disabled: nothing is loaded or verified then.
 pub const UNUSED_NOTICE: &str = "[snapshot] CONSENSUS_SNAPSHOT_DIR is set, but public live mode is disabled (CONSENSUS_LIVE_ENABLED): the snapshot is not loaded or verified";
 
-/// How many hex digits of the anchor the startup line shows.
+/// How many hex digits of the anchor, and of a pinned digest, the startup
+/// line shows.
 const ANCHOR_PREFIX_LEN: usize = 12;
 
 /// The sealed snapshot as the public live gate's evidence factory: one
@@ -207,9 +216,12 @@ impl SnapshotFactory {
         }
     }
 
-    /// Loads the configured snapshot, refuses one that serves a project
-    /// other than the presets' (`project_mismatch`, before any verifier
-    /// run), and boot-verifies it with `verifier`
+    /// Loads the configured snapshot (`manifest_pin_mismatch` when its
+    /// manifest is not the pinned one), refuses one that serves a project
+    /// other than the presets' (`project_mismatch`) and a verifier binary
+    /// that is not the pinned build of the capture
+    /// (`verifier_binary_mismatch`, `capture_binary_mismatch`), all before
+    /// any verifier run, and boot-verifies it with `verifier`
     /// ([`SnapshotMemoryClient::from_snapshot`]); the factory then builds
     /// every run over a fresh verifier of its own.
     pub fn open<V: ProofVerifier + ?Sized>(
@@ -227,6 +239,7 @@ impl SnapshotFactory {
                 ),
             ));
         }
+        snapshot::check_verifier_binary(&cfg, &snapshot.manifest)?;
         let client = SnapshotMemoryClient::from_snapshot(snapshot, &cfg.expected_anchor, verifier)?;
         Ok(Self {
             client,
@@ -264,13 +277,34 @@ impl SnapshotFactory {
     }
 
     /// The one line logged at startup: id, project, record count, anchor
-    /// prefix and verification time. No path.
+    /// prefix, whether the manifest and the verifier binary are pinned (the
+    /// pinned digest's prefix, or `not pinned` with the variable that would
+    /// pin it), capture and verification times. No path.
     pub fn startup_line(&self) -> String {
         let s = self.snapshot_status();
-        let prefix: String = s.anchor_hex.chars().take(ANCHOR_PREFIX_LEN).collect();
+        let prefix = |digest: &str| -> String { digest.chars().take(ANCHOR_PREFIX_LEN).collect() };
+        let pin = |what: &str, digest: Option<&String>, var: &str| match digest {
+            Some(digest) => format!("{what} sha256 pinned {}…", prefix(digest)),
+            None => format!("{what} not pinned ({var} unset)"),
+        };
         format!(
-            "Sealed snapshot evidence: {} (project {}, {} records, anchor {prefix}…, captured {}, proofs re-verified at boot {})",
-            s.snapshot_id, s.project, s.record_count, s.captured_at, s.verified_at
+            "Sealed snapshot evidence: {} (project {}, {} records, anchor {}…, {}, {}, captured {}, proofs re-verified at boot {})",
+            s.snapshot_id,
+            s.project,
+            s.record_count,
+            prefix(&s.anchor_hex),
+            pin(
+                "manifest",
+                self.cfg.manifest_sha256.as_ref(),
+                MANIFEST_SHA256_VAR
+            ),
+            pin(
+                "verifier binary",
+                self.cfg.binary_sha256.as_ref(),
+                HYPHAE_BIN_SHA256_VAR
+            ),
+            s.captured_at,
+            s.verified_at
         )
     }
 

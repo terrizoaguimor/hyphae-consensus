@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 pub mod doubles;
+pub mod live;
 
 use axum::body::{Body, Bytes};
 use axum::extract::ConnectInfo;
@@ -115,6 +116,9 @@ pub struct TestServer {
     pub host: &'static str,
     pub origin: &'static str,
     pub token: Option<&'static str>,
+    /// Other temporary directories that must outlive the server (a live
+    /// harness's ledger).
+    pub extra_dirs: Vec<TempDir>,
 }
 
 fn env_lookup(map: HashMap<String, String>) -> impl Fn(&str) -> Option<String> {
@@ -155,6 +159,7 @@ pub fn public_server(overrides: &[(&str, &str)], opts: BuildOptions) -> TestServ
         host: PUBLIC_HOST,
         origin: PUBLIC_ORIGIN,
         token: None,
+        extra_dirs: Vec::new(),
     }
 }
 
@@ -187,6 +192,7 @@ pub fn operator_server(overrides: &[(&str, &str)], opts: BuildOptions) -> TestSe
         host: OPERATOR_HOST,
         origin: OPERATOR_ORIGIN,
         token: Some(OPERATOR_TOKEN),
+        extra_dirs: Vec::new(),
     }
 }
 

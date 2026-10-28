@@ -70,8 +70,9 @@ pub struct CreateGuidedRunRequest {
 }
 
 /// Identifier of a curated live preset: 1 to 40 characters of
-/// `[a-z0-9-]`. A key into a closed server-side set, never text a model
-/// sees.
+/// `[A-Za-z0-9-]`, the shape of the battery tags the presets are named
+/// after (`R01-reference`). A key into a closed server-side set, matched
+/// exactly by the gate; never text a model sees.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema)]
 #[serde(transparent)]
 pub struct PresetId(String);
@@ -83,9 +84,9 @@ impl PresetId {
         }
         if !value
             .bytes()
-            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-'))
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         {
-            return Err("preset_id may only contain a-z, 0-9 and -");
+            return Err("preset_id may only contain A-Z, a-z, 0-9 and -");
         }
         Ok(Self(value.to_string()))
     }
@@ -1121,6 +1122,14 @@ mod tests {
         assert!(
             serde_json::from_str::<CreateLiveRunRequest>(r#"{"preset_id":"retry-cap-3"}"#).is_ok()
         );
+        // Every curated preset id (a battery tag with an uppercase letter)
+        // is a valid request id; a space, a slash or a dot is not.
+        for id in crate::live::presets::PresetId::ALL {
+            assert!(PresetId::parse(id.as_str()).is_ok(), "{id}");
+        }
+        for bad in ["R01 reference", "R01/reference", "r01.ref", ""] {
+            assert!(PresetId::parse(bad).is_err(), "{bad:?}");
+        }
         // The attestation defaults to false (refused later by the gate), a
         // judge code is bounded and trimmed, and no other field is read.
         let bare: CreateLiveRunRequest =

@@ -35,14 +35,17 @@
 //!
 //! How the pieces are wired (implemented; see each item's code):
 //! - Check order per ABUSE-9 ([`gate::LiveGate`]): the route's
-//!   owner-scoped idempotency lookup first, then the preset, geo
-//!   ([`geo::GeoPolicy::decide`] with [`geo::Surface::Live`]), the 18+
-//!   and territory acknowledgment, the evidence source's status (`503
-//!   live_unavailable` while it is not ok, before any token is spent),
-//!   Turnstile, the lane, then [`budget::Ledger::reserve`], and only then
-//!   the model client, the deliberation (whose factory re-checks the
-//!   evidence in full) and `create_task`. Nothing is spent before the
-//!   reservation exists.
+//!   owner-scoped idempotency lookup first, then the gate's first phase
+//!   (the preset, geo ([`geo::GeoPolicy::decide`] with
+//!   [`geo::Surface::Live`]), the 18+ and territory acknowledgment, the
+//!   evidence source's status (`503 live_unavailable` while it is not ok,
+//!   before any token is spent), Turnstile, the lane), then the route's live
+//!   slot, then the second phase: the lane's daily quota (per client key on
+//!   the public lane, per code on the judge lane), [`budget::Ledger::reserve`],
+//!   and only then the model client, the deliberation (whose factory
+//!   re-checks the evidence in full) and `create_task`. Nothing is spent
+//!   before the reservation exists, and no request waiting on Siteverify
+//!   holds the slot.
 //! - The `idempotency_key` given to [`turnstile::Siteverify::verify`] is a
 //!   fresh UUID on every call, never the request's `Idempotency-Key`:
 //!   Cloudflare's idempotency is global and immediate, the route's replay
@@ -87,17 +90,26 @@
 //!   strings as [`budget::Refusal::code`]) and
 //!   [`budget::TripReason::as_str`], with fixed sentences.
 //! - [`budget::BudgetConfig::max_concurrent`] slots are per process, and
-//!   the run manager's live semaphore bounds the deliberations; a
-//!   server-side limit keyed by client (/64) is still a follow-up.
+//!   the run manager's live semaphore bounds the deliberations. Fairness
+//!   between visitors is the gate's per-client daily quota
+//!   (`CONSENSUS_LIVE_CLIENT_DAILY` public-lane admissions per IPv4 /32 or
+//!   IPv6 /64 per UTC day, `429 live_client_quota`), process-local: a
+//!   restart forgets it.
 //! - The ledger and the HTTP Siteverify client block on I/O: the gate runs
 //!   the whole admission on a blocking task with owned data.
-//! - The judge lane is entered only after [`judge::JudgeCodes::verify`]
-//!   accepted the presented code; an unknown code falls back to the
-//!   public lane, it never errors in a way that reveals whether codes
-//!   exist. Judge reservations are bounded by the judge slice and by
-//!   `CONSENSUS_LIVE_JUDGE_DAILY_USD` (default: the slice), so one day's
-//!   exposure on the key is `daily + judge daily`; the owner can lower the
-//!   judge daily cap without touching the public lane.
+//! - The judge lane is entered only after [`judge::JudgeCodes::lookup`]
+//!   recognized the presented code; an unknown code falls back to the
+//!   public lane without an error of its own. The lane stays observable
+//!   (its refusal codes, its own hourly window and slot, and
+//!   `/capabilities`' public `daily_remaining`, which leaves judge
+//!   reservations out), so a prober who solves one Turnstile challenge per
+//!   guess can tell a valid code: codes are long and random
+//!   (`deploy/scripts/judge-codes.sh`). Judge reservations are bounded by
+//!   the judge slice, by `CONSENSUS_LIVE_JUDGE_DAILY_USD` (default: the
+//!   slice), so one day's exposure on the key is `daily + judge daily`, and
+//!   per code by `CONSENSUS_LIVE_JUDGE_CODE_DAILY` admissions per UTC day
+//!   (refused as the judge daily budget is), which is what a leaked code
+//!   can start in a day.
 //! - [`budget::Ledger::reset`], [`budget::Ledger::release_by_id`] and
 //!   [`budget::Ledger::snapshot`] are operator-only and are not reachable
 //!   from the public listener.

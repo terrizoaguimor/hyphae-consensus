@@ -14,7 +14,7 @@ use super::{public_server, TestServer};
 use chrono::Utc;
 use consensus_api::config::{MetaConfig, SnapshotConfig};
 use consensus_api::hyphae::SystemCommandRunner;
-use consensus_api::live::budget::{Ledger, LedgerOptions};
+use consensus_api::live::budget::{Ledger, LedgerClock, LedgerOptions};
 use consensus_api::live::config::{vars, Exposure, LiveConfig};
 use consensus_api::live::gate::{
     DeliberationFactory, FactoryError, FactoryStatus, GateParts, LiveGate as BudgetedGate,
@@ -23,7 +23,7 @@ use consensus_api::live::judge::JudgeCodes;
 use consensus_api::live::snapshot_factory::{LogSink, SnapshotFactory};
 use consensus_api::live::turnstile::{
     passing_answer, FakeSiteverify, Siteverify, SiteverifyResponse, TurnstileError,
-    TurnstileVerifier,
+    TurnstileVerifier, Verified, SITEVERIFY_TIMEOUT,
 };
 use consensus_api::meta::MetaModelClient;
 use consensus_api::runs::Deliberation;
@@ -45,6 +45,8 @@ pub const TURNSTILE_HOST: &str = "demo.example.org";
 pub const TURNSTILE_ACTION: &str = "live-run";
 /// A judge code whose digest the harness writes to the codes file.
 pub const JUDGE_CODE: &str = "judge-alpha-7231";
+/// A second judge code in the same file (the per-code limit is per code).
+pub const SECOND_JUDGE_CODE: &str = "judge-bravo-9900";
 /// The live output bound the harness configures: distinct from the Meta
 /// default (16,000), so a request proves the live value was sent.
 pub const LIVE_MAX_COMPLETION_TOKENS: u64 = 12_000;
@@ -191,18 +193,101 @@ pub fn scripted_siteverify(
     (Arc::new(verifier), fake)
 }
 
+/// The token prefix [`HeldSiteverify`] holds.
+pub const HELD_TOKEN_PREFIX: &str = "held-";
+
+/// A Siteverify whose calls for tokens starting with [`HELD_TOKEN_PREFIX`]
+/// wait until the test releases them (Siteverify answering slowly, at most
+/// [`consensus_api::live::turnstile::SITEVERIFY_TIMEOUT`]) and are then
+/// refused, as a bogus token is; every other token passes at once.
+pub struct HeldSiteverify {
+    state: Mutex<HeldState>,
+    changed: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct HeldState {
+    waiting: usize,
+    released: bool,
+    tokens: Vec<String>,
+}
+
+impl HeldSiteverify {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            state: Mutex::new(HeldState::default()),
+            changed: std::sync::Condvar::new(),
+        })
+    }
+
+    /// Calls waiting now.
+    pub fn held(&self) -> usize {
+        self.state.lock().unwrap().waiting
+    }
+
+    /// Lets every held call (and every later one) answer.
+    pub fn release(&self) {
+        self.state.lock().unwrap().released = true;
+        self.changed.notify_all();
+    }
+
+    /// Every token presented so far, in order.
+    pub fn tokens(&self) -> Vec<String> {
+        self.state.lock().unwrap().tokens.clone()
+    }
+}
+
+impl Siteverify for HeldSiteverify {
+    fn verify(
+        &self,
+        token: &str,
+        _remote_ip: Option<std::net::IpAddr>,
+        _idempotency_key: &str,
+    ) -> Result<Verified, TurnstileError> {
+        let mut state = self.state.lock().unwrap();
+        state.tokens.push(token.to_string());
+        if !token.starts_with(HELD_TOKEN_PREFIX) {
+            return Ok(Verified {
+                action: TURNSTILE_ACTION.into(),
+                hostname: TURNSTILE_HOST.into(),
+                challenge_ts: Utc::now(),
+                cdata: None,
+            });
+        }
+        state.waiting += 1;
+        let deadline = std::time::Instant::now() + SITEVERIFY_TIMEOUT;
+        while !state.released {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            state = self.changed.wait_timeout(state, left).unwrap().0;
+        }
+        state.waiting -= 1;
+        Err(TurnstileError::Failed {
+            error_codes: vec!["invalid-input-response".into()],
+        })
+    }
+}
+
 /// The live configuration the harness loads: the owner's prices and caps
-/// with pacing and slots out of the way (ten ledger slots, a hundred
-/// admissions an hour, the whole day available at once), a 12k output
-/// bound, the ledger and judge codes under `dir`. Live mode itself stays
-/// `false` here: the gate needs no Turnstile secret when the test gives
-/// it a verifier, and the server's enabling path is tested separately.
+/// with pacing, slots and the daily quotas out of the way (ten ledger
+/// slots, a hundred admissions an hour, the whole day available at once, a
+/// hundred admissions a day per client key and per judge code; the quota
+/// tests set their own), a 12k output bound, the ledger and judge codes
+/// under `dir`. Live mode itself stays `false` here: the gate needs no
+/// Turnstile secret when the test gives it a verifier, and the server's
+/// enabling path is tested separately.
 pub fn live_config(dir: &Path, overrides: &[(&'static str, &str)]) -> LiveConfig {
     let ledger_dir = dir.join("ledger");
     let codes = dir.join("judge-codes.txt");
     std::fs::write(
         &codes,
-        format!("# judges\n{}\n", JudgeCodes::digest_hex(JUDGE_CODE)),
+        format!(
+            "# judges\n{}\n{}\n",
+            JudgeCodes::digest_hex(JUDGE_CODE),
+            JudgeCodes::digest_hex(SECOND_JUDGE_CODE)
+        ),
     )
     .unwrap();
     let mut env: BTreeMap<&'static str, String> = BTreeMap::new();
@@ -211,6 +296,8 @@ pub fn live_config(dir: &Path, overrides: &[(&'static str, &str)]) -> LiveConfig
     env.insert(vars::MAX_CONCURRENT, "10".into());
     env.insert(vars::HOURLY_ADMISSIONS, "100".into());
     env.insert(vars::BURST_FRACTION, "1".into());
+    env.insert(vars::CLIENT_DAILY, "100".into());
+    env.insert(vars::JUDGE_CODE_DAILY, "100".into());
     env.insert(
         vars::MAX_COMPLETION_TOKENS,
         LIVE_MAX_COMPLETION_TOKENS.to_string(),
@@ -236,6 +323,12 @@ pub struct LiveOptions {
     /// gate see a change to the files at once (production:
     /// `READY_CACHE_TTL`).
     pub snapshot_status_ttl: Duration,
+    /// The gate's Siteverify instead of the scripted one (which then only
+    /// records nothing): a test that needs to hold calls open.
+    pub siteverify: Option<Arc<dyn Siteverify>>,
+    /// The ledger's clock (and so the day the daily quotas count in);
+    /// the system clock by default.
+    pub ledger_clock: Option<LedgerClock>,
 }
 
 impl Default for LiveOptions {
@@ -246,6 +339,8 @@ impl Default for LiveOptions {
             server_env: Vec::new(),
             trust_proxy: true,
             snapshot_status_ttl: Duration::ZERO,
+            siteverify: None,
+            ledger_clock: None,
         }
     }
 }
@@ -312,6 +407,8 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
         server_env,
         trust_proxy,
         snapshot_status_ttl,
+        siteverify: custom_siteverify,
+        ledger_clock,
     } = opts;
     // The ledger and the codes file live next to the store, so they go
     // with the server's temporary directory.
@@ -323,7 +420,7 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
     let ledger = Ledger::open_with(
         &ledger_dir,
         config.budget.clone(),
-        Arc::new(Utc::now),
+        ledger_clock.unwrap_or_else(|| Arc::new(Utc::now)),
         LedgerOptions {
             lock_wait: Duration::from_secs(5),
             lock_poll: Duration::from_millis(5),
@@ -331,7 +428,8 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
     )
     .expect("ledger opens");
     let siteverify_mode = Arc::new(Mutex::new(SiteverifyMode::Pass));
-    let (verifier, siteverify) = scripted_siteverify(siteverify_mode.clone());
+    let (scripted, siteverify) = scripted_siteverify(siteverify_mode.clone());
+    let verifier = custom_siteverify.unwrap_or(scripted);
     let mut snapshot = None;
     let evidence_log: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = evidence_log.clone();

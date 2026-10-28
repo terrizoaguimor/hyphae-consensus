@@ -1713,6 +1713,12 @@ impl Ledger {
         &self.inner.cfg
     }
 
+    /// The ledger's clock: what its UTC day is, and so the day the live
+    /// gate's daily quotas count in.
+    pub fn now(&self) -> DateTime<Utc> {
+        self.inner.now()
+    }
+
     /// Runs `f` under the file lock and the state mutex, after reading what
     /// other handles appended. Lock order: file lock first, then the state
     /// mutex ([`Ledger::snapshot_cached`] takes them the other way round
@@ -2166,7 +2172,7 @@ impl Ledger {
 }
 
 /// Seconds until the next UTC day (at least one).
-fn until_midnight(now: DateTime<Utc>) -> Duration {
+pub fn until_midnight(now: DateTime<Utc>) -> Duration {
     let elapsed = u64::from(now.num_seconds_from_midnight());
     Duration::from_secs(SECONDS_PER_DAY.saturating_sub(elapsed).max(1))
 }

@@ -134,10 +134,11 @@ pub const COUNTRY_HEADER: &str = "cf-ipcountry";
 /// task. The session cookie and the other headers never reach the gate.
 pub struct LiveAdmissionRequest {
     pub preset: PresetId,
+    /// The client key (IPv4 /32, IPv6 /64) the gate's per-client daily
+    /// quota counts by.
     pub client: ClientKey,
-    /// The session's pseudonym (`visitor:<16 hex>`), for the ledger's
-    /// per-visitor budget and the `safety_identifier` sent to Meta; never
-    /// the session id or its owner hash.
+    /// The session's pseudonym (`visitor:<16 hex>`), the `safety_identifier`
+    /// sent to Meta; never the session id or its owner hash.
     pub session_pseudonym: String,
     /// The Turnstile response token, when the client sent one.
     pub turnstile_token: Option<String>,
@@ -158,16 +159,34 @@ pub struct LiveGrant {
     pub input: TaskInput,
     pub deliberation: Box<dyn Deliberation>,
     /// Called exactly once if the run cannot be started after this grant
-    /// (the store refused, the server is draining): the gate refunds
-    /// whatever it charged or consumed (a ledger debit, a Turnstile
-    /// token). Never called once the run's `TaskCreated` is durable, and
-    /// never called twice. Must not block the async worker; spawn if the
-    /// refund does I/O.
+    /// (the store refused, the server is draining): the gate gives back
+    /// what it charged (the ledger reservation, the per-client or per-code
+    /// daily count). Never called once the run's `TaskCreated` is durable,
+    /// and never called twice. Must not block the async worker; spawn if
+    /// the refund does I/O. The Turnstile token is not given back: it was
+    /// spent at Siteverify.
     pub on_start_failed: Option<Box<dyn FnOnce() + Send>>,
 }
 
-/// The future [`LiveGate::admit`] returns.
+/// The future [`LiveGate::verify`] returns.
+pub type VerifyFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Box<dyn VerifiedLiveRequest>, ApiError>> + Send + 'a>>;
+
+/// The future [`VerifiedLiveRequest::admit`] returns.
 pub type AdmitFuture<'a> = Pin<Box<dyn Future<Output = Result<LiveGrant, ApiError>> + Send + 'a>>;
+
+/// A live request the gate's first phase accepted ([`LiveGate::verify`]).
+/// It holds nothing: dropping it (the route found no free slot, the server
+/// started draining) undoes nothing, because nothing was charged; the
+/// Turnstile token it consumed stays spent.
+pub trait VerifiedLiveRequest: Send {
+    /// The second phase, called with the live deliberation slot held: the
+    /// daily quotas and the ledger reservation (the first thing that
+    /// commits money), then the metered model client and the deliberation.
+    /// An `Err` is answered as is; whatever it counted or reserved is given
+    /// back before it returns.
+    fn admit(self: Box<Self>) -> AdmitFuture<'static>;
+}
 
 /// Extension point for the public live mode (plan B9, ADR-0007):
 /// Turnstile, the USD ledger, presets and the geographic policy decide
@@ -188,19 +207,28 @@ pub type AdmitFuture<'a> = Pin<Box<dyn Future<Output = Result<LiveGrant, ApiErro
 ///    after the start, so it could not);
 /// 2. the request is admitted like every creation (session, rates, the
 ///    visitor-run ring, not shutting down);
-/// 3. a live deliberation slot is reserved ([`RunManager::reserve`]):
-///    `429 too_many_runs` or `503 shutting_down` happen *before* the gate
-///    is asked, so a refusal there charges nobody;
-/// 4. `admit` runs, asynchronously (Turnstile siteverify is an outbound
-///    call; nothing here blocks a worker). An `Err` is answered as is and
-///    releases the slot;
-/// 5. the run is started with the reserved slot. If that fails,
+/// 3. [`LiveGate::verify`] runs, asynchronously (Siteverify is an outbound
+///    call; nothing here blocks a worker): every check that holds nothing,
+///    Turnstile last. It runs *before* the live slot is taken, so requests
+///    waiting on Siteverify (bogus tokens from many prefixes included) never
+///    keep the slot from a visitor who solved a challenge. An `Err` is
+///    answered as is;
+/// 4. a live deliberation slot is reserved ([`RunManager::reserve`]):
+///    `429 too_many_runs` or `503 shutting_down` come after Turnstile passed
+///    (the token is spent: Siteverify accepts a token once) and before
+///    anything is charged;
+/// 5. [`VerifiedLiveRequest::admit`] runs with the slot held. An `Err` is
+///    answered as is and releases the slot;
+/// 6. the run is started with the reserved slot. If that fails,
 ///    [`LiveGrant::on_start_failed`] is called and the error answered.
 ///
-/// `admit` must be idempotent-safe against its own retries only: the
-/// route calls it once per request.
+/// Each phase must be idempotent-safe against its own retries only: the
+/// route calls each once per request.
 pub trait LiveGate: Send + Sync {
-    fn admit(&self, request: LiveAdmissionRequest) -> AdmitFuture<'_>;
+    /// The first phase: everything that holds nothing and charges nothing
+    /// (the production gate: preset, geography, attestation, evidence,
+    /// Turnstile, the lane).
+    fn verify(&self, request: LiveAdmissionRequest) -> VerifyFuture<'_>;
 
     /// Whether live mode can take runs at all right now. The production
     /// gate says no while its evidence source is not ok (the sealed

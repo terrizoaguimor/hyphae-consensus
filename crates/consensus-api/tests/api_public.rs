@@ -1299,7 +1299,7 @@ async fn public_ndjson_is_published_only_for_scripted_chains() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails() {
+async fn the_gate_verifies_before_the_slot_charges_after_it_and_refunds_a_failed_start() {
     let gate = TestGate::new(GateMode::Refuse);
     let server = public_server(
         &[("CONSENSUS_LIVE_CONCURRENCY", "1")],
@@ -1328,6 +1328,7 @@ async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails
     let (status, body, _) = server.json(submit(Some("tok-1"))).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     assert_eq!(body["code"], "too_many_runs");
+    assert_eq!(gate.verified(), 1);
     assert_eq!(gate.admitted(), 1);
     let (preset, pseudonym, token) = gate.last_request().unwrap();
     assert_eq!(preset, "retry-cap-3");
@@ -1337,15 +1338,18 @@ async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails
     let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
     assert_eq!(list["runs"].as_array().unwrap().len(), 0);
 
-    // The slot comes before the gate: with the one live slot taken, the
-    // request is refused without the gate being asked (nothing charged).
+    // The gate's first phase comes before the slot, its second after: with
+    // the one live slot taken, the request is verified (Turnstile is asked
+    // and its token spent), then refused for the slot, and the second
+    // phase, the one that charges, is never asked.
     gate.set_mode(GateMode::Grant);
     let reservation = server.state.manager.reserve(RunKind::Live).await.unwrap();
     assert_eq!(reservation.kind(), RunKind::Live);
     let (status, body, _) = server.json(submit(None)).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     assert_eq!(body["code"], "too_many_runs");
-    assert_eq!(gate.admitted(), 1, "the gate was not asked");
+    assert_eq!(gate.verified(), 2, "verified before the slot");
+    assert_eq!(gate.admitted(), 1, "nothing charged: refused for the slot");
     drop(reservation);
 
     // Granted, but the start fails: the grant is refunded and no run is
@@ -1353,6 +1357,7 @@ async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails
     gate.set_mode(GateMode::GrantFailingStart);
     let (status, body, _) = server.json(submit(None)).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert_eq!(gate.verified(), 3);
     assert_eq!(gate.admitted(), 2);
     assert_eq!(gate.refunded(), 1);
     let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
@@ -1394,6 +1399,7 @@ async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails
     let run_id = created["run"]["run_id"].as_str().unwrap().to_string();
     let detail = server.wait_resting(&cookie, &run_id).await;
     assert_eq!(detail["summary"]["recommendation"], "supported");
+    assert_eq!(gate.verified(), 4);
     assert_eq!(gate.admitted(), 3);
     assert_eq!(gate.refunded(), 1, "a started run is never refunded");
     let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;

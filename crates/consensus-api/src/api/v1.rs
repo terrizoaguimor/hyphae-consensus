@@ -441,12 +441,14 @@ fn turnstile_token(headers: &HeaderMap) -> Option<String> {
 }
 
 /// See [`super::LiveGate`] for the order of admission: body bounds and
-/// the idempotency lookup, creation admission, the live slot, the gate,
-/// then the start; a start failure after the grant calls the grant's
-/// refund. The gate sees the preset, the client key, the session
-/// pseudonym, the Turnstile token, the attestation, the (trimmed) judge
-/// code and, from a listener behind cloudflared, the `CF-IPCountry`
-/// value: nothing else of the request, the `Idempotency-Key` included.
+/// the idempotency lookup, creation admission, the gate's first phase
+/// (Turnstile last), the live slot, the gate's second phase (quotas and
+/// the ledger reservation), then the start; a start failure after the
+/// grant calls the grant's refund. The gate sees the preset, the client
+/// key, the session pseudonym, the Turnstile token, the attestation, the
+/// (trimmed) judge code and, from a listener behind cloudflared, the
+/// `CF-IPCountry` value: nothing else of the request, the
+/// `Idempotency-Key` included.
 pub async fn create_live_run(
     State(state): State<AppState>,
     client: Client,
@@ -471,14 +473,12 @@ pub async fn create_live_run(
         return Ok(replayed);
     }
     admit_creation(&state, &client).await?;
-    // The live slot before the gate: a refusal here charges nobody.
-    let reservation = state
-        .manager
-        .reserve(RunKind::Live)
-        .await
-        .map_err(start_error)?;
-    let grant = gate
-        .admit(LiveAdmissionRequest {
+    // The gate's first phase before the live slot: preset, geography,
+    // attestation, evidence and Turnstile hold nothing, so a request still
+    // waiting on Siteverify (a bogus token included) keeps the slot from
+    // nobody.
+    let verified = gate
+        .verify(LiveAdmissionRequest {
             preset: req.preset_id.clone(),
             client: client.0,
             session_pseudonym: identity.authorized_by.clone(),
@@ -488,6 +488,15 @@ pub async fn create_live_run(
             country: trusted_country(&state, &headers),
         })
         .await?;
+    // The live slot: a refusal here comes after Turnstile passed (the
+    // token is spent) and charges nothing.
+    let reservation = state
+        .manager
+        .reserve(RunKind::Live)
+        .await
+        .map_err(start_error)?;
+    // The second phase, with the slot held: quotas, then the ledger.
+    let grant = verified.admit().await?;
     let LiveGrant {
         mut input,
         deliberation,
@@ -508,7 +517,7 @@ pub async fn create_live_run(
         }
         Err(e) => {
             // Nothing durable describes the run: whatever the gate charged
-            // is given back.
+            // (the reservation, the daily count) is given back.
             if let Some(undo) = on_start_failed {
                 undo();
             }

@@ -95,8 +95,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use thiserror::Error;
 
-/// The variable the sealed-snapshot client (lane D2) is configured by.
-/// Named by the startup error until that client is wired in.
+/// The variable the sealed-snapshot client is configured by
+/// ([`crate::config::SnapshotConfig`],
+/// [`super::snapshot_factory::SnapshotFactory::from_env`]); named by the
+/// startup error when live mode is enabled without it.
 pub const SNAPSHOT_DIR_VAR: &str = "CONSENSUS_SNAPSHOT_DIR";
 /// How old the ledger view behind `/capabilities` and `/ready` may be
 /// ([`Ledger::snapshot_cached`]).
@@ -135,15 +137,16 @@ pub struct FactoryStatus {
 /// Builds the deliberation of one admitted live run around the metered
 /// model client the gate made for it.
 ///
-/// The production factory is the sealed Hyphae snapshot (ADR-0008, plan
-/// item D2): a `SnapshotMemoryClient` serving the proven `demo-repo`
-/// record list with the pinned anchor, and the hardened proof verifier,
-/// declaring [`EvidenceMode::SealedSnapshot`]. Until it lands,
-/// `serve-public` refuses to start with live mode enabled (see
-/// [`crate::server::build_live_gate`]); tests plug in a scripted factory
-/// over the runtime's fakes. There is no fallback to simulated evidence
-/// in production: the mode a factory declares is the one every run it
-/// builds is labelled with.
+/// The production factory is the sealed Hyphae snapshot (ADR-0008,
+/// [`super::snapshot_factory::SnapshotFactory`]): a `SnapshotMemoryClient`
+/// serving the proven `demo-repo` record list with the pinned anchor, and
+/// the hardened proof verifier, declaring [`EvidenceMode::SealedSnapshot`].
+/// It exists only when `CONSENSUS_SNAPSHOT_DIR` is set and the snapshot
+/// verified at boot; without one, `serve-public` refuses to start with
+/// live mode enabled (see [`crate::server::build_live_gate`]). Tests plug
+/// in a scripted factory over the runtime's fakes. There is no fallback to
+/// simulated evidence in production: the mode a factory declares is the
+/// one every run it builds is labelled with.
 pub trait DeliberationFactory: Send + Sync {
     /// The evidence mode every deliberation this factory builds runs in;
     /// recorded as `Task.mode.evidence` and published by `/capabilities`.

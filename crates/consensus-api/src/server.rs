@@ -13,9 +13,10 @@
 //!   USD ledger, the geographic policy and the judge lane; it needs the
 //!   Meta key (`CONSENSUS_META_API_KEY_FILE`), the live configuration
 //!   ([`crate::live::config`]) and the sealed-snapshot evidence factory
-//!   ([`serve_public_with`]); a missing part stops startup naming the
-//!   variable, and `503 live_disabled` is the answer only when live mode
-//!   is off. Decisions carry `public_demo` authority.
+//!   (`CONSENSUS_SNAPSHOT_DIR`, [`SnapshotFactory::from_env`]); a missing
+//!   part stops startup naming the variable, and `503 live_disabled` is
+//!   the answer only when live mode is off. Decisions carry `public_demo`
+//!   authority.
 //! - **`serve-operator`** listens on loopback only. Every `/api` request
 //!   needs `Authorization: Bearer <token>` (constant-time compare; the
 //!   token comes from `CONSENSUS_OPERATOR_TOKEN_FILE` or is generated and
@@ -40,6 +41,7 @@ use crate::live::budget::Ledger;
 use crate::live::config::{vars as live_vars, LiveConfig};
 use crate::live::gate::{DeliberationFactory, GateParts, SNAPSHOT_DIR_VAR, SNAPSHOT_MAX_AGE};
 use crate::live::geo::GeoPolicy;
+use crate::live::snapshot_factory::SnapshotFactory;
 use crate::live::turnstile::{Siteverify, TurnstileVerifier};
 use crate::public_config::{
     operator_limits, OperatorConfig, ProcessEnv, PublicConfig, PublicListener, RuntimeConfig,
@@ -453,17 +455,21 @@ fn public_meta_config() -> Result<MetaConfig, String> {
 /// configuration: the ledger on `CONSENSUS_LIVE_LEDGER_DIR`, the Turnstile
 /// verifier over the HTTP transport (test secrets were refused by the
 /// configuration load in public mode), the judge codes, the geographic
-/// policy, the Meta configuration and the evidence factory. Without a
-/// factory, startup fails: this build has no sealed-snapshot client yet
-/// (lane D2 plugs it in through [`serve_public_with`]), and there is no
-/// fallback to simulated evidence.
+/// policy, the Meta configuration and the evidence factory. The factory is
+/// the sealed snapshot ([`SnapshotFactory::from_env`], plugged in by
+/// [`serve_public`]; the snapshot directory is `CONSENSUS_SNAPSHOT_DIR`).
+/// Without one, startup fails naming that variable: there is no fallback
+/// to simulated evidence.
 pub fn build_live_gate(
     live: &LiveConfig,
     meta: MetaConfig,
     factory: Option<Arc<dyn DeliberationFactory>>,
 ) -> Result<Arc<dyn LiveGate>, String> {
     let factory = factory.ok_or_else(|| {
-        format!("public live mode requires the sealed snapshot client ({SNAPSHOT_DIR_VAR}); not wired in this build")
+        format!(
+            "public live mode requires the sealed snapshot client ({SNAPSHOT_DIR_VAR}), and none is wired: the evidence factory is not wired while that variable is unset; set it (with CONSENSUS_HYPHAE_EXPECTED_ANCHOR) or set {} to false",
+            live_vars::LIVE_ENABLED
+        )
     })?;
     let ledger_dir = live.ledger_dir.as_ref().ok_or_else(|| {
         format!(
@@ -499,16 +505,21 @@ pub fn build_live_gate(
     Ok(Arc::new(gate))
 }
 
-/// `serve-public` without an evidence factory: with live mode enabled,
-/// startup fails until the sealed-snapshot client is wired.
+/// `serve-public` over the sealed snapshot named by `CONSENSUS_SNAPSHOT_DIR`
+/// ([`SnapshotFactory::from_env`]): the snapshot is loaded and boot-verified
+/// before anything listens, and a snapshot that does not verify stops
+/// startup with its stable code. Without the variable there is no evidence
+/// factory, and live mode cannot be enabled ([`build_live_gate`]).
 pub async fn serve_public() -> Result<(), Box<dyn std::error::Error>> {
-    serve_public_with(None).await
+    let factory = SnapshotFactory::from_env()?;
+    serve_public_with(factory).await
 }
 
 /// `serve-public` with the evidence factory live runs deliberate over
-/// (the sealed snapshot, lane D2). The live configuration is read whether
-/// or not live mode is enabled: the geographic policy applies to the whole
-/// portal either way.
+/// (the sealed snapshot in production, [`SnapshotFactory`]; a test's
+/// scripted factory). The live configuration is read whether or not live
+/// mode is enabled: the geographic policy applies to the whole portal
+/// either way.
 pub async fn serve_public_with(
     factory: Option<Arc<dyn DeliberationFactory>>,
 ) -> Result<(), Box<dyn std::error::Error>> {

@@ -21,6 +21,7 @@ use common::live::{
 use common::{body_text, public_server, read_sse, Req, COUNTRY_HEADER};
 use consensus_api::live::config::vars;
 use consensus_api::live::money::Usd;
+use consensus_api::live::snapshot_factory::SnapshotFactory;
 use consensus_api::server::{build_live_gate, BuildOptions};
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -1147,4 +1148,33 @@ fn startup_refuses_live_mode_until_the_snapshot_client_is_wired() {
     assert_eq!(budget.lifetime_remaining, "60.000000");
     let ready = gate.readiness().expect("live readiness");
     assert!(ready.ledger_ok && ready.evidence_ok && !ready.tripped);
+}
+
+/// What `serve-public` gets from `SnapshotFactory::from_env`, over a
+/// variable map instead of the process environment: no factory without
+/// the directory (so `build_live_gate` refuses live mode as above), and a
+/// configuration error naming its variable for a directory without the
+/// pinned anchor, before any file is read.
+#[test]
+fn the_snapshot_factory_is_absent_without_its_directory_and_fails_closed_without_the_anchor() {
+    let none = SnapshotFactory::from_vars(|_| None).expect("no directory is not an error");
+    assert!(none.is_none(), "no directory, no factory");
+    let empty = SnapshotFactory::from_vars(|name| {
+        (name == "CONSENSUS_SNAPSHOT_DIR").then(|| "   ".to_string())
+    })
+    .expect("an empty value is unset");
+    assert!(empty.is_none());
+
+    let dir = common::TempDir::new("live-snapshot-vars");
+    let only_dir = dir.path().display().to_string();
+    let err = SnapshotFactory::from_vars(|name| {
+        (name == "CONSENSUS_SNAPSHOT_DIR").then(|| only_dir.clone())
+    })
+    .err()
+    .expect("a directory without the pinned anchor fails closed");
+    assert!(err.starts_with("CONSENSUS_HYPHAE_EXPECTED_ANCHOR"), "{err}");
+    assert!(err.contains("required"), "{err}");
+    assert!(err.contains("CONSENSUS_SNAPSHOT_DIR"), "{err}");
+    assert!(!err.contains(&only_dir), "no path: {err}");
+    assert!(!err.contains(TEST_KEY));
 }

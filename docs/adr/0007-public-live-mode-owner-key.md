@@ -2,8 +2,9 @@
 
 Date: 2026-10-27 · Status: accepted; admission library (lane S-b2) and public wiring
 (plan B9, `crates/consensus-api/src/live/`) implemented; the sealed-snapshot evidence
-client (ADR-0008, lane D2) pending, so `serve-public` refuses to start with live mode
-enabled until it is plugged in · Scope: the public portal
+client (ADR-0008) plugged in as the evidence factory (`SnapshotFactory`, configured by
+`CONSENSUS_SNAPSHOT_DIR`); `serve-public` refuses to start with live mode enabled and no
+snapshot configured · Scope: the public portal
 
 ## Context
 
@@ -115,10 +116,16 @@ and the account holder pays any overage.
   file as a trip the moment it exists, before the next admission records it.
 - The server key may come from a file (`CONSENSUS_META_API_KEY_FILE`, systemd
   `LoadCredential`), ahead of every key variable.
+- The evidence factory is the sealed snapshot (ADR-0008, lane D2, closed):
+  `SnapshotFactory::from_env` boots the client from `CONSENSUS_SNAPSHOT_DIR` before the
+  server listens (a snapshot that does not verify stops startup with its stable code),
+  hands every admitted run a copy of the client with a fresh `hyphae proof verify`
+  verifier, and reports the client's status as `/ready`'s `evidence_ok`. Every public
+  live run is declared `{meta, sealed_snapshot, public, <preset>}`.
 - Follow-ups: the operator console's own live runs (`model=meta` on `serve-operator`)
   do not go through the ledger yet, so their spend is not counted against the caps; the
   per-client live limit (one per /64) is not enforced beyond the global slots; the
-  sealed-snapshot factory (ADR-0008) is the one missing part of the public live path.
+  public snapshot itself is captured on 2026-10-29.
 
 ## Consequences
 

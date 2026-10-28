@@ -1,7 +1,9 @@
 # ADR-0008: Public evidence for live mode — a sealed Hyphae snapshot
 
-Date: 2026-10-27 · Status: accepted; capture and `SnapshotMemoryClient` pending (plan
-item B11/D2) · Scope: the public portal's live mode
+Date: 2026-10-27 · Status: accepted; `SnapshotMemoryClient` implemented and wired into the
+public live mode as its evidence factory (`SnapshotFactory`, `CONSENSUS_SNAPSHOT_DIR`; commit
+pending integration); the capture session (plan item B11, 2026-10-29) pending · Scope: the
+public portal's live mode
 
 ## Context
 

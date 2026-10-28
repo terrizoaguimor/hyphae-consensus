@@ -114,8 +114,8 @@ docker run --rm "$@" \
     }
     gate fmt 'Diff in' cargo fmt --all -- --check
     gate clippy '^(warning|error)|Finished' cargo clippy --workspace --all-targets --locked -- -D warnings
-    gate test '^test result|FAILED|panicked at' cargo test --workspace --locked
-    gate demo-crate '^test result|FAILED|panicked at' cargo test --manifest-path demo-repo/payment-client/Cargo.toml --locked
+    gate test '^test result:|FAILED|panicked at' cargo test --workspace --locked
+    gate demo-crate '^test result:|FAILED|panicked at' cargo test --manifest-path demo-repo/payment-client/Cargo.toml --locked
     gate evaluate 'author-defined outcome|Unauthorized executions' cargo run -q -p consensus-tests --example evaluate
     gate manifest-selftest '^selftest' python3 -I scripts/snapshot_manifest.py selftest
     gate capture-selftest '^selftest' sh scripts/hyphae-container/capture-snapshot.sh --selftest

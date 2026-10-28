@@ -13,7 +13,7 @@ use consensus_runtime::Owner;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 /// The cookie's name. The `__Host-` prefix pins it to this host, with no
 /// `Domain` and `Path=/`, so a sibling subdomain cannot plant or fixate
@@ -255,16 +255,6 @@ pub fn cookie_value<'a>(header: &'a str, name: &str) -> Option<&'a str> {
         let (k, v) = pair.trim().split_once('=')?;
         (k.trim() == name).then(|| v.trim())
     })
-}
-
-/// Seconds since the epoch, for tests and logs.
-pub fn unix_secs(t: SystemTime) -> u64 {
-    t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-}
-
-/// A monotonic deadline helper shared by the limit tables.
-pub fn deadline(from: Instant, after: Duration) -> Instant {
-    from + after
 }
 
 #[cfg(test)]

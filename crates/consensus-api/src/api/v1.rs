@@ -31,7 +31,6 @@ use consensus_runtime::scenarios::retry_constraint_scenario;
 use consensus_runtime::{
     build_receipt_v2, parse_run_id, Clock, Orchestrator, Owner, Retention, TaskInput,
 };
-use std::sync::Arc;
 use std::time::Duration;
 
 /// Largest page of `GET /api/v1/runs`.
@@ -916,11 +915,3 @@ pub async fn console(State(state): State<AppState>) -> Response {
         None => ApiError::not_found().into_response(),
     }
 }
-
-/// The policy rules label and other constants, for the contract.
-pub fn protocol_of_current_schema() -> String {
-    protocol_label(SCHEMA_VERSION)
-}
-
-/// Keeps `Arc` in scope for handler signatures that box state.
-pub type SharedState = Arc<AppState>;

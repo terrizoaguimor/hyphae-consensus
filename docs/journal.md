@@ -244,6 +244,42 @@
 - Corrections to the entry above: pushing is no longer pending, because
   `origin/main` was pushed to `72e422a` on 2026-10-27; the license is decided.
 
+## 2026-10-27 (night) — protocol 1.3 validated live; the public-portal lanes integrated
+
+- Branch `feat/public-portal`, one local commit per verified milestone, nothing
+  pushed. Landed since the plan was approved: Apache-2.0 license, SPDX headers and
+  `NOTICE`; the byte-identical `research/` archive with MANIFEST and replay tests;
+  `EventSink`/`RunControl`; `PolicyTrace`, receipts v2 and the hardened event log;
+  protocol 1.3 (ADR-0010: fail-closed evaluation contract, carry-forward, explicit
+  per-item verdicts); per-run `RunStore`, run index and `SharedRunLog`; hardened Meta
+  and Hyphae adapters (ADR-0002 note); CI workflow and the Linux parity script;
+  cargo-deny and third-party notices; ADR-0005 to ADR-0010 and the release checklist;
+  the web shell, legal, docs and onboarding pages (`apps/web`); the keyed per-call
+  Evaluator schema with one bounded post-send transport retry (tag `prompt-freeze-2`);
+  lane S-b1 (public API v1, run manager, live SSE, sessions, listener split,
+  contracts, `verify` CLI) and lane S-b2 (USD ledger, Turnstile, presets, geo, judge
+  codes) merged as `9dca9f1` and `f52b68f`. Gates on the merged tree: fmt, clippy
+  `-D warnings`, 494 tests passed / 2 ignored, evaluate 10/10.
+- Live validation (`docs/evaluation.md` §6): the two smoke runs on `prompt-freeze-1`
+  (K01, K02) exposed an empty-`assessments` hole in the strict schema and the cost of
+  never retrying a sent request; the two on `prompt-freeze-2` (K03, K04) confirmed the
+  keyed schema (one assessment per claim, one verdict per objection, Meta accepted the
+  per-call schema) and both ended `supported` **for a revised proposal that departs
+  from the task text**. That is a property of protocol 1.3 to show (the Decision
+  center and the receipt must put the scope change next to the outcome), not a bug to
+  hide; the runtime does not judge whether a revision still serves the task. Four of
+  the eight authorized live runs are spent; the counted battery has four left.
+- The one flaky test (`shared_log` stream gap test) was timing-dependent and is now
+  deterministic (the writer waits until the stream filled the first gap).
+- Open owner decisions: the judge lane's daily cap (default = the whole $15 slice),
+  the ring's eviction of in-window visitor runs under load, the public contact email,
+  the legal texts, and the Day-2 items (hostname, Tunnel, Turnstile, server key).
+- In flight as this entry is written: the sealed Hyphae snapshot (capture tooling and
+  the `SnapshotMemoryClient`), the public live-mode wiring (`LiveGate`, per-attempt
+  metering in the Meta adapter), and the first run views of Mission Control (API
+  client generated from the contract, SSE client, New deliberation, My runs, the
+  Live/Playback, Explorer and Decision tabs).
+
 ## Backlog
 
 *Status 2026-10-27 (independent audit):* M2, M3, the operator console and the

@@ -1867,6 +1867,18 @@ fn a_pinned_verifier_binary_must_be_the_build_the_snapshot_was_captured_with() {
         );
         assert_eq!(logged_calls(&log).len(), calls, "{label}: nothing ran");
     }
+    // A configuration built in code (its fields are public) is held to the
+    // absolute path too: the pinned binary's own name, relative, is
+    // refused, never hashed in the working directory and run from PATH.
+    let mut relative = pinned(&binary);
+    relative.binary = Path::new(&binary)
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let err = open_with(&relative).unwrap_err();
+    assert_eq!(err.code, codes::VERIFIER_BINARY_MISMATCH, "{err}");
+    assert!(err.message.contains("not an absolute path"), "{err}");
 
     // A snapshot captured with another Hyphae build: the binary is the
     // pinned one, the manifest's build is not.

@@ -1366,9 +1366,10 @@ pub const MAX_BINARY_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The pinned verifier binary, checked at boot before any verifier run; a
 /// no-op when `CONSENSUS_HYPHAE_BIN_SHA256` is unset. The file
-/// `CONSENSUS_HYPHAE_BIN` names (an absolute path, [`SnapshotConfig`]
-/// refuses any other with the pin set; symbolic links followed, as `exec`
-/// follows them) must be a regular file whose SHA-256 is the pin
+/// `CONSENSUS_HYPHAE_BIN` names (an absolute path: [`SnapshotConfig`]
+/// refuses any other with the pin set, and so does this check for a
+/// configuration built in code; symbolic links followed, as `exec` follows
+/// them) must be a regular file whose SHA-256 is the pin
 /// (`verifier_binary_mismatch`: a replaced binary, or a wrapper that prints
 /// a capture-time report, never runs), and the pin must be the manifest's
 /// `hyphae.binary_sha256` (`capture_binary_mismatch`: the snapshot was
@@ -1384,6 +1385,14 @@ pub fn check_verifier_binary(cfg: &SnapshotConfig, manifest: &Manifest) -> Resul
     let pin = pin.trim().to_ascii_lowercase();
     let var = crate::config::HYPHAE_BIN_SHA256_VAR;
     let mismatch = |message: String| SnapshotError::new(codes::VERIFIER_BINARY_MISMATCH, message);
+    // The configuration refuses this already; a configuration built in
+    // code is held to it here: a relative path or a bare name is resolved
+    // differently when hashed (the working directory) and when run (PATH).
+    if !Path::new(&cfg.binary).is_absolute() {
+        return Err(mismatch(format!(
+            "CONSENSUS_HYPHAE_BIN is not an absolute path, so the file hashed could differ from the one run: it is not checked against the pinned {var} ({pin})"
+        )));
+    }
     let actual = file_sha256(Path::new(&cfg.binary)).map_err(|why| {
         mismatch(format!(
             "CONSENSUS_HYPHAE_BIN {why}, so it is not the binary pinned by {var} ({pin})"

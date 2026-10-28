@@ -199,6 +199,18 @@ pub type AdmitFuture<'a> = Pin<Box<dyn Future<Output = Result<LiveGrant, ApiErro
 pub trait LiveGate: Send + Sync {
     fn admit(&self, request: LiveAdmissionRequest) -> AdmitFuture<'_>;
 
+    /// Whether live mode can take runs at all right now. The production
+    /// gate says no while its evidence source is not ok (the sealed
+    /// snapshot failed its boot check, or its served files changed since):
+    /// `/capabilities` then reports `live_enabled: false` without a live
+    /// section, as a server without live mode does, while `/ready` keeps
+    /// the live section with `evidence_ok: false`, and the gate answers
+    /// every admission `503 live_unavailable`. True by default (a test
+    /// double). May hash files: the handler calls it from a blocking task.
+    fn available(&self) -> bool {
+        true
+    }
+
     /// What `/capabilities` publishes about live mode: presets, the
     /// visitor-safe budget projection and the requirements. `None` when
     /// the gate has nothing to publish (a test double). May read the

@@ -3,57 +3,132 @@
 //! over the sealed Hyphae snapshot (ADR-0008), never over a Hyphae daemon
 //! and never over simulated evidence.
 //!
-//! [`SnapshotFactory::from_env`] is what `serve-public` calls at startup:
-//! without `CONSENSUS_SNAPSHOT_DIR` there is no factory (and live mode
-//! cannot be enabled, see [`crate::server::build_live_gate`]); with it the
-//! snapshot is loaded, checked and boot-verified with `hyphae proof
-//! verify` ([`SnapshotMemoryClient::open`]) before the server listens, and
-//! a snapshot that does not verify stops startup with the snapshot error's
-//! stable code. Every error text names variables and files relative to the
-//! snapshot directory, never a secret, a local path or a file's contents.
+//! **Startup.** `serve-public` reads the live configuration first and
+//! calls [`SnapshotFactory::live_evidence_from_env`] only with live mode
+//! enabled ([`crate::server::serve_public_with`]): with it disabled the
+//! snapshot is never loaded or verified, and a set `CONSENSUS_SNAPSHOT_DIR`
+//! earns one notice ([`UNUSED_NOTICE`]). With live mode enabled:
+//! - a configuration error (`CONSENSUS_SNAPSHOT_DIR` unset, a missing or
+//!   malformed `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`, an unusable verifier
+//!   setting) stops startup naming its variable (the unset directory in
+//!   [`crate::server::build_live_gate`]);
+//! - a snapshot that does not load, verify, or serve the presets' project
+//!   (`snapshot_dir_missing`, `checksums_mismatch`, `digest_mismatch`,
+//!   `pinned_anchor_mismatch`, `boot_verification_failed`,
+//!   `project_mismatch`, ...) does not stop the portal: live mode runs on
+//!   [`UnavailableEvidence`], whose status carries the code and which
+//!   builds nothing, so guided mode, the showcase and the static site
+//!   serve while every live admission is `503 live_unavailable`, `/ready`
+//!   reports `live.evidence_ok: false` and `/capabilities` reports
+//!   `live_enabled: false` (ADR-0008 decision 1: the mode is disabled and
+//!   says why);
+//! - a snapshot that boots is loaded, checked and verified with `hyphae
+//!   proof verify` ([`SnapshotMemoryClient::from_snapshot`]) before the
+//!   server listens, and one line without a path is printed
+//!   ([`SnapshotFactory::startup_line`]).
 //!
-//! Each admitted run gets a copy of the client (plain data) and a FRESH
-//! verifier over the configured binary, so the run's `EvidenceVerified`
-//! records carry their own verification time and the verifier's
-//! content-digest cache (HY-13) never outlives a run. The factory's
-//! [`status`](DeliberationFactory::status) is the client's own
-//! `MemoryClient::status`, read on a clone: when that check reports the
-//! served artifacts changed, `/ready` says `evidence_ok: false` with a
-//! stable code and nothing else.
+//! **Admissions and runs.** Every admission re-checks the served files in
+//! full ([`SnapshotMemoryClient::check_artifacts`]) and refuses with a
+//! [`FactoryError`] when they changed since boot: the gate then releases
+//! the reservation and answers `503 live_unavailable` before any model
+//! call. An admitted run gets a copy of the client (plain data) and a
+//! FRESH verifier over the configured binary, pinned anchor and deadline,
+//! bound to the boot check ([`BootBoundVerifier`]: a `Valid` stands only
+//! for the digests boot accepted for the record's capture). So the run's
+//! `EvidenceVerified` records carry their own verification time, the
+//! verifier's content-digest cache (HY-13) never outlives a run, and files
+//! swapped while a run is under way verify `Invalid`.
+//!
+//! **Status.** [`DeliberationFactory::status`] is the same re-check,
+//! cached for [`READY_CACHE_TTL`]: `/ready` is public and anonymous, and
+//! must not make the server re-hash the served artifacts (about 6.6 MB
+//! with the real witnesses) at will. An admission's own re-check refreshes
+//! the cache. The detail is `ok` or the snapshot error's stable code. The
+//! code is logged once at startup and once on every change between ok and
+//! not ok (`[snapshot] live evidence unavailable: <code>`, `[snapshot] live
+//! evidence ok again`), never with a path.
+//!
+//! **Messages.** Configuration and snapshot errors name variables, and
+//! files relative to the snapshot directory, never a secret or a file's
+//! contents. One exception: `boot_verification_failed` quotes the
+//! verifier's own message or stderr (bounded, on one line), which may name
+//! the artifact paths the verifier was given. Those messages reach only the
+//! strict entry points' errors ([`SnapshotFactory::from_env`],
+//! [`SnapshotFactory::open`]); `serve-public`'s log and every public
+//! surface carry the code alone.
 
 use super::gate::{DeliberationFactory, FactoryError, FactoryStatus, SNAPSHOT_DIR_VAR};
+use super::presets::PRESET_PROJECT;
+use crate::api::READY_CACHE_TTL;
 use crate::config::SnapshotConfig;
-use crate::hyphae::SystemCommandRunner;
+use crate::hyphae::{HyphaeProofVerifier, SystemCommandRunner};
 use crate::meta::MetaModelClient;
 use crate::runs::Deliberation;
-use crate::snapshot::{self, SnapshotError, SnapshotMemoryClient, SnapshotStatus};
+use crate::snapshot::{
+    self, codes, BootBoundVerifier, Snapshot, SnapshotError, SnapshotMemoryClient, SnapshotStatus,
+};
 use consensus_domain::EvidenceMode;
 use consensus_runtime::clock::{SystemClock, UuidIdGen};
-use consensus_runtime::ports::{MemoryClient, ProofVerifier};
+use consensus_runtime::contract::quote;
+use consensus_runtime::ports::ProofVerifier;
 use consensus_runtime::{Orchestrator, RunLimits};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
-/// The stable `detail` codes of [`FactoryStatus`] as this factory reports
-/// them.
+/// The stable `detail` codes of [`FactoryStatus`] this module adds to the
+/// snapshot error codes ([`crate::snapshot::codes`]) it reports.
 pub mod status {
-    /// The client's check passed.
+    /// The served files are the ones the boot check accepted.
     pub const OK: &str = "ok";
-    /// The client reports its served artifacts unhealthy without a code of
-    /// its own.
+    /// A snapshot error whose code is not an identifier (none is: a guard,
+    /// so that nothing else can pass as a code).
     pub const ARTIFACTS_CHANGED: &str = "artifacts_changed";
-    /// The client's status could not be read at all.
-    pub const STATUS_UNAVAILABLE: &str = "status_unavailable";
 }
+
+/// Where the `[snapshot]` lines go: stderr in production, a test's
+/// collector.
+pub type LogSink = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// The production [`LogSink`]: one line on stderr (journald).
+pub fn stderr_log() -> LogSink {
+    Arc::new(|line: &str| eprintln!("{line}"))
+}
+
+/// The line logged when the live evidence becomes unavailable: the code,
+/// never a path.
+pub fn unavailable_line(code: &str) -> String {
+    format!("[snapshot] live evidence unavailable: {code}")
+}
+
+/// The line logged when the served files are the boot-verified ones again.
+pub const OK_AGAIN_LINE: &str = "[snapshot] live evidence ok again";
+
+/// The one notice `serve-public` logs when `CONSENSUS_SNAPSHOT_DIR` is set
+/// while live mode is disabled: nothing is loaded or verified then.
+pub const UNUSED_NOTICE: &str = "[snapshot] CONSENSUS_SNAPSHOT_DIR is set, but public live mode is disabled (CONSENSUS_LIVE_ENABLED): the snapshot is not loaded or verified";
 
 /// How many hex digits of the anchor the startup line shows.
 const ANCHOR_PREFIX_LEN: usize = 12;
 
 /// The sealed snapshot as the public live gate's evidence factory: one
-/// boot-verified [`SnapshotMemoryClient`] shared by every run, and the
-/// configuration a fresh per-run verifier is built from.
+/// boot-verified [`SnapshotMemoryClient`] shared by every run, the
+/// configuration a fresh per-run verifier is built from, and the cached
+/// status of the served files.
 pub struct SnapshotFactory {
     client: SnapshotMemoryClient,
     cfg: SnapshotConfig,
+    /// How long a status read is reused ([`READY_CACHE_TTL`]).
+    status_ttl: Duration,
+    log: LogSink,
+    state: Mutex<StatusState>,
+}
+
+/// The last re-check of the served files, and what was logged last.
+struct StatusState {
+    checked: Option<(Instant, FactoryStatus)>,
+    /// Whether the evidence was ok when the last line was logged (the boot
+    /// check counts: a factory exists only for a snapshot that booted).
+    logged_ok: bool,
 }
 
 impl std::fmt::Debug for SnapshotFactory {
@@ -66,11 +141,13 @@ impl std::fmt::Debug for SnapshotFactory {
 }
 
 impl SnapshotFactory {
-    /// The factory `serve-public` starts with: `Ok(None)` without
-    /// `CONSENSUS_SNAPSHOT_DIR`; the configuration error (naming its
-    /// variable) when a setting is missing or unusable; the boot failure
-    /// (`CONSENSUS_SNAPSHOT_DIR: <code>: <message>`) when the snapshot does
-    /// not load or verify. One line is logged for a snapshot that booted.
+    /// The strict form: `Ok(None)` without `CONSENSUS_SNAPSHOT_DIR`; the
+    /// configuration error (naming its variable) when a setting is missing
+    /// or unusable; the boot failure (`CONSENSUS_SNAPSHOT_DIR: <code>:
+    /// <message>`) when the snapshot does not load, verify or serve the
+    /// presets' project. One line is printed for a snapshot that booted.
+    /// `serve-public` uses [`live_evidence_from_env`](Self::live_evidence_from_env)
+    /// instead, which keeps the portal up when the snapshot does not boot.
     pub fn from_env() -> Result<Option<Arc<dyn DeliberationFactory>>, String> {
         let cfg = SnapshotConfig::try_from_env().map_err(|e| e.to_string())?;
         Self::boot(cfg)
@@ -95,15 +172,85 @@ impl SnapshotFactory {
         Ok(Some(Arc::new(factory)))
     }
 
-    /// Loads and boot-verifies the configured snapshot with `verifier`
-    /// ([`SnapshotMemoryClient::open`]); the factory then builds every run
-    /// over a fresh verifier of its own.
+    /// The evidence of an enabled live mode, as `serve-public` boots it:
+    /// `Ok(None)` without `CONSENSUS_SNAPSHOT_DIR` (live mode then refuses
+    /// to start, [`crate::server::build_live_gate`]); a configuration error
+    /// naming its variable; otherwise the booted factory (one startup line
+    /// printed) or, for a snapshot that does not boot, an
+    /// [`UnavailableEvidence`] with its stable code (logged once). Never
+    /// an error for the snapshot itself: the portal stays up.
+    pub fn live_evidence_from_env() -> Result<Option<Arc<dyn DeliberationFactory>>, String> {
+        let cfg = SnapshotConfig::try_from_env().map_err(|e| e.to_string())?;
+        Ok(cfg.map(|cfg| Self::boot_or_unavailable(cfg, stderr_log())))
+    }
+
+    /// [`live_evidence_from_env`](Self::live_evidence_from_env) over any
+    /// variable source, logging to `log` (tests).
+    pub fn live_evidence_from_vars(
+        get: impl Fn(&str) -> Option<String>,
+        log: LogSink,
+    ) -> Result<Option<Arc<dyn DeliberationFactory>>, String> {
+        let cfg = SnapshotConfig::from_vars(get).map_err(|e| e.to_string())?;
+        Ok(cfg.map(|cfg| Self::boot_or_unavailable(cfg, log)))
+    }
+
+    /// Boots `cfg` with the configured verifier binary: the factory, or the
+    /// unavailable evidence of a snapshot that does not boot.
+    pub fn boot_or_unavailable(cfg: SnapshotConfig, log: LogSink) -> Arc<dyn DeliberationFactory> {
+        let mut verifier = snapshot::verifier_from_config(&cfg, SystemCommandRunner);
+        match Self::open(cfg, &mut verifier) {
+            Ok(factory) => {
+                println!("{}", factory.startup_line());
+                Arc::new(factory.with_log(log))
+            }
+            Err(e) => Arc::new(UnavailableEvidence::new(&e, &log)),
+        }
+    }
+
+    /// Loads the configured snapshot, refuses one that serves a project
+    /// other than the presets' (`project_mismatch`, before any verifier
+    /// run), and boot-verifies it with `verifier`
+    /// ([`SnapshotMemoryClient::from_snapshot`]); the factory then builds
+    /// every run over a fresh verifier of its own.
     pub fn open<V: ProofVerifier + ?Sized>(
         cfg: SnapshotConfig,
         verifier: &mut V,
     ) -> Result<Self, SnapshotError> {
-        let client = SnapshotMemoryClient::open(&cfg, verifier)?;
-        Ok(Self { client, cfg })
+        let snapshot = Snapshot::load_from_config(&cfg)?;
+        if snapshot.manifest.project != PRESET_PROJECT {
+            return Err(SnapshotError::new(
+                codes::PROJECT_MISMATCH,
+                format!(
+                    "the snapshot serves project {}, but every public live preset runs against {}",
+                    quote(&snapshot.manifest.project),
+                    quote(PRESET_PROJECT)
+                ),
+            ));
+        }
+        let client = SnapshotMemoryClient::from_snapshot(snapshot, &cfg.expected_anchor, verifier)?;
+        Ok(Self {
+            client,
+            cfg,
+            status_ttl: READY_CACHE_TTL,
+            log: stderr_log(),
+            state: Mutex::new(StatusState {
+                checked: None,
+                logged_ok: true,
+            }),
+        })
+    }
+
+    /// How long a status read is reused; [`READY_CACHE_TTL`] by default
+    /// (a test sets zero to see a change at once).
+    pub fn with_status_ttl(mut self, ttl: Duration) -> Self {
+        self.status_ttl = ttl;
+        self
+    }
+
+    /// Where the `[snapshot]` lines go ([`stderr_log`] by default).
+    pub fn with_log(mut self, log: LogSink) -> Self {
+        self.log = log;
+        self
     }
 
     /// What the boot verification established.
@@ -126,12 +273,59 @@ impl SnapshotFactory {
             s.snapshot_id, s.project, s.record_count, s.captured_at, s.verified_at
         )
     }
+
+    /// The verifier one admitted run gets: fresh (its own verification
+    /// times and HY-13 cache), over the configured binary, pinned anchor
+    /// and deadline, bound to the boot check.
+    pub fn run_verifier(&self) -> BootBoundVerifier<HyphaeProofVerifier<SystemCommandRunner>> {
+        self.client
+            .boot_bound_verifier(snapshot::verifier_from_config(
+                &self.cfg,
+                SystemCommandRunner,
+            ))
+    }
+
+    fn lock(&self) -> MutexGuard<'_, StatusState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Re-hashes the served files now, keeps the result as the cached
+    /// status and logs a change between ok and not ok.
+    fn check_now(&self, state: &mut StatusState) -> FactoryStatus {
+        let status = match self.client.check_artifacts() {
+            Ok(()) => FactoryStatus {
+                ok: true,
+                kind: EvidenceMode::SealedSnapshot,
+                detail: Some(status::OK.to_string()),
+            },
+            Err(e) => FactoryStatus {
+                ok: false,
+                kind: EvidenceMode::SealedSnapshot,
+                detail: Some(unhealthy_code(e.code)),
+            },
+        };
+        if status.ok != state.logged_ok {
+            if status.ok {
+                (self.log)(OK_AGAIN_LINE);
+            } else {
+                (self.log)(&unavailable_line(
+                    status
+                        .detail
+                        .as_deref()
+                        .unwrap_or(status::ARTIFACTS_CHANGED),
+                ));
+            }
+            state.logged_ok = status.ok;
+        }
+        state.checked = Some((Instant::now(), status.clone()));
+        status
+    }
 }
 
-/// The stable code for an unhealthy memory status: the client's detail
-/// when it is a code (`checksums_mismatch`, or `checksums_mismatch: <file>`
-/// as [`SnapshotError`] prints), [`status::ARTIFACTS_CHANGED`] otherwise.
-/// A path can never pass as a code.
+/// The stable code for an unhealthy state: the snapshot error's code (or
+/// its detail's head, `checksums_mismatch: <file>` as [`SnapshotError`]
+/// prints) when it is a code, [`status::ARTIFACTS_CHANGED`] otherwise. A
+/// path can never pass as a code.
 fn unhealthy_code(detail: &str) -> String {
     let head = detail.split(':').next().unwrap_or("").trim();
     let is_code = !head.is_empty()
@@ -151,33 +345,102 @@ impl DeliberationFactory for SnapshotFactory {
         EvidenceMode::SealedSnapshot
     }
 
+    /// Re-checks the served files in full (never the cached status), then
+    /// builds the run over a copy of the client and [`Self::run_verifier`].
     fn build(
         &self,
         model: MetaModelClient,
         limits: RunLimits,
     ) -> Result<Box<dyn Deliberation>, FactoryError> {
+        let status = {
+            let mut state = self.lock();
+            self.check_now(&mut state)
+        };
+        if !status.ok {
+            return Err(FactoryError(format!(
+                "the sealed snapshot's served files changed since boot ({}): no run is built over them",
+                status.detail.as_deref().unwrap_or(status::ARTIFACTS_CHANGED)
+            )));
+        }
         Ok(Box::new(Orchestrator {
             model,
             memory: self.client.clone(),
-            // Fresh per run: its own verification times, its own cache.
-            verifier: snapshot::verifier_from_config(&self.cfg, SystemCommandRunner),
+            verifier: self.run_verifier(),
             clock: SystemClock,
             ids: UuidIdGen,
             limits,
         }))
     }
 
+    /// The cached re-check of the served files ([`READY_CACHE_TTL`]).
     fn status(&self) -> FactoryStatus {
-        let mut client = self.client.clone();
-        let (ok, detail) = match client.status() {
-            Ok(s) if s.healthy => (true, status::OK.to_string()),
-            Ok(s) => (false, unhealthy_code(&s.detail)),
-            Err(_) => (false, status::STATUS_UNAVAILABLE.to_string()),
-        };
+        let mut state = self.lock();
+        if let Some((at, status)) = &state.checked {
+            if at.elapsed() < self.status_ttl {
+                return status.clone();
+            }
+        }
+        self.check_now(&mut state)
+    }
+}
+
+/// The evidence of an enabled live mode whose sealed snapshot did not boot
+/// (ADR-0008 decision 1: the mode is disabled and says why, the portal
+/// stays up). Its status is not ok with the boot error's stable code, it
+/// builds nothing (the gate refuses every admission before Turnstile, and
+/// would release the reservation if one were ever made), and it declares
+/// the sealed snapshot, the only evidence a public live run may have. It
+/// does not retry: the operator fixes the snapshot and restarts
+/// `serve-public`.
+pub struct UnavailableEvidence {
+    code: String,
+}
+
+impl std::fmt::Debug for UnavailableEvidence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnavailableEvidence")
+            .field("code", &self.code)
+            .finish()
+    }
+}
+
+impl UnavailableEvidence {
+    /// The unavailable evidence of a snapshot that failed to boot with
+    /// `error`; logs its code once ([`unavailable_line`]), never the
+    /// error's message.
+    pub fn new(error: &SnapshotError, log: &LogSink) -> Self {
+        let code = unhealthy_code(error.code);
+        log(&unavailable_line(&code));
+        Self { code }
+    }
+
+    /// The boot error's stable code.
+    pub fn code(&self) -> &str {
+        &self.code
+    }
+}
+
+impl DeliberationFactory for UnavailableEvidence {
+    fn evidence_mode(&self) -> EvidenceMode {
+        EvidenceMode::SealedSnapshot
+    }
+
+    fn build(
+        &self,
+        _model: MetaModelClient,
+        _limits: RunLimits,
+    ) -> Result<Box<dyn Deliberation>, FactoryError> {
+        Err(FactoryError(format!(
+            "the sealed snapshot did not boot ({}): live mode is unavailable until it is fixed and serve-public restarted",
+            self.code
+        )))
+    }
+
+    fn status(&self) -> FactoryStatus {
         FactoryStatus {
-            ok,
+            ok: false,
             kind: EvidenceMode::SealedSnapshot,
-            detail: Some(detail),
+            detail: Some(self.code.clone()),
         }
     }
 }
@@ -208,5 +471,38 @@ mod tests {
                 "{not_a_code:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_snapshot_that_did_not_boot_is_unavailable_with_its_code_logged_once() {
+        let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+        let sink = lines.clone();
+        let log: LogSink = Arc::new(move |line: &str| sink.lock().unwrap().push(line.into()));
+        let error = SnapshotError::new(
+            codes::BOOT_VERIFICATION_FAILED,
+            "capture list-demo-repo: the verifier reported Invalid: /srv/snap/captures/x.proof",
+        );
+        let evidence = UnavailableEvidence::new(&error, &log);
+        assert_eq!(evidence.code(), codes::BOOT_VERIFICATION_FAILED);
+        assert_eq!(evidence.evidence_mode(), EvidenceMode::SealedSnapshot);
+        let status = evidence.status();
+        assert!(!status.ok);
+        assert_eq!(status.kind, EvidenceMode::SealedSnapshot);
+        assert_eq!(
+            status.detail.as_deref(),
+            Some(codes::BOOT_VERIFICATION_FAILED)
+        );
+        // Asked again: the same answer, nothing logged again.
+        assert_eq!(evidence.status(), status);
+        let logged = lines.lock().unwrap().clone();
+        assert_eq!(
+            logged,
+            ["[snapshot] live evidence unavailable: boot_verification_failed"]
+        );
+        assert!(!format!("{evidence:?}").contains("/srv"));
+        assert_eq!(
+            unavailable_line("digest_mismatch"),
+            "[snapshot] live evidence unavailable: digest_mismatch"
+        );
     }
 }

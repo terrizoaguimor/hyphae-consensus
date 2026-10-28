@@ -13,10 +13,13 @@
 //!   USD ledger, the geographic policy and the judge lane; it needs the
 //!   Meta key (`CONSENSUS_META_API_KEY_FILE`), the live configuration
 //!   ([`crate::live::config`]) and the sealed-snapshot evidence factory
-//!   (`CONSENSUS_SNAPSHOT_DIR`, [`SnapshotFactory::from_env`]); a missing
-//!   part stops startup naming the variable, and `503 live_disabled` is
-//!   the answer only when live mode is off. Decisions carry `public_demo`
-//!   authority.
+//!   (`CONSENSUS_SNAPSHOT_DIR`, [`SnapshotFactory::live_evidence_from_env`],
+//!   loaded only with live mode enabled); a missing or unusable setting
+//!   stops startup naming the variable, a snapshot that does not boot
+//!   leaves the portal up with live mode unavailable (`503
+//!   live_unavailable`, `/ready` `live.evidence_ok: false`), and `503
+//!   live_disabled` is the answer when live mode is off. Decisions carry
+//!   `public_demo` authority.
 //! - **`serve-operator`** listens on loopback only. Every `/api` request
 //!   needs `Authorization: Bearer <token>` (constant-time compare; the
 //!   token comes from `CONSENSUS_OPERATOR_TOKEN_FILE` or is generated and
@@ -41,7 +44,7 @@ use crate::live::budget::Ledger;
 use crate::live::config::{vars as live_vars, LiveConfig};
 use crate::live::gate::{DeliberationFactory, GateParts, SNAPSHOT_DIR_VAR, SNAPSHOT_MAX_AGE};
 use crate::live::geo::GeoPolicy;
-use crate::live::snapshot_factory::SnapshotFactory;
+use crate::live::snapshot_factory::{SnapshotFactory, UNUSED_NOTICE};
 use crate::live::turnstile::{Siteverify, TurnstileVerifier};
 use crate::public_config::{
     operator_limits, OperatorConfig, ProcessEnv, PublicConfig, PublicListener, RuntimeConfig,
@@ -456,10 +459,11 @@ fn public_meta_config() -> Result<MetaConfig, String> {
 /// verifier over the HTTP transport (test secrets were refused by the
 /// configuration load in public mode), the judge codes, the geographic
 /// policy, the Meta configuration and the evidence factory. The factory is
-/// the sealed snapshot ([`SnapshotFactory::from_env`], plugged in by
-/// [`serve_public`]; the snapshot directory is `CONSENSUS_SNAPSHOT_DIR`).
-/// Without one, startup fails naming that variable: there is no fallback
-/// to simulated evidence.
+/// the sealed snapshot ([`SnapshotFactory::live_evidence_from_env`],
+/// plugged in by [`serve_public`]; the snapshot directory is
+/// `CONSENSUS_SNAPSHOT_DIR`), possibly unavailable when it did not boot
+/// (the gate then refuses every admission). Without one, startup fails
+/// naming that variable: there is no fallback to simulated evidence.
 pub fn build_live_gate(
     live: &LiveConfig,
     meta: MetaConfig,
@@ -467,7 +471,7 @@ pub fn build_live_gate(
 ) -> Result<Arc<dyn LiveGate>, String> {
     let factory = factory.ok_or_else(|| {
         format!(
-            "public live mode requires the sealed snapshot client ({SNAPSHOT_DIR_VAR}), and none is wired: the evidence factory is not wired while that variable is unset; set it (with CONSENSUS_HYPHAE_EXPECTED_ANCHOR) or set {} to false",
+            "public live mode requires the sealed snapshot ({SNAPSHOT_DIR_VAR}): the evidence factory is not wired while that variable is unset; set it (with CONSENSUS_HYPHAE_EXPECTED_ANCHOR) or set {} to false",
             live_vars::LIVE_ENABLED
         )
     })?;
@@ -506,29 +510,48 @@ pub fn build_live_gate(
 }
 
 /// `serve-public` over the sealed snapshot named by `CONSENSUS_SNAPSHOT_DIR`
-/// ([`SnapshotFactory::from_env`]): the snapshot is loaded and boot-verified
-/// before anything listens, and a snapshot that does not verify stops
-/// startup with its stable code. Without the variable there is no evidence
-/// factory, and live mode cannot be enabled ([`build_live_gate`]).
+/// ([`SnapshotFactory::live_evidence_from_env`]), loaded only with live
+/// mode enabled; see [`serve_public_with`].
 pub async fn serve_public() -> Result<(), Box<dyn std::error::Error>> {
-    let factory = SnapshotFactory::from_env()?;
-    serve_public_with(factory).await
+    serve_public_with(SnapshotFactory::live_evidence_from_env).await
 }
 
-/// `serve-public` with the evidence factory live runs deliberate over
-/// (the sealed snapshot in production, [`SnapshotFactory`]; a test's
-/// scripted factory). The live configuration is read whether or not live
-/// mode is enabled: the geographic policy applies to the whole portal
-/// either way.
-pub async fn serve_public_with(
-    factory: Option<Arc<dyn DeliberationFactory>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+/// `serve-public` with `evidence`, the loader of the factory live runs
+/// deliberate over (the sealed snapshot in production; a test's scripted
+/// factory). The live configuration is read first (it is read whether or
+/// not live mode is enabled: the geographic policy applies to the whole
+/// portal either way), and `evidence` runs only when live mode is
+/// enabled, before anything listens (ADR-0008 decision 1):
+/// - live mode disabled: no snapshot is loaded or verified; a set
+///   `CONSENSUS_SNAPSHOT_DIR` earns one notice ([`UNUSED_NOTICE`]), so a
+///   missing, placeholder or broken snapshot never stops a portal that does
+///   not use it;
+/// - live mode enabled: a configuration error of the loader (a snapshot or
+///   anchor variable missing or unusable) and an unset
+///   `CONSENSUS_SNAPSHOT_DIR` ([`build_live_gate`]) stop startup naming the
+///   variable; a snapshot that does not boot does not: the portal serves
+///   and live mode is unavailable until the snapshot is fixed and the
+///   server restarted (the code is logged; `/ready` reports
+///   `live.evidence_ok: false`).
+pub async fn serve_public_with<F>(evidence: F) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: FnOnce() -> Result<Option<Arc<dyn DeliberationFactory>>, String>,
+{
     let cfg = PublicConfig::from_env(&ProcessEnv)?;
     let live = LiveConfig::from_env()?;
+    // What the startup lines say about the evidence of an enabled live mode.
+    let mut evidence_status = None;
     let live_gate = if live.enabled {
         let meta = public_meta_config()?;
+        let factory = evidence()?;
+        evidence_status = factory.as_ref().map(|f| f.status());
         Some(build_live_gate(&live, meta, factory)?)
     } else {
+        let snapshot_dir_set =
+            std::env::var(SNAPSHOT_DIR_VAR).is_ok_and(|dir| !dir.trim().is_empty());
+        if snapshot_dir_set {
+            eprintln!("{UNUSED_NOTICE}");
+        }
         None
     };
     let built = build_public(
@@ -563,8 +586,15 @@ pub async fn serve_public_with(
             .join(" ")
     );
     if live.enabled {
+        let evidence = match &evidence_status {
+            Some(status) if !status.ok => format!(
+                "; its evidence is UNAVAILABLE ({}): every live run is refused (503 live_unavailable) until the snapshot is fixed and the server restarted",
+                status.detail.as_deref().unwrap_or("no code")
+            ),
+            _ => String::new(),
+        };
         println!(
-            "Public live mode: enabled on the owner's key (daily cap {}, lifetime cap {}, judge lane {})",
+            "Public live mode: enabled on the owner's key (daily cap {}, lifetime cap {}, judge lane {}){evidence}",
             live.budget.daily_cap,
             live.budget.lifetime_cap,
             if live.judge_lane_open() {

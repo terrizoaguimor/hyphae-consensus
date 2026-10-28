@@ -1,0 +1,198 @@
+{
+  "Docs": {
+    "lead": "Short explanations of how Hyphae Consensus works and what its results mean.",
+    "buildNote": "The portal views that run deliberations are not connected in this build; these pages describe the system as it works today and the public portal as planned.",
+    "articlesHeading": "Articles",
+    "tourHeading": "One-minute tour",
+    "tourText": "Six short steps through the main ideas. You can skip it at any time.",
+    "levelHeading": "Simple or technical",
+    "levelText": "Each article starts with a plain-language summary. Technical details sit in a collapsed section; choose Technical in <settings>Settings</settings> to expand them by default.",
+    "inShort": "In short",
+    "technicalSummary": "Technical details",
+    "pagerLabel": "More docs",
+    "previous": "Previous: {title}",
+    "next": "Next: {title}",
+    "allDocs": "All docs",
+    "articles": {
+      "what-is": {
+        "title": "What Hyphae Consensus is",
+        "summary": "Hyphae Consensus has three AI roles work through a software-engineering problem, checks their claims against verifiable memory, and turns the result into a recommendation that only a person can authorize.",
+        "sections": {
+          "roles": {
+            "heading": "Three roles deliberate",
+            "body": "A Proposer suggests a solution as a set of claims, a Critic challenges its assumptions and risks, and the Proposer can revise. An Evidence Evaluator then judges each claim against the evidence."
+          },
+          "runtime": {
+            "heading": "The runtime checks the evidence",
+            "body": "The runtime, not a model, retrieves records from Hyphae Agent Memory and verifies their integrity proofs. A fixed policy combines the Evaluator’s judgments with the proof statuses into a recommendation."
+          },
+          "human": {
+            "heading": "A person decides",
+            "body": "No model can approve. Only a person can authorize a recommendation, and authorizing records the decision without executing anything."
+          }
+        },
+        "technical": {
+          "runtime": "The runtime is written in Rust: typed contracts, a deterministic state machine and an append-only event log whose records are SHA-256 hash-chained. The chain is verified when a log is opened, and replay re-derives every recommendation recorded under schema 1.1 or later.",
+          "integrations": "Models are called through the Meta Model API (<code>muse-wonder-1.0</code>, structured output). Hyphae is read through its MCP interface with read-only tools, and proofs are checked offline with <code>hyphae proof verify</code>.",
+          "untrusted": "Retrieved memory and other models’ outputs are treated as untrusted data, never as instructions."
+        }
+      },
+      "three-roles": {
+        "title": "Why three roles",
+        "summary": "Splitting the work between a Proposer, a Critic and an Evidence Evaluator makes each step visible, and lets disagreement show instead of being averaged away.",
+        "sections": {
+          "proposer": {
+            "heading": "Proposer",
+            "body": "Proposes a solution to the task as explicit claims, assumptions and tests, and revises it when the Critic raises objections."
+          },
+          "critic": {
+            "heading": "Critic",
+            "body": "Challenges the proposal: missing tests, unproven risks, conflicts with the project’s constraints. Its objections stay open until the Evaluator judges them resolved."
+          },
+          "evaluator": {
+            "heading": "Evidence Evaluator",
+            "body": "Judges each claim against the evidence the runtime retrieved: whether it is corroborated or contradicted, which records are relevant, and which objections remain unresolved. It cannot write the outcome."
+          }
+        },
+        "technical": {
+          "rounds": "A run allows at most 2 revision rounds. Under protocol 1.3 it stops revising when a round resolves none of the objections the previous evaluation left open; runs recorded under protocol 1.2 compared the counts of unresolved objections instead.",
+          "bounds": "Each run is capped at 9 model calls, 20 distinct evidence records and a token budget (150,000 input and output tokens by default). The runtime checks the budget after each call, so a run can overshoot it by one call.",
+          "model": "In live runs, all three roles are played by Meta’s <code>muse-wonder-1.0</code>. Each response must match a strict schema with required fields, or the run fails with a recorded reason."
+        }
+      },
+      "not-voting": {
+        "title": "Consensus is not voting",
+        "summary": "No vote is taken. A deterministic runtime policy turns the Evaluator’s per-claim judgments and the proof statuses into a recommendation.",
+        "sections": {
+          "why": {
+            "heading": "Why not a vote",
+            "body": "Models agreeing with each other is not evidence. Hyphae Consensus asks a narrower question instead: does every claim rest on checked evidence, with no contradiction and no open objection?"
+          },
+          "rules": {
+            "heading": "The policy, in order",
+            "body": "The first rule that applies decides the outcome:",
+            "items": {
+              "blocked": "Any invalid proof in the retrieved evidence: <strong>blocked</strong>.",
+              "contradicted": "A record among the cited or contradicting evidence contradicts a claim: <strong>contested</strong>.",
+              "abstained": "The Evaluator abstained: <strong>abstained</strong>.",
+              "unresolved": "An objection is still unresolved: <strong>contested</strong>.",
+              "insufficient": "A claim is not corroborated, a corroborated claim cites no evidence of its own, cited evidence lacks a valid proof, or nothing was checked: <strong>insufficient evidence</strong>.",
+              "supported": "Otherwise: <strong>supported</strong>."
+            }
+          },
+          "deterministic": {
+            "heading": "Deterministic, not neutral",
+            "body": "The same judgments and proof statuses always give the same recommendation, and replay re-derives it from the log. But the judgments come from a model, so the policy is only as good as its input."
+          }
+        },
+        "technical": {
+          "versions": "These are the rules of policy 1.2, which protocol 1.3 keeps while widening their inputs. Under schema 1.1, abstention ranked above every contradiction; replay re-derives each recorded run with the rules of its own schema version.",
+          "final-round": "In runs recorded under protocol 1.2 the rules read the final round only, and the multi-agent (AI) audit of 27 October 2026 found two fail-open paths (MA-1, RT-1). Protocol 1.3 rejects inexact ids and carries every open objection and contradiction into later rounds; it has not yet been re-validated live."
+        }
+      },
+      "verified-evidence": {
+        "title": "Verified evidence",
+        "summary": "Every evidence record is judged on three separate axes: integrity, factual corroboration and relevance. A good result on one says nothing about the others.",
+        "sections": {
+          "integrity": {
+            "heading": "Integrity",
+            "body": "Checked by the runtime: does the proof that came with the record verify? The status is valid, invalid, unavailable, verification error or not checked."
+          },
+          "factual": {
+            "heading": "Factual corroboration",
+            "body": "Judged by the Evaluator: does the record corroborate or contradict the claim? The status is corroborated, uncorroborated, contradicted or not assessed."
+          },
+          "relevance": {
+            "heading": "Relevance",
+            "body": "Judged by the Evaluator: does the record bear on the claim at all? The status is relevant, irrelevant or not assessed."
+          },
+          "apart": {
+            "heading": "Why the axes stay apart",
+            "body": "A record can be authentic and still wrong, or true and beside the point. Keeping the axes separate stops a valid proof from passing as proof that a claim is true."
+          }
+        },
+        "technical": {
+          "valid": "Valid means that <code>hyphae proof verify</code> re-executed the recall against its sealed witness and reproduced the result; one proof covers a whole recall. Without an anchor pinned out of band, that shows internal consistency only, so the planned public live mode always pins one.",
+          "binding": "The adapter does not yet byte-compare the record text it gives the models with the proof, so today Valid attests the proof Hyphae returned with the record (audit finding HY-1).",
+          "simulated": "Guided runs use simulated proofs. Every record and receipt calls them SIMULATED, and the portal never shows them as real proofs."
+        }
+      },
+      "abstain-contested": {
+        "title": "Why the system abstains or ends contested",
+        "summary": "Contested and abstained are honest outcomes, not failures: they report that something is still open instead of turning uncertainty into confidence.",
+        "sections": {
+          "contested": {
+            "heading": "Contested",
+            "body": "A run ends contested when a record contradicts a claim, or when the Evaluator still judges a Critic objection unresolved. A recorded contradiction outranks an abstention, so abstaining cannot hide it."
+          },
+          "abstained": {
+            "heading": "Abstained",
+            "body": "The Evaluator can decline to judge, for example when the evidence does not cover the question. The run then ends abstained, unless a proof is invalid or a contradiction was recorded."
+          },
+          "others": {
+            "heading": "Blocked and insufficient evidence",
+            "body": "Any invalid proof in the retrieved evidence blocks the run, without a revision attempt. When a claim lacks corroboration by valid evidence it cites itself, the outcome is insufficient evidence."
+          },
+          "design": {
+            "heading": "Why this is by design",
+            "body": "Supported needs every claim corroborated by valid evidence it cites, no contradiction, no open objection and no invalid proof anywhere. Anything less is reported as it is, and the person who decides sees why."
+          }
+        },
+        "technical": {
+          "offline": "When Hyphae is unreachable, retrieval fails claim by claim and an evidence_unavailable event records the reason. With no checked evidence, a run can never be supported.",
+          "example": "In the final recorded battery of 27 October 2026 (runs F01 to F06), every final-round claim was corroborated by verified memory. All six runs still ended contested, because the Critic’s objections about missing tests and unproven risks were open."
+        }
+      },
+      "human-authorization": {
+        "title": "Why a human authorizes",
+        "summary": "Models propose, challenge and judge, but only a person can authorize a recommendation. Authorizing records a decision; nothing is executed.",
+        "sections": {
+          "only-human": {
+            "heading": "Only a person can authorize",
+            "body": "The state machine accepts a decision only from a human actor. No model output can approve, reject or write the outcome."
+          },
+          "record-only": {
+            "heading": "Approval records a decision only",
+            "body": "No executor exists: approving changes no code, repository or system. It adds the decision to the run’s log, where it can be audited."
+          },
+          "public": {
+            "heading": "Public decisions carry no authority",
+            "body": "In the public portal, visitors decide only on their own runs. Those decisions are recorded as public demo decisions, for simulation only, and carry no authority."
+          }
+        },
+        "technical": {
+          "token": "In the local operator console, recording a decision needs the operator token the server prints at startup, and approving a blocked or abstained run also needs a note.",
+          "idempotency": "Decisions carry idempotency keys scoped to their run, so a retried request records one decision, not two.",
+          "last-line": "The human step is the last line of defense: an Evaluator that obeyed injected text could still produce supported on valid evidence, so the person deciding should read the evidence."
+        }
+      },
+      "modes": {
+        "title": "Modes",
+        "summary": "The public portal is planned with three modes, and every run and event will say which one it comes from.",
+        "sections": {
+          "guided": {
+            "heading": "Guided (SIMULATED)",
+            "body": "Scripted roles and simulated evidence. A guided run will start instantly and call no model; its outcomes demonstrate the protocol, not how a live model behaves. Playback will be paced for readability, and the label will say so."
+          },
+          "live": {
+            "heading": "Live Meta (LIVE META + SEALED SNAPSHOT)",
+            "body": "Real calls to Meta’s <code>muse-wonder-1.0</code>, with evidence from a sealed Hyphae snapshot: a fixed set of synthetic records captured once and re-verified for every run. Curated presets only, no free text, and a daily budget."
+          },
+          "showcase": {
+            "heading": "Research showcase (RECORDED)",
+            "body": "Real runs recorded on 26 and 27 October 2026, to be replayed from a verbatim archive. They will be labeled RECORDED and never presented as live."
+          },
+          "build": {
+            "heading": "In this build",
+            "body": "None of the three modes is connected in this build of the portal."
+          }
+        },
+        "technical": {
+          "axes": "Labels will come from recorded data, never from the request: the model (scripted or live Meta), the evidence (simulated, sealed snapshot or live Hyphae), the source (this server or the research archive) and the delivery of each event (live or replay).",
+          "live-label": "LIVE META will be shown only for events delivered live from the live Meta model, and always next to the evidence label: SEALED SNAPSHOT in the public live mode, SIMULATED for the archived runs of a live model with simulated proofs (C03, S01 to S03).",
+          "language": "Presets and the model conversation stay in English, so claims match the English evidence records. Translated views mark model text as original English output."
+        }
+      }
+    }
+  }
+}

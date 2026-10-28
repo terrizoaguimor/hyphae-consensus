@@ -1,0 +1,201 @@
+{
+  "Legal": {
+    "draftBadge": "Brouillon",
+    "draftNotice": "Brouillon en attente de relecture par le responsable du projet. Ces textes décrivent le déploiement public prévu et ne s’appliquent qu’à son ouverture. Cette version n’est pas connectée à l’API de Hyphae Consensus.",
+    "updated": "Dernière mise à jour : {date, date, long}",
+    "terms": {
+      "lead": "Ces conditions s’appliquent au portail public de Hyphae Consensus. Elles sont courtes : lisez-les avant de lancer une exécution.",
+      "sections": {
+        "what": {
+          "heading": "Ce qu’est ce portail",
+          "body": "Hyphae Consensus est un prototype de recherche indépendant créé pour le Meta Global AI Developer Hackathon 2026. Il montre comment s’articulent trois rôles d’IA, un environnement d’exécution qui vérifie les éléments probants, une politique fixe et une décision humaine. Ce n’est ni un produit commercial ni un service professionnel, et il n’est ni affilié à Meta, ni parrainé ni approuvé par Meta."
+        },
+        "who": {
+          "heading": "Qui peut l’utiliser",
+          "items": {
+            "age": "Vous devez avoir 18 ans ou plus. Les exécutions en direct vous demandent de confirmer votre âge avant de commencer.",
+            "territories": "L’accès à l’ensemble du portail est bloqué, au niveau du pays, depuis les 21 territoires que la <geo>politique d’utilisation géographique</geo> de Meta désigne comme restreints. Hong Kong et Macao sont bloqués en tant que partie de la Chine. Toute l’Ukraine est bloquée, car les régions de Crimée, de Donetsk et de Louhansk, qui figurent sur la liste, ne peuvent pas être distinguées du reste du pays au niveau du pays. La Corée du Sud est bloquée pour le mode en direct uniquement, car le modèle Muse Wonder de Meta n’y est pas disponible."
+          }
+        },
+        "live": {
+          "heading": "Le mode en direct n’utilise que des tâches prédéfinies",
+          "body": "Les exécutions du mode Meta en direct partent uniquement de tâches prédéfinies et sélectionnées : vous ne pouvez pas envoyer votre propre texte au modèle. Le mode en direct dispose d’un budget quotidien. Lorsqu’il est épuisé, ou lorsque le mode en direct est occupé, le portail propose à la place une exécution enregistrée."
+        },
+        "use": {
+          "heading": "Utilisation acceptable",
+          "body": "Les exécutions en direct utilisent la Meta Model API : votre utilisation du portail doit donc respecter la <aup>politique d’utilisation acceptable</aup> de Meta. En particulier :",
+          "items": {
+            "bypass": "N’essayez pas de contourner les tâches prédéfinies, les limites, le blocage par territoire ou la vérification anti-robots.",
+            "harm": "N’utilisez pas le portail pour nuire à quiconque, le tromper ou le harceler.",
+            "human": "Ne présentez pas les sorties du portail comme si elles avaient été écrites par une personne."
+          }
+        },
+        "outputs": {
+          "heading": "Sorties générées par l’IA",
+          "body": "Dans les exécutions en direct, les propositions, critiques et évaluations sont générées par le modèle <code>muse-wonder-1.0</code> de Meta. Elles peuvent être fausses, incomplètes ou incohérentes, et elles sont signalées comme générées par l’IA. Les exécutions guidées sont scénarisées, et les exécutions enregistrées rejouent des sorties antérieures de modèles. Vérifiez par vous-même tout ce qui compte."
+        },
+        "execution": {
+          "heading": "Rien n’est exécuté",
+          "body": "Le portail n’exécute jamais une recommandation : il n’exécute aucun code d’une proposition, ne modifie aucun dépôt et n’effectue aucune action au-delà de ses propres enregistrements et des appels qu’il adresse à la Meta Model API et à Cloudflare Turnstile. Approuver une recommandation ne fait qu’enregistrer une décision."
+        },
+        "authority": {
+          "heading": "Les décisions publiques n’ont aucune autorité",
+          "body": "Les décisions enregistrées par les visiteurs sont des démonstrations. Elles sont signalées comme décisions publiques de démonstration et n’ont aucune autorité sur un projet, un système ou une personne."
+        },
+        "asis": {
+          "heading": "Fourni tel quel",
+          "body": "Le portail est un prototype de recherche fourni tel quel, sans garantie d’aucune sorte, expresse ou implicite, y compris d’adéquation à un usage particulier. Dans la mesure permise par la loi, le responsable n’est pas tenu pour responsable des dommages résultant de son utilisation ou de décisions prises sur la foi de ses sorties. Rien dans ces conditions ne limite les droits que le droit de la consommation vous accorde et auxquels il ne peut être renoncé."
+        },
+        "availability": {
+          "heading": "Disponibilité",
+          "body": "Le portail fonctionne pendant le hackathon et peu de temps après. Il peut être limité, suspendu ou fermé à tout moment, par exemple lorsque son budget est atteint, et les fichiers des exécutions sont supprimés au bout de 7 jours (l’<privacy>avis de confidentialité</privacy> indique ce qui subsiste)."
+        },
+        "privacy": {
+          "heading": "Confidentialité",
+          "body": "L’<privacy>avis de confidentialité</privacy> explique quelles données le portail traite et pendant combien de temps."
+        },
+        "contact": {
+          "heading": "Contact",
+          "body": "Les questions sur ces conditions sont à adresser au responsable, Mario Gutiérrez : <code>{contact}</code>."
+        }
+      }
+    },
+    "privacy": {
+      "lead": "Cet avis décrit les données que traite le déploiement public prévu du portail. Cette version n’est pas connectée à l’API : elle n’enregistre ni exécutions ni paramètres sur un serveur (vos paramètres restent dans votre navigateur), mais l’hébergeur et Cloudflare conservent des journaux de requêtes, comme décrit plus bas.",
+      "sections": {
+        "summary": {
+          "heading": "En bref",
+          "items": {
+            "none": "Aucun script de mesure d’audience ni de suivi dans les pages, aucune publicité et aucune vente de données.",
+            "what": "Le portail traite un cookie de session pseudonyme, une empreinte à clé (hachage) de votre adresse réseau pour les limites d’usage, les exécutions que vous lancez et les journaux de requêtes du serveur et de Cloudflare.",
+            "retention": "L’accès à une exécution expire au bout de 24 heures, et ses fichiers sont supprimés au bout de 7 jours ; il reste une entrée d’une ligne dans l’index et une entrée de coût."
+          }
+        },
+        "controller": {
+          "heading": "Qui est responsable",
+          "body": "Le responsable du traitement est Mario Gutiérrez, développeur indépendant, qui exploite le portail. Contact : <code>{contact}</code>."
+        },
+        "cookie": {
+          "heading": "Cookie de session",
+          "body": "Le portail crée un seul cookie de session pseudonyme afin de vous montrer vos propres exécutions et jamais celles des autres. Il contient un identifiant aléatoire, pas votre nom ni un compte. Il porte les attributs HttpOnly, Secure et SameSite=Strict : il n’est envoyé qu’en HTTPS, les scripts de la page ne peuvent pas le lire, et il n’est jamais envoyé avec des requêtes lancées depuis d’autres sites."
+        },
+        "rate-limits": {
+          "heading": "Limites d’usage",
+          "body": "Pour appliquer les limites d’usage, le serveur conserve une empreinte à clé de votre adresse réseau (en IPv6, de son préfixe /64) : un HMAC avec un secret que le serveur renouvelle, de sorte que l’adresse ne peut pas être retrouvée à partir de la table. Les tables sont en mémoire et de taille limitée. Elle ne sert à rien d’autre."
+        },
+        "runs": {
+          "heading": "Exécutions et sorties des modèles",
+          "body": "Lorsque vous lancez une exécution, le serveur en conserve le contenu : la tâche, les sorties des modèles, les enregistrements probants et les statuts des preuves, la recommandation et toute décision que vous enregistrez. L’accès à l’exécution depuis votre session expire au bout de 24 heures, et les fichiers de l’exécution sont supprimés en entier au bout de 7 jours."
+        },
+        "retention": {
+          "heading": "Pendant combien de temps",
+          "items": {
+            "runs": "Fichiers des exécutions : supprimés en entier 7 jours après l’exécution. Deux choses leur survivent : une entrée d’une ligne dans l’index des exécutions (identifiant, heure et hachage final) et l’entrée de coût de l’exécution dans le registre budgétaire du mode en direct. Ni l’une ni l’autre ne contient le texte de l’exécution.",
+            "addresses": "Empreintes à clé des adresses réseau : en mémoire seulement, dans des tables de taille limitée ; elles ne sont pas écrites sur disque et disparaissent au redémarrage du serveur ou lorsque la table les évince.",
+            "logs": "Journaux de requêtes du serveur, journaux du tunnel cloudflared et journaux système de la machine hôte : ils suivent la rotation des journaux de l’hôte.",
+            "operator": "Le journal détaillé de l’opérateur, indexé par identifiant de requête, qui conserve le détail des échecs pour le diagnostic : il est conservé par l’opérateur et n’est pas publié."
+          }
+        },
+        "meta": {
+          "heading": "Appels en direct à Meta",
+          "body": "Les exécutions du mode Meta en direct envoient à la Meta Model API la tâche prédéfinie, les enregistrements probants de l’instantané et les sorties antérieures des modèles dans cette exécution (propositions, critiques et évaluations), avec un identifiant de sécurité pseudonyme dérivé de votre session, et non de votre nom ou de votre adresse réseau. Aucun texte que vous saisissez n’est envoyé, car le mode en direct n’accepte que des tâches prédéfinies. Meta Platforms, Inc. traite ces données aux États-Unis selon les conditions propres à Meta."
+        },
+        "cloudflare": {
+          "heading": "Cloudflare et Turnstile",
+          "body": "Le portail est servi via Cloudflare, qui traite votre adresse IP et les données des requêtes pour fournir le site, bloquer les abus et appliquer le blocage par territoire, et qui conserve des statistiques de trafic pour chaque site qu’elle relaie. Cloudflare peut déposer ses propres cookies (tels que __cf_bm et cf_clearance) pour sa protection anti-robots. Cloudflare Turnstile, qui vérifie qu’un visiteur n’est pas un robot automatisé, traite des signaux liés à l’adresse IP et à l’appareil. Cloudflare, Inc. traite ces données aux États-Unis ; voir la <cloudflare>politique de confidentialité de Cloudflare</cloudflare>."
+        },
+        "hosting": {
+          "heading": "Hébergement",
+          "body": "Le serveur du portail est une machine Linux administrée par le responsable chez l’hébergeur du responsable (pays : <code>{hostingCountry}</code>), derrière Cloudflare. Il conserve les données décrites dans cet avis."
+        },
+        "basis": {
+          "heading": "Base légale et vos droits",
+          "body": "Pour les visiteurs de l’UE, de l’EEE et du Royaume-Uni : le cookie de session, les limites d’usage, la vérification anti-robots, le blocage par territoire et les journaux de requêtes reposent sur l’intérêt légitime du responsable à exploiter en sécurité un prototype public de recherche ; les exécutions que vous lancez, et les appels à Meta qu’elles impliquent, sont traités parce que vous les demandez. Il n’y a pas de comptes. Vous pouvez demander au responsable, au contact ci-dessus, l’accès aux données liées à votre session ou à un identifiant d’exécution, ou leur suppression ; les fichiers des exécutions sont de toute façon supprimés au bout de 7 jours. Vous pouvez aussi saisir votre autorité de protection des données."
+        },
+        "transfers": {
+          "heading": "Transferts hors de votre pays",
+          "body": "Les appels en direct vont à Meta Platforms, Inc. et le site est fourni via Cloudflare, Inc. ; toutes deux traitent les données décrites ci-dessus aux États-Unis, selon leurs propres conditions et garanties."
+        },
+        "browser": {
+          "heading": "Paramètres dans votre navigateur",
+          "body": "Le thème, la langue, les animations, le niveau d’explication et le fait d’avoir fermé la visite guidée sont enregistrés dans le stockage local de votre navigateur. Ils ne quittent jamais votre appareil, et vous pouvez les supprimer dans les <settings>Paramètres</settings>."
+        },
+        "not-done": {
+          "heading": "Ce que le portail ne fait pas",
+          "body": "Les pages ne contiennent aucun script de mesure d’audience ni de suivi, aucune publicité ni suivi d’un site à l’autre, et aucune donnée n’est vendue ni partagée à des fins marketing. Les statistiques de trafic de Cloudflare, décrites ci-dessus, sont les seules statistiques conservées."
+        },
+        "contact": {
+          "heading": "Contact",
+          "body": "Les questions et demandes concernant cet avis sont à adresser au responsable du traitement, Mario Gutiérrez : <code>{contact}</code>."
+        }
+      }
+    },
+    "limitations": {
+      "lead": "Ce que les résultats de Hyphae Consensus peuvent vous dire, et ce qu’ils ne peuvent pas vous dire.",
+      "sections": {
+        "integrity": {
+          "heading": "L’intégrité n’est pas la vérité",
+          "body": "Une preuve valide montre que la requête Hyphae qu’elle scelle se reproduit par rapport à son ancre fixée. Elle ne montre pas encore que le texte de l’enregistrement que vous voyez est celui que la preuve a scellé (constat d’audit HY-1), et elle ne montre jamais que l’enregistrement est exact, pertinent ou complet, ni qu’un modèle l’a réellement utilisé."
+        },
+        "policy": {
+          "heading": "La politique est fixe ; sa principale entrée ne l’est pas",
+          "body": "La recommandation vient d’une politique déterministe de l’environnement d’exécution, et non d’un modèle. Mais la principale entrée de cette politique est le jugement de l’Évaluateur des éléments probants sur chaque affirmation, et ce jugement est la sortie d’un modèle. « Les modèles ne décident jamais » est donc vrai dans la forme, pas sur le fond."
+        },
+        "outcomes": {
+          "heading": "Contestation et abstention sont des résultats normaux",
+          "body": "Une exécution qui finit contestée ou en abstention, c’est le système qui signale honnêtement des objections ouvertes, des contradictions ou des lacunes, au lieu de transformer l’incertitude en confiance."
+        },
+        "labels": {
+          "heading": "Les exécutions simulées et enregistrées sont signalées",
+          "body": "Les exécutions guidées utilisent des rôles scénarisés et des éléments probants simulés, et portent l’étiquette SIMULÉ ; une preuve simulée n’est jamais présentée comme réelle. Les exécutions archivées conservent les étiquettes avec lesquelles elles ont été enregistrées : une exécution scénarisée reste SIMULÉ, et une exécution avec un modèle en direct et des preuves simulées le dit à côté de META EN DIRECT. Dans la vitrine, elles sont présentées comme ENREGISTRÉ, jamais comme EN DIRECT."
+        },
+        "showcase": {
+          "heading": "Ce que la vitrine vous permet de revérifier",
+          "body": "Pour chaque exécution enregistrée, vous pouvez revérifier la chaîne d’événements par rapport au manifeste de l’archive. Les preuves de ces exécutions ont été vérifiées au moment où les exécutions ont eu lieu ; leurs fichiers de preuve et de témoin sont conservés en privé et ne peuvent pas être revérifiés depuis le portail."
+        },
+        "chain": {
+          "heading": "La chaîne de hachages n’est pas signée",
+          "body": "Les événements des exécutions sont chaînés par des hachages SHA-256, mais la chaîne n’est pas signée. Elle ne permet de détecter une altération que par rapport à un hachage de tête exporté auparavant : quelqu’un qui réécrit tout le journal et recalcule ses hachages peut produire une nouvelle chaîne cohérente."
+        },
+        "evidence": {
+          "heading": "Éléments probants synthétiques",
+          "body": "Les éléments probants proviennent d’un petit ensemble d’enregistrements synthétiques sur un dépôt de démonstration, chargés par l’opérateur. Ce ne sont pas des connaissances de production."
+        },
+        "prototype": {
+          "heading": "Un prototype",
+          "body": "Hyphae Consensus est un prototype de hackathon. Les lacunes relevées par son audit multi-agents (par IA) du 27 octobre 2026 sont documentées dans son dépôt. Le protocole 1.3 ferme les deux voies d’échec en mode ouvert relevées par l’audit (MA-1, RT-1) et n’a pas encore été revalidé en direct ; les autres corrections sont en cours."
+        }
+      }
+    }
+  },
+  "About": {
+    "lead": "Hyphae Consensus est un projet indépendant créé pour le Meta Global AI Developer Hackathon 2026, catégorie Indie Developer.",
+    "sections": {
+      "independent": {
+        "heading": "Indépendant",
+        "body": "Hyphae Consensus n’est ni affilié à Meta, ni parrainé ni approuvé par Meta. Il utilise le modèle <code>muse-wonder-1.0</code> de Meta via la Meta Model API."
+      },
+      "hyphae": {
+        "heading": "Hyphae",
+        "body": "Hyphae (Hyphae Core et Hyphae Agent Memory) est un projet open source antérieur du responsable lui-même, copyright Celiums Solutions LLC, sous licence Apache-2.0 (sa documentation sous CC-BY-SA-4.0) et figé au commit <code>418a3da</code> avant le début du hackathon. Hyphae Consensus ne l’utilise que par ses interfaces publiques et ne le présente pas comme un travail nouveau. Le nom « Hyphae » est une marque de Celiums Solutions LLC, utilisée avec son autorisation. Code source de Hyphae : <hyphae>github.com/Hyphae-Research-Foundation/hyphae</hyphae>."
+      },
+      "license": {
+        "heading": "Licence",
+        "body": "Ce dépôt est sous licence Apache License 2.0, copyright 2026 Mario Gutiérrez. La licence ne couvre que ce dépôt : Hyphae ne change pas de licence et conserve sa propre licence et ses propres mentions."
+      },
+      "ai": {
+        "heading": "Assistance par IA",
+        "body": "Le développement a utilisé des assistants de programmation par IA : Muse Code de Meta (avec Muse Wonder Full) et Claude d’Anthropic. Les commits auxquels Claude a contribué portent une ligne Co-Authored-By. Toute l’inférence au sein du produit passe uniquement par la Meta Model API (<code>muse-wonder-1.0</code>) ; les assistants de programmation ne font pas partie du produit et n’apparaissent jamais dans les reçus. Le responsable relit et autorise chaque modification."
+      },
+      "owner": {
+        "heading": "Responsable",
+        "body": "Mario Gutiérrez, développeur indépendant."
+      }
+    },
+    "source": {
+      "heading": "Code source",
+      "pending": "Le lien vers le dépôt du code source sera ajouté ici lorsque le dépôt sera publié.",
+      "link": "Dépôt du code source"
+    }
+  }
+}

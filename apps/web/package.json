@@ -15,7 +15,9 @@
     "test": "vitest run",
     "theme:build": "astryx theme build src/theme/hyphaeMissionTheme.ts",
     "theme:check": "astryx theme build src/theme/hyphaeMissionTheme.ts --check",
-    "check": "pnpm theme:check && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "check": "pnpm theme:check && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "serve": "node scripts/serve-static.mjs --dir out --port 4173 --csp",
+    "e2e": "node -e \"console.error('e2e: the Node container has no browsers. Run the suite with: sh apps/web/scripts/playwright-docker.sh'); process.exit(64)\""
   },
   "dependencies": {
     "@astryxdesign/core": "0.7.4",
@@ -29,6 +31,8 @@
   },
   "devDependencies": {
     "@astryxdesign/cli": "0.7.4",
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

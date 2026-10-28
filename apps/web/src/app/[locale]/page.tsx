@@ -1,57 +1,95 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Day-0 page per locale: header, a short description, sample provenance
-// badges and the non-affiliation footer. Its only links are this page in
-// each locale.
+// Overview: what Hyphae Consensus does, the main call to action, the optional
+// tour invitation, the provenance labels, and the impact metrics, which need
+// the API and are an honest placeholder in this build.
+//
+// The main button promises only what this build can do: while API_CONNECTED
+// is false it reads "How guided examples will work" and opens the Modes
+// article; once connected it reads "Run a guided example" and opens New
+// deliberation. The caveat under the buttons is not part of a button's
+// accessible name, so the name itself must not overpromise.
 
-import { Heading } from "@astryxdesign/core/Heading";
-import { Text } from "@astryxdesign/core/Text";
-import { notFound } from "next/navigation";
-import { hasLocale } from "next-intl";
-import { getTranslations, setRequestLocale } from "next-intl/server";
+import { Button } from "@astryxdesign/core/Button";
+import { getTranslations } from "next-intl/server";
 
-import { LocaleSwitcher } from "@/components/LocaleSwitcher";
+import { NotConnected } from "@/components/NotConnected";
+import { PageHeader } from "@/components/PageHeader";
 import { ProvenanceLabels } from "@/components/ProvenanceLabels";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { endonyms } from "@/i18n/endonyms";
-import { routing } from "@/i18n/routing";
+import { TourInvite } from "@/components/TourInvite";
+import { type LocaleParams, navPageMetadata, pageLocale } from "@/lib/pageLocale";
+import { API_CONNECTED, docPath, localePath } from "@/lib/site";
 
-export default async function HomePage({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}) {
-  const { locale } = await params;
-  if (!hasLocale(routing.locales, locale)) {
-    notFound();
-  }
-  setRequestLocale(locale);
-  const t = await getTranslations();
+const flowSteps = ["roles", "evidence", "policy", "human"] as const;
+
+export function generateMetadata({ params }: LocaleParams) {
+  return navPageMetadata(params, "overview");
+}
+
+export default async function OverviewPage({ params }: LocaleParams) {
+  const locale = await pageLocale(params);
+  const t = await getTranslations({ locale });
 
   return (
-    <div className="hc-page">
-      <header className="hc-header">
-        <p className="hc-wordmark">{t("App.name")}</p>
-        <div className="hc-header-controls">
-          <LocaleSwitcher current={locale} endonyms={endonyms} />
-          <ThemeToggle />
+    <>
+      <PageHeader
+        title={t("App.tagline")}
+        lead={t("App.intro")}
+        eyebrow={<p className="hc-eyebrow">{t("Nav.overview")}</p>}
+      >
+        <p className="hc-build-note">{t("App.buildNote")}</p>
+        <div className="hc-actions">
+          {API_CONNECTED ? (
+            <Button
+              href={localePath(locale, "new")}
+              variant="primary"
+              label={t("Overview.primaryAction")}
+            />
+          ) : (
+            <Button
+              href={docPath(locale, "modes")}
+              variant="primary"
+              label={t("Overview.primaryActionPlanned")}
+            />
+          )}
+          <Button
+            href={localePath(locale, "docs")}
+            variant="secondary"
+            label={t("Overview.secondaryAction")}
+          />
         </div>
-      </header>
-      <main className="hc-main">
-        <div className="hc-intro">
-          <Heading level={1}>{t("App.tagline")}</Heading>
-          <Text as="p">{t("App.intro")}</Text>
-          <Text as="p" color="secondary">
-            {t("App.scaffoldNote")}
-          </Text>
-        </div>
-        <ProvenanceLabels />
-      </main>
-      <footer className="hc-footer">
-        <Text as="p" type="supporting" color="secondary">
-          {t("Footer.nonAffiliation")}
-        </Text>
-      </footer>
-    </div>
+        {API_CONNECTED ? null : (
+          <p className="hc-supporting">{t("Overview.primaryActionNote")}</p>
+        )}
+      </PageHeader>
+
+      <TourInvite />
+
+      <section className="hc-section">
+        <h2 id="overview-flow">{t("Overview.flowHeading")}</h2>
+        {/* role="list": Safari drops list semantics when list-style is none. */}
+        <ol className="hc-flow" role="list">
+          {flowSteps.map((step) => (
+            <li key={step} className="hc-flow-step">
+              <h3>{t(`Overview.flow.${step}.title`)}</h3>
+              <p>{t(`Overview.flow.${step}.body`)}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <ProvenanceLabels />
+
+      <section className="hc-section">
+        <h2 id="overview-metrics">{t("Overview.metricsHeading")}</h2>
+        <NotConnected
+          locale={locale}
+          planned={[
+            t("Overview.metricsPlanned.computed"),
+            t("Overview.metricsPlanned.labeled"),
+          ]}
+        />
+      </section>
+    </>
   );
 }

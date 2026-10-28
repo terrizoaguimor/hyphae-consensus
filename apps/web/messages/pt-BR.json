@@ -1,13 +1,34 @@
 {
   "Metadata": {
     "title": "Hyphae Consensus",
+    "titleTemplate": "%s · Hyphae Consensus",
     "description": "Portal do Hyphae Consensus: raciocínio multiagente verificável e responsabilização nas decisões."
   },
   "App": {
     "name": "Hyphae Consensus",
     "tagline": "Raciocínio multiagente verificável e responsabilização nas decisões",
     "intro": "Três papéis de IA (Proponente, Crítico e Avaliador de evidências) trabalham sobre um problema de engenharia de software. O ambiente de execução busca evidências na memória do Hyphae e verifica suas provas, o Avaliador julga cada afirmação com base nessas evidências e uma política fixa transforma o resultado em uma recomendação. Só uma pessoa pode autorizá-la, e autorizar registra uma decisão sem executar nada.",
-    "scaffoldNote": "Esta página é um esboço inicial do portal. Ela mostra os rótulos que o portal vai usar; nada nela chama um modelo ou lê a memória."
+    "buildNote": "Esta versão do portal não está conectada à API do Hyphae Consensus. Ela explica o sistema e mostra os rótulos que vai usar; nada nela chama um modelo ou lê a memória."
+  },
+  "Shell": {
+    "skipToContent": "Pular para o conteúdo principal",
+    "primaryNavLabel": "Principal",
+    "footerNavLabel": "Páginas legais e do projeto",
+    "menuButton": "Menu",
+    "menuTitle": "Menu",
+    "menuClose": "Fechar menu"
+  },
+  "Nav": {
+    "overview": "Visão geral",
+    "new": "Nova deliberação",
+    "runs": "Minhas execuções",
+    "showcase": "Vitrine de pesquisa",
+    "docs": "Documentação",
+    "settings": "Configurações",
+    "terms": "Termos de uso",
+    "privacy": "Aviso de privacidade",
+    "limitations": "Limitações",
+    "about": "Sobre o projeto"
   },
   "Theme": {
     "darkTheme": "Tema escuro"
@@ -21,28 +42,185 @@
       "fr": "Francês"
     }
   },
-  "Provenance": {
-    "heading": "Rótulos de procedência",
-    "intro": "O portal indica de onde vem cada execução e cada evento:",
-    "simulated": {
-      "label": "SIMULADO",
-      "description": "Papéis roteirizados e evidências simuladas. Nenhum modelo é chamado."
+  "NotConnected": {
+    "badge": "Não conectado",
+    "message": "Esta tela se conecta à API do Hyphae Consensus; ela não está conectada nesta versão.",
+    "plannedHeading": "Quando conectada, esta tela vai:",
+    "related": "Relacionado"
+  },
+  "NotFound": {
+    "title": "Página não encontrada",
+    "body": "Este endereço não existe no portal do Hyphae Consensus ou mudou.",
+    "languages": "Abra a visão geral no seu idioma:"
+  },
+  "Overview": {
+    "primaryAction": "Executar um exemplo guiado",
+    "primaryActionPlanned": "Como os exemplos guiados vão funcionar",
+    "primaryActionNote": "As execuções guiadas precisam da API do Hyphae Consensus, que não está conectada nesta versão.",
+    "secondaryAction": "Como funciona",
+    "flowHeading": "Como funciona uma deliberação",
+    "flow": {
+      "roles": {
+        "title": "Três papéis deliberam",
+        "body": "O Proponente transforma uma tarefa em afirmações explícitas, o Crítico questiona premissas e riscos, e o Proponente pode revisar a proposta."
+      },
+      "evidence": {
+        "title": "O ambiente de execução verifica as evidências",
+        "body": "O ambiente de execução, e não um modelo, busca registros na memória do Hyphae e verifica suas provas de integridade."
+      },
+      "policy": {
+        "title": "Uma política fixa recomenda",
+        "body": "O Avaliador de evidências julga cada afirmação com base nas evidências, e uma política determinística transforma esses julgamentos e os status das provas em uma recomendação."
+      },
+      "human": {
+        "title": "Uma pessoa autoriza",
+        "body": "Só uma pessoa pode aprovar ou rejeitar. Aprovar registra uma decisão; nada é executado."
+      }
     },
-    "liveMeta": {
-      "label": "META AO VIVO",
-      "description": "Eventos de uma execução em andamento, gerados por chamadas ao vivo a um modelo da Meta."
-    },
-    "recorded": {
-      "label": "GRAVADO",
-      "description": "Uma execução real gravada anteriormente e exibida a partir do arquivo, não uma execução em andamento."
-    },
-    "replay": {
-      "label": "REPRODUÇÃO",
-      "description": "Eventos armazenados reproduzidos, não no momento em que acontecem."
+    "metricsHeading": "Métricas de impacto",
+    "metricsPlanned": {
+      "computed": "mostrar números calculados a partir das próprias execuções gravadas, nunca digitados na página;",
+      "labeled": "indicar em cada número as execuções, as datas e a versão da política de onde ele vem."
+    }
+  },
+  "NewDeliberation": {
+    "lead": "Aqui você vai iniciar uma deliberação em um de dois modos.",
+    "planned": {
+      "guided": "oferecer um exemplo guiado que começa na hora, com papéis roteirizados e evidências simuladas, com o rótulo SIMULADO e sem chamar nenhum modelo;",
+      "live": "oferecer as tarefas predefinidas e selecionadas do modo Meta ao vivo, que chamam o muse-wonder-1.0 da Meta com evidências de um snapshot selado do Hyphae (só tarefas predefinidas, sem texto livre; as execuções da última bateria gravada levaram cerca de 4 a 7 minutos);",
+      "fallback": "oferecer uma execução gravada no lugar quando o modo ao vivo estiver ocupado ou seu orçamento diário tiver acabado;",
+      "return": "permitir que você saia e volte à sua execução por Minhas execuções."
     }
   },
   "Runs": {
-    "count": "{count, plural, =0 {Nenhuma execução ainda} one {# execução} many {# de execuções} other {# execuções}}"
+    "count": "{count, plural, =0 {Nenhuma execução ainda} one {# execução} many {# de execuções} other {# execuções}}",
+    "lead": "Execuções iniciadas neste navegador.",
+    "planned": {
+      "own": "listar só as execuções iniciadas nesta sessão do navegador; não existe uma lista das execuções de outros visitantes;",
+      "expiry": "manter cada execução acessível por 24 horas e excluir seus arquivos após 7 dias;",
+      "status": "mostrar se uma execução ainda está deliberando, aguardando sua decisão ou já terminou."
+    }
+  },
+  "Showcase": {
+    "lead": "Execuções reais gravadas em 26 e 27 de outubro de 2026, que serão reproduzidas a partir de um arquivo que as preserva sem alterações.",
+    "planned": {
+      "recorded": "reproduzir cada execução a partir do arquivo, com o rótulo GRAVADO; uma reprodução nunca é apresentada como uma execução ao vivo;",
+      "corrections": "mostrar as correções datadas que se aplicam a cada execução;",
+      "manifest": "vincular cada execução ao seu log arquivado, cujo SHA-256 está fixado no manifesto do arquivo."
+    }
+  },
+  "Settings": {
+    "lead": "Suas escolhas ficam salvas só no armazenamento local deste navegador: sem cookies, e nada é enviado a um servidor.",
+    "theme": {
+      "label": "Tema",
+      "options": {
+        "system": "Igual ao sistema",
+        "light": "Claro",
+        "dark": "Escuro"
+      }
+    },
+    "language": {
+      "label": "Idioma",
+      "description": "Abre esta página no idioma escolhido e guarda essa escolha para a sua próxima visita."
+    },
+    "motion": {
+      "label": "Movimento",
+      "options": {
+        "system": "Igual ao sistema",
+        "reduce": "Reduzido"
+      },
+      "descriptions": {
+        "system": "Segue a configuração de reduzir movimento do seu dispositivo.",
+        "reduce": "Remove o movimento das transições; os esmaecimentos continuam curtos."
+      }
+    },
+    "explanation": {
+      "label": "Nível de explicação",
+      "options": {
+        "simple": "Simples",
+        "technical": "Técnico"
+      },
+      "descriptions": {
+        "simple": "Explicações em linguagem simples; os detalhes técnicos começam recolhidos.",
+        "technical": "Os detalhes técnicos começam expandidos na documentação, e as explicações das execuções vão usá-los quando a API estiver conectada."
+      }
+    },
+    "reset": {
+      "heading": "Configurações salvas",
+      "description": "Remove tudo o que este site salvou neste navegador: tema, idioma, movimento, nível de explicação e se você fechou o tour.",
+      "button": "Remover as configurações salvas"
+    },
+    "feedback": {
+      "theme": "Tema alterado para {value}. Salvo neste navegador.",
+      "language": "Idioma alterado para {value}. Salvo neste navegador.",
+      "motion": "Movimento alterado para {value}. Salvo neste navegador.",
+      "explanation": "Nível de explicação alterado para {value}. Salvo neste navegador.",
+      "reset": "Configurações salvas removidas. Padrões restaurados."
+    }
+  },
+  "Tour": {
+    "inviteTitle": "Primeira vez aqui? Faça o tour de um minuto",
+    "inviteText": "Seis passos curtos pelas ideias principais. Você pode pular a qualquer momento e abrir de novo pela documentação.",
+    "start": "Começar o tour",
+    "dismiss": "Não, obrigado",
+    "launch": "Fazer o tour",
+    "progress": "Passo {current} de {total}",
+    "announcement": "Passo {current} de {total}: {title}. {body}",
+    "back": "Voltar",
+    "next": "Avançar",
+    "finish": "Concluir",
+    "skip": "Pular o tour",
+    "steps": {
+      "welcome": {
+        "title": "Boas-vindas ao Hyphae Consensus",
+        "body": "Três papéis de IA trabalham sobre um problema de engenharia de software, o ambiente de execução verifica as evidências e uma política fixa recomenda. Só uma pessoa pode autorizar. Nesta versão o portal não está conectado, então suas telas dizem o que vão fazer."
+      },
+      "guided": {
+        "title": "Comece com um exemplo guiado",
+        "body": "Quando o portal estiver conectado, um exemplo guiado vai começar na hora. Seus papéis serão roteirizados e suas evidências, simuladas; por isso ele terá o rótulo SIMULADO e não vai chamar nenhum modelo."
+      },
+      "live": {
+        "title": "Tarefas predefinidas do modo Meta ao vivo",
+        "body": "As execuções ao vivo vão chamar o muse-wonder-1.0 da Meta com tarefas predefinidas e selecionadas, e com evidências de um snapshot selado do Hyphae. As execuções da última bateria gravada levaram cerca de 4 a 7 minutos. Quando o modo ao vivo estiver ocupado ou seu orçamento diário tiver acabado, uma execução gravada será oferecida no lugar."
+      },
+      "runs": {
+        "title": "Volte por Minhas execuções",
+        "body": "Uma execução vai continuar mesmo se você fechar a página. Você vai encontrá-la de novo em Minhas execuções, onde cada execução fica acessível por 24 horas."
+      },
+      "labels": {
+        "title": "Leia os rótulos",
+        "body": "Cada execução e cada evento vão dizer de onde vêm: SIMULADO, META AO VIVO ao lado do seu rótulo de evidências, GRAVADO ou REPRODUÇÃO. Uma prova válida mostra que o Hyphae consegue reproduzir a consulta selada de onde um registro veio, não que o registro seja verdadeiro."
+      },
+      "decide": {
+        "title": "Você decide, e nada é executado",
+        "body": "A recomendação vem de uma política determinística, não de uma votação. Aprovar só registra sua decisão: não existe nenhum executor, e as decisões tomadas no portal público não têm autoridade."
+      }
+    }
+  },
+  "Provenance": {
+    "heading": "Rótulos de procedência",
+    "intro": "Quando estiver conectado, o portal vai marcar cada execução e cada evento com a sua procedência, em eixos separados: o modelo (roteirizado ou Meta ao vivo), as evidências (simuladas ou um snapshot selado), a origem (este servidor ou o arquivo de pesquisa) e a entrega de cada evento (ao vivo ou reprodução). Os rótulos virão dos dados registrados, nunca da solicitação. O que eles vão significar:",
+    "simulated": {
+      "label": "SIMULADO",
+      "description": "Evidências simuladas: suas provas não são reais. Nas execuções guiadas os papéis também são roteirizados e nenhum modelo é chamado."
+    },
+    "liveMeta": {
+      "label": "META AO VIVO",
+      "evidence": "SNAPSHOT SELADO",
+      "description": "Uma execução em andamento: chamadas ao vivo ao muse-wonder-1.0 da Meta, com evidências de um snapshot selado do Hyphae cujas provas são verificadas de novo a cada execução. META AO VIVO nunca aparece sozinho; o rótulo das evidências fica sempre ao lado."
+    },
+    "hybrid": {
+      "description": "Um modelo ao vivo com evidências simuladas: chamadas reais ao modelo, mas provas que não são reais. Algumas execuções do arquivo de pesquisa são desse tipo, e seus rótulos dizem isso."
+    },
+    "recorded": {
+      "label": "GRAVADO",
+      "description": "Uma execução real gravada anteriormente e exibida a partir do arquivo de pesquisa, não uma execução em andamento. Ela mantém os rótulos de modelo e de evidências com que foi gravada."
+    },
+    "replay": {
+      "label": "REPRODUÇÃO",
+      "description": "Eventos armazenados reproduzidos, não no momento em que acontecem. Uma execução gravada sempre é exibida como reprodução."
+    },
+    "note": "Uma prova válida mostra que o Hyphae consegue reproduzir a consulta selada de onde um registro veio, não que o registro seja verdadeiro, relevante ou completo, nem que um modelo o tenha usado."
   },
   "Footer": {
     "nonAffiliation": "Projeto independente; não é afiliado à Meta, nem patrocinado ou endossado pela Meta."

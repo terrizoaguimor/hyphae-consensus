@@ -1,0 +1,198 @@
+{
+  "Docs": {
+    "lead": "Explicações curtas de como o Hyphae Consensus funciona e do que seus resultados significam.",
+    "buildNote": "As telas do portal que executam deliberações não estão conectadas nesta versão; estas páginas descrevem o sistema como ele funciona hoje e o portal público como está planejado.",
+    "articlesHeading": "Artigos",
+    "tourHeading": "Tour de um minuto",
+    "tourText": "Seis passos curtos pelas ideias principais. Você pode pular a qualquer momento.",
+    "levelHeading": "Simples ou técnico",
+    "levelText": "Cada artigo começa com um resumo em linguagem simples. Os detalhes técnicos ficam em uma seção recolhida; escolha Técnico em <settings>Configurações</settings> para que eles apareçam expandidos.",
+    "inShort": "Em resumo",
+    "technicalSummary": "Detalhes técnicos",
+    "pagerLabel": "Mais documentação",
+    "previous": "Anterior: {title}",
+    "next": "Próximo: {title}",
+    "allDocs": "Toda a documentação",
+    "articles": {
+      "what-is": {
+        "title": "O que é o Hyphae Consensus",
+        "summary": "O Hyphae Consensus coloca três papéis de IA para trabalhar sobre um problema de engenharia de software, confere suas afirmações com uma memória verificável e transforma o resultado em uma recomendação que só uma pessoa pode autorizar.",
+        "sections": {
+          "roles": {
+            "heading": "Três papéis deliberam",
+            "body": "Um Proponente sugere uma solução como um conjunto de afirmações, um Crítico questiona suas premissas e riscos, e o Proponente pode revisá-la. Em seguida, um Avaliador de evidências julga cada afirmação com base nas evidências."
+          },
+          "runtime": {
+            "heading": "O ambiente de execução verifica as evidências",
+            "body": "O ambiente de execução, e não um modelo, busca registros no Hyphae Agent Memory e verifica suas provas de integridade. Uma política fixa combina os julgamentos do Avaliador com os status das provas para chegar a uma recomendação."
+          },
+          "human": {
+            "heading": "Uma pessoa decide",
+            "body": "Nenhum modelo pode aprovar. Só uma pessoa pode autorizar uma recomendação, e autorizar registra a decisão sem executar nada."
+          }
+        },
+        "technical": {
+          "runtime": "O ambiente de execução é escrito em Rust: contratos tipados, uma máquina de estados determinística e um log de eventos somente de acréscimo cujos registros são encadeados por hashes SHA-256. A cadeia é verificada quando um log é aberto, e a reprodução deriva de novo cada recomendação registrada no esquema 1.1 ou posterior.",
+          "integrations": "Os modelos são chamados pela Meta Model API (<code>muse-wonder-1.0</code>, saída estruturada). O Hyphae é lido pela sua interface MCP com ferramentas somente de leitura, e as provas são verificadas offline com <code>hyphae proof verify</code>.",
+          "untrusted": "A memória recuperada e as saídas de outros modelos são tratadas como dados não confiáveis, nunca como instruções."
+        }
+      },
+      "three-roles": {
+        "title": "Por que três papéis",
+        "summary": "Dividir o trabalho entre um Proponente, um Crítico e um Avaliador de evidências torna cada passo visível e deixa a discordância aparecer, em vez de ser diluída em uma média.",
+        "sections": {
+          "proposer": {
+            "heading": "Proponente",
+            "body": "Propõe uma solução para a tarefa como afirmações, premissas e testes explícitos, e a revisa quando o Crítico levanta objeções."
+          },
+          "critic": {
+            "heading": "Crítico",
+            "body": "Questiona a proposta: testes que faltam, riscos não comprovados, conflitos com as restrições do projeto. Suas objeções ficam abertas até que o Avaliador as considere resolvidas."
+          },
+          "evaluator": {
+            "heading": "Avaliador de evidências",
+            "body": "Julga cada afirmação com base nas evidências que o ambiente de execução buscou: se ela é corroborada ou contradita, quais registros são relevantes e quais objeções continuam sem solução. Ele não pode escrever o resultado."
+          }
+        },
+        "technical": {
+          "rounds": "Uma execução permite no máximo 2 rodadas de revisão. No protocolo 1.3, ela para de revisar quando uma rodada não resolve nenhuma das objeções que a avaliação anterior deixou em aberto; as execuções gravadas no protocolo 1.2 comparavam, em vez disso, o número de objeções sem solução.",
+          "bounds": "Cada execução tem um limite de 9 chamadas a modelos, 20 registros de evidência distintos e um orçamento de tokens (150.000 tokens de entrada e saída por padrão). O ambiente de execução confere o orçamento depois de cada chamada, então uma execução pode ultrapassá-lo em uma chamada.",
+          "model": "Nas execuções ao vivo, os três papéis são desempenhados pelo <code>muse-wonder-1.0</code> da Meta. Cada resposta precisa seguir um esquema estrito com campos obrigatórios; caso contrário, a execução falha com um motivo registrado."
+        }
+      },
+      "not-voting": {
+        "title": "Consenso não é votação",
+        "summary": "Não há votação. Uma política determinística do ambiente de execução transforma os julgamentos do Avaliador sobre cada afirmação e os status das provas em uma recomendação.",
+        "sections": {
+          "why": {
+            "heading": "Por que não uma votação",
+            "body": "Modelos concordando entre si não são evidência. O Hyphae Consensus faz uma pergunta mais precisa: cada afirmação se apoia em evidências verificadas, sem contradição e sem objeção aberta?"
+          },
+          "rules": {
+            "heading": "A política, em ordem",
+            "body": "A primeira regra que se aplica decide o resultado:",
+            "items": {
+              "blocked": "Alguma prova inválida nas evidências buscadas: <strong>bloqueada</strong> (<en>blocked</en>).",
+              "contradicted": "Um registro entre as evidências citadas ou contraditórias contradiz uma afirmação: <strong>contestada</strong> (<en>contested</en>).",
+              "abstained": "O Avaliador se absteve: <strong>abstenção</strong> (<en>abstained</en>).",
+              "unresolved": "Alguma objeção continua sem solução: <strong>contestada</strong> (<en>contested</en>).",
+              "insufficient": "Uma afirmação não é corroborada, uma afirmação corroborada não cita evidência própria, a evidência citada não tem prova válida ou nada foi verificado: <strong>evidências insuficientes</strong> (<en>insufficient evidence</en>).",
+              "supported": "Em qualquer outro caso: <strong>sustentada</strong> (<en>supported</en>)."
+            }
+          },
+          "deterministic": {
+            "heading": "Determinística, não neutra",
+            "body": "Os mesmos julgamentos e status das provas sempre dão a mesma recomendação, e a reprodução a deriva de novo a partir do log. Mas os julgamentos vêm de um modelo, então a política só é tão boa quanto suas entradas."
+          }
+        },
+        "technical": {
+          "versions": "Estas são as regras da política 1.2, que o protocolo 1.3 mantém enquanto amplia as suas entradas. No esquema 1.1, a abstenção tinha prioridade sobre qualquer contradição; a reprodução deriva de novo cada execução gravada com as regras da sua própria versão de esquema.",
+          "final-round": "Nas execuções gravadas no protocolo 1.2, as regras liam só a rodada final, e a auditoria multiagente (com IA) de 27 de outubro de 2026 encontrou dois caminhos de falha aberta (MA-1, RT-1). O protocolo 1.3 rejeita identificadores inexatos e leva cada objeção aberta e cada contradição para as rodadas seguintes; ele ainda não foi validado de novo ao vivo."
+        }
+      },
+      "verified-evidence": {
+        "title": "Evidências verificadas",
+        "summary": "Cada registro de evidência é julgado em três eixos separados: integridade, corroboração dos fatos e relevância. Um bom resultado em um deles não diz nada sobre os outros.",
+        "sections": {
+          "integrity": {
+            "heading": "Integridade",
+            "body": "Verificada pelo ambiente de execução: a prova que acompanha o registro é verificada? O status é válido, inválido, indisponível, erro de verificação ou não verificado."
+          },
+          "factual": {
+            "heading": "Corroboração dos fatos",
+            "body": "Julgada pelo Avaliador: o registro corrobora ou contradiz a afirmação? O status é corroborado, não corroborado, contradito ou não avaliado."
+          },
+          "relevance": {
+            "heading": "Relevância",
+            "body": "Julgada pelo Avaliador: o registro tem relação com a afirmação? O status é relevante, irrelevante ou não avaliado."
+          },
+          "apart": {
+            "heading": "Por que os eixos ficam separados",
+            "body": "Um registro pode ser autêntico e ainda assim estar errado, ou ser verdadeiro e não vir ao caso. Manter os eixos separados impede que uma prova válida passe por prova de que uma afirmação é verdadeira."
+          }
+        },
+        "technical": {
+          "valid": "Válido significa que o <code>hyphae proof verify</code> executou de novo a consulta contra sua testemunha selada e reproduziu o resultado; uma prova cobre uma consulta inteira. Sem uma âncora fixada por um canal independente, isso só mostra coerência interna, por isso o modo público ao vivo planejado sempre fixa uma.",
+          "binding": "O adaptador ainda não compara byte a byte o texto do registro que entrega aos modelos com a prova, então hoje Válido atesta a prova que o Hyphae devolveu com o registro (achado de auditoria HY-1).",
+          "simulated": "As execuções guiadas usam provas simuladas. Cada registro e cada recibo as identificam como SIMULADAS, e o portal nunca as mostra como provas reais."
+        }
+      },
+      "abstain-contested": {
+        "title": "Por que o sistema se abstém ou termina contestado",
+        "summary": "Contestação e abstenção são resultados honestos, não falhas: eles informam que algo continua em aberto, em vez de transformar a incerteza em confiança.",
+        "sections": {
+          "contested": {
+            "heading": "Contestada",
+            "body": "Uma execução termina contestada quando um registro contradiz uma afirmação, ou quando o Avaliador ainda considera sem solução uma objeção do Crítico. Uma contradição registrada tem prioridade sobre uma abstenção, então se abster não pode escondê-la."
+          },
+          "abstained": {
+            "heading": "Abstenção",
+            "body": "O Avaliador pode se recusar a julgar, por exemplo quando as evidências não cobrem a pergunta. A execução termina então em abstenção, a menos que uma prova seja inválida ou que uma contradição tenha sido registrada."
+          },
+          "others": {
+            "heading": "Bloqueada e evidências insuficientes",
+            "body": "Qualquer prova inválida nas evidências buscadas bloqueia a execução, sem tentativa de revisão. Quando falta a uma afirmação a corroboração de evidências válidas que ela mesma cite, o resultado é evidências insuficientes."
+          },
+          "design": {
+            "heading": "Por que isso é proposital",
+            "body": "Sustentada exige que cada afirmação seja corroborada por evidências válidas que ela cite, sem contradição, sem objeção aberta e sem nenhuma prova inválida. Qualquer outra situação é informada como é, e a pessoa que decide vê o porquê."
+          }
+        },
+        "technical": {
+          "offline": "Quando o Hyphae está inacessível, a busca falha afirmação por afirmação e um evento evidence_unavailable registra o motivo. Sem evidências verificadas, uma execução nunca pode ser sustentada.",
+          "example": "Na última bateria gravada, de 27 de outubro de 2026 (execuções F01 a F06), todas as afirmações da rodada final foram corroboradas por memória verificada. Mesmo assim, as seis execuções terminaram contestadas, porque as objeções do Crítico sobre testes faltando e riscos não comprovados continuavam abertas."
+        }
+      },
+      "human-authorization": {
+        "title": "Por que uma pessoa autoriza",
+        "summary": "Os modelos propõem, questionam e julgam, mas só uma pessoa pode autorizar uma recomendação. Autorizar registra uma decisão; nada é executado.",
+        "sections": {
+          "only-human": {
+            "heading": "Só uma pessoa pode autorizar",
+            "body": "A máquina de estados aceita uma decisão apenas de um ator humano. Nenhuma saída de modelo pode aprovar, rejeitar ou escrever o resultado."
+          },
+          "record-only": {
+            "heading": "Aprovar só registra uma decisão",
+            "body": "Não existe nenhum executor: aprovar não altera código, repositórios nem sistemas. A decisão é acrescentada ao log da execução, onde pode ser auditada."
+          },
+          "public": {
+            "heading": "Decisões públicas não têm autoridade",
+            "body": "No portal público, os visitantes decidem apenas sobre as próprias execuções. Essas decisões são registradas como decisões públicas de demonstração, só como simulação, e não têm autoridade."
+          }
+        },
+        "technical": {
+          "token": "No console local do operador, registrar uma decisão exige o token de operador que o servidor exibe ao iniciar, e aprovar uma execução bloqueada ou em abstenção também exige uma nota.",
+          "idempotency": "As decisões levam chaves de idempotência restritas à sua execução, então uma solicitação repetida registra uma única decisão, não duas.",
+          "last-line": "A etapa humana é a última linha de defesa: um Avaliador que obedecesse a texto injetado ainda poderia produzir sustentada com evidências válidas, por isso a pessoa que decide deve ler as evidências."
+        }
+      },
+      "modes": {
+        "title": "Modos",
+        "summary": "O portal público está planejado com três modos, e cada execução e cada evento vão dizer de qual deles vêm.",
+        "sections": {
+          "guided": {
+            "heading": "Guiado (SIMULADO)",
+            "body": "Papéis roteirizados e evidências simuladas. Uma execução guiada vai começar na hora e não vai chamar nenhum modelo; seus resultados demonstram o protocolo, não como um modelo ao vivo se comporta. A reprodução vai seguir um ritmo pensado para a leitura, e o rótulo vai dizer isso."
+          },
+          "live": {
+            "heading": "Meta ao vivo (META AO VIVO + SNAPSHOT SELADO)",
+            "body": "Chamadas reais ao <code>muse-wonder-1.0</code> da Meta, com evidências de um snapshot selado do Hyphae: um conjunto fixo de registros sintéticos capturado uma vez e verificado de novo a cada execução. Só tarefas predefinidas e selecionadas, sem texto livre, e com um orçamento diário."
+          },
+          "showcase": {
+            "heading": "Vitrine de pesquisa (GRAVADO)",
+            "body": "Execuções reais gravadas em 26 e 27 de outubro de 2026, que serão reproduzidas a partir de um arquivo que as preserva sem alterações. Elas terão o rótulo GRAVADO e nunca serão apresentadas como ao vivo."
+          },
+          "build": {
+            "heading": "Nesta versão",
+            "body": "Nenhum dos três modos está conectado nesta versão do portal."
+          }
+        },
+        "technical": {
+          "axes": "Os rótulos virão dos dados registrados, nunca da solicitação: o modelo (roteirizado ou Meta ao vivo), as evidências (simuladas, snapshot selado ou Hyphae ao vivo), a origem (este servidor ou o arquivo de pesquisa) e a entrega de cada evento (ao vivo ou reprodução).",
+          "live-label": "META AO VIVO só será exibido para eventos entregues ao vivo pelo modelo da Meta ao vivo, e sempre ao lado do rótulo das evidências: SNAPSHOT SELADO no modo público ao vivo, SIMULADO nas execuções arquivadas de um modelo ao vivo com provas simuladas (C03, S01 a S03).",
+          "language": "As tarefas predefinidas e a conversa com o modelo ficam em inglês, para que as afirmações correspondam aos registros de evidência em inglês. As telas traduzidas marcam o texto do modelo como saída original em inglês."
+        }
+      }
+    }
+  }
+}

@@ -1,13 +1,34 @@
 {
   "Metadata": {
     "title": "Hyphae Consensus",
+    "titleTemplate": "%s · Hyphae Consensus",
     "description": "Portal de Hyphae Consensus: razonamiento multiagente verificable y rendición de cuentas en las decisiones."
   },
   "App": {
     "name": "Hyphae Consensus",
     "tagline": "Razonamiento multiagente verificable y rendición de cuentas en las decisiones",
     "intro": "Tres roles de IA (Proponente, Crítico y Evaluador de evidencia) trabajan sobre un problema de ingeniería de software. El entorno de ejecución obtiene evidencia de la memoria de Hyphae y verifica sus pruebas, el Evaluador juzga cada afirmación frente a esa evidencia y una política fija convierte el resultado en una recomendación. Solo una persona puede autorizarla, y autorizar registra una decisión sin ejecutar nada.",
-    "scaffoldNote": "Esta página es un esbozo inicial del portal. Muestra las etiquetas que usará el portal; nada en ella llama a un modelo ni lee la memoria."
+    "buildNote": "Esta versión del portal no está conectada a la API de Hyphae Consensus. Explica el sistema y muestra las etiquetas que usará; nada en ella llama a un modelo ni lee la memoria."
+  },
+  "Shell": {
+    "skipToContent": "Saltar al contenido principal",
+    "primaryNavLabel": "Principal",
+    "footerNavLabel": "Páginas legales y del proyecto",
+    "menuButton": "Menú",
+    "menuTitle": "Menú",
+    "menuClose": "Cerrar menú"
+  },
+  "Nav": {
+    "overview": "Resumen",
+    "new": "Nueva deliberación",
+    "runs": "Mis ejecuciones",
+    "showcase": "Vitrina de investigación",
+    "docs": "Documentación",
+    "settings": "Configuración",
+    "terms": "Términos de uso",
+    "privacy": "Aviso de privacidad",
+    "limitations": "Limitaciones",
+    "about": "Acerca del proyecto"
   },
   "Theme": {
     "darkTheme": "Tema oscuro"
@@ -21,28 +42,185 @@
       "fr": "Francés"
     }
   },
-  "Provenance": {
-    "heading": "Etiquetas de procedencia",
-    "intro": "El portal indica de dónde proviene cada ejecución y cada evento:",
-    "simulated": {
-      "label": "SIMULADO",
-      "description": "Roles con guion y evidencia simulada. No se llama a ningún modelo."
+  "NotConnected": {
+    "badge": "No conectado",
+    "message": "Esta vista se conecta a la API de Hyphae Consensus; no está conectada en esta versión.",
+    "plannedHeading": "Una vez conectada, esta vista:",
+    "related": "Relacionado"
+  },
+  "NotFound": {
+    "title": "Página no encontrada",
+    "body": "Esta dirección no existe en el portal de Hyphae Consensus o ha cambiado.",
+    "languages": "Abre el resumen en tu idioma:"
+  },
+  "Overview": {
+    "primaryAction": "Ejecutar un ejemplo guiado",
+    "primaryActionPlanned": "Cómo funcionarán los ejemplos guiados",
+    "primaryActionNote": "Las ejecuciones guiadas necesitan la API de Hyphae Consensus, que no está conectada en esta versión.",
+    "secondaryAction": "Cómo funciona",
+    "flowHeading": "Cómo funciona una deliberación",
+    "flow": {
+      "roles": {
+        "title": "Tres roles deliberan",
+        "body": "El Proponente convierte una tarea en afirmaciones explícitas, el Crítico cuestiona supuestos y riesgos, y el Proponente puede revisar su propuesta."
+      },
+      "evidence": {
+        "title": "El entorno de ejecución verifica la evidencia",
+        "body": "El entorno de ejecución, no un modelo, obtiene registros de la memoria de Hyphae y verifica sus pruebas de integridad."
+      },
+      "policy": {
+        "title": "Una política fija recomienda",
+        "body": "El Evaluador de evidencia juzga cada afirmación frente a la evidencia, y una política determinista convierte esos juicios y los estados de las pruebas en una recomendación."
+      },
+      "human": {
+        "title": "Una persona autoriza",
+        "body": "Solo una persona puede aprobar o rechazar. Aprobar registra una decisión; no se ejecuta nada."
+      }
     },
-    "liveMeta": {
-      "label": "META EN VIVO",
-      "description": "Eventos de una ejecución en curso, producidos por llamadas en vivo a un modelo de Meta."
-    },
-    "recorded": {
-      "label": "GRABADO",
-      "description": "Una ejecución real grabada antes y mostrada desde el archivo, no una ejecución en curso."
-    },
-    "replay": {
-      "label": "REPRODUCCIÓN",
-      "description": "Eventos almacenados que se reproducen, no en el momento en que ocurren."
+    "metricsHeading": "Métricas de impacto",
+    "metricsPlanned": {
+      "computed": "mostrará cifras calculadas a partir de las propias ejecuciones grabadas, nunca escritas a mano en la página;",
+      "labeled": "indicará en cada cifra las ejecuciones, las fechas y la versión de la política de las que proviene."
+    }
+  },
+  "NewDeliberation": {
+    "lead": "Aquí iniciarás una deliberación en uno de dos modos.",
+    "planned": {
+      "guided": "ofrecerá un ejemplo guiado que empieza al instante, con roles que siguen un guion y evidencia simulada, con la etiqueta SIMULADO y sin llamar a ningún modelo;",
+      "live": "ofrecerá las tareas predefinidas y seleccionadas del modo «Meta en vivo», que llaman a muse-wonder-1.0 de Meta con evidencia de una instantánea sellada de Hyphae (solo tareas predefinidas, sin texto libre; las ejecuciones de la última batería grabada tardaron entre 4 y 7 minutos aproximadamente);",
+      "fallback": "ofrecerá en su lugar una ejecución grabada cuando el modo en vivo esté ocupado o se haya agotado su presupuesto diario;",
+      "return": "te permitirá salir y volver a tu ejecución desde Mis ejecuciones."
     }
   },
   "Runs": {
-    "count": "{count, plural, =0 {Todavía no hay ejecuciones} one {# ejecución} many {# de ejecuciones} other {# ejecuciones}}"
+    "count": "{count, plural, =0 {Todavía no hay ejecuciones} one {# ejecución} many {# de ejecuciones} other {# ejecuciones}}",
+    "lead": "Ejecuciones iniciadas en este navegador.",
+    "planned": {
+      "own": "listará solo las ejecuciones iniciadas en esta sesión del navegador; no existe una lista de las ejecuciones de otros visitantes;",
+      "expiry": "mantendrá cada ejecución accesible durante 24 horas y eliminará sus archivos después de 7 días;",
+      "status": "mostrará si una ejecución sigue deliberando, espera tu decisión o ya terminó."
+    }
+  },
+  "Showcase": {
+    "lead": "Ejecuciones reales grabadas el 26 y el 27 de octubre de 2026, que se reproducirán desde un archivo que las conserva sin cambios.",
+    "planned": {
+      "recorded": "reproducirá cada ejecución desde el archivo, con la etiqueta GRABADO; una reproducción nunca se presenta como una ejecución en vivo;",
+      "corrections": "mostrará las correcciones fechadas que se aplican a cada ejecución;",
+      "manifest": "enlazará cada ejecución con su registro archivado, cuyo SHA-256 está fijado en el manifiesto del archivo."
+    }
+  },
+  "Settings": {
+    "lead": "Tus preferencias se guardan solo en el almacenamiento local de este navegador: sin cookies, y nada se envía a un servidor.",
+    "theme": {
+      "label": "Tema",
+      "options": {
+        "system": "Igual que el sistema",
+        "light": "Claro",
+        "dark": "Oscuro"
+      }
+    },
+    "language": {
+      "label": "Idioma",
+      "description": "Abre esta página en el idioma elegido y lo recuerda para tu próxima visita."
+    },
+    "motion": {
+      "label": "Movimiento",
+      "options": {
+        "system": "Igual que el sistema",
+        "reduce": "Reducido"
+      },
+      "descriptions": {
+        "system": "Sigue la opción de reducir el movimiento de tu dispositivo.",
+        "reduce": "Quita el movimiento de las transiciones; los fundidos siguen siendo breves."
+      }
+    },
+    "explanation": {
+      "label": "Nivel de explicación",
+      "options": {
+        "simple": "Sencillo",
+        "technical": "Técnico"
+      },
+      "descriptions": {
+        "simple": "Explicaciones en lenguaje sencillo; los detalles técnicos empiezan contraídos.",
+        "technical": "Los detalles técnicos empiezan desplegados en la documentación, y las explicaciones de las ejecuciones los usarán cuando la API esté conectada."
+      }
+    },
+    "reset": {
+      "heading": "Preferencias guardadas",
+      "description": "Elimina todo lo que este sitio guardó en este navegador: tema, idioma, movimiento, nivel de explicación y si cerraste el recorrido.",
+      "button": "Eliminar las preferencias guardadas"
+    },
+    "feedback": {
+      "theme": "Tema cambiado a {value}. Guardado en este navegador.",
+      "language": "Idioma cambiado a {value}. Guardado en este navegador.",
+      "motion": "Movimiento cambiado a {value}. Guardado en este navegador.",
+      "explanation": "Nivel de explicación cambiado a {value}. Guardado en este navegador.",
+      "reset": "Preferencias guardadas eliminadas. Se restablecieron los valores predeterminados."
+    }
+  },
+  "Tour": {
+    "inviteTitle": "¿Es tu primera visita? Haz el recorrido de un minuto",
+    "inviteText": "Seis pasos breves por las ideas principales. Puedes saltarlo en cualquier momento y volver a abrirlo desde la documentación.",
+    "start": "Empezar el recorrido",
+    "dismiss": "No, gracias",
+    "launch": "Hacer el recorrido",
+    "progress": "Paso {current} de {total}",
+    "announcement": "Paso {current} de {total}: {title}. {body}",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "finish": "Terminar",
+    "skip": "Saltar el recorrido",
+    "steps": {
+      "welcome": {
+        "title": "Te damos la bienvenida a Hyphae Consensus",
+        "body": "Tres roles de IA trabajan sobre un problema de ingeniería de software, el entorno de ejecución verifica la evidencia y una política fija recomienda. Solo una persona puede autorizar. En esta versión el portal no está conectado, así que sus vistas indican lo que harán."
+      },
+      "guided": {
+        "title": "Empieza con un ejemplo guiado",
+        "body": "Cuando el portal esté conectado, un ejemplo guiado empezará al instante. Sus roles seguirán un guion y su evidencia será simulada, por eso llevará la etiqueta SIMULADO y no llamará a ningún modelo."
+      },
+      "live": {
+        "title": "Tareas predefinidas del modo «Meta en vivo»",
+        "body": "Las ejecuciones en vivo llamarán a muse-wonder-1.0 de Meta con tareas predefinidas y seleccionadas, y con evidencia de una instantánea sellada de Hyphae. Las ejecuciones de la última batería grabada tardaron entre 4 y 7 minutos aproximadamente. Si el modo en vivo está ocupado o se agotó su presupuesto diario, se ofrecerá una ejecución grabada en su lugar."
+      },
+      "runs": {
+        "title": "Vuelve desde Mis ejecuciones",
+        "body": "Una ejecución seguirá en marcha aunque cierres la página. La encontrarás de nuevo en Mis ejecuciones, donde cada ejecución queda accesible durante 24 horas."
+      },
+      "labels": {
+        "title": "Lee las etiquetas",
+        "body": "Cada ejecución y cada evento indicarán de dónde provienen: SIMULADO, META EN VIVO junto a su etiqueta de evidencia, GRABADO o REPRODUCCIÓN. Una prueba válida demuestra que Hyphae puede reproducir la consulta sellada de la que proviene un registro, no que el registro sea verdadero."
+      },
+      "decide": {
+        "title": "Tú decides, y nada se ejecuta",
+        "body": "La recomendación proviene de una política determinista, no de una votación. Aprobar solo registra tu decisión: no existe ningún ejecutor, y las decisiones tomadas en el portal público no tienen autoridad."
+      }
+    }
+  },
+  "Provenance": {
+    "heading": "Etiquetas de procedencia",
+    "intro": "Cuando esté conectado, el portal marcará cada ejecución y cada evento con su procedencia, en ejes separados: el modelo (con guion o Meta en vivo), la evidencia (simulada o una instantánea sellada), el origen (este servidor o el archivo de investigación) y la entrega de cada evento (en vivo o reproducción). Las etiquetas provendrán de los datos registrados, nunca de la solicitud. Qué significarán:",
+    "simulated": {
+      "label": "SIMULADO",
+      "description": "Evidencia simulada: sus pruebas no son reales. En las ejecuciones guiadas los roles también siguen un guion y no se llama a ningún modelo."
+    },
+    "liveMeta": {
+      "label": "META EN VIVO",
+      "evidence": "INSTANTÁNEA SELLADA",
+      "description": "Una ejecución en curso: llamadas en vivo a muse-wonder-1.0 de Meta, con evidencia de una instantánea sellada de Hyphae cuyas pruebas se verifican de nuevo en cada ejecución. META EN VIVO nunca aparece sola; la etiqueta de la evidencia siempre va a su lado."
+    },
+    "hybrid": {
+      "description": "Un modelo en vivo con evidencia simulada: llamadas reales al modelo, pero pruebas que no son reales. Algunas ejecuciones del archivo de investigación son de este tipo, y sus etiquetas lo indican."
+    },
+    "recorded": {
+      "label": "GRABADO",
+      "description": "Una ejecución real grabada antes y mostrada desde el archivo de investigación, no una ejecución en curso. Conserva las etiquetas de modelo y de evidencia con las que se grabó."
+    },
+    "replay": {
+      "label": "REPRODUCCIÓN",
+      "description": "Eventos almacenados que se reproducen, no en el momento en que ocurren. Una ejecución grabada siempre se muestra como reproducción."
+    },
+    "note": "Una prueba válida demuestra que Hyphae puede reproducir la consulta sellada de la que proviene un registro, no que el registro sea verdadero, relevante o completo, ni que un modelo lo haya usado."
   },
   "Footer": {
     "nonAffiliation": "Proyecto independiente; no está afiliado a Meta, ni patrocinado ni respaldado por Meta."

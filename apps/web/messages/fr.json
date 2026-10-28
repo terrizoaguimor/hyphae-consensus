@@ -1,13 +1,34 @@
 {
   "Metadata": {
     "title": "Hyphae Consensus",
-    "description": "Portail Hyphae Consensus : raisonnement multi-agents vérifiable et responsabilité des décisions."
+    "titleTemplate": "%s · Hyphae Consensus",
+    "description": "Portail Hyphae Consensus : raisonnement multi-agents vérifiable et responsabilité des décisions."
   },
   "App": {
     "name": "Hyphae Consensus",
     "tagline": "Raisonnement multi-agents vérifiable et responsabilité des décisions",
     "intro": "Trois rôles d’IA (Proposant, Critique et Évaluateur des éléments probants) travaillent sur un problème de génie logiciel. L’environnement d’exécution récupère des éléments probants dans la mémoire Hyphae et vérifie leurs preuves, l’Évaluateur juge chaque affirmation au regard de ces éléments, et une politique fixe transforme le résultat en recommandation. Seule une personne peut l’autoriser, et autoriser enregistre une décision sans rien exécuter.",
-    "scaffoldNote": "Cette page est une première ébauche du portail. Elle présente les étiquettes que le portail utilisera ; rien sur cette page n’appelle de modèle ni ne lit la mémoire."
+    "buildNote": "Cette version du portail n’est pas connectée à l’API de Hyphae Consensus. Elle explique le système et présente les étiquettes qu’il utilisera ; rien n’y appelle de modèle ni ne lit la mémoire."
+  },
+  "Shell": {
+    "skipToContent": "Aller au contenu principal",
+    "primaryNavLabel": "Principale",
+    "footerNavLabel": "Pages juridiques et du projet",
+    "menuButton": "Menu",
+    "menuTitle": "Menu",
+    "menuClose": "Fermer le menu"
+  },
+  "Nav": {
+    "overview": "Vue d’ensemble",
+    "new": "Nouvelle délibération",
+    "runs": "Mes exécutions",
+    "showcase": "Vitrine de recherche",
+    "docs": "Documentation",
+    "settings": "Paramètres",
+    "terms": "Conditions d’utilisation",
+    "privacy": "Avis de confidentialité",
+    "limitations": "Limites",
+    "about": "À propos"
   },
   "Theme": {
     "darkTheme": "Thème sombre"
@@ -21,30 +42,187 @@
       "fr": "Français"
     }
   },
-  "Provenance": {
-    "heading": "Étiquettes de provenance",
-    "intro": "Le portail indique la provenance de chaque exécution et de chaque événement :",
-    "simulated": {
-      "label": "SIMULÉ",
-      "description": "Rôles scénarisés et éléments probants simulés. Aucun modèle n’est appelé."
+  "NotConnected": {
+    "badge": "Non connecté",
+    "message": "Cette vue se connecte à l’API de Hyphae Consensus ; elle n’est pas connectée dans cette version.",
+    "plannedHeading": "Une fois connectée, cette vue :",
+    "related": "Voir aussi"
+  },
+  "NotFound": {
+    "title": "Page introuvable",
+    "body": "Cette adresse n’existe pas sur le portail Hyphae Consensus, ou elle a changé.",
+    "languages": "Ouvrir la vue d’ensemble dans votre langue :"
+  },
+  "Overview": {
+    "primaryAction": "Lancer un exemple guidé",
+    "primaryActionPlanned": "Comment fonctionneront les exemples guidés",
+    "primaryActionNote": "Les exécutions guidées nécessitent l’API de Hyphae Consensus, qui n’est pas connectée dans cette version.",
+    "secondaryAction": "Comment ça marche",
+    "flowHeading": "Comment se déroule une délibération",
+    "flow": {
+      "roles": {
+        "title": "Trois rôles délibèrent",
+        "body": "Le Proposant transforme une tâche en affirmations explicites, le Critique remet en cause les hypothèses et les risques, et le Proposant peut réviser sa proposition."
+      },
+      "evidence": {
+        "title": "L’environnement d’exécution vérifie les éléments probants",
+        "body": "L’environnement d’exécution, et non un modèle, récupère des enregistrements dans la mémoire Hyphae et vérifie leurs preuves d’intégrité."
+      },
+      "policy": {
+        "title": "Une politique fixe recommande",
+        "body": "L’Évaluateur des éléments probants juge chaque affirmation au regard des éléments probants, et une politique déterministe transforme ces jugements et les statuts des preuves en recommandation."
+      },
+      "human": {
+        "title": "Une personne autorise",
+        "body": "Seule une personne peut approuver ou rejeter. Approuver enregistre une décision ; rien n’est exécuté."
+      }
     },
-    "liveMeta": {
-      "label": "META EN DIRECT",
-      "description": "Événements d’une exécution en cours, produits par des appels en direct à un modèle de Meta."
-    },
-    "recorded": {
-      "label": "ENREGISTRÉ",
-      "description": "Une exécution réelle enregistrée auparavant et présentée depuis l’archive, et non une exécution en cours."
-    },
-    "replay": {
-      "label": "REJEU",
-      "description": "Événements enregistrés rejoués, et non au moment où ils se produisent."
+    "metricsHeading": "Indicateurs d’impact",
+    "metricsPlanned": {
+      "computed": "affichera des chiffres calculés à partir des exécutions enregistrées elles-mêmes, jamais saisis à la main dans la page ;",
+      "labeled": "indiquera pour chaque chiffre les exécutions, les dates et la version de la politique dont il provient."
+    }
+  },
+  "NewDeliberation": {
+    "lead": "C’est ici que vous lancerez une délibération dans l’un des deux modes.",
+    "planned": {
+      "guided": "proposera un exemple guidé qui démarre immédiatement, avec des rôles scénarisés et des éléments probants simulés, étiqueté SIMULÉ et sans appel à un modèle ;",
+      "live": "proposera les tâches prédéfinies et sélectionnées du mode Meta en direct, qui appellent muse-wonder-1.0 de Meta avec des éléments probants issus d’un instantané scellé de Hyphae (tâches prédéfinies uniquement, sans texte libre ; les exécutions de la dernière batterie enregistrée ont pris environ 4 à 7 minutes) ;",
+      "fallback": "proposera à la place une exécution enregistrée lorsque le mode en direct est occupé ou que son budget quotidien est épuisé ;",
+      "return": "vous permettra de partir et de revenir à votre exécution depuis Mes exécutions."
     }
   },
   "Runs": {
-    "count": "{count, plural, =0 {Aucune exécution pour l’instant} one {# exécution} many {# d’exécutions} other {# exécutions}}"
+    "count": "{count, plural, =0 {Aucune exécution pour l’instant} one {# exécution} many {# d’exécutions} other {# exécutions}}",
+    "lead": "Exécutions lancées dans ce navigateur.",
+    "planned": {
+      "own": "listera uniquement les exécutions lancées dans cette session du navigateur ; il n’existe aucune liste des exécutions des autres visiteurs ;",
+      "expiry": "gardera chaque exécution accessible pendant 24 heures et supprimera ses fichiers au bout de 7 jours ;",
+      "status": "indiquera si une exécution est encore en délibération, attend votre décision ou est terminée."
+    }
+  },
+  "Showcase": {
+    "lead": "Des exécutions réelles enregistrées les 26 et 27 octobre 2026, qui seront rejouées depuis une archive qui les conserve à l’identique.",
+    "planned": {
+      "recorded": "rejouera chaque exécution depuis l’archive, avec l’étiquette ENREGISTRÉ ; un rejeu n’est jamais présenté comme une exécution en direct ;",
+      "corrections": "affichera les corrections datées qui s’appliquent à chaque exécution ;",
+      "manifest": "reliera chaque exécution à son journal archivé, dont le SHA-256 est fixé dans le manifeste de l’archive."
+    }
+  },
+  "Settings": {
+    "lead": "Vos choix sont enregistrés uniquement dans le stockage local de ce navigateur : aucun cookie, et rien n’est envoyé à un serveur.",
+    "theme": {
+      "label": "Thème",
+      "options": {
+        "system": "Comme le système",
+        "light": "Clair",
+        "dark": "Sombre"
+      }
+    },
+    "language": {
+      "label": "Langue",
+      "description": "Ouvre cette page dans la langue choisie et la retient pour votre prochaine visite."
+    },
+    "motion": {
+      "label": "Animations",
+      "options": {
+        "system": "Comme le système",
+        "reduce": "Réduites"
+      },
+      "descriptions": {
+        "system": "Suit le réglage de réduction des animations de votre appareil.",
+        "reduce": "Supprime les mouvements des transitions ; les fondus restent courts."
+      }
+    },
+    "explanation": {
+      "label": "Niveau d’explication",
+      "options": {
+        "simple": "Simple",
+        "technical": "Technique"
+      },
+      "descriptions": {
+        "simple": "Explications en langage courant ; les détails techniques sont d’abord repliés.",
+        "technical": "Les détails techniques sont d’abord dépliés dans la documentation, et les explications des exécutions les utiliseront une fois l’API connectée."
+      }
+    },
+    "reset": {
+      "heading": "Paramètres enregistrés",
+      "description": "Supprime tout ce que ce site a enregistré dans ce navigateur : thème, langue, animations, niveau d’explication et le fait d’avoir fermé la visite guidée.",
+      "button": "Supprimer les paramètres enregistrés"
+    },
+    "feedback": {
+      "theme": "Thème : {value}. Choix enregistré dans ce navigateur.",
+      "language": "Langue : {value}. Choix enregistré dans ce navigateur.",
+      "motion": "Animations : {value}. Choix enregistré dans ce navigateur.",
+      "explanation": "Niveau d’explication : {value}. Choix enregistré dans ce navigateur.",
+      "reset": "Paramètres enregistrés supprimés. Valeurs par défaut rétablies."
+    }
+  },
+  "Tour": {
+    "inviteTitle": "Première visite ? Suivez la visite guidée d’une minute",
+    "inviteText": "Six courtes étapes sur les idées principales. Vous pouvez la passer à tout moment et la rouvrir depuis la documentation.",
+    "start": "Commencer la visite",
+    "dismiss": "Non merci",
+    "launch": "Suivre la visite guidée",
+    "progress": "Étape {current} sur {total}",
+    "announcement": "Étape {current} sur {total} : {title}. {body}",
+    "back": "Retour",
+    "next": "Suivant",
+    "finish": "Terminer",
+    "skip": "Passer la visite",
+    "steps": {
+      "welcome": {
+        "title": "Bienvenue dans Hyphae Consensus",
+        "body": "Trois rôles d’IA travaillent sur un problème de génie logiciel, l’environnement d’exécution vérifie les éléments probants et une politique fixe recommande. Seule une personne peut autoriser. Dans cette version, le portail n’est pas connecté : ses vues indiquent ce qu’elles feront."
+      },
+      "guided": {
+        "title": "Commencez par un exemple guidé",
+        "body": "Une fois le portail connecté, un exemple guidé démarrera immédiatement. Ses rôles seront scénarisés et ses éléments probants simulés : il sera donc étiqueté SIMULÉ et n’appellera aucun modèle."
+      },
+      "live": {
+        "title": "Tâches prédéfinies du mode Meta en direct",
+        "body": "Les exécutions en direct appelleront muse-wonder-1.0 de Meta sur des tâches prédéfinies et sélectionnées, avec des éléments probants issus d’un instantané scellé de Hyphae. Les exécutions de la dernière batterie enregistrée ont pris environ 4 à 7 minutes. Lorsque le mode en direct sera occupé ou que son budget quotidien sera épuisé, une exécution enregistrée sera proposée à la place."
+      },
+      "runs": {
+        "title": "Revenez par Mes exécutions",
+        "body": "Une exécution se poursuit même si vous fermez la page. Vous la retrouverez dans Mes exécutions, où chaque exécution reste accessible pendant 24 heures."
+      },
+      "labels": {
+        "title": "Lisez les étiquettes",
+        "body": "Chaque exécution et chaque événement indiqueront leur provenance : SIMULÉ, META EN DIRECT à côté de son étiquette d’éléments probants, ENREGISTRÉ ou REJEU. Une preuve valide montre que Hyphae peut reproduire la requête scellée dont provient un enregistrement, pas que cet enregistrement est vrai."
+      },
+      "decide": {
+        "title": "Vous décidez, et rien n’est exécuté",
+        "body": "La recommandation vient d’une politique déterministe, pas d’un vote. Approuver enregistre seulement votre décision : aucun exécuteur n’existe, et les décisions prises sur le portail public n’ont aucune autorité."
+      }
+    }
+  },
+  "Provenance": {
+    "heading": "Étiquettes de provenance",
+    "intro": "Une fois connecté, le portail marquera chaque exécution et chaque événement de sa provenance, sur des axes distincts : le modèle (scénarisé ou Meta en direct), les éléments probants (simulés ou un instantané scellé), la source (ce serveur ou l’archive de recherche) et la diffusion de chaque événement (en direct ou rejeu). Les étiquettes proviendront des données enregistrées, jamais de la requête. Ce qu’elles signifieront :",
+    "simulated": {
+      "label": "SIMULÉ",
+      "description": "Éléments probants simulés : leurs preuves ne sont pas réelles. Dans les exécutions guidées, les rôles sont eux aussi scénarisés et aucun modèle n’est appelé."
+    },
+    "liveMeta": {
+      "label": "META EN DIRECT",
+      "evidence": "INSTANTANÉ SCELLÉ",
+      "description": "Une exécution en cours : des appels en direct à muse-wonder-1.0 de Meta, avec des éléments probants issus d’un instantané scellé de Hyphae dont les preuves sont revérifiées à chaque exécution. META EN DIRECT n’apparaît jamais seule ; l’étiquette des éléments probants est toujours à côté."
+    },
+    "hybrid": {
+      "description": "Un modèle en direct avec des éléments probants simulés : de vrais appels au modèle, mais des preuves qui ne sont pas réelles. Certaines exécutions de l’archive de recherche sont de ce type, et leurs étiquettes le disent."
+    },
+    "recorded": {
+      "label": "ENREGISTRÉ",
+      "description": "Une exécution réelle enregistrée auparavant et présentée depuis l’archive de recherche, et non une exécution en cours. Elle conserve les étiquettes de modèle et d’éléments probants avec lesquelles elle a été enregistrée."
+    },
+    "replay": {
+      "label": "REJEU",
+      "description": "Des événements enregistrés rejoués, et non au moment où ils se produisent. Une exécution enregistrée est toujours présentée en rejeu."
+    },
+    "note": "Une preuve valide montre que Hyphae peut reproduire la requête scellée dont provient un enregistrement, pas que cet enregistrement est vrai, pertinent ou complet, ni qu’un modèle l’a utilisé."
   },
   "Footer": {
-    "nonAffiliation": "Projet indépendant ; non affilié à Meta, ni parrainé ni approuvé par Meta."
+    "nonAffiliation": "Projet indépendant ; non affilié à Meta, ni parrainé ni approuvé par Meta."
   }
 }

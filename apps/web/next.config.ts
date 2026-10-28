@@ -11,6 +11,12 @@ const nextConfig: NextConfig = {
   output: "export",
   // /en/ -> out/en/index.html
   trailingSlash: true,
+  experimental: {
+    // src/app/global-not-found.tsx renders out/404.html as a whole document
+    // (lang, theme, language links). The app has two root layouts, so no
+    // not-found.tsx could do that. Experimental in Next 16.4.
+    globalNotFound: true,
+  },
 };
 
 export default withNextIntl(nextConfig);

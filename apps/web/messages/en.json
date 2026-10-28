@@ -1,13 +1,34 @@
 {
   "Metadata": {
     "title": "Hyphae Consensus",
+    "titleTemplate": "%s · Hyphae Consensus",
     "description": "Hyphae Consensus portal: verifiable multi-agent reasoning and decision accountability."
   },
   "App": {
     "name": "Hyphae Consensus",
     "tagline": "Verifiable multi-agent reasoning and decision accountability",
     "intro": "Three AI roles (Proposer, Critic and Evidence Evaluator) work through a software-engineering problem. The runtime retrieves evidence from Hyphae memory and verifies its proofs, the Evaluator judges each claim against that evidence, and a fixed policy turns the result into a recommendation. Only a person can authorize it, and authorizing records a decision without executing anything.",
-    "scaffoldNote": "This page is an early scaffold of the portal. It shows the labels the portal will use; nothing on it calls a model or reads memory."
+    "buildNote": "This build of the portal is not connected to the Hyphae Consensus API. It explains the system and shows the labels it will use; nothing in it calls a model or reads memory."
+  },
+  "Shell": {
+    "skipToContent": "Skip to main content",
+    "primaryNavLabel": "Primary",
+    "footerNavLabel": "Legal and project pages",
+    "menuButton": "Menu",
+    "menuTitle": "Menu",
+    "menuClose": "Close menu"
+  },
+  "Nav": {
+    "overview": "Overview",
+    "new": "New deliberation",
+    "runs": "My runs",
+    "showcase": "Research showcase",
+    "docs": "Docs",
+    "settings": "Settings",
+    "terms": "Terms of use",
+    "privacy": "Privacy notice",
+    "limitations": "Limitations",
+    "about": "About"
   },
   "Theme": {
     "darkTheme": "Dark theme"
@@ -21,28 +42,185 @@
       "fr": "French"
     }
   },
-  "Provenance": {
-    "heading": "Provenance labels",
-    "intro": "The portal marks where each run and event comes from:",
-    "simulated": {
-      "label": "SIMULATED",
-      "description": "Scripted roles and simulated evidence. No model is called."
+  "NotConnected": {
+    "badge": "Not connected",
+    "message": "This view connects to the Hyphae Consensus API; it is not connected in this build.",
+    "plannedHeading": "Once connected, this view will:",
+    "related": "Related"
+  },
+  "NotFound": {
+    "title": "Page not found",
+    "body": "This address does not exist on the Hyphae Consensus portal, or it has moved.",
+    "languages": "Open the overview in your language:"
+  },
+  "Overview": {
+    "primaryAction": "Run a guided example",
+    "primaryActionPlanned": "How guided examples will work",
+    "primaryActionNote": "Guided runs need the Hyphae Consensus API, which is not connected in this build.",
+    "secondaryAction": "How it works",
+    "flowHeading": "How a deliberation works",
+    "flow": {
+      "roles": {
+        "title": "Three roles deliberate",
+        "body": "The Proposer turns a task into explicit claims, the Critic challenges assumptions and risks, and the Proposer can revise."
+      },
+      "evidence": {
+        "title": "The runtime checks evidence",
+        "body": "The runtime, not a model, retrieves records from Hyphae memory and verifies their integrity proofs."
+      },
+      "policy": {
+        "title": "A fixed policy recommends",
+        "body": "The Evidence Evaluator judges each claim against the evidence, and a deterministic policy turns those judgments and the proof statuses into a recommendation."
+      },
+      "human": {
+        "title": "A person authorizes",
+        "body": "Only a person can approve or reject. Approving records a decision; nothing is executed."
+      }
     },
-    "liveMeta": {
-      "label": "LIVE META",
-      "description": "Events from a run in progress, produced by live calls to a Meta model."
-    },
-    "recorded": {
-      "label": "RECORDED",
-      "description": "A real run recorded earlier and shown from the archive, not a run in progress."
-    },
-    "replay": {
-      "label": "REPLAY",
-      "description": "Stored events played back, not as they happen."
+    "metricsHeading": "Impact metrics",
+    "metricsPlanned": {
+      "computed": "show figures computed from the recorded runs themselves, never typed into the page;",
+      "labeled": "label every figure with the runs, dates and policy version it comes from."
+    }
+  },
+  "NewDeliberation": {
+    "lead": "Here you will start a deliberation in one of two modes.",
+    "planned": {
+      "guided": "offer a guided example that starts instantly, with scripted roles and simulated evidence, labeled SIMULATED and calling no model;",
+      "live": "offer the curated presets of the Live Meta mode, which call Meta’s muse-wonder-1.0 with evidence from a sealed Hyphae snapshot (presets only, no free text; runs of the final recorded battery took about 4 to 7 minutes);",
+      "fallback": "offer a recorded run instead when live mode is busy or its daily budget is used up;",
+      "return": "let you leave and come back to your run through My runs."
     }
   },
   "Runs": {
-    "count": "{count, plural, =0 {No runs yet} one {# run} other {# runs}}"
+    "count": "{count, plural, =0 {No runs yet} one {# run} other {# runs}}",
+    "lead": "Runs started in this browser.",
+    "planned": {
+      "own": "list only the runs started in this browser session; there is no list of other visitors’ runs;",
+      "expiry": "keep each run reachable for 24 hours and delete its files after 7 days;",
+      "status": "show whether a run is still deliberating, awaiting your decision or finished."
+    }
+  },
+  "Showcase": {
+    "lead": "Real runs recorded on 26 and 27 October 2026, to be replayed from a verbatim archive.",
+    "planned": {
+      "recorded": "replay each run from the archive, labeled RECORDED; a replay is never presented as a live run;",
+      "corrections": "show the dated corrections that apply to each run;",
+      "manifest": "link each run to its archived log, whose SHA-256 is pinned in the archive’s manifest."
+    }
+  },
+  "Settings": {
+    "lead": "Your choices are saved in this browser’s local storage only: no cookies, and nothing is sent to a server.",
+    "theme": {
+      "label": "Theme",
+      "options": {
+        "system": "Match system",
+        "light": "Light",
+        "dark": "Dark"
+      }
+    },
+    "language": {
+      "label": "Language",
+      "description": "Opens this page in the chosen language and remembers it for your next visit."
+    },
+    "motion": {
+      "label": "Motion",
+      "options": {
+        "system": "Match system",
+        "reduce": "Reduced"
+      },
+      "descriptions": {
+        "system": "Follows your device’s reduce-motion setting.",
+        "reduce": "Removes movement from transitions; fades stay short."
+      }
+    },
+    "explanation": {
+      "label": "Explanation level",
+      "options": {
+        "simple": "Simple",
+        "technical": "Technical"
+      },
+      "descriptions": {
+        "simple": "Plain-language explanations; technical details start collapsed.",
+        "technical": "Technical details start expanded in Docs, and run explanations will use them once the API is connected."
+      }
+    },
+    "reset": {
+      "heading": "Saved settings",
+      "description": "Removes everything this site saved in this browser: theme, language, motion, explanation level and whether you closed the tour.",
+      "button": "Remove saved settings"
+    },
+    "feedback": {
+      "theme": "Theme set to {value}. Saved in this browser.",
+      "language": "Language set to {value}. Saved in this browser.",
+      "motion": "Motion set to {value}. Saved in this browser.",
+      "explanation": "Explanation level set to {value}. Saved in this browser.",
+      "reset": "Saved settings removed. Defaults restored."
+    }
+  },
+  "Tour": {
+    "inviteTitle": "New here? Take the one-minute tour",
+    "inviteText": "Six short steps through the main ideas. You can skip it at any time and open it again from Docs.",
+    "start": "Start the tour",
+    "dismiss": "No, thanks",
+    "launch": "Take the tour",
+    "progress": "Step {current} of {total}",
+    "announcement": "Step {current} of {total}: {title}. {body}",
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "skip": "Skip tour",
+    "steps": {
+      "welcome": {
+        "title": "Welcome to Hyphae Consensus",
+        "body": "Three AI roles work through a software-engineering problem, the runtime checks the evidence, and a fixed policy recommends. Only a person can authorize. In this build the portal is not connected, so its views say what they will do."
+      },
+      "guided": {
+        "title": "Start with a guided example",
+        "body": "Once the portal is connected, a guided example will start instantly. Its roles will be scripted and its evidence simulated, so it will be labeled SIMULATED and will call no model."
+      },
+      "live": {
+        "title": "Live Meta presets",
+        "body": "Live runs will call Meta’s muse-wonder-1.0 on curated presets, with evidence from a sealed Hyphae snapshot. Runs of the final recorded battery took about 4 to 7 minutes. When live mode is busy or its daily budget is used up, a recorded run will be offered instead."
+      },
+      "runs": {
+        "title": "Come back through My runs",
+        "body": "A run will keep going if you close the page. You will find it again in My runs, where each run stays reachable for 24 hours."
+      },
+      "labels": {
+        "title": "Read the labels",
+        "body": "Every run and event will say where it comes from: SIMULATED, LIVE META next to its evidence label, RECORDED or REPLAY. A valid proof shows that Hyphae can reproduce the sealed recall a record came from, not that the record is true."
+      },
+      "decide": {
+        "title": "You decide, and nothing executes",
+        "body": "The recommendation comes from a deterministic policy, not from a vote. Approving records your decision only: no executor exists, and decisions made in the public portal carry no authority."
+      }
+    }
+  },
+  "Provenance": {
+    "heading": "Provenance labels",
+    "intro": "Once connected, the portal will mark every run and event with where it comes from, on separate axes: the model (scripted or live Meta), the evidence (simulated or a sealed snapshot), the source (this server or the research archive) and the delivery of each event (live or replay). Labels will come from recorded data, never from the request. What they will mean:",
+    "simulated": {
+      "label": "SIMULATED",
+      "description": "Simulated evidence: its proofs are not real. In guided runs the roles are scripted too and no model is called."
+    },
+    "liveMeta": {
+      "label": "LIVE META",
+      "evidence": "SEALED SNAPSHOT",
+      "description": "A run in progress: live calls to Meta’s muse-wonder-1.0, with evidence from a sealed Hyphae snapshot whose proofs are re-verified for every run. LIVE META never stands alone; the evidence label is always next to it."
+    },
+    "hybrid": {
+      "description": "A live model with simulated evidence: real model calls, but proofs that are not real. Some runs in the research archive are of this kind, and their labels say so."
+    },
+    "recorded": {
+      "label": "RECORDED",
+      "description": "A real run recorded earlier and shown from the research archive, not a run in progress. It keeps the model and evidence labels it was recorded with."
+    },
+    "replay": {
+      "label": "REPLAY",
+      "description": "Stored events played back, not as they happen. A recorded run always plays as a replay."
+    },
+    "note": "A valid proof shows that Hyphae can reproduce the sealed recall a record came from, not that the record is true, relevant or complete, or that a model used it."
   },
   "Footer": {
     "nonAffiliation": "Independent project; not affiliated with, sponsored by, or endorsed by Meta."

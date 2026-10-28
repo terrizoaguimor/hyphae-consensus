@@ -1,0 +1,198 @@
+{
+  "Docs": {
+    "lead": "De courtes explications sur le fonctionnement de Hyphae Consensus et sur ce que signifient ses résultats.",
+    "buildNote": "Les vues du portail qui lancent des délibérations ne sont pas connectées dans cette version ; ces pages décrivent le système tel qu’il fonctionne aujourd’hui et le portail public tel qu’il est prévu.",
+    "articlesHeading": "Articles",
+    "tourHeading": "Visite guidée d’une minute",
+    "tourText": "Six courtes étapes sur les idées principales. Vous pouvez la passer à tout moment.",
+    "levelHeading": "Simple ou technique",
+    "levelText": "Chaque article commence par un résumé en langage courant. Les détails techniques se trouvent dans une section repliée ; choisissez Technique dans les <settings>Paramètres</settings> pour les afficher dépliés.",
+    "inShort": "En bref",
+    "technicalSummary": "Détails techniques",
+    "pagerLabel": "Autres articles",
+    "previous": "Précédent : {title}",
+    "next": "Suivant : {title}",
+    "allDocs": "Toute la documentation",
+    "articles": {
+      "what-is": {
+        "title": "Ce qu’est Hyphae Consensus",
+        "summary": "Hyphae Consensus fait travailler trois rôles d’IA sur un problème de génie logiciel, confronte leurs affirmations à une mémoire vérifiable et transforme le résultat en une recommandation que seule une personne peut autoriser.",
+        "sections": {
+          "roles": {
+            "heading": "Trois rôles délibèrent",
+            "body": "Un Proposant suggère une solution sous forme d’un ensemble d’affirmations, un Critique remet en cause ses hypothèses et ses risques, et le Proposant peut la réviser. Un Évaluateur des éléments probants juge ensuite chaque affirmation au regard des éléments probants."
+          },
+          "runtime": {
+            "heading": "L’environnement d’exécution vérifie les éléments probants",
+            "body": "L’environnement d’exécution, et non un modèle, récupère des enregistrements dans Hyphae Agent Memory et vérifie leurs preuves d’intégrité. Une politique fixe combine les jugements de l’Évaluateur et les statuts des preuves pour aboutir à une recommandation."
+          },
+          "human": {
+            "heading": "Une personne décide",
+            "body": "Aucun modèle ne peut approuver. Seule une personne peut autoriser une recommandation, et autoriser enregistre la décision sans rien exécuter."
+          }
+        },
+        "technical": {
+          "runtime": "L’environnement d’exécution est écrit en Rust : contrats typés, machine à états déterministe et journal d’événements en ajout seul dont les enregistrements sont chaînés par des hachages SHA-256. La chaîne est vérifiée à l’ouverture d’un journal, et le rejeu redérive chaque recommandation enregistrée sous le schéma 1.1 ou ultérieur.",
+          "integrations": "Les modèles sont appelés via la Meta Model API (<code>muse-wonder-1.0</code>, sortie structurée). Hyphae est lu via son interface MCP avec des outils en lecture seule, et les preuves sont vérifiées hors ligne avec <code>hyphae proof verify</code>.",
+          "untrusted": "La mémoire récupérée et les sorties des autres modèles sont traitées comme des données non fiables, jamais comme des instructions."
+        }
+      },
+      "three-roles": {
+        "title": "Pourquoi trois rôles",
+        "summary": "Répartir le travail entre un Proposant, un Critique et un Évaluateur des éléments probants rend chaque étape visible et laisse apparaître les désaccords au lieu de les noyer dans une moyenne.",
+        "sections": {
+          "proposer": {
+            "heading": "Proposant",
+            "body": "Propose une solution à la tâche sous forme d’affirmations, d’hypothèses et de tests explicites, et la révise lorsque le Critique soulève des objections."
+          },
+          "critic": {
+            "heading": "Critique",
+            "body": "Remet en cause la proposition : tests manquants, risques non démontrés, conflits avec les contraintes du projet. Ses objections restent ouvertes tant que l’Évaluateur ne les juge pas résolues."
+          },
+          "evaluator": {
+            "heading": "Évaluateur des éléments probants",
+            "body": "Juge chaque affirmation au regard des éléments probants récupérés par l’environnement d’exécution : est-elle corroborée ou contredite, quels enregistrements sont pertinents, quelles objections restent non résolues. Il ne peut pas écrire le résultat."
+          }
+        },
+        "technical": {
+          "rounds": "Une exécution autorise au plus 2 tours de révision. Sous le protocole 1.3, elle cesse de réviser lorsqu’un tour ne résout aucune des objections laissées ouvertes par l’évaluation précédente ; les exécutions enregistrées sous le protocole 1.2 comparaient à la place le nombre d’objections non résolues.",
+          "bounds": "Chaque exécution est plafonnée à 9 appels de modèle, 20 enregistrements probants distincts et un budget de jetons (150 000 jetons d’entrée et de sortie par défaut). L’environnement d’exécution contrôle le budget après chaque appel : une exécution peut donc le dépasser d’un appel.",
+          "model": "Dans les exécutions en direct, les trois rôles sont tenus par <code>muse-wonder-1.0</code> de Meta. Chaque réponse doit respecter un schéma strict aux champs obligatoires ; sinon, l’exécution échoue avec un motif enregistré."
+        }
+      },
+      "not-voting": {
+        "title": "Le consensus n’est pas un vote",
+        "summary": "Aucun vote n’a lieu. Une politique déterministe de l’environnement d’exécution transforme les jugements de l’Évaluateur sur chaque affirmation et les statuts des preuves en recommandation.",
+        "sections": {
+          "why": {
+            "heading": "Pourquoi pas un vote",
+            "body": "Que des modèles soient d’accord entre eux ne constitue pas une preuve. Hyphae Consensus pose une question plus précise : chaque affirmation repose-t-elle sur des éléments probants vérifiés, sans contradiction et sans objection ouverte ?"
+          },
+          "rules": {
+            "heading": "La politique, dans l’ordre",
+            "body": "La première règle qui s’applique décide du résultat :",
+            "items": {
+              "blocked": "Une preuve invalide parmi les éléments probants récupérés : <strong>bloquée</strong> (<en>blocked</en>).",
+              "contradicted": "Un enregistrement parmi les éléments cités ou contradictoires contredit une affirmation : <strong>contestée</strong> (<en>contested</en>).",
+              "abstained": "L’Évaluateur s’est abstenu : <strong>abstention</strong> (<en>abstained</en>).",
+              "unresolved": "Une objection reste non résolue : <strong>contestée</strong> (<en>contested</en>).",
+              "insufficient": "Une affirmation n’est pas corroborée, une affirmation corroborée ne cite aucun élément propre, un élément cité n’a pas de preuve valide, ou rien n’a été vérifié : <strong>éléments probants insuffisants</strong> (<en>insufficient evidence</en>).",
+              "supported": "Dans tous les autres cas : <strong>étayée</strong> (<en>supported</en>)."
+            }
+          },
+          "deterministic": {
+            "heading": "Déterministe, pas neutre",
+            "body": "Les mêmes jugements et statuts de preuve donnent toujours la même recommandation, et le rejeu la redérive à partir du journal. Mais les jugements viennent d’un modèle : la politique ne vaut que ce que valent ses entrées."
+          }
+        },
+        "technical": {
+          "versions": "Ce sont les règles de la politique 1.2, que le protocole 1.3 conserve tout en élargissant leurs entrées. Sous le schéma 1.1, l’abstention primait sur toute contradiction ; le rejeu redérive chaque exécution enregistrée avec les règles de sa propre version de schéma.",
+          "final-round": "Dans les exécutions enregistrées sous le protocole 1.2, les règles ne lisaient que le dernier tour, et l’audit multi-agents (par IA) du 27 octobre 2026 a relevé deux voies d’échec en mode ouvert (MA-1, RT-1). Le protocole 1.3 rejette les identifiants inexacts et reporte chaque objection ouverte et chaque contradiction dans les tours suivants ; il n’a pas encore été revalidé en direct."
+        }
+      },
+      "verified-evidence": {
+        "title": "Éléments probants vérifiés",
+        "summary": "Chaque enregistrement probant est jugé sur trois axes distincts : intégrité, corroboration des faits et pertinence. Un bon résultat sur l’un ne dit rien des autres.",
+        "sections": {
+          "integrity": {
+            "heading": "Intégrité",
+            "body": "Vérifiée par l’environnement d’exécution : la preuve fournie avec l’enregistrement se vérifie-t-elle ? Le statut est valide, invalide, indisponible, erreur de vérification ou non vérifié."
+          },
+          "factual": {
+            "heading": "Corroboration des faits",
+            "body": "Jugée par l’Évaluateur : l’enregistrement corrobore-t-il ou contredit-il l’affirmation ? Le statut est corroboré, non corroboré, contredit ou non évalué."
+          },
+          "relevance": {
+            "heading": "Pertinence",
+            "body": "Jugée par l’Évaluateur : l’enregistrement a-t-il un rapport avec l’affirmation ? Le statut est pertinent, non pertinent ou non évalué."
+          },
+          "apart": {
+            "heading": "Pourquoi les axes restent séparés",
+            "body": "Un enregistrement peut être authentique et pourtant faux, ou vrai mais hors sujet. Garder les axes séparés empêche qu’une preuve valide passe pour la preuve qu’une affirmation est vraie."
+          }
+        },
+        "technical": {
+          "valid": "Valide signifie que <code>hyphae proof verify</code> a réexécuté la requête contre son témoin scellé et reproduit le résultat ; une preuve couvre une requête entière. Sans ancre fixée par un canal indépendant, cela ne montre qu’une cohérence interne : c’est pourquoi le mode public en direct prévu en fixe toujours une.",
+          "binding": "L’adaptateur ne compare pas encore octet pour octet le texte de l’enregistrement transmis aux modèles avec la preuve : aujourd’hui, Valide atteste la preuve que Hyphae a renvoyée avec l’enregistrement (constat d’audit HY-1).",
+          "simulated": "Les exécutions guidées utilisent des preuves simulées. Chaque enregistrement et chaque reçu les désignent comme SIMULÉES, et le portail ne les présente jamais comme de vraies preuves."
+        }
+      },
+      "abstain-contested": {
+        "title": "Pourquoi le système s’abstient ou finit contesté",
+        "summary": "Contestation et abstention sont des résultats honnêtes, pas des échecs : ils signalent que quelque chose reste ouvert au lieu de transformer l’incertitude en confiance.",
+        "sections": {
+          "contested": {
+            "heading": "Contestée",
+            "body": "Une exécution finit contestée lorsqu’un enregistrement contredit une affirmation, ou lorsque l’Évaluateur juge encore non résolue une objection du Critique. Une contradiction enregistrée prime sur une abstention : s’abstenir ne peut donc pas la masquer."
+          },
+          "abstained": {
+            "heading": "Abstention",
+            "body": "L’Évaluateur peut refuser de juger, par exemple lorsque les éléments probants ne couvrent pas la question. L’exécution finit alors en abstention, sauf si une preuve est invalide ou qu’une contradiction a été enregistrée."
+          },
+          "others": {
+            "heading": "Bloquée et éléments probants insuffisants",
+            "body": "Toute preuve invalide parmi les éléments récupérés bloque l’exécution, sans tentative de révision. Lorsqu’une affirmation n’est pas corroborée par des éléments valides qu’elle cite elle-même, le résultat est éléments probants insuffisants."
+          },
+          "design": {
+            "heading": "Pourquoi c’est voulu",
+            "body": "Étayée exige que chaque affirmation soit corroborée par des éléments valides qu’elle cite, sans contradiction, sans objection ouverte et sans aucune preuve invalide. Tout le reste est signalé tel quel, et la personne qui décide voit pourquoi."
+          }
+        },
+        "technical": {
+          "offline": "Lorsque Hyphae est injoignable, la récupération échoue affirmation par affirmation et un événement evidence_unavailable enregistre le motif. Sans élément vérifié, une exécution ne peut jamais être étayée.",
+          "example": "Lors de la dernière batterie enregistrée, le 27 octobre 2026 (exécutions F01 à F06), toutes les affirmations du dernier tour étaient corroborées par une mémoire vérifiée. Les six exécutions ont pourtant fini contestées, car les objections du Critique sur des tests manquants et des risques non démontrés restaient ouvertes."
+        }
+      },
+      "human-authorization": {
+        "title": "Pourquoi une personne autorise",
+        "summary": "Les modèles proposent, critiquent et jugent, mais seule une personne peut autoriser une recommandation. Autoriser enregistre une décision ; rien n’est exécuté.",
+        "sections": {
+          "only-human": {
+            "heading": "Seule une personne peut autoriser",
+            "body": "La machine à états n’accepte une décision que d’un acteur humain. Aucune sortie de modèle ne peut approuver, rejeter ou écrire le résultat."
+          },
+          "record-only": {
+            "heading": "Approuver ne fait qu’enregistrer une décision",
+            "body": "Aucun exécuteur n’existe : approuver ne modifie ni code, ni dépôt, ni système. La décision est ajoutée au journal de l’exécution, où elle peut être auditée."
+          },
+          "public": {
+            "heading": "Les décisions publiques n’ont aucune autorité",
+            "body": "Sur le portail public, les visiteurs ne décident que de leurs propres exécutions. Ces décisions sont enregistrées comme décisions publiques de démonstration, à titre de simulation uniquement, et n’ont aucune autorité."
+          }
+        },
+        "technical": {
+          "token": "Dans la console locale de l’opérateur, enregistrer une décision exige le jeton d’opérateur que le serveur affiche au démarrage, et approuver une exécution bloquée ou en abstention exige en plus une note.",
+          "idempotency": "Les décisions portent des clés d’idempotence propres à leur exécution : une requête renvoyée n’enregistre qu’une décision, pas deux.",
+          "last-line": "L’étape humaine est la dernière ligne de défense : un Évaluateur qui obéirait à un texte injecté pourrait encore produire un résultat étayé sur des éléments valides, c’est pourquoi la personne qui décide doit lire les éléments probants."
+        }
+      },
+      "modes": {
+        "title": "Modes",
+        "summary": "Le portail public est prévu avec trois modes, et chaque exécution et chaque événement indiqueront de quel mode ils proviennent.",
+        "sections": {
+          "guided": {
+            "heading": "Guidé (SIMULÉ)",
+            "body": "Rôles scénarisés et éléments probants simulés. Une exécution guidée démarrera immédiatement et n’appellera aucun modèle ; ses résultats illustrent le protocole, pas le comportement d’un modèle en direct. La lecture sera rythmée pour être lisible, et l’étiquette l’indiquera."
+          },
+          "live": {
+            "heading": "Meta en direct (META EN DIRECT + INSTANTANÉ SCELLÉ)",
+            "body": "De vrais appels à <code>muse-wonder-1.0</code> de Meta, avec des éléments probants issus d’un instantané scellé de Hyphae : un ensemble fixe d’enregistrements synthétiques capturé une fois et revérifié à chaque exécution. Tâches prédéfinies et sélectionnées uniquement, sans texte libre, et avec un budget quotidien."
+          },
+          "showcase": {
+            "heading": "Vitrine de recherche (ENREGISTRÉ)",
+            "body": "Des exécutions réelles enregistrées les 26 et 27 octobre 2026, qui seront rejouées depuis une archive qui les conserve à l’identique. Elles porteront l’étiquette ENREGISTRÉ et ne seront jamais présentées comme en direct."
+          },
+          "build": {
+            "heading": "Dans cette version",
+            "body": "Aucun des trois modes n’est connecté dans cette version du portail."
+          }
+        },
+        "technical": {
+          "axes": "Les étiquettes proviendront des données enregistrées, jamais de la requête : le modèle (scénarisé ou Meta en direct), les éléments probants (simulés, instantané scellé ou Hyphae en direct), la source (ce serveur ou l’archive de recherche) et la diffusion de chaque événement (en direct ou rejeu).",
+          "live-label": "META EN DIRECT n’apparaîtra que pour des événements diffusés en direct depuis le modèle Meta en direct, et toujours à côté de l’étiquette des éléments probants : INSTANTANÉ SCELLÉ dans le mode public en direct, SIMULÉ pour les exécutions archivées d’un modèle en direct avec des preuves simulées (C03, S01 à S03).",
+          "language": "Les tâches prédéfinies et la conversation avec le modèle restent en anglais, afin que les affirmations correspondent aux enregistrements probants en anglais. Les vues traduites signalent le texte du modèle comme sortie originale en anglais."
+        }
+      }
+    }
+  }
+}

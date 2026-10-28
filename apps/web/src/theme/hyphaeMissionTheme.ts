@@ -45,6 +45,18 @@ export const hyphaeMissionTheme = defineTheme({
     // WCAG AA, so it is never used.
     "--color-on-accent": ["#FFFFFF", "#111112"],
 
+    // Surfaces (plan, "Design"): white and ice-blue in light mode; deep
+    // midnight in dark mode, not an inversion of the light palette. Neutral's
+    // grays are replaced one by one. Text on these surfaces, worst case:
+    // light #474747 secondary text on #EDF3FB muted measures 8.4:1, accent
+    // #0064E0 on #F3F7FC body 5.0:1; dark #9E9E9E secondary text on #141D33
+    // popover 6.3:1, accent #4BA9FE on #121A2D surface 6.9:1 (WCAG AA).
+    "--color-background-body": ["#F3F7FC", "#0A0F1E"],
+    "--color-background-surface": ["#FFFFFF", "#121A2D"],
+    "--color-background-card": ["#FFFFFF", "#0F1628"],
+    "--color-background-popover": ["#FFFFFF", "#141D33"],
+    "--color-background-muted": ["#EDF3FB", "#0F1628"],
+
     "--radius-element": "8px",
     "--radius-container": "16px",
   },

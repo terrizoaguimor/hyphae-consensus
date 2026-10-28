@@ -11,6 +11,20 @@
 # non-interactively and never edits pnpm-workspace.yaml on its own). Inside
 # the container, Next.js telemetry is switched off before the command runs.
 #
+# Two parts of the mount are read-only, so code running in the container can
+# never rewrite what the host runs or trusts (red-team finding ABUSE-3):
+#   - scripts/: this file and playwright-docker.sh run on the host, where the
+#     Meta key is set; serve-static.mjs and csp-manifest.mjs run inside
+#     containers and are read by the unit tests.
+#   - pnpm-workspace.yaml: the supply-chain policy (release cooldown, denied
+#     build scripts), which pnpm reads and must not loosen.
+# The rest of /app stays writable because the toolchain needs it: pnpm
+# install writes node_modules/ (with its store in node_modules/.pnpm-store),
+# next typegen writes .next/types and next-env.d.ts, tsc writes
+# tsconfig.tsbuildinfo, next build writes .next/ and out/, and csp-manifest.mjs
+# writes out/csp-manifest.json. Nothing else in apps/web is written by a
+# command of this project.
+#
 # Usage, from any directory (Git Bash, Linux or macOS):
 #   sh apps/web/scripts/in-docker.sh pnpm install --frozen-lockfile
 #   sh apps/web/scripts/in-docker.sh pnpm build
@@ -37,6 +51,8 @@ fi
 
 exec docker run --rm \
   --volume "$app_dir:/app" \
+  --volume "$app_dir/scripts:/app/scripts:ro" \
+  --volume "$app_dir/pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro" \
   --workdir /app \
   "$IMAGE" \
   sh -c 'corepack enable pnpm && export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 NEXT_TELEMETRY_DISABLED=1 && exec "$@"' \

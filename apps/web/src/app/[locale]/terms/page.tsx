@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Terms of use (draft until the owner's review; see LEGAL_TEXT_STATUS).
+
+import { LegalPageContent } from "@/components/LegalPageContent";
+import { type LocaleParams, navPageMetadata, pageLocale } from "@/lib/pageLocale";
+
+export function generateMetadata({ params }: LocaleParams) {
+  return navPageMetadata(params, "terms");
+}
+
+export default async function TermsPage({ params }: LocaleParams) {
+  const locale = await pageLocale(params);
+  return <LegalPageContent locale={locale} page="terms" />;
+}

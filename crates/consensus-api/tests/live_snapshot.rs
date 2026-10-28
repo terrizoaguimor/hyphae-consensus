@@ -1140,7 +1140,11 @@ fn the_status_is_cached_and_every_admission_rechecks_the_files_in_full() {
         .build(unused_model(), RunLimits::default())
         .err()
         .expect("changed files build no run");
-    assert!(err.0.contains(codes::DIGEST_MISMATCH), "{err}");
+    assert!(err.0.contains("changed since boot"), "{err}");
+    assert!(
+        !err.0.contains(codes::DIGEST_MISMATCH),
+        "the code is logged once, by the factory's status line: {err}"
+    );
     fx.assert_no_path("factory error", &err.0);
     // ...and refreshes the status the routes read.
     let status = factory.status();
@@ -1589,13 +1593,15 @@ fn with_live_mode_enabled_serve_public_starts_on_a_snapshot_that_does_not_boot_a
     );
     let line = s.live_line();
     assert!(line.starts_with("Public live mode: enabled"), "{line}");
-    assert!(
-        line.contains("UNAVAILABLE (boot_verification_failed)"),
-        "{line}"
-    );
+    assert!(line.contains("its evidence is UNAVAILABLE"), "{line}");
     for text in s.snapshot_lines().into_iter().chain([line]) {
         fx.assert_no_path("startup line", text);
     }
+    assert_eq!(
+        s.all().matches(codes::BOOT_VERIFICATION_FAILED).count(),
+        1,
+        "the code is logged once at startup: {s:?}"
+    );
     assert!(!s.all().contains("Sealed snapshot evidence"), "{s:?}");
 
     // A snapshot that boots: the evidence line (no path), two verifier

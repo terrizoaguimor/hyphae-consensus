@@ -1342,12 +1342,15 @@ anyway, the one notice `[snapshot] CONSENSUS_SNAPSHOT_DIR is set, but public liv
 disabled (CONSENSUS_LIVE_ENABLED): the snapshot is not loaded or verified`.
 
 **What a failed boot check shows.** A snapshot that does not load, verify or match does not
-stop the server. The journal has `[snapshot] live evidence unavailable: <code>` (once) and
-`Public live mode: enabled on the owner's key (...); its evidence is UNAVAILABLE (<code>):
-every live run is refused (503 live_unavailable) until the snapshot is fixed and the server
-restarted`; `/api/v1/ready` answers `"ready":false` with `"live":{"ledger_ok":true,
-"tripped":false,"evidence_ok":false}`; `/api/v1/capabilities` answers `"live_enabled":false`
-without a live section, so the web app shows live mode as disabled; `POST /api/v1/live-runs`
+stop the server. The journal has `[snapshot] live evidence unavailable: <code>` (the only
+line that names the code) and `Public live mode: enabled on the owner's key (...); its
+evidence is UNAVAILABLE (the [snapshot] line says why): every live run is refused (503
+live_unavailable) until the snapshot is fixed and the server restarted`; refused admissions
+add `[live-gate] refused a live run: the evidence source is not ok`; `/api/v1/ready` answers
+`"ready":false` with
+`"live":{"ledger_ok":true,"tripped":false,"evidence_ok":false}`; `/api/v1/capabilities`
+answers `"live_enabled":false` without a live section, so the web app shows live mode as
+disabled; `POST /api/v1/live-runs`
 answers `503 live_unavailable` before Turnstile (no token spent, nothing reserved). Guided
 runs, the showcase, the research files and the static site keep serving. The code says what
 to fix, then `sudo systemctl restart consensus-public`:

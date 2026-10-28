@@ -599,12 +599,10 @@ where
             .join(" ")
     );
     if live.enabled {
+        // The code itself is the `[snapshot]` line's, logged once.
         let evidence = match &evidence_status {
-            Some(status) if !status.ok => format!(
-                "; its evidence is UNAVAILABLE ({}): every live run is refused (503 live_unavailable) until the snapshot is fixed and the server restarted",
-                status.detail.as_deref().unwrap_or("no code")
-            ),
-            _ => String::new(),
+            Some(status) if !status.ok => "; its evidence is UNAVAILABLE (the [snapshot] line says why): every live run is refused (503 live_unavailable) until the snapshot is fixed and the server restarted",
+            _ => "",
         };
         println!(
             "Public live mode: enabled on the owner's key (daily cap {}, lifetime cap {}, judge lane {}){evidence}",

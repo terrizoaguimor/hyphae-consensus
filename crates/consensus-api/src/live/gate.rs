@@ -554,13 +554,11 @@ impl Inner {
 
         // (c') The evidence, before Turnstile: while the source is not ok
         // nothing could be admitted, so the visitor's token is not spent
-        // and nothing is reserved. The factory logs the transition with its
-        // code; the detail here is that code, never a path.
-        let evidence = self.factory.status();
-        if !evidence.ok {
+        // and nothing is reserved. The factory logs the code once per
+        // change between ok and not ok; this line does not repeat it.
+        if !self.factory.status().ok {
             eprintln!(
-                "[live-gate] refused a live run: the evidence source is not ok ({})",
-                evidence.detail.as_deref().unwrap_or("no code")
+                "[live-gate] refused a live run: the evidence source is not ok (the [snapshot] line says why)"
             );
             return Err(unavailable());
         }

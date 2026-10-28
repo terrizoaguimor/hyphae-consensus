@@ -357,10 +357,11 @@ impl DeliberationFactory for SnapshotFactory {
             self.check_now(&mut state)
         };
         if !status.ok {
-            return Err(FactoryError(format!(
-                "the sealed snapshot's served files changed since boot ({}): no run is built over them",
-                status.detail.as_deref().unwrap_or(status::ARTIFACTS_CHANGED)
-            )));
+            // The re-check above logged the code (a change from ok); the
+            // gate logs this text: it does not repeat it.
+            return Err(FactoryError(
+                "the sealed snapshot's served files changed since boot: no run is built over them (the [snapshot] line says why)".into(),
+            ));
         }
         Ok(Box::new(Orchestrator {
             model,
@@ -430,10 +431,9 @@ impl DeliberationFactory for UnavailableEvidence {
         _model: MetaModelClient,
         _limits: RunLimits,
     ) -> Result<Box<dyn Deliberation>, FactoryError> {
-        Err(FactoryError(format!(
-            "the sealed snapshot did not boot ({}): live mode is unavailable until it is fixed and serve-public restarted",
-            self.code
-        )))
+        Err(FactoryError(
+            "the sealed snapshot did not boot (the [snapshot] line says why): live mode is unavailable until it is fixed and serve-public restarted".into(),
+        ))
     }
 
     fn status(&self) -> FactoryStatus {

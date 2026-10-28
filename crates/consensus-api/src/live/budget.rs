@@ -75,10 +75,12 @@
 //! a success with usage charges `prompt_tokens × input rate +
 //! completion_tokens × output rate`, where `completion_tokens` is the
 //! API's figure, reasoning included ([`Usage`]); HTTP
-//! 400/401/402/403/404/413/429 charge zero; a timeout, a transport error
-//! after the request was sent, any other status (5xx included), a success
-//! without usage or one whose usage is inconsistent charge the attempt's
-//! full estimate, never refunded.
+//! 400/401/402/403/404/413/429 charge zero, and so does an attempt whose
+//! request never left this process (a connection that could not be
+//! opened, a request that could not be built: [`Outcome::NotSent`]); a
+//! timeout, a transport error after the request was sent, any other
+//! status (5xx included), a success without usage or one whose usage is
+//! inconsistent charge the attempt's full estimate, never refunded.
 //!
 //! **Trips.** The ledger trips, persistently, when a settlement reports
 //! more completion tokens than the attempt's `max_completion_tokens` or a
@@ -325,6 +327,11 @@ pub enum Outcome {
     Timeout,
     /// The connection failed after the request was sent: full estimate.
     TransportAfterSend,
+    /// Nothing was sent: the connection never opened or the request could
+    /// not be built. The provider did no work, so the attempt charges
+    /// zero; recorded like [`RecordedOutcome::Zero`] with the detail
+    /// `not_sent`.
+    NotSent,
 }
 
 /// What a settlement record stores about its outcome.
@@ -553,7 +560,9 @@ pub struct LifetimeSummary {
 }
 
 /// Errors are for the operator log: their `Display` names files and
-/// paths. The wire answer is [`Refusal::code`] (`live_unavailable`).
+/// paths. The wire answer is `live_unavailable`
+/// (`crate::api::error::ErrorCode::LiveUnavailable`, see
+/// [`Refusal::code`]).
 #[derive(Debug, Error)]
 pub enum LedgerError {
     #[error("ledger configuration: {0}")]
@@ -596,10 +605,12 @@ impl LedgerError {
 }
 
 /// Why an admission or a draw was refused. Every variant has a stable
-/// public code ([`Refusal::code`]) and, where retrying helps, a hint for
-/// `Retry-After`. Everything else, the fields and the `Display` text
-/// (which can carry a trip detail, ledger amounts or file paths), is
-/// operator-only: never put `to_string()` of a refusal in a response body.
+/// public code ([`Refusal::code`], the wire string of the
+/// `crate::api::error::ErrorCode` the gate answers with) and, where
+/// retrying helps, a hint for `Retry-After`. Everything else, the fields
+/// and the `Display` text (which can carry a trip detail, ledger amounts
+/// or file paths), is operator-only: never put `to_string()` of a refusal
+/// in a response body.
 #[derive(Debug, Error)]
 pub enum Refusal {
     #[error("ledger tripped ({}): {reason}", code.as_str())]
@@ -627,20 +638,28 @@ pub enum Refusal {
 }
 
 impl Refusal {
-    /// Stable public code for the API and the UI.
+    /// The stable public code of this refusal at admission: exactly the
+    /// snake_case string of the `crate::api::error::ErrorCode` that
+    /// `crate::live::gate::refusal_code` answers with (a unit test there
+    /// keeps the two in step), so the UI and operator tooling localize one
+    /// set of codes. The draw-time refusals (an exhausted reservation, the
+    /// per-call caps) never reach the wire as such: the run fails with the
+    /// adapter's `budget_refused`; at admission they cannot happen and
+    /// read as `live_unavailable`, like a ledger that could not be
+    /// consulted.
     pub fn code(&self) -> &'static str {
         match self {
-            Refusal::Tripped { .. } => "live_disabled",
+            Refusal::Tripped { .. } => "live_tripped",
             Refusal::DailyBudget { .. } => "live_budget_daily",
             Refusal::LifetimeBudget => "live_budget_lifetime",
-            Refusal::JudgeSlice => "live_budget_judge",
+            Refusal::JudgeSlice => "live_budget_judge_slice",
             Refusal::JudgeDaily { .. } => "live_budget_judge_daily",
-            Refusal::HourlyAdmissions { .. } => "live_rate_hourly",
-            Refusal::Concurrency { .. } => "live_busy",
-            Refusal::ReservationExhausted { .. } => "live_run_budget",
-            Refusal::InputCap { .. } => "live_input_cap",
-            Refusal::OutputCap { .. } => "live_output_cap",
-            Refusal::Ledger(_) => "live_unavailable",
+            Refusal::HourlyAdmissions { .. } => "live_hourly_admissions",
+            Refusal::Concurrency { .. } => "live_concurrency",
+            Refusal::ReservationExhausted { .. }
+            | Refusal::InputCap { .. }
+            | Refusal::OutputCap { .. }
+            | Refusal::Ledger(_) => "live_unavailable",
         }
     }
 
@@ -1943,6 +1962,12 @@ impl Ledger {
                     RecordedOutcome::Unknown,
                     draw.est,
                     Some("transport error after send".to_string()),
+                    None,
+                ),
+                Outcome::NotSent => (
+                    RecordedOutcome::Zero,
+                    Usd::ZERO,
+                    Some("not_sent".to_string()),
                     None,
                 ),
             };

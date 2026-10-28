@@ -72,6 +72,25 @@
 //! `CONSENSUS_META_DEBUG_DIR` set (never in public mode) a failed call's
 //! body is kept there for the operator, the key removed.
 //!
+//! Metering (plan B9, ADR-0007): a client built with
+//! [`MetaModelClient::with_meter`] asks the live ledger before **every**
+//! HTTP attempt, retries included ([`AttemptMeter::draw`] with the request
+//! body length and `max_completion_tokens`), and settles each draw exactly
+//! once: a non-2xx status before any retry wait ([`Outcome::Status`]), a
+//! reqwest timeout ([`Outcome::Timeout`]), a connection that never opened
+//! or a request that could not be built ([`Outcome::NotSent`], charged
+//! zero), a connection that broke after the request was sent
+//! ([`Outcome::TransportAfterSend`]); a 2xx is settled once its body is
+//! parsed, with the reported usage ([`Outcome::Success`]) or at the
+//! attempt's full estimate when the usage is missing or the body never
+//! arrived ([`Outcome::SuccessWithoutUsage`]: the generation was billed).
+//! A draw the ledger refuses fails the call with the code
+//! [`codes::BUDGET_REFUSED`]; a settlement the ledger cannot record fails
+//! it closed with [`codes::BUDGET_UNSETTLED`] (the attempt stays counted at
+//! its estimate). Both messages are fixed: the refusal's own text names
+//! amounts and files and goes to the operator log only. Without a meter
+//! the adapter behaves exactly as before.
+//!
 //! Prompts (MA-6, MA-7, TC-9): everything a role did not write itself sits
 //! inside an `<UNTRUSTED_*>` block: the submitted task (title and
 //! description, bounded), the proposal, the evidence (a JSON array of
@@ -86,6 +105,7 @@
 //! role's prompt template ([`Role::prompt_sha256`]).
 
 use crate::config::{ConfigError, MetaConfig};
+use crate::live::budget::{AttemptEstimate, AttemptMeter, Draw, Outcome, Usage};
 use consensus_domain::*;
 use consensus_runtime::contract::{quote, OpenItem};
 use consensus_runtime::orchestrator::codes as run_codes;
@@ -98,6 +118,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
@@ -127,6 +148,14 @@ pub mod codes {
     /// This adapter's own configuration is unusable (checked before any
     /// call).
     pub const CONFIG: &str = "meta_config";
+    /// The live ledger refused to fund an HTTP attempt (the run's
+    /// reservation is exhausted, the ledger tripped, or a cap was hit):
+    /// nothing was sent. The orchestrator records the run as failed at its
+    /// current stage with this code.
+    pub const BUDGET_REFUSED: &str = "budget_refused";
+    /// The live ledger could not record an attempt's settlement; the
+    /// attempt stays counted at its estimate and the call fails closed.
+    pub const BUDGET_UNSETTLED: &str = "budget_unsettled";
 }
 
 const ROLE_RULES: &str = "\
@@ -1560,6 +1589,9 @@ pub struct MetaModelClient {
     calls: u64,
     /// The answered call behind the last error ([`ModelClient::take_failed_invocation`]).
     failed: Option<ModelInvocation>,
+    /// The live ledger's per-attempt meter, when this client spends a
+    /// public reservation (see the module doc).
+    meter: Option<Arc<dyn AttemptMeter>>,
 }
 
 impl MetaModelClient {
@@ -1597,7 +1629,90 @@ impl MetaModelClient {
             counter: 0,
             calls: 0,
             failed: None,
+            meter: None,
         })
+    }
+
+    /// Meters every HTTP attempt of this client against the live ledger
+    /// (one [`AttemptMeter::draw`] before each attempt, one settlement
+    /// right after it; see the module doc). A refused draw fails the call
+    /// with [`codes::BUDGET_REFUSED`].
+    pub fn with_meter(mut self, meter: Arc<dyn AttemptMeter>) -> Self {
+        self.meter = Some(meter);
+        self
+    }
+
+    /// What the meter is told about an attempt before it is sent.
+    fn attempt_estimate(&self, body: &[u8]) -> AttemptEstimate {
+        AttemptEstimate {
+            request_bytes: body.len() as u64,
+            max_completion_tokens: self.cfg.max_completion_tokens,
+        }
+    }
+
+    /// Draws one attempt on the meter, when there is one. A refusal fails
+    /// the call with a fixed message; the refusal's own text (amounts,
+    /// trip details, file paths) is for the operator log only.
+    fn draw_attempt(&self, body: &[u8], attempt: u32) -> Result<Option<Draw>, ModelError> {
+        let Some(meter) = &self.meter else {
+            return Ok(None);
+        };
+        match meter.draw(self.attempt_estimate(body)) {
+            Ok(draw) => Ok(Some(draw)),
+            Err(refusal) => {
+                eprintln!("[meta] the live budget refused attempt {attempt}: {refusal}");
+                Err(provider(
+                    codes::BUDGET_REFUSED,
+                    "the live budget refused this model call",
+                ))
+            }
+        }
+    }
+
+    /// Settles one draw exactly once. A settlement the ledger cannot
+    /// record leaves the attempt counted at its estimate; the call then
+    /// fails closed with a fixed message.
+    fn settle_attempt(&self, draw: Option<Draw>, outcome: Outcome) -> Result<(), ModelError> {
+        let (Some(meter), Some(draw)) = (&self.meter, draw) else {
+            return Ok(());
+        };
+        match meter.settle(draw, outcome) {
+            Ok(settlement) => {
+                if let Some(trip) = settlement.tripped {
+                    eprintln!(
+                        "[meta] the live ledger is tripped ({}): {}",
+                        trip.code.as_str(),
+                        trip.detail
+                    );
+                }
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("[meta] the live budget could not settle an attempt: {e}");
+                Err(provider(
+                    codes::BUDGET_UNSETTLED,
+                    "the live budget could not settle this model call",
+                ))
+            }
+        }
+    }
+
+    /// [`settle_attempt`](Self::settle_attempt) for an answered call: on a
+    /// settlement failure the billed call is still kept for
+    /// [`ModelClient::take_failed_invocation`].
+    fn settle_answered(
+        &mut self,
+        draw: Option<Draw>,
+        outcome: Outcome,
+        call: &ModelInvocation,
+    ) -> Result<(), ModelError> {
+        match self.settle_attempt(draw, outcome) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                self.failed = Some(call.clone());
+                Err(e)
+            }
+        }
     }
 
     /// Sets (or clears) the `safety_identifier` sent from the next call
@@ -1662,13 +1777,17 @@ impl MetaModelClient {
     }
 
     /// Sends the request until it is answered with 2xx, within the
-    /// call's deadline and attempt budget (see the module doc).
+    /// call's deadline and attempt budget (see the module doc). With a
+    /// meter, every attempt is drawn before it is sent and every attempt
+    /// but the answered one is settled here; the answered attempt's draw
+    /// is returned for [`call`](Self::call) to settle once the body is
+    /// parsed.
     fn send(
         &self,
         body: &[u8],
         schema_name: &str,
         deadline: Instant,
-    ) -> Result<(reqwest::blocking::Response, u32), ModelError> {
+    ) -> Result<(reqwest::blocking::Response, u32, Option<Draw>), ModelError> {
         let timeout_secs = self.cfg.timeout.as_secs();
         let timed_out = move |attempt: u32| {
             provider(
@@ -1686,6 +1805,9 @@ impl MetaModelClient {
             if remaining.is_zero() {
                 return Err(timed_out(attempt.saturating_sub(1).max(1)));
             }
+            // The ledger funds every attempt before it is sent, retries
+            // included; a refusal sends nothing.
+            let draw = self.draw_attempt(body, attempt)?;
             let sent = self
                 .http
                 .post(&self.url)
@@ -1696,9 +1818,11 @@ impl MetaModelClient {
                 .send();
             let can_retry = attempt < self.cfg.max_attempts;
             match sent {
-                Ok(resp) if resp.status().is_success() => return Ok((resp, attempt)),
+                Ok(resp) if resp.status().is_success() => return Ok((resp, attempt, draw)),
                 Ok(resp) => {
                     let status = resp.status().as_u16();
+                    // Settled before any retry wait: this attempt is over.
+                    self.settle_attempt(draw, Outcome::Status(status))?;
                     let (code, message) = http_failure(status);
                     if (status == 429 || status == 503) && can_retry {
                         let left = deadline.saturating_duration_since(Instant::now());
@@ -1736,11 +1860,13 @@ impl MetaModelClient {
                 }
                 // A connection that never opened sent nothing: safe to retry.
                 Err(e) if e.is_connect() && can_retry => {
+                    self.settle_attempt(draw, Outcome::NotSent)?;
                     let left = deadline.saturating_duration_since(Instant::now());
                     std::thread::sleep(full_jitter(self.cfg.retry_base_delay, attempt).min(left));
                     continue;
                 }
                 Err(e) if e.is_connect() => {
+                    self.settle_attempt(draw, Outcome::NotSent)?;
                     return Err(provider(
                         codes::TRANSPORT,
                         format!(
@@ -1749,8 +1875,13 @@ impl MetaModelClient {
                         ),
                     ));
                 }
-                Err(e) if e.is_timeout() => return Err(timed_out(attempt)),
+                // Whether the request went out is unknown: full estimate.
+                Err(e) if e.is_timeout() => {
+                    self.settle_attempt(draw, Outcome::Timeout)?;
+                    return Err(timed_out(attempt));
+                }
                 Err(e) if e.is_builder() => {
+                    self.settle_attempt(draw, Outcome::NotSent)?;
                     return Err(provider(
                         codes::CONFIG,
                         format!("the request could not be built ({})", e.without_url()),
@@ -1769,6 +1900,9 @@ impl MetaModelClient {
                         && deadline.saturating_duration_since(Instant::now())
                             > MIN_RETRY_HEADROOM =>
                 {
+                    // Possibly billed: the attempt's full estimate, settled
+                    // before the retry draws its own.
+                    self.settle_attempt(draw, Outcome::TransportAfterSend)?;
                     transport_retried = true;
                     let left = deadline.saturating_duration_since(Instant::now());
                     let budget = MAX_RETRY_WAIT.min(left.saturating_sub(MIN_RETRY_HEADROOM));
@@ -1778,6 +1912,7 @@ impl MetaModelClient {
                 // After the request may have been sent: not retried (again),
                 // since it could have been billed already.
                 Err(e) => {
+                    self.settle_attempt(draw, Outcome::TransportAfterSend)?;
                     return Err(provider(
                         codes::TRANSPORT,
                         format!(
@@ -1854,9 +1989,12 @@ impl MetaModelClient {
         };
         let started = Instant::now();
         let deadline = started + self.cfg.timeout;
-        let (answered, attempts) = self.send(&body, schema_name, deadline)?;
+        let (answered, attempts, draw) = self.send(&body, schema_name, deadline)?;
         // The API has answered: from here on the call is recorded,
-        // whatever becomes of its output.
+        // whatever becomes of its output, and the answered attempt's draw
+        // is settled exactly once below: with the reported usage, or at
+        // its full estimate when no usage can be read (the generation was
+        // billed either way).
         let read = read_body(answered, MAX_RESPONSE_BYTES, deadline);
         let call = ModelInvocation {
             latency_ms: Some(started.elapsed().as_millis() as u64),
@@ -1866,6 +2004,7 @@ impl MetaModelClient {
         let bytes = match read {
             Ok(bytes) => bytes,
             Err(BodyFailure::Timeout) => {
+                self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
                 self.failed = Some(call);
                 return Err(provider(
                     codes::TIMEOUT,
@@ -1876,12 +2015,14 @@ impl MetaModelClient {
                 ));
             }
             Err(BodyFailure::TooLarge) => {
+                self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
                 let refused = ModelError::malformed(format!(
                     "response body exceeds {MAX_RESPONSE_BYTES} bytes"
                 ));
                 return Err(self.refused(refused, call));
             }
             Err(BodyFailure::Read) => {
+                self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
                 self.failed = Some(call);
                 return Err(provider(
                     codes::TRANSPORT,
@@ -1895,6 +2036,7 @@ impl MetaModelClient {
         let parsed = match serde_json::from_slice::<ChatResponse>(&bytes) {
             Ok(parsed) => parsed,
             Err(_) => {
+                self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
                 let refused = ModelError::malformed(format!(
                     "response envelope is not a chat completion (body sha256 {})",
                     &sha256_hex(&bytes)[..16]
@@ -1921,6 +2063,17 @@ impl MetaModelClient {
             ),
             ..call
         };
+        // The usage block as reported (completion_tokens inclusive of
+        // reasoning); without both figures the attempt is charged whole.
+        let outcome = match (invocation.input_tokens, invocation.output_tokens) {
+            (Some(prompt), Some(completion)) => Outcome::Success(Usage::from_chat_usage(
+                prompt,
+                completion,
+                invocation.reasoning_tokens,
+            )),
+            _ => Outcome::SuccessWithoutUsage,
+        };
+        self.settle_answered(draw, outcome, &invocation)?;
         let Some(choice) = choice else {
             let refused = ModelError::malformed("missing choices[0].message.content");
             return Err(self.refused(refused, invocation));

@@ -70,8 +70,9 @@ pub struct CreateGuidedRunRequest {
 }
 
 /// Identifier of a curated live preset: 1 to 40 characters of
-/// `[a-z0-9-]`. A key into a closed server-side set, never text a model
-/// sees.
+/// `[A-Za-z0-9-]`, the shape of the battery tags the presets are named
+/// after (`R01-reference`). A key into a closed server-side set, matched
+/// exactly by the gate; never text a model sees.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema)]
 #[serde(transparent)]
 pub struct PresetId(String);
@@ -83,9 +84,9 @@ impl PresetId {
         }
         if !value
             .bytes()
-            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-'))
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         {
-            return Err("preset_id may only contain a-z, 0-9 and -");
+            return Err("preset_id may only contain A-Z, a-z, 0-9 and -");
         }
         Ok(Self(value.to_string()))
     }
@@ -102,12 +103,55 @@ impl<'de> Deserialize<'de> for PresetId {
     }
 }
 
-/// `POST /api/v1/live-runs` (public): start a live run from a preset.
-/// Answered `503 live_disabled` until the live admission is wired.
+/// Longest judge code accepted (the live gate hashes it; see
+/// [`crate::live::judge::MAX_CODE_LEN`]).
+pub const JUDGE_CODE_MAX_CHARS: usize = 256;
+
+/// `POST /api/v1/live-runs` (public): start a live run from a preset, on
+/// the owner's key (ADR-0007). Admission needs a Turnstile token in the
+/// `cf-turnstile-response` header, `attest_adult: true`, and a country
+/// Cloudflare reports; `503 live_disabled` when live mode is off.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateLiveRunRequest {
     pub preset_id: PresetId,
+    /// The visitor's 18+ and territory acknowledgment. Absent reads as
+    /// false, which the gate refuses (`422 attestation_required`).
+    #[serde(default)]
+    pub attest_adult: bool,
+    /// A judge-lane invite code, 1 to 256 characters once trimmed. An
+    /// unknown code is not an error: the run takes the public lane, and
+    /// nothing in the response says whether codes exist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judge_code: Option<String>,
+}
+
+impl CreateLiveRunRequest {
+    /// Field bounds, checked after deserialization. The trimmed code is
+    /// what the gate verifies.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(code) = &self.judge_code {
+            let trimmed = code.trim();
+            if trimmed.is_empty() || trimmed.chars().count() > JUDGE_CODE_MAX_CHARS {
+                return Err(format!(
+                    "judge_code must be 1 to {JUDGE_CODE_MAX_CHARS} characters"
+                ));
+            }
+            if trimmed.chars().any(char::is_control) {
+                return Err("judge_code may not contain control characters".into());
+            }
+        }
+        Ok(())
+    }
+
+    /// The judge code as the gate verifies it: trimmed, or none.
+    pub fn judge_code_trimmed(&self) -> Option<String> {
+        self.judge_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_string)
+    }
 }
 
 /// Operator surface: which model answers the roles.
@@ -894,6 +938,60 @@ pub struct LimitsV1 {
     pub request_timeout_secs: u64,
 }
 
+/// One curated live preset, as `/capabilities` lists it: a canned task
+/// the recorded batteries ran, never visitor text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PresetV1 {
+    /// The battery tag, e.g. `R03-raise-to-10`: the `preset_id` to send.
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    /// The project every preset runs against (`demo-repo`).
+    pub project: String,
+    /// Always `live_meta`: the owner's Meta key answers every role.
+    pub model: ModelProvenance,
+    /// Where the evidence comes from in this deployment (the sealed
+    /// snapshot in production).
+    pub evidence: EvidenceProvenance,
+}
+
+/// What `/capabilities` publishes about the live budget: remaining
+/// amounts as the ledger renders them (USD, six decimals), whether live
+/// mode is tripped and the coarse reason code. Never an amount spent, a
+/// detail string, an upstream status or a path; the judge lane is not
+/// mentioned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PublicBudgetV1 {
+    /// Today's remaining public budget (UTC day).
+    pub daily_remaining: String,
+    /// What the public lane could reserve right now, pacing included.
+    pub daily_available_now: String,
+    pub lifetime_remaining: String,
+    /// True when the ledger refuses every admission until an operator
+    /// resets it, or when the operator's kill-switch file exists (reported
+    /// at once, before the next admission records the trip).
+    pub tripped: bool,
+    /// `kill_switch`, `lifetime_cap`, `output_bound`, `charge_bound`,
+    /// `provider_refused_key` or `inconsistent`, when tripped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trip_code: Option<String>,
+}
+
+/// The live section of `/capabilities`, present when live mode is wired.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LiveCapabilitiesV1 {
+    pub presets: Vec<PresetV1>,
+    /// The visitor-safe budget. Absent when the ledger could not be read:
+    /// no run can be admitted until it can (`/ready` then reports
+    /// `live.ledger_ok: false`), and no figure is invented in its place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<PublicBudgetV1>,
+    /// Always true: a Turnstile token must accompany every live run.
+    pub requires_turnstile: bool,
+    /// Always true: `attest_adult` must be true on every live run.
+    pub requires_adult_attestation: bool,
+}
+
 /// `GET /api/v1/capabilities`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CapabilitiesV1 {
@@ -907,6 +1005,10 @@ pub struct CapabilitiesV1 {
     pub protocol: String,
     /// Authority recorded on this surface's decisions.
     pub decision_authority: Authority,
+    /// Presets, budget and requirements of the public live mode; absent
+    /// when live mode is not wired on this server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<LiveCapabilitiesV1>,
 }
 
 /// `GET /api/v1/health`: static facts only, no environment probing.
@@ -945,6 +1047,20 @@ pub struct ShowcaseStatusV1 {
     pub errors: Vec<String>,
 }
 
+/// The live mode as `/ready` reports it. `ready` is false while the
+/// ledger is tripped or unreadable, or the evidence source is not ok.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LiveReadyV1 {
+    /// The ledger could be read.
+    pub ledger_ok: bool,
+    pub tripped: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trip_code: Option<String>,
+    /// The evidence source (the sealed snapshot in production) passed its
+    /// check.
+    pub evidence_ok: bool,
+}
+
 /// `GET /api/v1/ready`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ReadyV1 {
@@ -954,6 +1070,9 @@ pub struct ReadyV1 {
     pub active_runs: u64,
     pub queued_runs: u64,
     pub shutting_down: bool,
+    /// Present when live mode is wired on this server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<LiveReadyV1>,
 }
 
 /// One archived run of the research showcase.
@@ -1008,6 +1127,42 @@ mod tests {
         assert!(
             serde_json::from_str::<CreateLiveRunRequest>(r#"{"preset_id":"retry-cap-3"}"#).is_ok()
         );
+        // Every curated preset id (a battery tag with an uppercase letter)
+        // is a valid request id; a space, a slash or a dot is not.
+        for id in crate::live::presets::PresetId::ALL {
+            assert!(PresetId::parse(id.as_str()).is_ok(), "{id}");
+        }
+        for bad in ["R01 reference", "R01/reference", "r01.ref", ""] {
+            assert!(PresetId::parse(bad).is_err(), "{bad:?}");
+        }
+        // The attestation defaults to false (refused later by the gate), a
+        // judge code is bounded and trimmed, and no other field is read.
+        let bare: CreateLiveRunRequest =
+            serde_json::from_str(r#"{"preset_id":"retry-cap-3"}"#).unwrap();
+        assert!(!bare.attest_adult);
+        assert_eq!(bare.judge_code_trimmed(), None);
+        assert!(bare.validate().is_ok());
+        let full: CreateLiveRunRequest = serde_json::from_str(
+            r#"{"preset_id":"retry-cap-3","attest_adult":true,"judge_code":"  alpha-7231 "}"#,
+        )
+        .unwrap();
+        assert!(full.attest_adult);
+        assert_eq!(full.judge_code_trimmed().as_deref(), Some("alpha-7231"));
+        assert!(full.validate().is_ok());
+        let blank = CreateLiveRunRequest {
+            judge_code: Some("   ".into()),
+            ..full.clone()
+        };
+        assert!(blank.validate().is_err());
+        let long = CreateLiveRunRequest {
+            judge_code: Some("x".repeat(JUDGE_CODE_MAX_CHARS + 1)),
+            ..full.clone()
+        };
+        assert!(long.validate().is_err());
+        assert!(serde_json::from_str::<CreateLiveRunRequest>(
+            r#"{"preset_id":"retry-cap-3","attest_adult":true,"title":"free text"}"#
+        )
+        .is_err());
         let decision: DecisionRequest = serde_json::from_str(
             r#"{"approved":true,"expected":{"recommendation":"supported","last_sequence":14}}"#,
         )

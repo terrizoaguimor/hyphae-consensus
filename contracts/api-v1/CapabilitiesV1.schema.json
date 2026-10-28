@@ -20,6 +20,46 @@
         }
       ]
     },
+    "EvidenceProvenance": {
+      "description": "Where the evidence came from, read from the verification and retrieval records.",
+      "oneOf": [
+        {
+          "description": "Seeded records checked by the scripted verifier: SIMULATED.",
+          "enum": [
+            "simulated"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records of a sealed Hyphae snapshot, verified with `hyphae proof verify`.",
+          "enum": [
+            "hyphae_snapshot"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records recalled from a running Hyphae deployment.",
+          "enum": [
+            "hyphae_live"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No evidence record in the run.",
+          "enum": [
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records of more than one kind.",
+          "enum": [
+            "mixed"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "LimitsV1": {
       "description": "Every limit the server enforces.",
       "properties": {
@@ -144,6 +184,153 @@
       ],
       "type": "object"
     },
+    "LiveCapabilitiesV1": {
+      "description": "The live section of `/capabilities`, present when live mode is wired.",
+      "properties": {
+        "budget": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PublicBudgetV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The visitor-safe budget. Absent when the ledger could not be read: no run can be admitted until it can (`/ready` then reports `live.ledger_ok: false`), and no figure is invented in its place."
+        },
+        "presets": {
+          "items": {
+            "$ref": "#/definitions/PresetV1"
+          },
+          "type": "array"
+        },
+        "requires_adult_attestation": {
+          "description": "Always true: `attest_adult` must be true on every live run.",
+          "type": "boolean"
+        },
+        "requires_turnstile": {
+          "description": "Always true: a Turnstile token must accompany every live run.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "presets",
+        "requires_adult_attestation",
+        "requires_turnstile"
+      ],
+      "type": "object"
+    },
+    "ModelProvenance": {
+      "description": "Which model answered the roles, read from the chained `ModelInvocation` records (provider and request id), never from the request or the declared mode.",
+      "oneOf": [
+        {
+          "description": "Every recorded call came from a scripted double (`provider=fake`): no model was called.",
+          "enum": [
+            "scripted"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Every recorded call went to the Meta Model API (`provider=meta` with a request id).",
+          "enum": [
+            "live_meta"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Calls from more than one provider, or Meta calls without request ids: shown with a flag, never as LIVE.",
+          "enum": [
+            "mixed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No model call recorded yet.",
+          "enum": [
+            "undetermined"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PresetV1": {
+      "description": "One curated live preset, as `/capabilities` lists it: a canned task the recorded batteries ran, never visitor text.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "evidence": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/EvidenceProvenance"
+            }
+          ],
+          "description": "Where the evidence comes from in this deployment (the sealed snapshot in production)."
+        },
+        "id": {
+          "description": "The battery tag, e.g. `R03-raise-to-10`: the `preset_id` to send.",
+          "type": "string"
+        },
+        "model": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ModelProvenance"
+            }
+          ],
+          "description": "Always `live_meta`: the owner's Meta key answers every role."
+        },
+        "project": {
+          "description": "The project every preset runs against (`demo-repo`).",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "evidence",
+        "id",
+        "model",
+        "project",
+        "title"
+      ],
+      "type": "object"
+    },
+    "PublicBudgetV1": {
+      "description": "What `/capabilities` publishes about the live budget: remaining amounts as the ledger renders them (USD, six decimals), whether live mode is tripped and the coarse reason code. Never an amount spent, a detail string, an upstream status or a path; the judge lane is not mentioned.",
+      "properties": {
+        "daily_available_now": {
+          "description": "What the public lane could reserve right now, pacing included.",
+          "type": "string"
+        },
+        "daily_remaining": {
+          "description": "Today's remaining public budget (UTC day).",
+          "type": "string"
+        },
+        "lifetime_remaining": {
+          "type": "string"
+        },
+        "trip_code": {
+          "description": "`kill_switch`, `lifetime_cap`, `output_bound`, `charge_bound`, `provider_refused_key` or `inconsistent`, when tripped.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tripped": {
+          "description": "True when the ledger refuses every admission until an operator resets it, or when the operator's kill-switch file exists (reported at once, before the next admission records the trip).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "daily_available_now",
+        "daily_remaining",
+        "lifetime_remaining",
+        "tripped"
+      ],
+      "type": "object"
+    },
     "SurfaceV1": {
       "description": "Which server answered.",
       "enum": [
@@ -168,6 +355,17 @@
     },
     "limits": {
       "$ref": "#/definitions/LimitsV1"
+    },
+    "live": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/LiveCapabilitiesV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Presets, budget and requirements of the public live mode; absent when live mode is not wired on this server."
     },
     "live_enabled": {
       "type": "boolean"

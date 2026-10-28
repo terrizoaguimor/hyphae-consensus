@@ -7,8 +7,8 @@
 use super::error::{ApiError, ErrorCode};
 use super::types::*;
 use super::{
-    ApiJson, AppState, Client, CreationRecord, Identity, LiveAdmissionRequest, LiveGrant,
-    READY_CACHE_TTL, TURNSTILE_HEADER, TURNSTILE_TOKEN_MAX,
+    trusted_country, ApiJson, AppState, Client, CreationRecord, Identity, LiveAdmissionRequest,
+    LiveGrant, READY_CACHE_TTL, TURNSTILE_HEADER, TURNSTILE_TOKEN_MAX,
 };
 use crate::guided;
 use crate::public_config::BODY_LIMIT_BYTES;
@@ -367,9 +367,13 @@ fn turnstile_token(headers: &HeaderMap) -> Option<String> {
         .map(str::to_string)
 }
 
-/// See [`super::LiveGate`] for the order of admission: creation
-/// admission, the live slot, the gate, then the start; a start failure
-/// after the grant calls the grant's refund.
+/// See [`super::LiveGate`] for the order of admission: body bounds and
+/// the idempotency lookup, creation admission, the live slot, the gate,
+/// then the start; a start failure after the grant calls the grant's
+/// refund. The gate sees the preset, the client key, the session
+/// pseudonym, the Turnstile token, the attestation, the (trimmed) judge
+/// code and, from a listener behind cloudflared, the `CF-IPCountry`
+/// value: nothing else of the request, the `Idempotency-Key` included.
 pub async fn create_live_run(
     State(state): State<AppState>,
     client: Client,
@@ -383,8 +387,12 @@ pub async fn create_live_run(
             "the public live mode is not enabled on this server",
         ));
     };
+    req.validate().map_err(ApiError::invalid)?;
     let key = creation_key(&headers)?;
     let body_hash = body_sha256(&req);
+    // A repeated key answers from the stored run and a reused one is
+    // refused before anything is reserved or verified: a retry whose
+    // first attempt succeeded costs nothing (see the gate contract).
     if let Some(replayed) = replayed_creation(&state, &identity, key.as_deref(), &body_hash).await?
     {
         return Ok(replayed);
@@ -402,6 +410,9 @@ pub async fn create_live_run(
             client: client.0,
             session_pseudonym: identity.authorized_by.clone(),
             turnstile_token: turnstile_token(&headers),
+            attest_adult: req.attest_adult,
+            judge_code: req.judge_code_trimmed(),
+            country: trusted_country(&state, &headers),
         })
         .await?;
     let LiveGrant {
@@ -891,11 +902,29 @@ pub fn policy_version_label() -> String {
     }
 }
 
-pub fn capabilities_of(state: &AppState) -> CapabilitiesV1 {
+/// The live section of `/capabilities`, read from the gate off the async
+/// workers (it may read the ledger's files).
+async fn live_capabilities(state: &AppState) -> Result<Option<LiveCapabilitiesV1>, ApiError> {
+    match state.live_gate.clone() {
+        Some(gate) => blocking(move || gate.capabilities()).await,
+        None => Ok(None),
+    }
+}
+
+/// The live section of `/ready`, likewise.
+async fn live_readiness(state: &AppState) -> Result<Option<LiveReadyV1>, ApiError> {
+    match state.live_gate.clone() {
+        Some(gate) => blocking(move || gate.readiness()).await,
+        None => Ok(None),
+    }
+}
+
+pub fn capabilities_of(state: &AppState, live: Option<LiveCapabilitiesV1>) -> CapabilitiesV1 {
     let c = &state.config;
     CapabilitiesV1 {
         surface: c.surface.v1(),
         live_enabled: state.live_gate.is_some(),
+        live,
         guided_enabled: true,
         showcase_enabled: state.showcase.is_enabled(),
         limits: LimitsV1 {
@@ -929,8 +958,9 @@ pub fn capabilities_of(state: &AppState) -> CapabilitiesV1 {
     }
 }
 
-pub async fn capabilities(State(state): State<AppState>) -> Json<CapabilitiesV1> {
-    Json(capabilities_of(&state))
+pub async fn capabilities(State(state): State<AppState>) -> Result<Json<CapabilitiesV1>, ApiError> {
+    let live = live_capabilities(&state).await?;
+    Ok(Json(capabilities_of(&state, live)))
 }
 
 pub fn health_of(state: &AppState) -> HealthV1 {
@@ -985,7 +1015,14 @@ pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyV1>, ApiEr
         index_error: health.index_error.clone(),
     };
     let showcase = state.showcase.status();
-    let ready = store.ok && !state.manager.is_shutting_down();
+    let live = live_readiness(&state).await?;
+    // A tripped or unreadable ledger, or an evidence source that failed
+    // its check, makes the server not ready: live mode would refuse
+    // every admission.
+    let live_ok = live
+        .as_ref()
+        .is_none_or(|l| l.ledger_ok && !l.tripped && l.evidence_ok);
+    let ready = store.ok && !state.manager.is_shutting_down() && live_ok;
     Ok(Json(ReadyV1 {
         ready,
         run_store: store,
@@ -993,6 +1030,7 @@ pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyV1>, ApiEr
         active_runs: stats.active as u64,
         queued_runs: stats.queued as u64,
         shutting_down: state.manager.is_shutting_down(),
+        live,
     }))
 }
 

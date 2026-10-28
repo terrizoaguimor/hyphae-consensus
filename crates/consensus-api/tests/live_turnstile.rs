@@ -204,14 +204,14 @@ fn a_retry_with_the_same_idempotency_key_passes_and_a_new_key_does_not() {
 }
 
 #[test]
-fn the_same_token_and_key_pass_twice_so_the_server_lookup_must_come_first() {
+fn the_same_token_and_key_pass_twice_so_the_gate_never_reuses_a_key() {
     // Cloudflare's documented behaviour, modelled by the fake: a token
-    // already verified under key K verifies again under K. Nothing in this
-    // module can tell the second call from the first, so the server's
-    // owner-scoped idempotency lookup has to answer a repeated key (and
-    // refuse a repeated key with a different body or preset) before
-    // `verify` is ever called; otherwise one solved challenge could start
-    // a second, different live run.
+    // already verified under key K verifies again under K, for any caller.
+    // Nothing in this module can tell the second call from the first, so
+    // the live gate never hands Siteverify a key a client chose (the
+    // request's Idempotency-Key, say): it mints a fresh UUID per call, and
+    // a solved challenge admits one run. The route's own replay of a
+    // repeated Idempotency-Key is answered before `verify` is reached.
     let fake = Arc::new(FakeSiteverify::new(|call, earlier| {
         let spent_under_another_key = earlier
             .iter()

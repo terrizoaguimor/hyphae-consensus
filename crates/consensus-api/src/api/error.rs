@@ -74,8 +74,57 @@ pub enum ErrorCode {
     NdjsonUnavailable,
     /// The request was not handled within the server's request timeout.
     RequestTimeout,
+    /// Public live mode: the daily USD budget cannot hold one more run;
+    /// `retry_after_secs` says when the paced budget admits again.
+    LiveBudgetDaily,
+    /// Public live mode: the lifetime USD budget is exhausted.
+    LiveBudgetLifetime,
+    /// Judge lane: its daily budget is exhausted until the next UTC day.
+    LiveBudgetJudgeDaily,
+    /// Judge lane: its lifetime slice is exhausted.
+    LiveBudgetJudgeSlice,
+    /// Public live mode: every live slot is busy; see `retry_after_secs`.
+    LiveConcurrency,
+    /// Public live mode: the rolling-hour admission cap is reached.
+    LiveHourlyAdmissions,
+    /// Public live mode: the ledger is tripped (kill switch, a cap, a
+    /// provider refusal of the key); an operator must reset it.
+    LiveTripped,
+    /// Public live mode: the ledger could not be consulted or the run
+    /// could not be assembled; nothing was charged.
+    LiveUnavailable,
+    /// Public live mode: the request carries no Turnstile token
+    /// (`cf-turnstile-response` header).
+    TurnstileRequired,
+    /// Public live mode: Cloudflare did not accept the Turnstile token.
+    TurnstileFailed,
+    /// Public live mode: Turnstile could not be asked; retry shortly.
+    TurnstileUnavailable,
+    /// Public live mode: `attest_adult` must be true.
+    AttestationRequired,
+    /// The whole portal is unavailable from the visitor's country.
+    GeoBlockedPortal,
+    /// Live mode is unavailable from the visitor's country.
+    GeoBlockedLive,
+    /// The visitor's country could not be determined (no `CF-IPCountry`);
+    /// a listener behind Cloudflare refuses rather than guesses.
+    GeoUnknown,
+    /// Public live mode: the preset id names no curated preset.
+    PresetUnknown,
     /// Something failed on the server; the detail is in its log.
     Internal,
+}
+
+impl From<crate::live::geo::GeoBlockCode> for ErrorCode {
+    /// The wire code of a geographic block is the geo module's fixed
+    /// public code (`geo_blocked_portal`, `geo_blocked_live`).
+    fn from(code: crate::live::geo::GeoBlockCode) -> Self {
+        use crate::live::geo::GeoBlockCode;
+        match code {
+            GeoBlockCode::GeoBlockedPortal => ErrorCode::GeoBlockedPortal,
+            GeoBlockCode::GeoBlockedLive => ErrorCode::GeoBlockedLive,
+        }
+    }
 }
 
 impl ErrorCode {
@@ -90,12 +139,27 @@ impl ErrorCode {
             ErrorCode::NotFound | ErrorCode::NdjsonUnavailable => StatusCode::NOT_FOUND,
             ErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             ErrorCode::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
-            ErrorCode::RateLimited | ErrorCode::TooManyRuns | ErrorCode::TooManyStreams => {
-                StatusCode::TOO_MANY_REQUESTS
+            ErrorCode::RateLimited
+            | ErrorCode::TooManyRuns
+            | ErrorCode::TooManyStreams
+            | ErrorCode::LiveBudgetDaily
+            | ErrorCode::LiveBudgetJudgeDaily
+            | ErrorCode::LiveConcurrency
+            | ErrorCode::LiveHourlyAdmissions => StatusCode::TOO_MANY_REQUESTS,
+            ErrorCode::StorageFull
+            | ErrorCode::LiveDisabled
+            | ErrorCode::ShuttingDown
+            | ErrorCode::LiveBudgetLifetime
+            | ErrorCode::LiveBudgetJudgeSlice
+            | ErrorCode::LiveTripped
+            | ErrorCode::LiveUnavailable
+            | ErrorCode::TurnstileUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::TurnstileRequired | ErrorCode::TurnstileFailed => StatusCode::FORBIDDEN,
+            ErrorCode::AttestationRequired => StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorCode::GeoBlockedPortal | ErrorCode::GeoBlockedLive | ErrorCode::GeoUnknown => {
+                StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS
             }
-            ErrorCode::StorageFull | ErrorCode::LiveDisabled | ErrorCode::ShuttingDown => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
+            ErrorCode::PresetUnknown => StatusCode::NOT_FOUND,
             ErrorCode::RunNotAwaitingDecision
             | ErrorCode::DecisionConflict
             | ErrorCode::IdempotencyKeyReused
@@ -185,5 +249,23 @@ mod tests {
         let response = limited.into_response();
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.headers()[header::RETRY_AFTER], "1");
+    }
+
+    #[test]
+    fn geo_codes_are_the_geo_modules_fixed_public_codes() {
+        use crate::live::geo::GeoBlockCode;
+        for code in [GeoBlockCode::GeoBlockedPortal, GeoBlockCode::GeoBlockedLive] {
+            let api: ErrorCode = code.into();
+            assert_eq!(serde_json::to_value(api).unwrap(), code.as_str());
+            assert_eq!(api.status(), StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS);
+        }
+        assert_eq!(
+            ErrorCode::GeoUnknown.status(),
+            StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS
+        );
+        assert_eq!(
+            serde_json::to_value(ErrorCode::GeoUnknown).unwrap(),
+            "geo_unknown"
+        );
     }
 }

@@ -7,6 +7,7 @@
 //!
 //! | Variable | Default | Meaning |
 //! |---|---|---|
+//! | `CONSENSUS_META_API_KEY_FILE` | unset | File whose trimmed content is the Meta key (systemd `LoadCredential` on the server); takes precedence over every key variable below. Empty or unreadable is an error naming the variable, never the file's content |
 //! | `CONSENSUS_META_API_KEY`, else `MODEL_API_KEY`, else `META_API_KEY` | (required for Meta) | Meta Model API key |
 //! | `CONSENSUS_META_BASE_URL` | `https://api.meta.ai/v1` | API base (https, or http on a loopback host) |
 //! | `CONSENSUS_MODEL` | `muse-wonder-1.0` | model id |
@@ -88,9 +89,14 @@ pub const DEFAULT_MAX_ATTEMPTS: u32 = 3;
 pub const DEFAULT_RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
 pub const DEFAULT_META_BASE_URL: &str = "https://api.meta.ai/v1";
 pub const DEFAULT_META_MODEL: &str = "muse-wonder-1.0";
-/// Where the Meta key is read from, first match wins. `MODEL_API_KEY` is
-/// the name Meta's docs use; `META_API_KEY` comes last because Muse Code
-/// reads it too, and its subscription credential is not an API key.
+/// The key file read before any key variable: the public server gets its
+/// dedicated key as a credential file (systemd `LoadCredential`), never
+/// through the environment.
+pub const META_KEY_FILE_VARIABLE: &str = "CONSENSUS_META_API_KEY_FILE";
+/// Where the Meta key is read from when [`META_KEY_FILE_VARIABLE`] is
+/// unset, first match wins. `MODEL_API_KEY` is the name Meta's docs use;
+/// `META_API_KEY` comes last because Muse Code reads it too, and its
+/// subscription credential is not an API key.
 pub const META_KEY_VARIABLES: [&str; 3] =
     ["CONSENSUS_META_API_KEY", "MODEL_API_KEY", "META_API_KEY"];
 /// Documented `reasoning_effort` values this adapter accepts. `none` is
@@ -148,23 +154,26 @@ impl ApiKey {
     /// Reads a key from a credential file (systemd `LoadCredential`, a
     /// secrets mount). The file's bytes are zeroized after the read.
     pub fn read_file(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
-        let path = path.as_ref();
+        Self::read_file_as(path.as_ref(), "credential file")
+    }
+
+    /// [`read_file`](Self::read_file) whose errors (and whose later shape
+    /// check) name `source`, the variable the path came from. The messages
+    /// name the path and the I/O error kind, never the file's content.
+    fn read_file_as(path: &Path, source: &'static str) -> Result<Self, ConfigError> {
         let bytes = Zeroizing::new(std::fs::read(path).map_err(|e| {
             ConfigError::new(
-                "credential file",
+                source,
                 format!("cannot read {}: {}", path.display(), e.kind()),
             )
         })?);
         let text = std::str::from_utf8(&bytes).map_err(|_| {
-            ConfigError::new(
-                "credential file",
-                format!("{} is not UTF-8 text", path.display()),
-            )
+            ConfigError::new(source, format!("{} is not UTF-8 text", path.display()))
         })?;
-        let key = Self::with_source(text, "credential file");
+        let key = Self::with_source(text, source);
         if key.secret.is_empty() {
             return Err(ConfigError::new(
-                "credential file",
+                source,
                 format!("{} holds no key", path.display()),
             ));
         }
@@ -373,9 +382,11 @@ impl MetaConfig {
         Self::try_from_env().ok().flatten()
     }
 
-    /// The configuration in the environment: `Ok(None)` when no key
-    /// variable is set ([`META_KEY_VARIABLES`], first set one wins), an
-    /// error naming the variable when a setting is unusable.
+    /// The configuration in the environment: `Ok(None)` when neither the
+    /// key file ([`META_KEY_FILE_VARIABLE`]) nor a key variable
+    /// ([`META_KEY_VARIABLES`], first set one wins) is set, an error
+    /// naming the variable when a setting is unusable (a key file that is
+    /// empty or cannot be read included).
     pub fn try_from_env() -> Result<Option<Self>, ConfigError> {
         Self::from_lookup(&process_env)
     }
@@ -395,6 +406,13 @@ impl MetaConfig {
     }
 
     fn from_lookup(get: Lookup<'_>) -> Result<Option<Self>, ConfigError> {
+        // The credential file first: on the server the key never travels
+        // through the environment, and a file that is set but unusable is
+        // an error, never a fall-through to a key variable.
+        if let Some(path) = get(META_KEY_FILE_VARIABLE)? {
+            let key = ApiKey::read_file_as(Path::new(path.trim()), META_KEY_FILE_VARIABLE)?;
+            return Self::settings_from(get, key).map(Some);
+        }
         for name in META_KEY_VARIABLES {
             if let Some(value) = get(name)? {
                 let key = ApiKey::with_source(value, name);
@@ -1020,6 +1038,52 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.setting, "credential file");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_key_file_variable_comes_first_and_its_errors_name_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "hyphae-consensus-config-keyfile-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("meta.key");
+        std::fs::write(&path, format!("  {KEY}\r\n")).unwrap();
+        let path_text = path.display().to_string();
+        // The file wins over every key variable, and is trimmed.
+        let cfg = meta(&[
+            ("CONSENSUS_META_API_KEY_FILE", &path_text),
+            ("CONSENSUS_META_API_KEY", "LLM_1_consensus"),
+            ("MODEL_API_KEY", "LLM_2_model"),
+            ("META_API_KEY", "LLM_3_meta"),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(cfg.api_key.expose(), KEY);
+        assert!(!format!("{cfg:?}").contains("nx9-test-secret"));
+        // Empty, missing, or not a key: an error naming the variable, never
+        // a fall-through to the variables and never the file's content.
+        std::fs::write(&path, "\n").unwrap();
+        let err = meta(&[
+            ("CONSENSUS_META_API_KEY_FILE", &path_text),
+            ("MODEL_API_KEY", KEY),
+        ])
+        .unwrap_err();
+        assert_eq!(err.setting, "CONSENSUS_META_API_KEY_FILE");
+        assert!(err.message.contains("holds no key"), "{err}");
+        let missing = dir.join("missing.key").display().to_string();
+        let err = meta(&[
+            ("CONSENSUS_META_API_KEY_FILE", &missing),
+            ("MODEL_API_KEY", KEY),
+        ])
+        .unwrap_err();
+        assert_eq!(err.setting, "CONSENSUS_META_API_KEY_FILE");
+        assert!(err.message.contains("cannot read"), "{err}");
+        std::fs::write(&path, "sk-not-a-meta-key\n").unwrap();
+        let err = meta(&[("CONSENSUS_META_API_KEY_FILE", &path_text)]).unwrap_err();
+        assert_eq!(err.setting, "CONSENSUS_META_API_KEY_FILE");
+        assert!(!err.to_string().contains("sk-not-a-meta-key"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

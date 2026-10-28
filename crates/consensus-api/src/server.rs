@@ -6,9 +6,16 @@
 //!   (`CONSENSUS_PUBLIC_BIND`; anything else is refused). It serves the
 //!   static web export with per-page CSP, `/api/v1/*` for anonymous
 //!   cookie sessions, `/research/*`, and a JSON 404 for unknown `/api`
-//!   paths. Visitors send no free text: guided runs are chosen by name,
-//!   live runs by preset (answered `503 live_disabled` until the
-//!   admission layer is wired). Decisions carry `public_demo` authority.
+//!   paths, all behind the portal-wide geographic block (ADR-0007 duty
+//!   7). Visitors send no free text: guided runs are chosen by name, live
+//!   runs by preset. Live mode (`CONSENSUS_LIVE_ENABLED=true`) runs on the
+//!   owner's key behind [`crate::live::gate::LiveGate`]: Turnstile, the
+//!   USD ledger, the geographic policy and the judge lane; it needs the
+//!   Meta key (`CONSENSUS_META_API_KEY_FILE`), the live configuration
+//!   ([`crate::live::config`]) and the sealed-snapshot evidence factory
+//!   ([`serve_public_with`]); a missing part stops startup naming the
+//!   variable, and `503 live_disabled` is the answer only when live mode
+//!   is off. Decisions carry `public_demo` authority.
 //! - **`serve-operator`** listens on loopback only. Every `/api` request
 //!   needs `Authorization: Bearer <token>` (constant-time compare; the
 //!   token comes from `CONSENSUS_OPERATOR_TOKEN_FILE` or is generated and
@@ -27,7 +34,13 @@ use crate::api::{
     operator_router, public_router, AppState, ConsolePage, CreationKeys, LiveGate, OperatorAuth,
     RateTables, ServeConfig,
 };
+use crate::config::{MetaConfig, META_KEY_FILE_VARIABLE, META_KEY_VARIABLES};
 use crate::limits::{ClientKeyPolicy, StreamCaps};
+use crate::live::budget::Ledger;
+use crate::live::config::{vars as live_vars, LiveConfig};
+use crate::live::gate::{DeliberationFactory, GateParts, SNAPSHOT_DIR_VAR, SNAPSHOT_MAX_AGE};
+use crate::live::geo::GeoPolicy;
+use crate::live::turnstile::{Siteverify, TurnstileVerifier};
 use crate::public_config::{
     operator_limits, OperatorConfig, ProcessEnv, PublicConfig, PublicListener, RuntimeConfig,
     DEFAULT_OPERATOR_BIND,
@@ -39,7 +52,7 @@ use crate::showcase::Showcase;
 use crate::static_files::{csp_hash, inline_bodies, StaticSite};
 use crate::stream::Broadcasts;
 use axum::Router;
-use consensus_runtime::{RecoveryReport, RunStore};
+use consensus_runtime::{RecoveryReport, RunLimits, RunStore};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -62,6 +75,11 @@ pub struct BuildOptions {
     pub live_gate: Option<Arc<dyn LiveGate>>,
     /// Run store recovery at build time (always on in the servers).
     pub recover: bool,
+    /// The geographic policy of the public listener. `serve-public` loads
+    /// it from the `CONSENSUS_GEO_*` variables whether or not live mode is
+    /// enabled; the default is the owner's documented lists, which is what
+    /// those variables default to.
+    pub geo: GeoPolicy,
 }
 
 impl Default for BuildOptions {
@@ -73,6 +91,7 @@ impl Default for BuildOptions {
             shutdown_grace: Duration::from_secs(60),
             live_gate: None,
             recover: true,
+            geo: GeoPolicy::default_policy(),
         }
     }
 }
@@ -227,6 +246,7 @@ pub fn build_public(cfg: &PublicConfig, opts: BuildOptions) -> Result<Built, Str
         contract_sha256: Arc::new(contract::contract_sha256()),
         creation_keys: Arc::new(CreationKeys::new(cfg.runtime.rates.table_max)),
         ready_cache: Arc::new(Mutex::new(None)),
+        geo: Arc::new(opts.geo),
     };
     let router = public_router(state.clone());
     Ok(Built {
@@ -292,6 +312,9 @@ pub fn build_operator(
         contract_sha256: Arc::new(contract::contract_sha256()),
         creation_keys: Arc::new(CreationKeys::new(rates.table_max)),
         ready_cache: Arc::new(Mutex::new(None)),
+        // Never consulted: the operator router has no geographic block
+        // (it listens on loopback, behind SSH).
+        geo: Arc::new(opts.geo),
     };
     let router = operator_router(state.clone());
     Ok(Built {
@@ -405,10 +428,106 @@ async fn graceful(manager: Arc<RunManager>) {
     manager.shutdown().await;
 }
 
-/// `serve-public`.
+/// The Meta configuration of the public server, in public mode: the key
+/// from `CONSENSUS_META_API_KEY_FILE` (or a key variable), every setting
+/// validated, the debug directory refused. An absent key is an error:
+/// live mode is enabled, so the key is required.
+fn public_meta_config() -> Result<MetaConfig, String> {
+    let mut meta = MetaConfig::try_from_env()
+        .map_err(|e| format!("public live mode: {e}"))?
+        .ok_or_else(|| {
+            format!(
+                "public live mode requires the Meta key: set {META_KEY_FILE_VARIABLE} (a credential file) or one of {}",
+                META_KEY_VARIABLES.join(", ")
+            )
+        })?;
+    meta.public_mode = true;
+    meta.validate().map_err(|e| match e.setting {
+        "debug_dir" => format!("CONSENSUS_META_DEBUG_DIR: {}", e.message),
+        _ => format!("public live mode: {e}"),
+    })?;
+    Ok(meta)
+}
+
+/// Assembles the public live gate from an enabled, validated live
+/// configuration: the ledger on `CONSENSUS_LIVE_LEDGER_DIR`, the Turnstile
+/// verifier over the HTTP transport (test secrets were refused by the
+/// configuration load in public mode), the judge codes, the geographic
+/// policy, the Meta configuration and the evidence factory. Without a
+/// factory, startup fails: this build has no sealed-snapshot client yet
+/// (lane D2 plugs it in through [`serve_public_with`]), and there is no
+/// fallback to simulated evidence.
+pub fn build_live_gate(
+    live: &LiveConfig,
+    meta: MetaConfig,
+    factory: Option<Arc<dyn DeliberationFactory>>,
+) -> Result<Arc<dyn LiveGate>, String> {
+    let factory = factory.ok_or_else(|| {
+        format!("public live mode requires the sealed snapshot client ({SNAPSHOT_DIR_VAR}); not wired in this build")
+    })?;
+    let ledger_dir = live.ledger_dir.as_ref().ok_or_else(|| {
+        format!(
+            "{} is required when {} is true",
+            live_vars::LEDGER_DIR,
+            live_vars::LIVE_ENABLED
+        )
+    })?;
+    let ledger = Ledger::open(ledger_dir, live.budget.clone())
+        .map_err(|e| format!("{}: {e}", live_vars::LEDGER_DIR))?;
+    let turnstile = live.turnstile.as_ref().ok_or_else(|| {
+        format!(
+            "{} and {} are required when {} is true",
+            live_vars::TURNSTILE_SECRET_FILE,
+            live_vars::TURNSTILE_HOSTNAME,
+            live_vars::LIVE_ENABLED
+        )
+    })?;
+    let siteverify: Arc<dyn Siteverify> = Arc::new(TurnstileVerifier::from_config(turnstile));
+    let gate = crate::live::gate::LiveGate::new(GateParts {
+        ledger,
+        siteverify,
+        geo: live.geo.clone(),
+        judge_codes: live.judge_codes.clone(),
+        meta,
+        run_limits: RunLimits {
+            max_run_tokens: live.budget.run_token_cap,
+        },
+        factory,
+        snapshot_max_age: SNAPSHOT_MAX_AGE,
+        config: live.clone(),
+    });
+    Ok(Arc::new(gate))
+}
+
+/// `serve-public` without an evidence factory: with live mode enabled,
+/// startup fails until the sealed-snapshot client is wired.
 pub async fn serve_public() -> Result<(), Box<dyn std::error::Error>> {
+    serve_public_with(None).await
+}
+
+/// `serve-public` with the evidence factory live runs deliberate over
+/// (the sealed snapshot, lane D2). The live configuration is read whether
+/// or not live mode is enabled: the geographic policy applies to the whole
+/// portal either way.
+pub async fn serve_public_with(
+    factory: Option<Arc<dyn DeliberationFactory>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = PublicConfig::from_env(&ProcessEnv)?;
-    let built = build_public(&cfg, BuildOptions::default())?;
+    let live = LiveConfig::from_env()?;
+    let live_gate = if live.enabled {
+        let meta = public_meta_config()?;
+        Some(build_live_gate(&live, meta, factory)?)
+    } else {
+        None
+    };
+    let built = build_public(
+        &cfg,
+        BuildOptions {
+            live_gate,
+            geo: live.geo.clone(),
+            ..BuildOptions::default()
+        },
+    )?;
     for warning in &built.warnings {
         eprintln!("[startup] {warning}");
     }
@@ -422,6 +541,30 @@ pub async fn serve_public() -> Result<(), Box<dyn std::error::Error>> {
         state.contract_sha256
     );
     println!("Executor disabled: decisions are recorded only.");
+    println!(
+        "Portal-wide geographic block: {} countries; live-only: {}",
+        live.geo.portal_blocked().len(),
+        live.geo
+            .live_only_blocked()
+            .iter()
+            .map(|c| c.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    if live.enabled {
+        println!(
+            "Public live mode: enabled on the owner's key (daily cap {}, lifetime cap {}, judge lane {})",
+            live.budget.daily_cap,
+            live.budget.lifetime_cap,
+            if live.judge_lane_open() {
+                "open"
+            } else {
+                "closed"
+            }
+        );
+    } else {
+        println!("Public live mode: disabled (CONSENSUS_LIVE_ENABLED)");
+    }
     match &cfg.listener {
         PublicListener::Tcp(addr) => {
             let listener = tokio::net::TcpListener::bind(addr).await?;

@@ -50,3 +50,6 @@ coverage/
 
 # Local agent tooling (git worktrees, session files)
 /.claude/
+
+# Separate build directory for gate runs while target/ is held open by a running server.
+/target-gates/

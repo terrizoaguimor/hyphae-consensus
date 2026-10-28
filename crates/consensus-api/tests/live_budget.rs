@@ -1037,7 +1037,9 @@ fn the_reservation_is_a_hard_ceiling() {
         Refusal::ReservationExhausted { remaining, needed } => {
             assert_eq!(remaining, usd("0.259520"));
             assert_eq!(needed, usd(ATTEMPT_EST));
-            assert_eq!(refusal.code(), "live_run_budget");
+            // A draw-time refusal: the run fails with the adapter's
+            // `budget_refused`; as an admission code it is the generic one.
+            assert_eq!(refusal.code(), "live_unavailable");
         }
         other => panic!("{other:?}"),
     }
@@ -1254,15 +1256,19 @@ fn snapshot_and_refusals_expose_stable_codes_and_string_money() {
         .code(),
     ]
     .to_vec();
+    // The wire strings of the API's ErrorCode (gate::refusal_code): one set
+    // of codes for the UI, a tripped ledger never reading as "live mode
+    // off" (`live_disabled` is the route's code for a server without a
+    // gate).
     assert_eq!(
         codes,
         vec![
-            "live_disabled",
+            "live_tripped",
             "live_budget_daily",
             "live_budget_lifetime",
-            "live_budget_judge",
-            "live_rate_hourly",
-            "live_busy"
+            "live_budget_judge_slice",
+            "live_hourly_admissions",
+            "live_concurrency"
         ]
     );
     assert_eq!(Refusal::LifetimeBudget.retry_after(), None);
@@ -1667,4 +1673,52 @@ fn a_stale_summary_does_not_override_newer_day_files() {
         ledger.reserve(Lane::Public),
         Err(Refusal::Tripped { .. })
     ));
+}
+
+#[test]
+fn an_attempt_that_was_never_sent_settles_at_zero_and_is_recorded_as_such() {
+    // A connection that could not be opened (or a request that could not
+    // be built) reached no provider: the draw is settled at zero, like a
+    // non-retryable 4xx, with its own detail so the operator can tell the
+    // two apart. Nothing trips, and the run keeps its ceiling for the
+    // retry that follows.
+    let dir = TempDir::new("not-sent");
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    let ledger = open(dir.path(), unpaced_cfg(), &clock);
+    let reservation = ledger.reserve(Lane::Public).unwrap();
+    let meter: Box<dyn AttemptMeter> = Box::new(ledger.meter(&reservation));
+
+    let first = meter.draw(full_attempt()).unwrap();
+    assert_eq!(first.estimate(), usd(ATTEMPT_EST));
+    let settled = meter.settle(first, Outcome::NotSent).unwrap();
+    assert_eq!(settled.charged, Usd::ZERO);
+    assert_eq!(settled.outcome, RecordedOutcome::Zero);
+    assert!(settled.tripped.is_none());
+
+    // The retry draws again on the same reservation, at the full ceiling.
+    let second = meter.draw(full_attempt()).unwrap();
+    assert_eq!(second.attempt(), 2);
+    let settled = meter
+        .settle(
+            second,
+            Outcome::Success(Usage::from_chat_usage(1_000, 2_000, None)),
+        )
+        .unwrap();
+    assert_eq!(settled.charged, usd("0.044"));
+
+    let settlements = records(dir.path(), "2026-10-27", "settlement");
+    assert_eq!(settlements.len(), 2);
+    assert_eq!(settlements[0]["outcome"]["kind"], "zero");
+    assert_eq!(settlements[0]["charged_usd"], "0.000000");
+    assert_eq!(settlements[0]["detail"], "not_sent");
+    assert_eq!(settlements[1]["outcome"]["kind"], "usage");
+    let released = ledger.release(&reservation).unwrap();
+    assert_eq!(
+        released.spent,
+        usd("0.044"),
+        "the unsent attempt cost nothing"
+    );
+    let snap = ledger.snapshot().unwrap();
+    assert_eq!(snap.lifetime_spent, usd("0.044"));
+    assert_eq!(snap.unsettled_reservations, 0);
 }

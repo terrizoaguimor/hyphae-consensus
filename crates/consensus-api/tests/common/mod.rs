@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 pub mod doubles;
+pub mod live;
 
 use axum::body::{Body, Bytes};
 use axum::extract::ConnectInfo;
@@ -101,6 +102,11 @@ pub const PUBLIC_ORIGIN: &str = "http://localhost:8788";
 pub const OPERATOR_HOST: &str = "127.0.0.1:8787";
 pub const OPERATOR_ORIGIN: &str = "http://127.0.0.1:8787";
 pub const OPERATOR_TOKEN: &str = "test-operator-token-0123456789abcdef0123456789";
+/// Cloudflare's country header, sent by default (see [`TestServer::send`]).
+pub const COUNTRY_HEADER: &str = "cf-ipcountry";
+/// The country the harness reports unless a request says otherwise: one
+/// on neither block list.
+pub const DEFAULT_COUNTRY: &str = "US";
 
 /// A built server under test.
 pub struct TestServer {
@@ -110,6 +116,9 @@ pub struct TestServer {
     pub host: &'static str,
     pub origin: &'static str,
     pub token: Option<&'static str>,
+    /// Other temporary directories that must outlive the server (a live
+    /// harness's ledger).
+    pub extra_dirs: Vec<TempDir>,
 }
 
 fn env_lookup(map: HashMap<String, String>) -> impl Fn(&str) -> Option<String> {
@@ -150,6 +159,7 @@ pub fn public_server(overrides: &[(&str, &str)], opts: BuildOptions) -> TestServ
         host: PUBLIC_HOST,
         origin: PUBLIC_ORIGIN,
         token: None,
+        extra_dirs: Vec::new(),
     }
 }
 
@@ -182,6 +192,7 @@ pub fn operator_server(overrides: &[(&str, &str)], opts: BuildOptions) -> TestSe
         host: OPERATOR_HOST,
         origin: OPERATOR_ORIGIN,
         token: Some(OPERATOR_TOKEN),
+        extra_dirs: Vec::new(),
     }
 }
 
@@ -256,10 +267,12 @@ impl Req {
 }
 
 impl TestServer {
-    /// Sends a request. Adds `Host`, and for state-changing methods the
-    /// allowed `Origin` and `Sec-Fetch-Site: same-origin`, plus the
-    /// bearer token on the operator surface, unless the request removed
-    /// them with [`Req::without`].
+    /// Sends a request. Adds `Host`, the `CF-IPCountry` cloudflared always
+    /// sets ([`DEFAULT_COUNTRY`]; a listener that trusts its proxy headers
+    /// refuses a request without one), and for state-changing methods the
+    /// allowed `Origin` and `Sec-Fetch-Site: same-origin`, plus the bearer
+    /// token on the operator surface, unless the request removed them with
+    /// [`Req::without`] or set its own.
     pub async fn send(&self, req: Req) -> Response<Body> {
         let removed: Vec<String> = req
             .headers
@@ -269,7 +282,10 @@ impl TestServer {
         let mut builder = Request::builder()
             .method(req.method.clone())
             .uri(req.path.clone());
-        let mut defaults: Vec<(&str, String)> = vec![("host", self.host.to_string())];
+        let mut defaults: Vec<(&str, String)> = vec![
+            ("host", self.host.to_string()),
+            (COUNTRY_HEADER, DEFAULT_COUNTRY.to_string()),
+        ];
         if !matches!(req.method, Method::GET | Method::HEAD | Method::OPTIONS) {
             defaults.push(("origin", self.origin.to_string()));
             defaults.push(("sec-fetch-site", "same-origin".to_string()));

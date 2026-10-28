@@ -1,6 +1,34 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "LiveReadyV1": {
+      "description": "The live mode as `/ready` reports it. `ready` is false while the ledger is tripped or unreadable, or the evidence source is not ok.",
+      "properties": {
+        "evidence_ok": {
+          "description": "The evidence source (the sealed snapshot in production) passed its check.",
+          "type": "boolean"
+        },
+        "ledger_ok": {
+          "description": "The ledger could be read.",
+          "type": "boolean"
+        },
+        "trip_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tripped": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "evidence_ok",
+        "ledger_ok",
+        "tripped"
+      ],
+      "type": "object"
+    },
     "RunStoreStatusV1": {
       "description": "The run store as `/ready` reports it.",
       "properties": {
@@ -72,6 +100,17 @@
       "format": "uint64",
       "minimum": 0.0,
       "type": "integer"
+    },
+    "live": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/LiveReadyV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Present when live mode is wired on this server."
     },
     "queued_runs": {
       "format": "uint64",

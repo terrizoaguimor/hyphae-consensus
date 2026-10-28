@@ -15,6 +15,7 @@ pub mod types;
 pub mod v1;
 
 use crate::limits::{ClientKey, ClientKeyPolicy, LruMap, RateTable, StreamCaps};
+use crate::live::geo::{GeoDecision, GeoPolicy, Surface as GeoSurface};
 use crate::public_config::{RateLimits, SseLimits, BODY_LIMIT_BYTES};
 use crate::public_view::Surface;
 use crate::runs::{Deliberation, RunManager};
@@ -41,7 +42,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tower::timeout::TimeoutLayer;
 use tower::ServiceBuilder;
-use types::PresetId;
+use types::{LiveCapabilitiesV1, LiveReadyV1, PresetId};
 
 /// Everything the middleware, the extractors and `/capabilities` need to
 /// know about the server they run in.
@@ -120,6 +121,10 @@ pub const TURNSTILE_HEADER: &str = "cf-turnstile-response";
 /// Longest Turnstile token forwarded; Cloudflare documents up to 2048
 /// characters. A longer header is treated as absent.
 pub const TURNSTILE_TOKEN_MAX: usize = 2048;
+/// Cloudflare's country header, read only from a listener that trusts
+/// its proxy headers (the unix socket behind cloudflared, or a
+/// development bind with `CONSENSUS_TRUST_PROXY_HEADERS=true`).
+pub const COUNTRY_HEADER: &str = "cf-ipcountry";
 
 /// What a live-run request offers the admission layer. Owned, so an
 /// implementation can move it into an outbound HTTP call or a blocking
@@ -128,10 +133,20 @@ pub struct LiveAdmissionRequest {
     pub preset: PresetId,
     pub client: ClientKey,
     /// The session's pseudonym (`visitor:<16 hex>`), for the ledger's
-    /// per-visitor budget; never the session id or its owner hash.
+    /// per-visitor budget and the `safety_identifier` sent to Meta; never
+    /// the session id or its owner hash.
     pub session_pseudonym: String,
     /// The Turnstile response token, when the client sent one.
     pub turnstile_token: Option<String>,
+    /// The visitor's 18+ and territory acknowledgment, as sent.
+    pub attest_adult: bool,
+    /// A judge-lane invite code, trimmed and bounded by the route; the
+    /// gate hashes it and never stores or logs it.
+    pub judge_code: Option<String>,
+    /// The raw `CF-IPCountry` value, only when this listener trusts its
+    /// proxy headers; `None` otherwise (a development bind), which the
+    /// live surface treats as an unknown country.
+    pub country: Option<String>,
 }
 
 /// An admitted live run: its canned task, the ports to deliberate it, and
@@ -151,29 +166,52 @@ pub struct LiveGrant {
 /// The future [`LiveGate::admit`] returns.
 pub type AdmitFuture<'a> = Pin<Box<dyn Future<Output = Result<LiveGrant, ApiError>> + Send + 'a>>;
 
-/// Extension point for the public live mode (plan B9, lane S-b2):
+/// Extension point for the public live mode (plan B9, ADR-0007):
 /// Turnstile, the USD ledger, presets and the geographic policy decide
-/// whether a visitor may spend the operator's key. Until an
-/// implementation is wired into [`AppState::live_gate`], the public live
-/// route answers `503 live_disabled`.
+/// whether a visitor may spend the operator's key. The production
+/// implementation is [`crate::live::gate::LiveGate`]; until one is wired
+/// into [`AppState::live_gate`], the public live route answers
+/// `503 live_disabled`.
 ///
 /// Contract of the route (`POST /api/v1/live-runs`), in order:
 ///
-/// 1. the request is admitted like every creation (session, rates, the
+/// 1. the body is validated (bounds of `judge_code`); a repeated
+///    `Idempotency-Key` is answered from the stored creation, and one
+///    reused with another body is `409`, before anything else, so a
+///    retried submit whose first attempt succeeded costs nothing more. The
+///    key itself never reaches the gate: Siteverify is called with a fresh
+///    UUID per request, which is what keeps one solved Turnstile challenge
+///    to one run (the route's replay is owner-scoped and recorded only
+///    after the start, so it could not);
+/// 2. the request is admitted like every creation (session, rates, the
 ///    visitor-run ring, not shutting down);
-/// 2. a live deliberation slot is reserved ([`RunManager::reserve`]):
+/// 3. a live deliberation slot is reserved ([`RunManager::reserve`]):
 ///    `429 too_many_runs` or `503 shutting_down` happen *before* the gate
 ///    is asked, so a refusal there charges nobody;
-/// 3. `admit` runs, asynchronously (Turnstile siteverify is an outbound
+/// 4. `admit` runs, asynchronously (Turnstile siteverify is an outbound
 ///    call; nothing here blocks a worker). An `Err` is answered as is and
 ///    releases the slot;
-/// 4. the run is started with the reserved slot. If that fails,
+/// 5. the run is started with the reserved slot. If that fails,
 ///    [`LiveGrant::on_start_failed`] is called and the error answered.
 ///
 /// `admit` must be idempotent-safe against its own retries only: the
 /// route calls it once per request.
 pub trait LiveGate: Send + Sync {
     fn admit(&self, request: LiveAdmissionRequest) -> AdmitFuture<'_>;
+
+    /// What `/capabilities` publishes about live mode: presets, the
+    /// visitor-safe budget projection and the requirements. `None` when
+    /// the gate has nothing to publish (a test double). May read the
+    /// ledger's files: the handler calls it from a blocking task.
+    fn capabilities(&self) -> Option<LiveCapabilitiesV1> {
+        None
+    }
+
+    /// What `/ready` reports about live mode (`None` when not applicable).
+    /// May read the ledger's files: called from a blocking task.
+    fn readiness(&self) -> Option<LiveReadyV1> {
+        None
+    }
 }
 
 /// Per-client request rate tables.
@@ -277,11 +315,68 @@ pub struct AppState {
     pub creation_keys: Arc<CreationKeys>,
     /// The store health `/ready` answered last, and when.
     pub ready_cache: Arc<Mutex<Option<(Instant, StoreHealth)>>>,
+    /// The geographic policy (ADR-0007 duty 7): the portal-wide block is
+    /// applied to every public route by the `portal_geo` middleware, the
+    /// live-only block by the live gate. Loaded from the `CONSENSUS_GEO_*` variables
+    /// with their defaults whether or not live mode is enabled.
+    pub geo: Arc<GeoPolicy>,
 }
 
 impl AppState {
     pub fn surface(&self) -> Surface {
         self.config.surface
+    }
+
+    /// True when `CF-*` headers name the client and its country: the
+    /// listener sits behind cloudflared (or a development bind said so).
+    pub fn trusts_proxy_headers(&self) -> bool {
+        self.config.client_key_policy == ClientKeyPolicy::TrustedProxyHeader
+    }
+}
+
+/// The raw `CF-IPCountry` value of a request, only from a listener that
+/// trusts its proxy headers; `None` otherwise, whatever the request says.
+pub fn trusted_country(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    if !state.trusts_proxy_headers() {
+        return None;
+    }
+    headers
+        .get(COUNTRY_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .map(str::to_string)
+}
+
+/// Fixed public statement for a geographic refusal.
+pub fn geo_message(code: ErrorCode) -> &'static str {
+    match code {
+        ErrorCode::GeoBlockedPortal => "this service is not available in your country",
+        ErrorCode::GeoBlockedLive => "live mode is not available in your country",
+        _ => "your country could not be determined, so the request was refused",
+    }
+}
+
+/// Portal-wide geographic block (ADR-0007 duty 7, ABUSE-9) on every public
+/// route, static pages and `/research` included: behind cloudflared a
+/// request whose `CF-IPCountry` is on the portal-wide list is `451
+/// geo_blocked_portal`, and one without the header is `451 geo_unknown`
+/// (the origin never guesses). A development bind that trusts no proxy
+/// header blocks nothing. The live-only list is the live gate's.
+async fn portal_geo(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if !state.trusts_proxy_headers() {
+        return next.run(req).await;
+    }
+    let Some(country) = trusted_country(&state, req.headers()) else {
+        return ApiError::new(ErrorCode::GeoUnknown, geo_message(ErrorCode::GeoUnknown))
+            .into_response();
+    };
+    match state.geo.decide(Some(&country), GeoSurface::Portal) {
+        GeoDecision::Allow => next.run(req).await,
+        GeoDecision::Block { code, .. } => {
+            let code = ErrorCode::from(code);
+            ApiError::new(code, geo_message(code)).into_response()
+        }
     }
 }
 
@@ -593,7 +688,8 @@ fn common_routes() -> Router<AppState> {
 }
 
 /// The public server's router: sessions, guided and live runs, the
-/// static export, and a JSON 404 for unknown `/api` paths.
+/// static export, and a JSON 404 for unknown `/api` paths, all behind the
+/// portal-wide geographic block.
 pub fn public_router(state: AppState) -> Router {
     let api = common_routes()
         .route(
@@ -605,9 +701,11 @@ pub fn public_router(state: AppState) -> Router {
         .route("/api/v1/runs", post(v1::create_guided_run))
         .route("/api/v1/live-runs", post(v1::create_live_run))
         // Both fallbacks are set once every route exists and before any
-        // layer, so the layers wrap them too.
+        // layer, so the layers wrap them too: the geographic block covers
+        // the static export and unknown paths as well.
         .method_not_allowed_fallback(method_not_allowed)
-        .fallback(v1::public_fallback);
+        .fallback(v1::public_fallback)
+        .layer(middleware::from_fn_with_state(state.clone(), portal_geo));
     finish(api, state)
 }
 

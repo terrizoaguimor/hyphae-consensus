@@ -11,7 +11,9 @@
 #   0. checks its preconditions and records the Hyphae version and help texts;
 #   1. creates a NEW Agent Memory instance under its own HOME
 #      ("hyphae agent setup --no-service"), never touching the demo store
-#      (/hyphae-home) or the lab store (/hyphae-home/lab-injection);
+#      (/hyphae-home) or the lab store (/hyphae-home/lab-injection); the
+#      stdout of setup goes to the scratch directory that is removed at exit,
+#      whatever happens, because whether it prints key material is unverified;
 #   2. starts a daemon for that HOME only, socket OUTSIDE the data directory,
 #      exactly as serve.sh does (the writer path used for seeding is the MCP
 #      adapter, which is a client of the daemon, so the daemon must exist
@@ -21,9 +23,13 @@
 #      files; nothing is ever forgotten in this store;
 #   4. captures a proven list (demo-repo, limit 64) and a proven empty recall
 #      (other-repo) through "hyphae agent ui", keeping each exact response and
-#      a verbatim copy of the proof and the witness it names;
+#      a verbatim copy of the proof and the witness it names (both must lie
+#      under the new HOME), and records the sha256 of the response, the proof
+#      copy and the witness copy the moment they are written: these digests
+#      are what binds each file to its capture once the directory leaves the
+#      container (captures.index, step 8);
 #   5. verifies every capture with "hyphae proof verify" against the one
-#      shared anchor and keeps the verifier report;
+#      shared anchor, keeps the verifier report and records its sha256;
 #   6. records "hyphae --version" and the sha256 of the hyphae binary;
 #   7. stops the daemon, destroys the new instance's credentials and makes its
 #      data directory read-only, printing exactly what was removed;
@@ -118,12 +124,18 @@ ISOLATION_ARGS='{"project":"other-repo","query":"Fix payment client timeouts","l
 # to what hyphae-env.sh computes once it is sourced for the new HOME.
 DATA_DIR=$NEW_HOME/.local/share/hyphae/agent-memory
 CRED_DIR=$NEW_HOME/.config/hyphae/credentials
+# The anchor of the owner's demo store (/hyphae-home) on 2026-10-27. The
+# sealed instance is a different store, so its anchor is expected to differ;
+# equality is reported as a warning (it would mean the pinned public anchor no
+# longer distinguishes the snapshot from the demo store), not as a failure.
+DEMO_STORE_ANCHOR=d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168
 
 TMP=""
 LOG_READY=""
 DAEMON_PID=""
 ANCHOR=""
 CAPTURE_IDS=""
+PROOF_DIRS=""
 SEEDED=0
 SESSION_START=""
 HYPHAE_SOCK=""
@@ -181,6 +193,21 @@ is_hex64() {
   [ ${#1} -eq 64 ]
 }
 lower() { printf '%s' "$1" | tr 'A-F' 'a-f'; }
+# The sha256 of one file, 64 lowercase hex digits or failure.
+sha256_of() { # sha256_of <file>
+  _d=$(sha256sum -- "$1" | cut -c1-64) || return 1
+  is_hex64 "$_d" || return 1
+  printf '%s' "$_d"
+}
+# Regular files under the instance HOME outside its data directory, with
+# sizes: what setup and configure created, as evidence in the log (names and
+# sizes only, never contents).
+list_home_files() { # list_home_files <label>
+  log "$1 (files under $NEW_HOME outside the data directory; names and sizes only):"
+  find "$NEW_HOME" -path "$DATA_DIR" -prune -o -type f -print | sort | while IFS= read -r _f; do
+    log "  $_f ($(stat -c '%s bytes, mode %a' "$_f"))"
+  done
+}
 # Values this script copies into paths and index lines must be plain: no
 # JSON escapes, quotes, control characters or separators it does not expect.
 plain() {
@@ -481,8 +508,16 @@ capture() { # capture <id> <operation> <arguments json> <expected record count>
   is_hex64 "$_canchor" || die 4 "capture $_cid: anchor_hex is not 64 hex digits"
   is_hex64 "$_pblake" || die 4 "capture $_cid: proof_blake3 is not 64 hex digits"
   if [ "$_pscope" != "$PROOF_SCOPE" ]; then die 4 "capture $_cid: proof.scope is $_pscope, expected $PROOF_SCOPE"; fi
+  # The proof must come from the NEW instance: Hyphae writes proofs under the
+  # HOME it runs with. A path outside it means agent ui answered from another
+  # store (the demo store, for example), which must never be captured.
+  case $_ppath in "$NEW_HOME"/*) ;; *) die 4 "capture $_cid: the proof was written outside the instance HOME ($_ppath): agent ui did not answer from the new instance" ;; esac
+  case $_wpath in "$NEW_HOME"/*) ;; *) die 4 "capture $_cid: the witness was written outside the instance HOME ($_wpath): agent ui did not answer from the new instance" ;; esac
+  case $_ppath in "$DATA_DIR"/*) die 4 "capture $_cid: the proof was written inside the data directory ($_ppath)" ;; esac
   if [ ! -s "$_ppath" ]; then die 4 "capture $_cid: the proof file named by the response is missing or empty: $_ppath"; fi
   if [ ! -s "$_wpath" ]; then die 4 "capture $_cid: the witness file named by the response is missing or empty: $_wpath"; fi
+  _pdir=$(dirname -- "$_ppath")
+  case " $PROOF_DIRS " in *" $_pdir "*) ;; *) PROOF_DIRS="$PROOF_DIRS $_pdir" ;; esac
   _ids=$TMP/$_cid.ids
   memory_field "$_leaves" "$_root" id > "$_ids"
   _count=$(wc -l < "$_ids" | tr -d ' ')
@@ -500,6 +535,9 @@ capture() { # capture <id> <operation> <arguments json> <expected record count>
   if [ -z "$ANCHOR" ]; then
     ANCHOR=$_canchor
     log "anchor_hex (from $_cid, shared by every capture): $ANCHOR"
+    if [ "$ANCHOR" = "$DEMO_STORE_ANCHOR" ]; then
+      log "WARNING: this anchor equals the demo store's anchor of 2026-10-27 ($DEMO_STORE_ANCHOR); pinning it would not distinguish the snapshot from the demo store. The proof paths above show the store that answered; review before using the snapshot."
+    fi
   elif [ "$_canchor" != "$ANCHOR" ]; then
     die 4 "capture $_cid: anchor_hex $_canchor differs from the anchor of the first capture $ANCHOR (the store changed between captures)"
   fi
@@ -507,12 +545,23 @@ capture() { # capture <id> <operation> <arguments json> <expected record count>
   run cp -- "$_wpath" "$CAP/$_cid.witness"
   cmp -s "$_ppath" "$CAP/$_cid.proof" || die 4 "capture $_cid: the proof copy differs from $_ppath"
   cmp -s "$_wpath" "$CAP/$_cid.witness" || die 4 "capture $_cid: the witness copy differs from $_wpath"
+  # The capture-time digests: computed here, right after the copies were
+  # compared with the files the response names, and carried to the host in
+  # captures.index. The manifest builder refuses a file whose digest differs
+  # (a swapped or altered proof, witness or response is caught even though
+  # every proof of this session shares the anchor).
+  _rsha=$(sha256_of "$_cresp") || die 4 "capture $_cid: sha256sum of the response failed"
+  _psha=$(sha256_of "$CAP/$_cid.proof") || die 4 "capture $_cid: sha256sum of the proof copy failed"
+  _wsha=$(sha256_of "$CAP/$_cid.witness") || die 4 "capture $_cid: sha256sum of the witness copy failed"
   log "capture $_cid: $_count record(s); proof $(wc -c < "$CAP/$_cid.proof" | tr -d ' ') bytes (blake3 $_pblake); witness $(wc -c < "$CAP/$_cid.witness" | tr -d ' ') bytes"
+  log "capture $_cid: sha256 response $_rsha"
+  log "capture $_cid: sha256 proof    $_psha"
+  log "capture $_cid: sha256 witness  $_wsha"
   for _k in expired_filtered retrieval_mode semantic_status snapshot.visible_csn snapshot.root_digest snapshot.logical_time_micros; do
     if _v=$(leaf_any "$_leaves" "$_root.$_k"); then log "capture $_cid: $_k = $_v"; fi
   done
   while IFS= read -r _id; do log "capture $_cid: memory id $_id"; done < "$_ids"
-  printf '%s|%s|%s|%s|%s|%s\n' "$_cid" "$_cop" "$_cargs" "$_pblake" "$_canchor" "$_cstart" > "$TMP/$_cid.meta"
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$_cid" "$_cop" "$_cargs" "$_pblake" "$_canchor" "$_cstart" "$_rsha" "$_psha" "$_wsha" > "$TMP/$_cid.meta"
   CAPTURE_IDS="$CAPTURE_IDS $_cid"
 }
 
@@ -540,7 +589,17 @@ verify_capture() { # verify_capture <id>
   if [ "$_vre" != true ]; then die 5 "verify $_vid: semantic_reexecution_performed is $_vre, not true"; fi
   if [ "$(lower "$_vanchor")" != "$ANCHOR" ]; then die 5 "verify $_vid: anchor_digest $_vanchor is not the anchor given ($ANCHOR)"; fi
   log "verify $_vid: status=$_vstatus kind=$_vkind scope=$_vscope semantic_reexecution_performed=$_vre anchor_digest=$_vanchor"
+  # The report's own digests (proof, witness, request, result), when present:
+  # they are deterministic functions of the proof and the witness, so a later
+  # run of the same verifier on the same files must reproduce them (what the
+  # runtime does at boot, and what snapshot_manifest.py --reverify compares).
+  for _k in proof_digest witness_digest request_digest result_digest evidence_digest file_count directory_count total_file_bytes; do
+    if _v=$(leaf_any "$_vleaves" ".$_k"); then log "verify $_vid: $_k = $_v"; fi
+  done
+  _vsha=$(sha256_of "$_vout") || die 5 "verify $_vid: sha256sum of the verifier report failed"
+  log "verify $_vid: sha256 report   $_vsha"
   printf '%s\n' "$_vstart" > "$TMP/$_vid.verified_at"
+  printf '%s\n' "$_vsha" > "$TMP/$_vid.vsha"
 }
 
 # ---------------------------------------------------------------- inspect
@@ -617,31 +676,46 @@ done
 # ================================================================ step 1
 log "step 1: create the instance HOME and set up Agent Memory there (no service unit)"
 run mkdir -p "$NEW_HOME"
-# The setup output stays INSIDE the instance HOME (outside its data directory),
-# never in the output directory that leaves the container: it is not inspected
-# by this script, and whether it prints credential material is unverified.
-run_to "$NEW_HOME/setup.out" env HOME="$NEW_HOME" hyphae agent setup --no-service || die 3 "hyphae agent setup --no-service failed for $NEW_HOME"
+# The setup output is not inspected by this script and whether it prints
+# credential material is unverified, so it goes to the scratch directory,
+# which cleanup removes at exit on every path (success or failure): nothing of
+# it stays in the container or reaches the output directory. On failure the
+# bounded stderr is logged by run_to; the stdout never is.
+run_to "$TMP/setup.out" env HOME="$NEW_HOME" hyphae agent setup --no-service || die 3 "hyphae agent setup --no-service failed for $NEW_HOME"
 if [ "$DRY_RUN" = no ]; then
-  log "setup output kept in $NEW_HOME/setup.out ($(stat -c %s "$NEW_HOME/setup.out") bytes; not copied out)"
+  log "setup stdout: $(stat -c %s "$TMP/setup.out") bytes, discarded with the scratch directory at exit (never logged, never copied out)"
   if [ ! -d "$DATA_DIR" ]; then die 3 "setup did not create the data directory where hyphae-env.sh expects it: $DATA_DIR"; fi
   if [ ! -d "$CRED_DIR" ]; then die 3 "setup did not create the credentials directory where hyphae-env.sh expects it: $CRED_DIR"; fi
   log "credential files created by setup (names only, never read):"
   find "$CRED_DIR" -type f | sort | while IFS= read -r _f; do log "  $_f ($(stat -c '%s bytes, mode %a' "$_f"))"; done
+  list_home_files "after setup"
+  _size_before_configure=$(du -b -s "$DATA_DIR" | cut -f1)
   # hyphae-env.sh for the NEW HOME: paths, the canonical socket (printed by
-  # "hyphae agent configure", outside the data directory) and hyphae_store.
+  # "hyphae agent configure opencode", outside the data directory) and
+  # hyphae_store. "agent configure" may write an MCP host configuration under
+  # the new HOME; whatever it created is listed below, and the data directory
+  # must not have changed.
   HYPHAE_HOME_DIR=$NEW_HOME
   export HYPHAE_HOME_DIR
+  log "+ . $BASE/hyphae-env.sh   (runs: env HOME=$NEW_HOME hyphae agent configure opencode)"
   . "$BASE/hyphae-env.sh"
+  list_home_files "after hyphae agent configure"
+  if [ "$(du -b -s "$DATA_DIR" | cut -f1)" != "$_size_before_configure" ]; then
+    die 3 "hyphae agent configure changed the data directory size ($_size_before_configure -> $(du -b -s "$DATA_DIR" | cut -f1) bytes); it must not touch the store"
+  fi
   if [ "$HYPHAE_DATA" != "$DATA_DIR" ]; then die 3 "hyphae-env.sh derives the data directory as $HYPHAE_DATA, this script expected $DATA_DIR"; fi
   if [ "$HYPHAE_READER_KEY" != "$CRED_DIR/memory-reader.key" ] || [ "$HYPHAE_WRITER_KEY" != "$CRED_DIR/memory-writer.key" ]; then
     die 3 "hyphae-env.sh derives credential paths outside $CRED_DIR"
   fi
   if [ -z "$HYPHAE_SOCK" ]; then die 3 "no canonical endpoint for $NEW_HOME (hyphae agent configure printed none)"; fi
+  plain "$HYPHAE_SOCK" || die 3 "the canonical endpoint is not one plain path (hyphae agent configure printed several endpoint lines or unexpected characters)"
   case $HYPHAE_SOCK in
     "$HYPHAE_DATA"/*) die 3 "the canonical endpoint $HYPHAE_SOCK lies inside the data directory; proofs would fail (see hyphae-env.sh)" ;;
-    /*) ;;
+    "$NEW_HOME"/*) ;;
+    /*) log "note: the canonical endpoint $HYPHAE_SOCK lies outside the instance HOME (it is removed by the daemon on SIGINT)" ;;
     *) die 3 "the canonical endpoint is not an absolute path: $HYPHAE_SOCK" ;;
   esac
+  if [ -S "$HYPHAE_SOCK" ]; then die 3 "a socket already exists at the canonical endpoint $HYPHAE_SOCK: another daemon would answer the captures"; fi
   if [ ! -f "$HYPHAE_WRITER_KEY" ] || [ ! -f "$HYPHAE_READER_KEY" ]; then die 3 "credential files are missing under $CRED_DIR"; fi
   if ! command -v hyphae_store > /dev/null 2>&1; then die 3 "hyphae_store is not defined after sourcing hyphae-env.sh"; fi
   log "instance paths: data $HYPHAE_DATA; endpoint $HYPHAE_SOCK; writer key $HYPHAE_WRITER_KEY; reader key $HYPHAE_READER_KEY"
@@ -683,6 +757,11 @@ fi
 log "step 4: proven captures through hyphae agent ui ($CONTROL_SCHEMA)"
 capture "$LIST_ID" list "$LIST_ARGS" "$EXPECTED_RECORDS"
 capture "$ISOLATION_ID" recall "$ISOLATION_ARGS" 0
+if [ "$DRY_RUN" = no ]; then
+  # Two different requests seal two different proofs; identical bytes would
+  # mean one capture was answered with the other's proof.
+  if cmp -s "$CAP/$LIST_ID.proof" "$CAP/$ISOLATION_ID.proof"; then die 4 "the proofs of $LIST_ID and $ISOLATION_ID are byte-identical"; fi
+fi
 
 # ================================================================ step 5
 log "step 5: offline verification of every capture against the shared anchor"
@@ -726,22 +805,25 @@ else
   fi
   run chmod -R a-w -- "$HYPHAE_DATA"
   log "data directory made read-only: $HYPHAE_DATA ($(du -b -s "$HYPHAE_DATA" | cut -f1) bytes)"
-  log "kept in the container, private: the original proof and witness files under $NEW_HOME/.local/state/hyphae/proofs/, $NEW_HOME/setup.out, $NEW_HOME/serve.log"
+  log "kept in the container, private: the original proof and witness files under${PROOF_DIRS:- <no proof directory recorded>}, the daemon log $NEW_HOME/serve.log; the setup stdout is removed with the scratch directory at exit"
+  list_home_files "after credential destruction"
 fi
 
 # ================================================================ step 8
 log "step 8: write $OUT/captures.index (one JSON object per line) and $OUT/session.json"
 if [ "$DRY_RUN" = yes ]; then
-  log "(dry-run) would write one line per capture: {id, operation, arguments, files{response,proof,witness,verify}, proof_blake3, anchor_hex, memory_ids, captured_at, verified_at}"
+  log "(dry-run) would write one line per capture: {id, operation, arguments, files{response,proof,witness,verify}, sha256{response,proof,witness,verify}, proof_blake3, anchor_hex, memory_ids, captured_at, verified_at}"
   log "(dry-run) would write session.json: {schema, snapshot_id, project, captured_at, finished_at, anchor_hex, record_count, hyphae_version, binary_path, binary_sha256, control_schema, ui_mode, instance_home}"
 else
   : > "$OUT/captures.index"
   for _cid in $CAPTURE_IDS; do
-    IFS='|' read -r _mid _mop _margs _mblake _manchor _mstart < "$TMP/$_cid.meta"
+    IFS='|' read -r _mid _mop _margs _mblake _manchor _mstart _mrsha _mpsha _mwsha < "$TMP/$_cid.meta"
     _mverified=$(cat "$TMP/$_cid.verified_at")
+    _mvsha=$(cat "$TMP/$_cid.vsha")
+    is_hex64 "$_mrsha" && is_hex64 "$_mpsha" && is_hex64 "$_mwsha" && is_hex64 "$_mvsha" || die 4 "capture $_cid: a recorded sha256 is missing (internal error)"
     _mids=$(awk 'BEGIN { ORS = "" } NR > 1 { printf "," } { printf "\"%s\"", $0 }' "$TMP/$_cid.ids")
-    printf '{"id":"%s","operation":"%s","arguments":%s,"files":{"response":"captures/%s.response.json","proof":"captures/%s.proof","witness":"captures/%s.witness","verify":"captures/%s.verify.json"},"proof_blake3":"%s","anchor_hex":"%s","memory_ids":[%s],"captured_at":"%s","verified_at":"%s"}\n' \
-      "$_mid" "$_mop" "$_margs" "$_mid" "$_mid" "$_mid" "$_mid" "$_mblake" "$_manchor" "$_mids" "$_mstart" "$_mverified" >> "$OUT/captures.index"
+    printf '{"id":"%s","operation":"%s","arguments":%s,"files":{"response":"captures/%s.response.json","proof":"captures/%s.proof","witness":"captures/%s.witness","verify":"captures/%s.verify.json"},"sha256":{"response":"%s","proof":"%s","witness":"%s","verify":"%s"},"proof_blake3":"%s","anchor_hex":"%s","memory_ids":[%s],"captured_at":"%s","verified_at":"%s"}\n' \
+      "$_mid" "$_mop" "$_margs" "$_mid" "$_mid" "$_mid" "$_mid" "$_mrsha" "$_mpsha" "$_mwsha" "$_mvsha" "$_mblake" "$_manchor" "$_mids" "$_mstart" "$_mverified" >> "$OUT/captures.index"
   done
   printf '{"schema":"hyphae-consensus-capture-session-v1","snapshot_id":"%s","project":"%s","captured_at":"%s","finished_at":"%s","anchor_hex":"%s","record_count":%s,"hyphae_version":"%s","binary_path":"%s","binary_sha256":"%s","control_schema":"%s","ui_mode":"%s","instance_home":"%s"}\n' \
     "$SNAPSHOT_ID" "$PROJECT" "$SESSION_START" "$(utc)" "$ANCHOR" "$EXPECTED_RECORDS" "$HYPHAE_VERSION" "$HYPHAE_BIN" "$BINARY_SHA256" "$CONTROL_SCHEMA" "$UI_MODE" "$NEW_HOME" > "$OUT/session.json"
@@ -750,5 +832,5 @@ else
   log "output files:"
   find "$OUT" -type f | sort | while IFS= read -r _f; do log "  $_f ($(stat -c %s "$_f") bytes)"; done
 fi
-log "DONE. Next, on the host: docker cp hyphae-consensus:$OUT snapshots/ ; python -I scripts/snapshot_manifest.py build snapshots/$SNAPSHOT_ID ; python -I scripts/snapshot_manifest.py check snapshots/$SNAPSHOT_ID"
+log "DONE. Next, on the host (PowerShell): docker cp hyphae-consensus:$OUT snapshots/ ; python -I scripts/snapshot_manifest.py build snapshots/$SNAPSHOT_ID ; python -I scripts/snapshot_manifest.py check snapshots/$SNAPSHOT_ID --reverify scripts/hyphae-docker.cmd --verifier-dir $OUT"
 log "anchor_hex: ${ANCHOR:-<not captured in dry-run>}; pin it as CONSENSUS_HYPHAE_EXPECTED_ANCHOR"

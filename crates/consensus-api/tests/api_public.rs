@@ -959,6 +959,29 @@ async fn a_decision_during_deliberation_is_refused_and_live_frames_say_live() {
         "awaiting_human_approval"
     );
 
+    // What subscribers saw is exactly what is stored: a record is
+    // published only after its fsync, so every frame's sequence and hash
+    // match the durable log.
+    let response = server
+        .send(Req::get(&format!("/api/v1/runs/{run_id}/events.ndjson")).cookie(&cookie))
+        .await;
+    let stored = verify_bytes(&body_bytes(response).await).expect("stored chain verifies");
+    let mut published = 0;
+    for frame in rest.iter().filter(|f| f.event == "consensus") {
+        let data = frame.json();
+        let seq = data["event"]["sequence"].as_u64().unwrap();
+        let record = stored
+            .iter()
+            .find(|e| e.sequence == seq)
+            .expect("every published record is stored");
+        assert_eq!(
+            data["event"]["hash"], record.hash,
+            "frame {seq} is the stored record"
+        );
+        published += 1;
+    }
+    assert_eq!(published + 1, stored.len(), "one frame per stored record");
+
     let detail = server.wait_resting(&cookie, &run_id).await;
     let (status, body, _) = server
         .json(

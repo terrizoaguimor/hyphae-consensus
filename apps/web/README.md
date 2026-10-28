@@ -133,6 +133,20 @@ simulated proof is the neutral SIMULATED token with its scripted outcome as
 text, never a green "valid"; every count comes from the run data; nothing
 pretends to load.
 
+Manual smoke against the real server (host side, read-only use of the
+prebuilt `target/debug/consensus-api.exe serve-public` with
+`CONSENSUS_PUBLIC_BIND=127.0.0.1:8788`, `CONSENSUS_WEB_ROOT=apps/web/out`,
+`CONSENSUS_RESEARCH_DIR=research`, a temporary `CONSENSUS_RUN_STORE_DIR` and
+`CONSENSUS_COOKIE_SECURE=false`; the e2e container cannot reach it): curl the
+routes and save the bodies into the git-ignored `test-results/smoke/`
+(`health.json`, `capabilities.json`, `scenarios.json`, `session.json`,
+`run-list.json`, `run-detail.json`, `receipt.json`, `showcase.json`,
+`showcase-detail.json`, `showcase-receipt.json`, `showcase-detail-live.json`,
+`showcase-receipt-live.json`, `events.sse.txt`). `tests/api-smoke.test.ts`
+then validates every capture against the zod mirrors (and the SSE capture's
+sequence and ids); without a capture it skips. Done on 2026-10-28 for a
+guided `retry` run and the archived runs: every capture parsed.
+
 Turnstile (`src/components/new/Turnstile.tsx`) loads
 `challenges.cloudflare.com` only when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` was set
 at build time, and then at runtime (never from the exported HTML, which the
@@ -350,11 +364,21 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
   `/_next/static/media`. theme-neutral's `fonts.css` is never imported (it
   loads Figtree from Google at runtime). `.hc-tabular-nums` and `.hc-code`
   are the utilities for metrics and for hashes and ids.
-- **Components used**: `Button`, `RadioList`, `Switch`, `Badge`, `Heading`
-  and `Text`. Long-form content (docs, legal pages) is plain HTML styled by
-  the theme's reset layer, so it needs no hydration. Dialogs (tour, mobile
-  drawer) are our own `src/components/Modal.tsx` on the native `<dialog>`,
-  with a strict focus trap.
+- **Components used**: `Button`, `RadioList`, `Switch`, `Badge`, `Heading`,
+  `Text`, `CheckboxInput`, `TextInput` and `TextArea`. Long-form content
+  (docs, legal pages) is plain HTML styled by the theme's reset layer, so it
+  needs no hydration. Dialogs (tour, mobile drawer) are our own
+  `src/components/Modal.tsx` on the native `<dialog>`, with a strict focus
+  trap; the run workspace's tabs are our own `src/components/run/Tabs.tsx`
+  (WAI-ARIA tabs pattern, classes only).
+- **Not usable under the CSP**: Astryx components built on its `Layer`
+  (`TabList`, whose overflow menu goes through `useLayer`, and the popover,
+  tooltip and dialog family) append a `<style>` element at runtime
+  (`Layer/layerSlideRules.js`). The portal's policy is hash-only
+  (`style-src 'self'` plus the hashes of the exported HTML), so the browser
+  blocks that element and the e2e fixture fails the page on the violation.
+  Disclosures use the native `<details>`; anything layered needs our own
+  component or a CSS-only solution.
 - **Client boundaries**: `Theme`, `LinkProvider`, Astryx i18n,
   `NextIntlClientProvider`, `MotionConfig` and the tour live in
   `src/components/Providers.tsx`; the preference state is

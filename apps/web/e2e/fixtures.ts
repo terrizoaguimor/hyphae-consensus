@@ -138,9 +138,20 @@ export const test = base.extend<{ pageProblems: string[] }>({
       const problems: string[] = [];
       const origin = new URL(baseURL ?? "http://127.0.0.1").origin;
       page.on("console", (message) => {
-        if (message.type() === "error") {
-          problems.push(`console: ${message.text()}`);
+        if (message.type() !== "error") {
+          return;
         }
+        // Chromium logs every 4xx/5xx fetch as "Failed to load resource";
+        // for /api/v1 requests that is the same fact the response listener
+        // below records (or deliberately excepts) as "HTTP <status>: <path>",
+        // so it is not counted twice. Any other console error still counts.
+        if (/^Failed to load resource: the server responded with a status of/.test(message.text())) {
+          const source = message.location()?.url ?? "";
+          if (source.startsWith(origin) && new URL(source).pathname.startsWith("/api/v1/")) {
+            return;
+          }
+        }
+        problems.push(`console: ${message.text()}`);
       });
       page.on("pageerror", (error) => {
         if (!isCancelledSameOriginLoad(error.message, origin)) {

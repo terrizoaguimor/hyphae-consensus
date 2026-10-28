@@ -1424,6 +1424,48 @@
     text-wrap: balance;
   }
 
+  /* Tabs (src/components/run/Tabs.tsx): the selected tab is marked by weight
+     and an indicator bar, not color alone. */
+  .hc-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-1);
+    border-block-end: 1px solid var(--color-border);
+  }
+
+  .hc-tab {
+    min-height: 2.75rem;
+    margin-block-end: -1px;
+    padding: var(--spacing-2) var(--spacing-4);
+    border: 0;
+    border-block-end: 3px solid transparent;
+    border-start-start-radius: var(--radius-element);
+    border-start-end-radius: var(--radius-element);
+    font: inherit;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    background-color: transparent;
+    cursor: pointer;
+    transition: color var(--duration-fast) ease;
+  }
+
+  .hc-tab:hover {
+    color: var(--color-text-primary);
+    background-color: var(--color-overlay-hover);
+  }
+
+  .hc-tab[aria-selected="true"] {
+    font-weight: 600;
+    color: var(--color-text-primary);
+    border-block-end-color: var(--color-accent);
+  }
+
+  .hc-tab:focus-visible {
+    outline: var(--focus-outline-width) var(--focus-outline-style)
+      var(--focus-outline-color);
+    outline-offset: var(--focus-outline-offset);
+  }
+
   .hc-tabpanel {
     display: flex;
     flex-direction: column;

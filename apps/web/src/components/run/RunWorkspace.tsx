@@ -10,7 +10,6 @@
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
-import { Tab, TabList } from "@astryxdesign/core/TabList";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -27,6 +26,7 @@ import { ProvenanceBadges } from "../ProvenanceBadges";
 import { DecisionTab } from "./DecisionTab";
 import { ExplorerTab } from "./ExplorerTab";
 import { StageTab } from "./StageTab";
+import { tabId, Tabs } from "./Tabs";
 import { useRunData } from "./useRunData";
 
 type RunWorkspaceProps = {
@@ -147,17 +147,25 @@ function RunView({ locale, runId }: RunViewProps) {
         </div>
       </header>
 
-      <TabList
+      <Tabs<TabKey>
+        label={t("tabs.label")}
         value={tab}
-        onChange={(value) => setTab(value as TabKey)}
-        aria-label={t("tabs.label")}
-      >
-        <Tab value="stage" label={stageLabel} />
-        <Tab value="explorer" label={t("tabs.explorer")} />
-        <Tab value="decision" label={t("tabs.decision")} />
-      </TabList>
+        onChange={setTab}
+        panelId="run-tabpanel"
+        items={[
+          { value: "stage", label: stageLabel },
+          { value: "explorer", label: t("tabs.explorer") },
+          { value: "decision", label: t("tabs.decision") },
+        ]}
+      />
 
-      <div className="hc-tabpanel" role="tabpanel" aria-label={tab === "stage" ? stageLabel : t(`tabs.${tab}`)} data-tab={tab}>
+      <div
+        id="run-tabpanel"
+        className="hc-tabpanel"
+        role="tabpanel"
+        aria-labelledby={tabId("run-tabpanel", tab)}
+        data-tab={tab}
+      >
         {tab === "stage" ? <StageTab data={data} /> : null}
         {tab === "explorer" ? <ExplorerTab detail={detail} frames={frames} /> : null}
         {tab === "decision" ? <DecisionTab runId={runId} data={data} /> : null}

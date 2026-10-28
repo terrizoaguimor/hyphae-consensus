@@ -14,6 +14,12 @@ import { z } from "zod";
 
 import type * as T from "./types";
 
+// zod 4 compiles object parsers with `new Function` unless told otherwise.
+// The portal runs under a hash-only CSP (`script-src 'self' 'sha256-…'`, no
+// 'unsafe-eval'): the probe would be caught by zod but still reported as a
+// securitypolicyviolation on every page. Parsing stays interpreted here.
+z.config({ jitless: true });
+
 // --- Enumerations ----------------------------------------------------------
 
 export const modelProvenanceSchema = z.enum([

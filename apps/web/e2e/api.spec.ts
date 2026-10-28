@@ -60,11 +60,11 @@ test("new -> run -> frames -> decision -> receipt link", async ({ page, pageProb
   ).toHaveCount(5);
   await expect(cards.first().getByText("supported", { exact: true })).toBeVisible();
 
-  await page
-    .getByRole("button", {
-      name: t("en", "NewDeliberation.guided.runScenario", { title: "Reference: retry budget" }),
-    })
-    .click();
+  const runButton = page.locator("[data-scenario='retry']").getByRole("button");
+  await expect(runButton).toHaveAccessibleName(
+    t("en", "NewDeliberation.guided.runScenario", { title: "Reference: retry budget" }),
+  );
+  await runButton.click();
   await expect(page).toHaveURL(new RegExp(`${localePath("en", "run")}\\?id=${RUN_ID}$`));
   const creation = mock.calls.find((c) => c.method === "POST" && c.path === "/api/v1/runs");
   expect(creation?.body).toEqual({ scenario: "retry" });
@@ -246,11 +246,7 @@ test("an API error shows its code's sentence and the Retry-After wait", async ({
   });
   await page.goto("/en/new/");
   await hydrated(page);
-  await page
-    .getByRole("button", {
-      name: t("en", "NewDeliberation.guided.runScenario", { title: "Memory offline" }),
-    })
-    .click();
+  await page.locator("[data-scenario='offline']").getByRole("button").click();
   const notice = page.locator("[data-error-code='rate_limited']");
   await expect(notice).toContainText(t("en", "Api.errors.rate_limited"));
   await expect(notice).toContainText("Retry in 30 seconds.");

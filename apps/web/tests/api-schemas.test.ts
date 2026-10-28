@@ -9,6 +9,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { contractDir } from "../scripts/gen-api-types.mjs";
 import {
@@ -35,6 +36,10 @@ const names = readdirSync(fixturesDir).filter((n) => n.endsWith(".json")).sort()
 const byPrefix = (prefix: string) => names.filter((n) => n.startsWith(prefix));
 
 describe("contract fixtures parse", () => {
+  it("never compiles parsers with new Function (hash-only CSP, no unsafe-eval)", () => {
+    expect(z.core.globalConfig.jitless).toBe(true);
+  });
+
   it("covers every fixture file with a schema", () => {
     const covered = new Set([
       "api-error-samples.json",

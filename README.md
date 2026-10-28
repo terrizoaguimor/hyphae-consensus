@@ -18,8 +18,26 @@ or can approve, but the Evaluator's judgments are the policy's main input, so "m
 never decide" holds in form, not in substance. Nothing is executed before a human
 approves (the executor is deferred: approval records a decision only).
 
-> **Status (2026-10-27, owner-decision round; schema 1.2; corrected the same day
-> after the independent audit).**
+> **Status (2026-10-27 night, branch `feat/public-portal`; nothing exposed yet).**
+> Since the audit below: protocol 1.3 (ADR-0010) closes MA-1 and RT-1. The runtime
+> validates every evaluation (one assessment per claim, one explicit verdict per open
+> objection, objections and contradictions carried across rounds) and the Meta
+> adapter's per-call keyed schema makes an omitted id impossible. Receipts v2 carry a
+> deterministic `PolicyTrace`. Runs now have one hash-chained log each plus a run index,
+> start asynchronously and stream live over SSE (ADR-0005). A public API v1 with visitor
+> sessions, owner-scoped `404`s and a listener split exists (ADR-0006), as does the
+> live-mode admission library (USD ledger, Turnstile, presets, geo; ADR-0007), whose
+> wiring into the public route is in progress; the Meta and Hyphae adapters are hardened
+> (ADR-0002 note). Two smoke runs on tag `prompt-freeze-2` (K03, K04;
+> `docs/evaluation.md` §6.2) confirmed the keyed schema live; both ended `supported`
+> **for a revised proposal that departs from the task text**, and the counted protocol
+> 1.3 battery is still pending, so no rate of any outcome under 1.3 is claimed. The web
+> portal (`apps/web`) has its shell, legal and docs pages; the run views are being
+> built. Nothing is deployed: the release gates G1–G12
+> (`docs/security/release-checklist.md`) are the condition for exposure.
+>
+> **Earlier status (2026-10-27 morning, owner-decision round; schema 1.2; corrected
+> the same day after the independent audit).**
 > Typed contracts, deterministic state machine, hash-chained crash-safe event log,
 > Meta Model API adapter (strict structured output), Hyphae MCP read-only adapter +
 > offline proof verifier, Axum operator console with an SSE replay endpoint,
@@ -103,9 +121,11 @@ forked, or modified by this project.
 - Hyphae MCP adapter over `hyphae mcp --profile memory` (stdio JSON-RPC, read-only
   tools only) plus `hyphae proof verify` integrity checking
   (`crates/consensus-api/src/hyphae.rs`, ADR-0003).
-- Operator console (Axum + SSE replay), synthetic demo repository (`demo-repo/`),
-  adversarial integration tests, a scripted protocol conformance check, and a live
-  Meta + Hyphae battery (`docs/evaluation.md`).
+- Public API v1 and operator console (Axum; asynchronous runs, live SSE, visitor
+  sessions, per-run logs), the live-mode admission library, the Mission Control web
+  portal (`apps/web`), synthetic demo repository (`demo-repo/`), adversarial
+  integration tests, a scripted protocol conformance check, and live Meta + Hyphae
+  batteries (`docs/evaluation.md`, archived verbatim in `research/`).
 
 **License.** This repository is licensed under the Apache License 2.0 (`LICENSE`),
 copyright 2026 Mario Gutiérrez; see `NOTICE`. The license covers this repository
@@ -132,7 +152,7 @@ evidence is retrieved, so no verification record exists at all, and with no chec
 evidence the policy can never return `supported`: the run ends `insufficient_evidence`,
 `contested` (unresolved Critic items), or `abstained`, depending on the Evaluator.
 Uncertainty is surfaced, never converted into confidence. This per-claim path applies
-once a run has started. With `memory=hyphae`, a console run whose Hyphae MCP process
+once a run has started. With `memory=hyphae`, an operator run whose Hyphae MCP process
 cannot be started or connected answers HTTP 502 and records no run at all
 (corrected 2026-10-27, audit finding DOC-10).
 
@@ -171,8 +191,10 @@ the proof, which shows internal consistency only; pin an out-of-band anchor with
 |---|---|
 | `crates/consensus-domain` | Typed contracts only; no I/O |
 | `crates/consensus-runtime` | State machine, event log, orchestration, policy, ports, fakes |
-| `crates/consensus-api` | Meta + Hyphae adapters, Axum operator console (with an SSE replay endpoint), scripted CLI demo |
-| `crates/consensus-tests` | Deterministic integration and adversarial scenarios |
+| `crates/consensus-api` | Meta + Hyphae adapters, public API v1 and operator console (Axum; run manager, live SSE, sessions, listener split), live-mode admission (`live/`), `verify` CLI, scripted CLI demo |
+| `crates/consensus-tests` | Deterministic integration and adversarial scenarios; replay of the `research/` archive |
+| `apps/web` | Mission Control: Next.js static export served by `serve-public` (EN/ES/PT-BR/FR, light/dark) |
+| `contracts/api-v1` | Generated JSON Schemas and fixtures of the public API; a drift test keeps the server equal to them |
 
 Architecture decisions: `docs/adr/0001-m1-architecture.md`. Threat model:
 `docs/threat-model.md`. Implementation journal: `docs/journal.md`. Reviews, agent
@@ -186,25 +208,29 @@ MSVC build tools on Windows (see the
 The toolchain is pinned in `rust-toolchain.toml`.
 
 ```powershell
-cargo test --workspace                                        # 107 tests (+2 ignored live), deterministic
-cargo run -p consensus-domain --example write_schemas         # regenerate schemas/ (1.2)
-cargo run -p consensus-tests --example evaluate               # scripted protocol conformance check
-$env:CONSENSUS_EVENT_LOG = "$env:TEMP\hc-console.jsonl"       # a fresh log, never one in demo-run/ or research/
-cargo run -p consensus-api -- serve                           # operator console → http://127.0.0.1:8787/
+cargo test --workspace --locked                               # 494 tests (+2 ignored live), deterministic
+cargo run -p consensus-domain --example write_schemas         # regenerate schemas/ (1.3)
+cargo run -p consensus-tests --example evaluate               # scripted protocol conformance check (10/10)
+cargo run -p consensus-api -- serve-operator                  # operator console → http://127.0.0.1:8787/ (alias: serve)
+$env:CONSENSUS_PUBLIC_BIND = "127.0.0.1:8788"                 # development only: in production the public server listens on a unix socket
+cargo run -p consensus-api -- serve-public                    # public API v1 + the static export in apps/web/out
+cargo run -p consensus-api -- verify research\2026-10-27\live-battery-2026-10-27-final.jsonl   # read-only chain and policy check
 ```
 
-The console prints a per-process **operator token** at startup; the decision panel
-needs it to record an approval or rejection, and approving a `blocked` or `abstained`
-run additionally requires a note. Live modes (console `model=meta` / `memory=hyphae`,
-and the gated tests) read credentials from the environment — see `.env.example` and
+Both servers keep one hash-chained log per run under `CONSENSUS_RUN_STORE_DIR`
+(default `consensus-store/`), never a log of `demo-run/` or `research/`. The operator
+server requires its **bearer token** on every route (from `CONSENSUS_OPERATOR_TOKEN_FILE`,
+or generated and printed once at startup); approving a `blocked` or `abstained` run
+additionally requires a note. Live modes (operator `model=meta` / `memory=hyphae`, and
+the gated tests) read credentials from the environment — see `.env.example` and
 `scripts/hyphae-container/README.md`. Without them the API returns an explicit
-configuration error instead of silently falling back; `model=fake` with a non-fake
-memory is rejected rather than ignored. However, `model` and `memory` default to
-`fake` when omitted, and unknown request fields are ignored, so a request with a
-misspelled field (for example `memroy`) runs the live Meta model against simulated
-proofs (audit finding UI-5).
+configuration error naming the variable, never a silent fallback. Request bodies are
+typed: unknown fields are rejected (`422`), `model` and `memory` are enums without
+defaults, `model=fake` with a non-fake memory is refused, and the public surface accepts
+no free text at all (guided scenarios and curated live presets only). The public
+server's own variables are documented in `crates/consensus-api/src/public_config.rs`.
 
-The scripted CLI demo is the same binary without `serve`: with no arguments it runs
+The scripted CLI demo is the same binary without a subcommand: with no arguments it runs
 the reference scenario to `AwaitingHumanApproval`, and `--approve` or `--reject`
 also records a decision (no execution occurs). It always uses `demo-run/events.jsonl`
 under the current working directory, and replays the first run it finds there
@@ -218,12 +244,13 @@ holds the original live research data behind `docs/evaluation.md`: the battery
 logs, the run records with their receipts, the raw model drafts and the Hyphae
 recovery files. `research/` holds byte-identical copies of its event logs and run
 records (`research/README.md`); the raw drafts and the recovery files exist only in
-`demo-run/`. Never point the console or the CLI demo at a log in either place:
-`EventLog::open` opens a log read-write and can repair a torn tail, and the console
-appends new runs, decisions and startup-recovery events. The console's default
-log, `demo-run/events.jsonl`, already holds the 2026-10-26 evening runs of
-`docs/evaluation.md` §4, so set `CONSENSUS_EVENT_LOG` to a fresh file before
-`serve`, as above; the file and its folder are created on first use.
+`demo-run/`. Never point the CLI demo at a log in either place: `EventLog::open` opens
+a log read-write and can repair a torn tail. The CLI demo's default log,
+`demo-run/events.jsonl`, already holds the 2026-10-26 evening runs of
+`docs/evaluation.md` §4 (and the binary replays it when it finds a completed run
+there), so run the demo from a scratch directory as described above. The servers use
+the per-run store and open archived logs read-only (`consensus-api verify`, the
+showcase).
 
 No credentials are needed for M1. From M2 onward, copy `.env.example` to your
 environment configuration; secrets must come from environment variables, never files
@@ -231,17 +258,18 @@ committed to this repository.
 
 ## Safety invariants (enforced in code, covered by tests)
 
-- No self-approval: only a human actor can record an authorization decision, and the
-  console requires the operator token printed at startup (a typed name is a label, not
-  authentication).
+- No self-approval: only a human actor can record an authorization decision. The
+  operator server requires its bearer token on every route; on the public server a
+  visitor can decide only on their own simulated runs, and that decision is recorded
+  with `authority: public_demo` (no operational authority). A typed name is a label,
+  not authentication.
 - No execution before approval: the executor is deferred through M3; approval currently
   only records the decision.
 - Bounded debate and cost: at most 2 revision rounds plus a no-progress exit that
-  stops revising when the number of unresolved Critic items does not drop from one
-  round to the next (corrected 2026-10-27: earlier text said the exit was measured
-  per item; it compares counts, and item ids are new every round, audit finding
-  RT-7). A revision may also follow an abstention that still lists unresolved
-  items. At most 9 model calls, 20 distinct evidence records, and
+  stops revising when no previously open objection was resolved in the last round
+  (set-based since protocol 1.3, with run-unique item ids; schema 1.2 runs used a
+  count-based rule, audit finding RT-7). A revision may also follow an abstention
+  that still lists unresolved items. At most 9 model calls, 20 distinct evidence records, and
   `CONSENSUS_MAX_RUN_TOKENS` (default 150,000) input + output tokens per run, enforced
   by the runtime after each call, so a run can overshoot by one call; at most 12
   claims per proposal from the Meta adapter. A run that crosses the token cap fails
@@ -249,19 +277,20 @@ committed to this repository.
 - Tamper-evident history: events are SHA-256 hash-chained and verified on open; replay
   recomputes every recommendation recorded under schema 1.1 or later and rejects a
   forged one. Each receipt carries `head_hash`, the hash of the run's last event at
-  receipt time. The chain is log-wide: every record links to the previous record in
-  the file, whichever run it belongs to, so verifying one run's receipt needs the
-  whole log file, and edits after the run's last event are outside that receipt
-  (corrected 2026-10-27, audit findings DOC-9 and RT-4). The chain is unsigned, so it
-  is evident, not proof, against a full rewrite.
+  receipt time. Runs started by the servers have one log each plus a hash-chained run
+  index (ADR-0005), so one run's receipt verifies on its own with `consensus-api
+  verify`. The archived multi-run logs in `research/` keep their log-wide chain: there,
+  verifying one run's receipt needs the whole file, and edits after the run's last
+  event are outside that receipt (audit findings DOC-9 and RT-4). The chain is
+  unsigned, so it is evident, not proof, against a full rewrite.
 - Replay never repeats external effects: replay is read-only state reconstruction.
 - Retrieved memory and other models' outputs are untrusted data, never instructions,
-  and no model output can authorize. In prompts, retrieved evidence is delimited,
-  escaped, and truncated to 2,000 characters, and the proposal is delimited and
-  escaped; Critic item descriptions and Evaluator notes are escaped but sit outside
-  the delimited blocks, and the escaping matches exact-case delimiters only
-  (corrected 2026-10-27, audit findings MA-6 and MA-7). That is a mitigation, not a
-  guarantee. The scripted injection test is a *policy* test; prompt-level behavior
+  and no model output can authorize. In prompts, the task, the retrieved evidence (as a
+  JSON array), the objections and the evaluation under review sit in separate
+  untrusted blocks; delimiter neutralization is case-, whitespace- and
+  fullwidth-insensitive, evidence text is truncated, and every invocation records the
+  digests of the prompt and the schema it sent (ADR-0002 note; audit findings MA-6 and
+  MA-7). That is a mitigation, not a guarantee. The scripted injection test is a *policy* test; prompt-level behavior
   was observed live (`docs/evaluation.md`).
 - Agents receive read-only memory access by contract; writes are a separate
   runtime-service trait (`MemoryAdmin`) that agent-facing code cannot reach.

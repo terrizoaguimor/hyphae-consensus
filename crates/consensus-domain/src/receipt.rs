@@ -43,7 +43,7 @@ pub struct RunReceipt {
 }
 
 impl RunReceipt {
-    pub const DEFAULT_LIMITATIONS: &'static str = "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it.";
+    pub const DEFAULT_LIMITATIONS: &'static str = "A proof marked valid means that Hyphae's verifier re-executed the request the proof sealed against its witness and accepted it at the anchor it was given (the pinned anchor wherever one is configured, always for the public snapshot). It covers that request's whole result (for the sealed snapshot, the complete record list it captured), not the claim that led to the retrieval, and a record's text is not byte-compared with the proof. A simulated proof checks nothing. Proofs do not establish that the content is true, relevant, or complete, or that a model reasoned from it.";
 }
 
 /// Policy rule order a [`PolicyTrace`] was derived under, serialized as

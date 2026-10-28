@@ -439,6 +439,49 @@ blocker is the one in §5.3: open Critic objections about verification
 completeness that stored memory cannot settle, which the unchanged policy
 correctly treats as blocking. No check was weakened to change that.
 
+## 6. Protocol 1.3 live validation (2026-10-27 evening, in progress)
+
+**Setup.** Code at tag `prompt-freeze-1` (`b76ce2a`): protocol 1.3 (ADR-0010: explicit
+per-item verdicts, carry-forward, fail-closed evaluation contract) and the hardened Meta
+adapter (strict schema per role, `max_completion_tokens` 16,000, one 240 s budget per call
+for this battery, no retry after a request was sent). Same demo store as §5 (7 records),
+anchor pinned to `d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168` (unchanged
+since §5.2: no write happened). Raw data, local and git-ignored:
+`demo-run/live-battery-2026-10-27-p13-smoke.jsonl` and the matching directory. Every
+invocation now records `prompt_sha256`, `schema_sha256`, `finish_reason` (`stop` in all 7
+calls), `attempts` (1) and the reasoning tokens.
+
+### 6.1 Smoke runs on `prompt-freeze-1` (2 runs; not counted as validation)
+
+| Run | Task (project) | Outcome | Revisions | Critic items per round | Evaluator per round (corroborated/claims, open items) | Final-round integrity | Calls | Model latency | Tokens in/out (reasoning) |
+|---|---|---|---|---|---|---|---|---|---|
+| K01 | Raise payment retry attempts to 10 (`demo-repo`) | **insufficient_evidence** | 1 | 6 → 0 | 0/4, 6 open → 0/5, 0 open | 7 valid | 6 | 149.5 s | 8,401 / 21,094 (18,884) |
+| K02 | Increase payment HTTP timeout to 30 seconds (`demo-repo`) | **Failed** (critique: `meta_transport`) | 0 | — | — | 6 retrieved; failed before verification | 1 | 28.3 s | 287 / 2,845 (2,612) |
+
+- **K01 found a prompt-level defect, in the fail-closed direction.** The Evaluator gave an
+  explicit verdict for every objection (6 unresolved in round 1, all 6 resolved in round 2,
+  each reason naming the record ids), and the revision restated the stored facts almost
+  verbatim, yet both evaluations carried an **empty `assessments` array**. The adapter
+  completed every claim as "evaluator omitted this claim; treated as uncorroborated", so
+  0 of 5 final claims were corroborated and the policy returned `insufficient_evidence`
+  (all 13 verification records `valid`, `kind: memory`, semantic re-execution; all
+  `not_assessed` factually). Under the §5.3 prompts the same task ended with every final
+  claim corroborated. The strict schema allowed an empty array; the fix makes omission
+  impossible by construction (one required key per claim id and per item id in a
+  per-call schema) and lists the claim ids in the prompt. `prompt-freeze-1` is therefore
+  superseded; the counted battery runs on `prompt-freeze-2`.
+- **K02 shows the cost of the no-retry rule.** The critique request failed after it was
+  sent ("error sending request", no HTTP status) and the hardened adapter, which never
+  resends a sent request, failed the run after 94.6 s and one billed call. Decision: allow
+  exactly one retry on a post-send transport error without a status (never on timeouts,
+  504 or non-retryable 4xx), recorded as `attempts: 2`; the public budget ledger reserves
+  per attempt, so a duplicate charge is bounded and accounted for.
+- Confirmed live for the first time: `RecallProven` events (9 and 4, one per proven recall,
+  including recalls that returned nothing new), `retrieval: live_recall`,
+  `backend_project: demo-repo` and a `proof_ref` on every retrieved record; the verifier
+  report fields (`kind`, `scope`) on every verification. `Task.mode` is still absent (the
+  console does not set it yet).
+
 ## Corrections (2026-10-27, independent audit)
 
 The independent audit of commit `72e422a`
@@ -599,3 +642,5 @@ corrections are marked "corrected 2026-10-27".
 - F06: `chatcmpl-01a17c5d-77af-75db-aac1-1e4a6bc12a34`, `chatcmpl-01a17c5d-f001-72a7-8154-fe55aa40736a`, `chatcmpl-01a17c5e-6402-7441-b4bc-2f77b9cfedf6`, `chatcmpl-01a17c5e-e77d-75e0-a9f9-9d8cf1e5bdfa`, `chatcmpl-01a17c5f-f567-7080-a566-5751c2e25a5f`, `chatcmpl-01a17c60-8cd7-7290-96e5-3f7b89739096`, `chatcmpl-01a17c61-576b-7633-9400-670e84413ccc`, `chatcmpl-01a17c62-0f2c-7372-85d5-31c1261f76fc`, `chatcmpl-01a17c63-3c1f-7030-8281-85ab8b01f20e`
 - H01: `chatcmpl-01a17c64-453e-76f9-9556-0488c7963e92`, `chatcmpl-01a17c64-acab-77b1-837d-d30c41a37f50`, `chatcmpl-01a17c64-ff8c-72d3-a972-d277a1911be7`, `chatcmpl-01a17c65-50d1-7014-95cc-08667ac94ff3`, `chatcmpl-01a17c65-bb43-7302-9694-daf2e8f551b9`, `chatcmpl-01a17c66-7290-72e2-aad4-187c1a6f84d9`, `chatcmpl-01a17c66-e47a-74f5-b182-0aac9d14cad2`, `chatcmpl-01a17c67-4cb4-77d2-894c-bc33f880aa40`, `chatcmpl-01a17c68-163e-7444-a7ba-4fccf1d11ad6`
 - H02: `chatcmpl-01a17c68-cc7f-7209-9a3c-a61ce248d5b7`, `chatcmpl-01a17c69-c46f-73d3-baf6-f09e4630f3f7`, `chatcmpl-01a17c6a-61e4-740f-80c6-71138203d12d`, `chatcmpl-01a17c6b-3de3-71c5-bb74-d8c55dd3797a`, `chatcmpl-01a17c6b-dcdc-7231-9001-81cda8ad3f5f`, `chatcmpl-01a17c6c-9313-7349-920e-3d37f99221fc`
+- K01 (§6.1, run `run-382ff22d-1fc3-4e0f-8aa5-f88bffb57ccd`): `chatcmpl-01a18034-2a53-71a1-a1ac-df6db977e386`, `chatcmpl-01a18034-baa1-75db-9561-8ff8efde6312`, `chatcmpl-01a18035-4e3a-7314-ad08-cb0566e849ff`, `chatcmpl-01a18035-a50d-7582-ad05-b04348790209`, `chatcmpl-01a18035-ffcc-7581-bbbf-8a774ca93cd1`, `chatcmpl-01a18036-42ee-7364-a56a-4aaad21f7a4b`
+- K02 (§6.1, run `run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0`): `chatcmpl-01a18036-b1ea-767c-9142-8f9bd21da659` (the critique call failed before any response and has no id)

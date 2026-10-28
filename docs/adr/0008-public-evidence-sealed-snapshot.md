@@ -83,3 +83,28 @@ the recorded batteries cannot sit behind a public server:
   archiving and only by the owner (HY-5).
 - The capture session is the only authorized container mutation of the plan; the demo
   and lab stores are not touched by it.
+
+## Implementation (2026-10-27, lane A; capture pending 2026-10-29)
+
+- `scripts/hyphae-container/capture-snapshot.sh` is the session script of decision 2
+  (POSIX sh, runs inside the container, `--dry-run`, every mutation printed and logged,
+  credentials destroyed at the end, the sha256 of every capture file recorded the moment it
+  is written). `scripts/snapshot_manifest.py` (`build`, `check`, `selftest`; standard
+  library) writes and validates `manifest.json` and `SHA256SUMS`, binds every file to its
+  capture through those recorded digests (every proof of a session shares the anchor, so
+  the verifier alone cannot tell a swapped pair) and, with `--reverify`, runs
+  `hyphae proof verify` again and requires the captured report to be reproduced.
+- The artifact layout, the manifest schema (`hyphae-consensus-snapshot-manifest-v1`), the
+  host-side procedure, the verification semantics, the runtime contract of decision 4
+  and the list of points that stay unverified until the session are in
+  `docs/architecture/sealed-snapshot.md`. Snapshot directories live under `snapshots/`;
+  `.proof` and `.witness` files are git-ignored there, the rest may be committed.
+- Two captures are required by the runtime: `list-demo-repo` (`list`, `demo-repo`,
+  `limit 64`, proven, exactly 7 records) and `recall-other-repo-isolation` (`recall`,
+  `other-repo`, proven, empty). The per-preset proven recalls named in decision 2 are
+  optional additional captures: the runtime is query-independent (decision 4) and uses
+  only the two above.
+- One ordering detail: the daemon for the new HOME is started before seeding, because the
+  only available write path (`hyphae_store`, the MCP writer path of the seed scripts) is a
+  daemon client; whether `hyphae agent ui` itself needs that daemon is unverified until the
+  session (`--ui-direct` covers the other case).

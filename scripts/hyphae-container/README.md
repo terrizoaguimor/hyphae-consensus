@@ -42,6 +42,7 @@ restored copies found:
 |---|---|---|
 | Demo store | `/hyphae-home` (default) | `demo-repo`: `seed.sh` (2 records) + `seed-demo-facts.sh` (5 records) |
 | Hostile-note lab | `/hyphae-home/lab-injection` | `injection-lab`: `seed-injection-lab.sh` (3 records, one hostile; the hostile one was forgotten after the test) |
+| Sealed snapshot instance (planned 2026-10-29) | `/hyphae-home/sealed/<snapshot id>` | `demo-repo`: the same 7 records, seeded by `capture-snapshot.sh`; credentials destroyed and data read-only after the capture, never served again |
 
 Each instance has its own data directory, credentials, daemon, and socket.
 The previous store (grown past the size limit) is preserved, not served,
@@ -96,6 +97,36 @@ docker exec hyphae-consensus hyphae proof verify --proof <proof_path> --witness 
 # Forget one memory (writer credential; idempotent):
 docker exec -e HYPHAE_HOME_DIR=/hyphae-home/lab-injection hyphae-consensus sh /hyphae-home/forget.sh injection-lab <id>
 ```
+
+## Sealed public snapshot (capture session, ADR-0008)
+
+`capture-snapshot.sh` is the one authorized capture session for the public
+live mode: it creates a NEW Agent Memory instance under
+`/hyphae-home/sealed/<id>` (never the demo or lab store), seeds exactly the 7
+`demo-repo` facts of `seed.sh` and `seed-demo-facts.sh`, captures a proven
+`list` and a proven empty `other-repo` recall through `hyphae agent ui`,
+verifies both with `hyphae proof verify`, destroys the instance's
+credentials and leaves `/hyphae-home/snapshots/<id>/` for the host-side
+manifest builder. Every mutation is printed before it runs and logged. The
+authoritative procedure, the artifact layout and the manifest schema are in
+`docs/architecture/sealed-snapshot.md`.
+
+```powershell
+docker exec hyphae-consensus sh /hyphae-home/capture-snapshot.sh --dry-run <id>   # prints, touches nothing
+docker exec hyphae-consensus sh /hyphae-home/capture-snapshot.sh <id>             # the session
+docker cp hyphae-consensus:/hyphae-home/snapshots/<id> snapshots/
+python -I scripts/snapshot_manifest.py build snapshots/<id>
+python -I scripts/snapshot_manifest.py check snapshots/<id> --reverify scripts\hyphae-docker.cmd --verifier-dir /hyphae-home/snapshots/<id>
+```
+
+`build` binds every file to its capture through the sha256 digests the
+session recorded the moment each file was written; `--reverify` runs
+`hyphae proof verify` again (here through the container wrapper, which sees
+the captures where the session left them) and requires the captured report
+to be reproduced field by field.
+
+Copy the current `*.sh` set in first (the script sources `hyphae-env.sh` and
+cross-checks the seed texts against `seed.sh` and `seed-demo-facts.sh`).
 
 ## Console environment (host)
 

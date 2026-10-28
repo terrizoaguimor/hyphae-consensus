@@ -151,12 +151,15 @@ corroborated by at least one record that the claim itself cites, a valid proof o
 every cited record, no contradicting record (cited or not), no Critic item the
 Evaluator still judges unresolved, and no invalid proof anywhere in the retrieved
 set. A recorded contradiction outranks an abstention (`contested`, schema 1.2), so
-abstaining cannot hide it. These conditions are checked against the final round
-only, and two of them can currently fail open: the Meta adapter drops unresolved-item
-and evidence ids that are not byte-exact (MA-1), and objections or contradictions
-from earlier rounds are not carried into the final round (RT-1). "Every claim" is
-enforced by the Meta adapter, which completes omitted claims as uncorroborated, not
-by the runtime policy (TC-2). `Valid` means `hyphae proof verify` re-executed the
+abstaining cannot hide it. Since protocol 1.3 (ADR-0010) the runtime enforces the
+evaluation contract itself, for every model client: exactly one assessment per claim,
+cited ids drawn from the run's retrieved set, an explicit verdict for every open
+objection, and objections and contradictions from earlier rounds carried forward until
+the Evaluator judges them (the audit's MA-1 and RT-1 findings). The Meta adapter's
+per-call schema keys assessments and verdicts by id, so an omitted, repeated or unknown
+id is a malformed output, never a silent default. Runs recorded before 1.3 keep their
+recorded semantics; their receipts state how many earlier-round objections were never
+re-judged. `Valid` means `hyphae proof verify` re-executed the
 recall against its sealed witness and reproduced the result; one proof covers a
 whole recall. By default the proof anchor comes from the same server response as
 the proof, which shows internal consistency only; pin an out-of-band anchor with

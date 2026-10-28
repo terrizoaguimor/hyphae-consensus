@@ -15,10 +15,17 @@ Conventions. Every placeholder is in angle brackets: `<hostname>` is the public
 hostname chosen on Day 2, `<server>` the SSH alias of the Ubuntu host,
 `<TUNNEL-UUID>` the tunnel id, `<snapshot-id>` the sealed snapshot's directory
 name. "Owner machine" is the Windows development machine (Git Bash, Docker);
-"server" is the Ubuntu 24.04 host. Commands prefixed with `sudo` run on the server.
-Non-obvious claims about Cloudflare, systemd or Ubuntu carry a source tag such as
-`[CF-1]` or `[SD-1]`; the tags resolve in appendix B. Claims about this project's
-server cite the file in this repository that implements them.
+"server" is the Ubuntu 24.04 host. Code blocks are labelled `# owner machine` or
+`# server`, and commands prefixed with `sudo` run on the server. **Every request to
+`https://<hostname>` or `https://staging.<hostname>` is made from the owner machine**:
+the server's egress policy (section 2.4) reaches Cloudflare's tunnel edge, Meta and
+Siteverify only, not Cloudflare's HTTP edge, so the server cannot fetch its own
+hostname, by design; the scripts that compare origin and edge read the origin over
+SSH. During the staging phase those requests carry the Access service-token headers
+(section 7.9; `"${ACCESS[@]}"` in section 8). Non-obvious claims about Cloudflare,
+systemd or Ubuntu carry a source tag such as `[CF-1]` or `[SD-1]`; the tags resolve
+in appendix B. Claims about this project's server cite the file in this repository
+that implements them.
 
 Topology (owner decisions, fixed): a Cloudflare Free zone; a **named** Tunnel
 (Quick Tunnels have no uptime guarantee, cap in-flight requests at 200, rotate their
@@ -34,11 +41,23 @@ systemd `LoadCredential`, revoked after judging (about 2026-11-10).
 
 Parallel lanes this runbook depends on (named where used): `CONSENSUS_META_API_KEY_FILE`
 (the credential-file way to supply the key; `config.rs` already has
-`ApiKey::read_file` for "systemd `LoadCredential`, a secrets mount"), `CONSENSUS_SNAPSHOT_DIR`
-and the snapshot boot check in `/api/v1/ready` (ADR-0008), and the public live-mode
-wiring behind `AppState::live_gate` (until it lands `POST /api/v1/live-runs` answers
-`503 live_disabled`, `crates/consensus-api/src/api/mod.rs`). Build the deployed binary
-from a commit that has them.
+`ApiKey::read_file` for "systemd `LoadCredential`, a secrets mount"); `CONSENSUS_SNAPSHOT_DIR`
+with its boot verification (ADR-0008: on `feat/public-portal` since D2-B,
+`crates/consensus-api/src/snapshot.rs`: `SnapshotMemoryClient::open` re-runs
+`hyphae proof verify` on the two served captures at startup, code
+`boot_verification_failed`; `CONSENSUS_SNAPSHOT_VERIFIER_DIR` stays unset with a native
+binary); and the public live-mode wiring behind `AppState::live_gate` (until it lands
+`POST /api/v1/live-runs` answers `503 live_disabled`, `crates/consensus-api/src/api/mod.rs`,
+and `server.rs` there refuses to start public live mode without the snapshot client).
+Build the deployed binary from a commit that has them.
+
+One fact shapes sections 4.5, 8.7 and 8.8: **the binary has no ledger reset.**
+`Ledger::reset` exists in `crates/consensus-api/src/live/budget.rs` ("Operator-only:
+clears a trip") but nothing in `serve-public`, `serve-operator` or any subcommand calls
+it (`grep -rn '\.reset(' crates/consensus-api/src` finds no caller outside the module's
+tests). A trip is persistent across restarts (`budget.rs`, "Trips"), so the ledger the
+kill-switch rehearsal of gate G11 trips is finished for good. This runbook therefore
+uses one ledger directory per phase and never reuses a tripped one.
 
 ---
 
@@ -109,16 +128,34 @@ layout is listed here so it can be audited by hand.
 |---|---|---|
 | user `consensus` (system, `nologin`, home `/var/lib/consensus`) | | runs both servers |
 | user `hyphae` (system, `nologin`, home `/opt/hyphae`) | | owns the Hyphae binary; never runs anything |
-| user `cloudflared` (system, `nologin`), supplementary group `consensus` | | runs the tunnel; reaches the socket through the group |
-| `/etc/consensus/` | `root:consensus 0750` | `public.env`, `operator.env`, `operator.token`, `judge-codes.sha256` (`root:consensus 0640`) |
-| `/etc/consensus/credentials/` | `root:root 0700` | `meta.key`, `turnstile.secret` (`root:root 0600`), read by systemd, not by the service |
-| `/var/lib/consensus/{runs,ledger}` | `consensus:consensus 0750` | the only paths the services may write |
-| `/var/lib/consensus/{research,snapshots,web}` | `consensus:consensus 0750`, files `0640` | read-only for the services (`ProtectSystem=strict`, section 5) |
-| `/run/consensus/` | `consensus:consensus 0750` (systemd `RuntimeDirectory=`) | `public.sock`, mode `0660`, created by the server (`server.rs`, `serve_unix`) |
+| group `consensus-sock` | | "may connect to the public socket": owns nothing but `/run/consensus` and `public.sock` |
+| user `cloudflared` (system, `nologin`), supplementary group `consensus-sock` **only** | | runs the tunnel; reaches the socket through `consensus-sock`; is **not** in `consensus` (see below) |
+| `/etc/consensus/` | `root:consensus 0750` | `public.env`, `operator.env`, `judge-codes.sha256` (`root:consensus 0640`) |
+| `/etc/consensus/credentials/` | `root:root 0700` | `meta.key`, `turnstile.secret`, `operator.token` (`root:root 0600`), read by systemd (`LoadCredential=`), not by the service |
+| `/etc/tmpfiles.d/consensus.conf` | `root:root 0644` | creates `/run/consensus` at boot (`deploy/tmpfiles.d/consensus.conf`) `[SD-8]` |
+| `/var/lib/consensus/runs` | `consensus:consensus 0750` | the per-run store (writable) |
+| `/var/lib/consensus/ledger/{staging,public}` | `consensus:consensus 0750` | one ledger directory per phase (section 4.5); writable |
+| `/var/lib/consensus/ledger-archive/` | `root:root 0700` | retired (tripped) ledgers, read-only to the services and invisible to `consensus` |
+| `/var/lib/consensus/{research,web}` | `consensus:consensus 0750`, files `0640` | read-only for the services (`ProtectSystem=strict`, section 5) |
+| `/var/lib/consensus/snapshots/` | `consensus:consensus 0700`, files `0640` | the sealed snapshot with its private witnesses: only the service user enters the tree; read-only for the services |
+| `/run/consensus/` | `consensus:consensus-sock 2750` (tmpfiles.d, setgid) | `public.sock`, `consensus:consensus-sock 0660`: the group is inherited from the setgid directory `[UB-5]`, the mode is set by the server (`server.rs`, `serve_unix`) |
 | `/opt/hyphae/` | `hyphae:hyphae 0755` | the 4.0.0 binary, executable by everyone, writable by nobody who runs |
 | `/etc/cloudflared/` | `root:cloudflared 0750` | `config.yml`, `<TUNNEL-UUID>.json` (`root:cloudflared 0640`) |
 | `/usr/local/bin/consensus-api` | `root:root 0755` | the server binary |
 | `/root/consensus-exports/` | `root:root 0700` | ledger and run exports before `scp` |
+
+**Least privilege of cloudflared.** cloudflared is the only process on the host that
+talks to the internet, so it gets exactly one thing: the right to connect to the
+socket. Had it joined the group `consensus`, it would read `/etc/consensus/*` (the env
+files and the judge digests), and, because the service user owns the snapshot tree, the
+private witnesses, and until this revision the operator bearer token too. Instead the
+socket directory is created by tmpfiles.d as `2750 consensus:consensus-sock`: a node
+created in a set-group-ID directory "will inherit the group ownership from its parent
+directory" `[UB-5]`, so the socket the server binds there is `consensus:consensus-sock`,
+and the server sets it to `0660` (`server.rs`). `RuntimeDirectory=` is not used for it:
+systemd would own the directory `User=`/`Group=` of the unit and would reset the
+ownership of an existing directory to that `[SD-1]`, which puts the socket back in the
+group `consensus`. The checks are in section 5.1.
 
 No user on this host is in a `docker` group and Docker is not installed (gate G9;
 `install.sh` refuses to continue if it finds one).
@@ -177,6 +214,16 @@ sudo ufw logging on
 sudo ufw enable
 sudo ufw status numbered
 ```
+
+What this policy also closes, on purpose: the server cannot open
+`https://<hostname>`. The proxied hostname resolves to Cloudflare's HTTP edge
+addresses, which are not the tunnel edge addresses above and are not in the
+allowlist, so `curl https://<hostname>/...` from the server fails. Every probe that
+goes through the edge (gates G1, G2, G4 responses, G6, the SSE test, the daily edge
+check) therefore runs from the owner machine; `verify-edge.sh` fetches the origin half
+over SSH (section 8.4) and `canary-scan.sh` has a `--responses-only` half for the
+owner machine (section 8.3). A probe that reports `UNREACHABLE` or `ERR` from the
+server is this policy at work, not a failure of the portal.
 
 Package installation and updates need egress to the Ubuntu archive, which the
 policy above closes. Install `cloudflared` (section 6.2) **before** enabling ufw, and
@@ -253,11 +300,15 @@ the ledger, not the journal, is the record of spend.
 `scripts/linux-gates.sh` runs fmt, clippy, the tests and the evaluation inside
 `ubuntu:24.04` (glibc 2.39, the deployment target) with toolchain `1.99.1` pinned
 by `rust-toolchain.toml`, the repository mounted read-only and the toolchain,
-registry and target directory in the named volumes `hc-linux-cargo`,
-`hc-linux-rustup`, `hc-linux-target`. The release binary is built in the same
-image, with the same volumes and `cargo build --release --locked`, so the gates and
-the artifact come from one toolchain. On the owner machine, from the repository
-root at the commit to deploy:
+registry and target directory in named Docker volumes. The release binary is built in
+the same image, with the same volumes and `cargo build --release --locked`, so the
+gates and the artifact come from one toolchain. **Copy the `--volume` lines from the
+script at the commit you deploy**: at `b62adc0` they are `hc-linux-cargo`,
+`hc-linux-rustup` and `hc-linux-target` (shown below); since `bfb0125` on
+`feat/public-portal` the build-output volume is per checkout path
+(`hc-linux-target-<first 12 hex of sha256 of the checkout path>`), so a build that
+names the old volume would not reuse the gates' build. On the owner machine, from the
+repository root at the commit to deploy:
 
 ```sh
 sh scripts/linux-gates.sh          # all four gates must pass first
@@ -387,8 +438,9 @@ rm /tmp/research.tar.gz
 **Sealed snapshot.** The capture (ADR-0008 decision 2) produces one directory holding
 `manifest.json`, `SHA256SUMS` and `captures/*.proof|.witness|.response.json|.verify.json`.
 Witnesses and proofs are private operator artifacts: never under the web root, never
-in a backup that leaves the server, mode `0640`, owned by the service user, in a
-directory the service cannot write (section 5).
+in a backup that leaves the server, mode `0640`, owned by the service user, inside a
+tree whose top directory is `0700` (only the service user enters it) and which the
+service cannot write (section 5).
 
 ```sh
 # owner machine (the snapshot directory is <snapshot-id>/ next to its manifest)
@@ -401,7 +453,9 @@ sudo mv /tmp/<snapshot-id> /var/lib/consensus/snapshots/<snapshot-id>
 ( cd /var/lib/consensus/snapshots/<snapshot-id> && sudo sha256sum -c --quiet SHA256SUMS ) && echo "snapshot verified"
 sudo chown -R consensus:consensus /var/lib/consensus/snapshots
 sudo find /var/lib/consensus/snapshots -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
+sudo chmod 0700 /var/lib/consensus/snapshots                      # nobody but the service user enters the tree
 sudo ls -la /var/lib/consensus/snapshots/<snapshot-id> /var/lib/consensus/snapshots/<snapshot-id>/captures | head
+sudo -u cloudflared ls /var/lib/consensus/snapshots 2>&1 | grep -q 'Permission denied' && echo "witnesses: unreachable for cloudflared"
 ```
 
 The anchor for `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` is the shared anchor recorded in
@@ -456,9 +510,9 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_META_API_KEY_FILE` | `/run/credentials/consensus-public.service/meta.key` | parallel lane; the path systemd gives a `LoadCredential=meta.key:...` for this unit (`/run/credentials/UNITNAME`, `[SD-1]`) |
 | `CONSENSUS_HYPHAE_BIN` | `/opt/hyphae/bin/hyphae` | section 3.2 |
 | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` | the snapshot's anchor, 64 hex | mandatory for every non-simulated mode (ADR-0008 decision 5) |
-| `CONSENSUS_SNAPSHOT_DIR` | `/var/lib/consensus/snapshots/<snapshot-id>` | parallel lane |
+| `CONSENSUS_SNAPSHOT_DIR` | `/var/lib/consensus/snapshots/<snapshot-id>` | parallel lane; `CONSENSUS_SNAPSHOT_VERIFIER_DIR` stays unset (native verifier, same paths) |
 | `CONSENSUS_LIVE_ENABLED` | `false` until section 8.7, then `true` | `live/config.rs` |
-| `CONSENSUS_LIVE_LEDGER_DIR` | `/var/lib/consensus/ledger` | required when enabled |
+| `CONSENSUS_LIVE_LEDGER_DIR` | `/var/lib/consensus/ledger/staging` during staging; `/var/lib/consensus/ledger/public` from go-live | required when enabled; one directory per phase because a trip has no reset (section 4.5) |
 | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | `/etc/consensus/judge-codes.sha256`, set only once the file has at least one digest | an empty digest file is a configuration error (`live/judge.rs`) |
 | `CONSENSUS_TURNSTILE_SECRET_FILE` | `/run/credentials/consensus-public.service/turnstile.secret` | required when enabled |
 | `CONSENSUS_TURNSTILE_HOSTNAME` | `staging.<hostname>` during staging, `<hostname>` from go-live | one bare hostname; Siteverify's `hostname` must equal it (`live/turnstile.rs`) |
@@ -476,11 +530,13 @@ be reached before judging ends (open question). Never set `CONSENSUS_META_API_KE
 `MODEL_API_KEY`, `META_API_KEY`, `HYPHAE_NATIVE_API_KEY_FILE`, `HYPHAE_NATIVE_ENDPOINT`
 or `HYPHAE_BASE_URL` on this server.
 
-`operator.env` adds `CONSENSUS_OPERATOR_TOKEN_FILE=/etc/consensus/operator.token` and
-points `CONSENSUS_META_API_KEY_FILE` and `CONSENSUS_TURNSTILE_SECRET_FILE` at
-`/run/credentials/consensus-operator.service/...`, that unit's own credentials
-directory. `CONSENSUS_OPERATOR_BIND` keeps its default `127.0.0.1:8787`
-(`public_config.rs`; a non-loopback address is refused).
+`operator.env` points `CONSENSUS_OPERATOR_TOKEN_FILE`, `CONSENSUS_META_API_KEY_FILE`
+and `CONSENSUS_TURNSTILE_SECRET_FILE` at `/run/credentials/consensus-operator.service/...`,
+that unit's own credentials directory (the token is a `LoadCredential=` like the
+other two, section 4.2). `CONSENSUS_OPERATOR_BIND` keeps its default `127.0.0.1:8787`
+(`public_config.rs`; a non-loopback address is refused), and `CONSENSUS_LIVE_LEDGER_DIR`
+is inherited from `public.env`, never overridden: an operator live run debits the same
+ledger (gate G3).
 
 The server validates every variable at startup and stops with the variable's name on
 an invalid value (`public_config.rs`, `live/config.rs`); a failed start is visible with
@@ -512,12 +568,16 @@ live mode the key file may hold a canary of the documented shape (for example
 `LLM_0_canary-<random>`), which section 8.3 then scans for; replace it with the real
 key before enabling live mode.
 
-The operator token (at least 32 characters, `server.rs` `operator_token`); with the
-file configured the token is never printed:
+The operator token (at least 32 characters, `server.rs` `operator_token`) is a
+credential like the other two: `root:root 0600` on disk, handed to the console by
+`LoadCredential=operator.token:...` in `consensus-operator.service` and read from
+`/run/credentials/consensus-operator.service/operator.token` (`operator.env`). No
+group-readable copy exists anywhere. With the file configured the token is never
+printed:
 
 ```sh
-sudo install -o root -g consensus -m 0640 /dev/null /etc/consensus/operator.token
-openssl rand -hex 32 | sudo tee /etc/consensus/operator.token >/dev/null
+sudo install -o root -g root -m 0600 /dev/null /etc/consensus/credentials/operator.token
+openssl rand -hex 32 | sudo tee /etc/consensus/credentials/operator.token >/dev/null
 ```
 
 Cloudflare's always-pass / always-fail test secrets are refused in public mode
@@ -550,13 +610,69 @@ Then uncomment `CONSENSUS_LIVE_JUDGE_CODES_FILE` in `public.env`. Revocation is
 editing the file and restarting, or the kill switch for everything at once
 (`live/judge.rs`).
 
-### 4.4 The kill-switch file
+### 4.4 The kill-switch file, and the absence of a reset
 
-Path: `CONSENSUS_LIVE_KILL_SWITCH_FILE`, default `<ledger dir>/kill-switch` =
-`/var/lib/consensus/ledger/kill-switch` (`live/config.rs`). Its presence trips the
-ledger at the next admission; the trip is persistent and only an explicit operator
-reset clears it (`live/budget.rs`, "Trips"). Section 9.3 and
-`deploy/scripts/kill-switch.sh` operate it.
+Path: `CONSENSUS_LIVE_KILL_SWITCH_FILE`, default `<ledger dir>/kill-switch`
+(`live/config.rs`), so `/var/lib/consensus/ledger/staging/kill-switch` during staging
+and `/var/lib/consensus/ledger/public/kill-switch` from go-live. Its presence trips
+the ledger at the next admission or snapshot (`budget.rs` `check_kill_switch`); the
+trip is written to the day file and to `lifetime.json`, is restored at every reopen,
+and a file still present trips again (`live/budget.rs`, "Trips"). `budget.rs` says
+"only an explicit operator `Ledger::reset` clears it", and that function has **no
+caller** in the binary (see the introduction): there is no command, route or console
+button that clears a trip. Removing the file therefore never re-opens live mode; the
+only remedy is the ledger change of section 4.5. Section 9.3 and
+`deploy/scripts/kill-switch.sh` operate the file and say so in their output.
+
+### 4.5 Ledger lifecycle: one directory per phase, never reused after a trip
+
+Gate G11 requires the kill switch "exercised on staging" (release checklist), and the
+exercise trips the ledger for good. The ledger is a directory
+(`CONSENSUS_LIVE_LEDGER_DIR`: day files, `lifetime.json`, `ledger.lock`; `Ledger::open`
+creates a missing directory, `budget.rs`), so the phases get separate directories under
+the single writable path `/var/lib/consensus/ledger`:
+
+| Phase | `CONSENSUS_LIVE_LEDGER_DIR` | Fate |
+|---|---|---|
+| staging (sections 8.1–8.6, 8.8) | `/var/lib/consensus/ledger/staging` | tripped by the rehearsal; exported, then moved to `/var/lib/consensus/ledger-archive/` |
+| production (from 8.7) | `/var/lib/consensus/ledger/public` | must be empty at go-live (no `lifetime.json`); exported at teardown |
+| incident (9.6) | a new `/var/lib/consensus/ledger/public-<n>` | only after the incident is written up; the tripped one is archived the same way |
+
+Rules that follow from the code:
+
+1. **Staging live runs spend real money on the dedicated key** (the only key allowed
+   on the server; there is no "staging key"), recorded in the staging ledger. Read
+   `lifetime_spent_usd` from its `lifetime.json` before archiving it
+   (`kill-switch.sh status` prints it) and carry the figure into the owner's accounting.
+2. **The production ledger starts at zero**, so its $60 lifetime cap counts from
+   go-live. If the owner's $60 is the key's total budget rather than the public phase's,
+   set `CONSENSUS_LIVE_LIFETIME_USD` to `60.00` minus the staging spend before go-live
+   (`live/config.rs` still requires the judge slice to fit; open question 6).
+3. **Never edit or delete `lifetime.json` or a day file to clear a trip.** The summary
+   is derived from the day files and re-derived at open; a summary trip the day files
+   do not show is restored anyway and reported as an inconsistency (`budget.rs`
+   `apply_summary`). An archived ledger is the evidence of what was spent and why it
+   stopped; it leaves the writable tree so neither server can touch it again.
+4. **Both units read the same `public.env`**, so a ledger change is one edit plus a
+   restart of `consensus-public` (and of the operator console if it is running); the
+   operator console must never point at a different ledger (`operator.env`).
+
+Retiring the staging ledger (after section 8.8, before 8.7):
+
+```sh
+# server
+sudo ~/consensus/deploy/scripts/kill-switch.sh status                                  # tripped: true, trip_code: kill_switch, lifetime_spent_usd
+sudo ~/consensus/deploy/scripts/export-ledger.sh --ledger-dir /var/lib/consensus/ledger/staging
+sudo systemctl stop consensus-public.service; sudo systemctl stop consensus-operator.service 2>/dev/null || true
+sudo mv /var/lib/consensus/ledger/staging "/var/lib/consensus/ledger-archive/staging-$(date -u +%Y%m%dT%H%M%SZ)"
+sudo chown -R root:root /var/lib/consensus/ledger-archive && sudo chmod -R u=rwX,go= /var/lib/consensus/ledger-archive
+sudo test ! -e /var/lib/consensus/ledger/public/lifetime.json && echo "production ledger is empty"
+sudoedit /etc/consensus/public.env          # CONSENSUS_LIVE_LEDGER_DIR=/var/lib/consensus/ledger/public (and the go-live values of 8.7)
+```
+
+The restart happens in section 8.7, step 2. `install.sh` creates both directories and
+the archive directory; a missing ledger directory would be created by the server
+anyway.
 
 ---
 
@@ -578,12 +694,17 @@ definition it was checked against. The choices:
 - `LoadCredential=meta.key:/etc/consensus/credentials/meta.key` and
   `LoadCredential=turnstile.secret:/etc/consensus/credentials/turnstile.secret`
   (section 4.2) `[SD-1]`.
-- `RuntimeDirectory=consensus`, `RuntimeDirectoryMode=0750`: systemd creates
-  `/run/consensus` owned by `User=`/`Group=` with that mode (default `0755`), removes
-  it when the unit stops, and the directory settings are excluded from
-  `ProtectSystem=` so the server can create its socket there `[SD-1]`. The socket
-  itself is `0660` (`server.rs`), group `consensus`; cloudflared joins that group
-  (section 6.4) and connects.
+- The socket directory `/run/consensus` comes from `/etc/tmpfiles.d/consensus.conf`
+  (`d /run/consensus 2750 consensus consensus-sock - -`), applied at boot by
+  `systemd-tmpfiles` ("creates volatile files and directories during boot") and by
+  `install.sh` immediately (`systemd-tmpfiles --create /etc/tmpfiles.d/consensus.conf`)
+  `[SD-8]`; it is listed in `ReadWritePaths=` so the server can bind there under
+  `ProtectSystem=strict`. The setgid bit makes the socket inherit the group
+  `consensus-sock` `[UB-5]` and the server sets it to `0660` (`server.rs`), so only
+  `consensus` and the members of `consensus-sock` (cloudflared, section 6.4) can
+  connect. `RuntimeDirectory=` is deliberately not used: it would own the directory
+  `User=`/`Group=` (`consensus:consensus`) and re-apply that ownership to an existing
+  directory `[SD-1]`, putting the socket into the group `consensus` (section 2.3).
 - `ExecStart=/usr/local/bin/consensus-api serve-public` (`main.rs`).
 - `KillMode=mixed`, `KillSignal=SIGTERM`, `TimeoutStopSec=90`: on stop SIGTERM goes to
   the main process only and SIGKILL to the rest of the control group after the
@@ -596,7 +717,8 @@ definition it was checked against. The choices:
   stage `interrupted` (`server.rs` `print_recovery`; `docs/threat-model.md` threat 6).
 - Sandbox: `NoNewPrivileges=yes`; `ProtectSystem=strict` (the whole hierarchy read-only
   except the API file systems) with `ReadWritePaths=/var/lib/consensus/runs
-  /var/lib/consensus/ledger`; `ProtectHome=yes`; `PrivateTmp=yes` (the verifier's
+  /var/lib/consensus/ledger /run/consensus` (the ledger tree holds the per-phase
+  ledger directories of section 4.5); `ProtectHome=yes`; `PrivateTmp=yes` (the verifier's
   temporary directories are private and swept on stop); `PrivateDevices=yes`;
   `ProtectKernelTunables=`, `ProtectKernelModules=`, `ProtectKernelLogs=`,
   `ProtectControlGroups=`, `ProtectClock=`, `ProtectHostname=yes`;
@@ -617,23 +739,37 @@ definition it was checked against. The choices:
   starts it at boot `[SD-5]`.
 
 ```sh
+# server
+stat -c '%A %U:%G %n' /run/consensus                      # drwxr-s--- consensus:consensus-sock (else: sudo systemd-tmpfiles --create /etc/tmpfiles.d/consensus.conf)
 sudo systemctl enable --now consensus-public.service
 systemctl status consensus-public.service --no-pager
 sudo ss -lxp | grep /run/consensus/public.sock          # the socket, owned by consensus-api
-sudo ls -la /run/consensus                               # drwxr-x--- consensus consensus; srw-rw---- public.sock
+stat -c '%A %U:%G %n' /run/consensus/public.sock          # srw-rw---- consensus:consensus-sock (the group inherited from the setgid directory)
 sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' \
      -H 'CF-Connecting-IP: 203.0.113.10' http://localhost/api/v1/health
+# least privilege of cloudflared: the socket yes, everything else no
+sudo -u cloudflared curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' \
+     -H 'CF-Connecting-IP: 203.0.113.10' -o /dev/null -w 'cloudflared -> socket: %{http_code}\n' http://localhost/api/v1/health   # 200
+for p in /etc/consensus/public.env /etc/consensus/judge-codes.sha256 /etc/consensus/credentials/operator.token \
+         /var/lib/consensus/snapshots /var/lib/consensus/runs /var/lib/consensus/ledger; do
+  sudo -u cloudflared ls -d "$p" >/dev/null 2>&1 && echo "LEAK: cloudflared reaches $p" || echo "ok: cloudflared cannot read $p"
+done
+id -nG cloudflared | tr ' ' '\n' | grep -qx consensus && echo "WRONG: cloudflared is in group consensus (gpasswd -d cloudflared consensus)" || echo "ok: cloudflared not in group consensus"
 ```
 
 (`CF-Connecting-IP` is required on every request to the socket: the listener serves
-cloudflared only, `api/mod.rs`.)
+cloudflared only, `api/mod.rs`. If the socket's group is not `consensus-sock`, the
+directory lost its setgid bit or its group: re-run the `systemd-tmpfiles --create`
+line and restart the service; never fall back to adding cloudflared to `consensus`.)
 
 ### 5.2 `consensus-operator.service` (on demand, never enabled)
 
 Same sandbox and `EnvironmentFile=` chain (`public.env`, then `operator.env`: "the
-later setting will override the earlier setting" `[SD-1]`), its own
-`LoadCredential=` lines (so `/run/credentials/consensus-operator.service/` exists for
-it), `ExecStart=/usr/local/bin/consensus-api serve-operator`, no `Restart=` and **no
+later setting will override the earlier setting" `[SD-1]`), its own three
+`LoadCredential=` lines (`meta.key`, `turnstile.secret` and `operator.token`, so
+`/run/credentials/consensus-operator.service/` holds all three while it runs),
+`ReadWritePaths=` without the socket directory (the console has no socket),
+`ExecStart=/usr/local/bin/consensus-api serve-operator`, no `Restart=` and **no
 `[Install]` section**: enabling consists solely of creating the symlinks `[Install]`
 describes `[SD-5]`, so this unit cannot be enabled and never starts at boot. The
 console binds `127.0.0.1:8787` only (`public_config.rs`) and requires the bearer
@@ -645,6 +781,7 @@ token on every `/api` route (`api/mod.rs`). Usage in section 9.2.
 sudo systemd-analyze verify /etc/systemd/system/consensus-public.service /etc/systemd/system/consensus-operator.service
 systemctl is-enabled consensus-operator.service || true     # "static": no [Install], cannot be enabled
 systemctl cat cloudflared.service                            # the packaged unit plus the drop-in (section 6.4)
+systemd-tmpfiles --cat-config | grep -A1 'consensus.conf'    # the socket directory line is seen by systemd-tmpfiles
 ```
 
 ---
@@ -771,9 +908,13 @@ reach the network and an unattended binary swap is unwanted, so the timer is dis
 (`--no-autoupdate` on the `ExecStart` line already stops in-process updates `[CF-5]`).
 The packaged unit has no `User=`, so cloudflared would run as root; the drop-in
 `deploy/systemd/cloudflared.service.d/10-consensus.conf` (installed by `install.sh`)
-sets `User=cloudflared`, `Group=cloudflared`, `SupplementaryGroups=consensus` and a
-few sandbox directives. Drop-ins in `UNIT.d/*.conf` are merged into the unit after
-the main file and take precedence over it `[SD-5]`.
+sets `User=cloudflared`, `Group=cloudflared`, `SupplementaryGroups=consensus-sock`
+("extends the list of supplementary groups configured in the system group database"
+`[SD-1]`) and a few sandbox directives. `consensus-sock` owns nothing but the socket
+directory and the socket (section 2.3); cloudflared is **not** in `consensus`, and
+`install.sh` removes it from that group if an earlier layout added it (`gpasswd -d`
+"Remove the user from the named group" `[UB-5]`). Drop-ins in `UNIT.d/*.conf` are
+merged into the unit after the main file and take precedence over it `[SD-5]`.
 
 ```sh
 sudo cloudflared --config /etc/cloudflared/config.yml service install
@@ -783,7 +924,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now cloudflared.service
 systemctl status cloudflared.service --no-pager
 journalctl -u cloudflared -n 30 --no-pager             # "Registered tunnel connection" lines; errors about api.cloudflare.com are the blocked update checks
-ps -o user,group,supgrp,cmd -C cloudflared             # user cloudflared, supplementary group consensus
+ps -o user,group,supgrp,cmd -C cloudflared             # user cloudflared, supplementary group consensus-sock (never consensus)
 ```
 
 `--loglevel debug` prints request and response headers (session cookies among them)
@@ -943,6 +1084,31 @@ Obfuscation, Fonts, Rocket Loader, Disable Zaraz and Disable Real User Monitorin
       Create it **before** routing `staging.<hostname>` to the tunnel ("We recommend
       creating an Access application before setting up the tunnel route", otherwise
       "the published application will be available to anyone on the Internet") `[CF-31]`.
+- [ ] **A service token for the curl probes.** Without one, every unauthenticated
+      request to `staging.<hostname>` is answered by Access itself (a `302` to the
+      login page, or `401`/`403` in strict mode), so no probe of section 8 could reach
+      the origin during the staging phase. Zero Trust → Access controls → Service
+      credentials → Service Tokens → Create Service Token: name "consensus staging
+      probes", the shortest duration that covers the staging phase; "This is the only
+      time Cloudflare Access will display the Client Secret" `[CF-32]`. Keep both values
+      on the owner machine only (never on the server).
+- [ ] In the staging application, add a second policy: action **Service Auth** ("Make
+      sure to set the policy action to Service Auth; otherwise, Access will prompt for
+      an identity provider login"), Include → selector **Service Token** → the token
+      just created ("The request will need to present the correct service token headers
+      configured for the specific application"; the selector "Requires the Service Auth
+      action") `[CF-32]`. "Bypass and Service Auth policies are evaluated first" `[CF-32]`;
+      the owner's Allow policy stays for the browser.
+- [ ] The probes send `CF-Access-Client-Id: <CLIENT_ID>` and
+      `CF-Access-Client-Secret: <CLIENT_SECRET>` on every request `[CF-32]`; the scripts
+      read them from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (section 8).
+      In strict service-token authentication (on by default for organisations created
+      on or after 2026-10-05) Access "does not return a CF_Authorization cookie" and
+      refuses with `401`/`403` instead of redirecting `[CF-32]`, which is what the scripts
+      report as "edge refused". Browser checks (the Turnstile flow, a guided run) use the
+      owner's identity login, not the token.
+- [ ] Delete the service token at go-live or at teardown (section 9.7): "To revoke
+      access, you must delete the service token" `[CF-32]`.
 - [ ] No Access application in front of `<hostname>`: the public portal is anonymous
       by design (ADR-0006 decision 2).
 
@@ -950,25 +1116,41 @@ Obfuscation, Fonts, Rocket Loader, Disable Zaraz and Disable Real User Monitorin
 
 ## 8. Go-live and verification
 
-Order: staging phase on `staging.<hostname>` behind Access (sections 8.1–8.6 with
-live mode off, then on), then go-live (8.7), then the same probes against
-`<hostname>`. Record every result with its date in `docs/reviews/` (gates G1, G2, G4,
-G6, G9, G11 ask for evidence).
+Order: staging phase on `staging.<hostname>` behind Access: sections 8.1–8.6 with live
+mode off, then on; then the G11 rehearsal of 8.8 (it trips the staging ledger); then
+the ledger retirement of section 4.5; then go-live (8.7); then 8.1, 8.3 and 8.4 again
+against `<hostname>`. Record every result with its date in `docs/reviews/` (gates G1,
+G2, G4, G6, G9, G11 ask for evidence).
+
+Every `https://` request below runs on the **owner machine** (section 2.4 explains why
+the server cannot make them). Set these once per shell and keep `H`, `A` and `ACCESS`
+for the later sections:
+
+```sh
+# owner machine; staging phase: the Access service token of 7.9 (read -rs keeps the values out of the shell history)
+H=staging.<hostname>
+read -rs -p 'CF-Access-Client-Id: ' CF_ACCESS_CLIENT_ID; echo
+read -rs -p 'CF-Access-Client-Secret: ' CF_ACCESS_CLIENT_SECRET; echo
+export CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET            # read by verify-edge.sh, canary-scan.sh and sse-heartbeat-test.sh
+ACCESS=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET")
+curl -sS -o /dev/null -w '%{http_code}\n' "${ACCESS[@]}" "https://$H/api/v1/health"   # 200; a 302 or 401/403 is Access: token or Service Auth policy wrong
+# production (8.7 onwards): H=<hostname>; ACCESS=(); unset CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
+```
 
 ### 8.1 Gate G1: nothing of the old router, operator never exposed
 
 ```sh
-# through the hostname: the v0 router does not exist in the binary (ADR-0006); every answer is the v1 server's or cloudflared's
-curl -sS -o /dev/null -w '%{http_code}\n' https://<hostname>/api/runs                 # 404 (JSON "code":"not_found" from the v1 fallback)
-curl -sS https://<hostname>/api/runs; echo                                              # {"code":"not_found",...}: not a run list
-curl -sS https://<hostname>/ | grep -c 'Operator console'                               # 0: the portal's HTML, not console.html
-curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Origin: https://<hostname>' \
-     -H 'Content-Type: application/json' --data '{}' https://<hostname>/api/v1/operator/runs   # 404: no operator route on the public listener (never 401 or 202)
-curl -sS -o /dev/null -w '%{http_code}\n' "https://<hostname>/no-such-path-$RANDOM"      # 404 (the export's 404.html)
+# owner machine: the v0 router does not exist in the binary (ADR-0006); every answer is the v1 server's or cloudflared's
+curl -sS -o /dev/null -w '%{http_code}\n' "${ACCESS[@]}" "https://$H/api/runs"                 # 404 (JSON "code":"not_found" from the v1 fallback)
+curl -sS "${ACCESS[@]}" "https://$H/api/runs"; echo                                              # {"code":"not_found",...}: not a run list
+curl -sS "${ACCESS[@]}" "https://$H/" | grep -c 'Operator console'                               # 0: the portal's HTML, not console.html
+curl -sS -o /dev/null -w '%{http_code}\n' "${ACCESS[@]}" -X POST -H "Origin: https://$H" \
+     -H 'Content-Type: application/json' --data '{}' "https://$H/api/v1/operator/runs"          # 404: no operator route on the public listener (never 401 or 202)
+curl -sS -o /dev/null -w '%{http_code}\n' "${ACCESS[@]}" "https://$H/no-such-path-$RANDOM"      # 404 (the export's 404.html)
 ```
 
 ```sh
-# on the server: listeners and ingress
+# server: listeners and ingress
 sudo ss -ltnp                                       # TCP: sshd only (and 127.0.0.1:8787 only while the operator console runs)
 sudo ss -lxp | grep public.sock                     # the unix socket
 cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule https://<hostname>/           # rule 1 -> unix socket
@@ -987,22 +1169,23 @@ Turnstile token to session creation, mint session A in a browser and export its
 cookie instead.
 
 ```sh
-H=<hostname>; A=$(mktemp); B=$(mktemp)
-curl -sS -c "$A" -X POST -H "Origin: https://$H" "https://$H/api/v1/session"; echo
-curl -sS -c "$B" -X POST -H "Origin: https://$H" "https://$H/api/v1/session"; echo
-curl -sS -b "$A" -X POST -H "Origin: https://$H" -H 'Content-Type: application/json' \
+# owner machine ($H and ACCESS from the start of section 8)
+A=$(mktemp); B=$(mktemp)
+curl -sS -c "$A" "${ACCESS[@]}" -X POST -H "Origin: https://$H" "https://$H/api/v1/session"; echo
+curl -sS -c "$B" "${ACCESS[@]}" -X POST -H "Origin: https://$H" "https://$H/api/v1/session"; echo
+curl -sS -b "$A" "${ACCESS[@]}" -X POST -H "Origin: https://$H" -H 'Content-Type: application/json' \
      --data '{"scenario":"retry"}' "https://$H/api/v1/runs" | tee /tmp/run-a.json; echo
 RUN=$(sed -n 's/.*"run_id":"\([^"]*\)".*/\1/p' /tmp/run-a.json)   # or read run_id from the 202 body
 # owner (A) reads everything; a stranger (B) gets 404 on every route and never sees the run in a list
 for p in "" /events.ndjson /receipt; do
-  printf 'A %-16s %s\n' "$p" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$A" "https://$H/api/v1/runs/$RUN$p")"
-  printf 'B %-16s %s\n' "$p" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$B" "https://$H/api/v1/runs/$RUN$p")"   # 404
+  printf 'A %-16s %s\n' "$p" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$A" "${ACCESS[@]}" "https://$H/api/v1/runs/$RUN$p")"
+  printf 'B %-16s %s\n' "$p" "$(curl -sS -o /dev/null -w '%{http_code}' -b "$B" "${ACCESS[@]}" "https://$H/api/v1/runs/$RUN$p")"   # 404
 done
-curl -sS -o /dev/null -w 'B events %{http_code}\n' -b "$B" --max-time 5 "https://$H/api/v1/runs/$RUN/events"   # 404
-curl -sS -o /dev/null -w 'B cancel %{http_code}\n' -b "$B" -X POST -H "Origin: https://$H" \
+curl -sS -o /dev/null -w 'B events %{http_code}\n' -b "$B" "${ACCESS[@]}" --max-time 5 "https://$H/api/v1/runs/$RUN/events"   # 404
+curl -sS -o /dev/null -w 'B cancel %{http_code}\n' -b "$B" "${ACCESS[@]}" -X POST -H "Origin: https://$H" \
      -H 'Content-Type: application/json' --data '{}' "https://$H/api/v1/runs/$RUN/cancel"                 # 404
-curl -sS -b "$B" "https://$H/api/v1/runs" | grep -c "$RUN"                                                 # 0
-rm -f "$A" "$B" /tmp/run-a.json
+curl -sS -b "$B" "${ACCESS[@]}" "https://$H/api/v1/runs" | grep -c "$RUN"                                  # 0
+rm -f "$B" /tmp/run-a.json          # keep $A: sections 8.5 and 8.8 reuse it
 ```
 
 ### 8.3 Gate G4: the key is in no environment, file, log or response
@@ -1014,38 +1197,60 @@ printed (`config.rs`). The scan below never prints a match and never reads
 `/etc/consensus/credentials/`.
 
 ```sh
+# server
 pid=$(systemctl show -p MainPID --value consensus-public.service)
 sudo tr '\0' '\n' < /proc/$pid/environ | grep -c -E 'LLM_[0-9]+_'                      # 0
 sudo tr '\0' '\n' < /proc/$pid/environ | grep -E '^(CONSENSUS_META_API_KEY|MODEL_API_KEY|META_API_KEY)=' ; echo "exit $? (1 = none set, as required)"
 sudo tr '\0' '\n' < /proc/$pid/environ | grep -E '^CREDENTIALS_DIRECTORY='              # the path only
 sudo ls -ld /run/credentials/consensus-public.service                                   # accessible to consensus only
-sudo ~/consensus/deploy/scripts/canary-scan.sh --hostname <hostname>                    # environments, store, ledger, web, env files, journal, responses
+sudo ~/consensus/deploy/scripts/canary-scan.sh                                          # environments, store, ledger tree, web, env files, journal
 # staging only, with a canary key file (section 4.2): add --canary '<the canary string>'
 ```
+
+```sh
+# owner machine: the public responses (the server cannot fetch its own hostname, section 2.4)
+deploy/scripts/canary-scan.sh --responses-only --hostname "$H"                          # on staging add --canary '<the canary string>'
+```
+
+The response half reports `UNREACHABLE` and fails when a page cannot be fetched (an
+earlier version printed `ok` for a failed fetch, because zero matches in no body look
+like zero matches); run it from a machine that reaches the hostname.
 
 Also on the owner machine: `git check-ignore -v .env .env.local meta.key` lists the
 ignore rules (`.gitignore`: `.env*`, `*.key`).
 
 ### 8.4 Gate G6: edge versus origin, byte for byte; `cf-cache-status`
 
-`deploy/scripts/verify-edge.sh` fetches `/`, `/en/`, `/es/`, `/pt-BR/`, `/fr/`, an
-unknown path, `/api/v1/health`, `/api/v1/capabilities`, `/api/v1/scenarios`,
-`/research/MANIFEST.json` and `/research/SHA256SUMS` through the socket (with the
-`Host`, `CF-Connecting-IP` and `CF-IPCountry` headers the origin expects) and through
-the hostname, compares with `cmp`, and prints `cf-cache-status` and the security
+`deploy/scripts/verify-edge.sh` runs on the owner machine. It fetches `/`, `/en/`,
+`/es/`, `/pt-BR/`, `/fr/`, an unknown path, `/api/v1/health`, `/api/v1/capabilities`,
+`/api/v1/scenarios`, `/research/MANIFEST.json` and `/research/SHA256SUMS` twice: from
+the origin over SSH (`ssh <server> sudo -n curl --unix-socket ...` with the `Host`,
+`CF-Connecting-IP` and `CF-IPCountry` headers the origin expects; `sudo -n` "will
+display an error message and exit" instead of prompting `[UB-5]`) and from the hostname
+through Cloudflare, compares with `cmp`, and prints `cf-cache-status` and the security
 headers (`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
 `X-Frame-Options: DENY`, `Content-Security-Policy` from the manifest; `api/mod.rs`,
-`static_files.rs`).
+`static_files.rs`). Each side is one request whose body is followed by curl's
+three-digit status, split with `head -c -3` / `tail -c 3` ("with the leading '-',
+print all but the last NUM bytes" `[UB-5]`), so nothing touches the bytes; for the same
+reason the SSH session has no pseudo-terminal (`ssh -t` would translate line endings).
 
 ```sh
-sudo ~/consensus/deploy/scripts/verify-edge.sh --hostname <hostname>
+# owner machine
+deploy/scripts/verify-edge.sh --hostname "$H" --ssh <server>
 # by hand, one page:
-sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' -H 'CF-IPCountry: US' http://localhost/en/ -o /tmp/origin.html
-curl -sS https://<hostname>/en/ -o /tmp/edge.html -D /tmp/edge.h
+ssh <server> "sudo -n curl -sS --unix-socket /run/consensus/public.sock -H 'Host: $H' -H 'CF-Connecting-IP: 203.0.113.10' -H 'CF-IPCountry: US' http://localhost/en/" > /tmp/origin.html
+curl -sS "${ACCESS[@]}" "https://$H/en/" -o /tmp/edge.html -D /tmp/edge.h
 cmp /tmp/origin.html /tmp/edge.html && echo "byte-equal"
 grep -i cf-cache-status /tmp/edge.h                     # DYNAMIC (not HIT) for HTML too: not a default-cached type [CF-22]
-curl -sS -D - -o /dev/null https://<hostname>/api/v1/health | grep -i -E 'cf-cache-status|cache-control'   # DYNAMIC; no-store
+curl -sS -D - -o /dev/null "${ACCESS[@]}" "https://$H/api/v1/health" | grep -i -E 'cf-cache-status|cache-control'   # DYNAMIC; no-store
 ```
+
+If `sudo -n` fails over SSH ("a password is required"), add the SSH user to
+`consensus-sock` for the duration of the checks (`sudo gpasswd -a <user> consensus-sock`
+on the server, `gpasswd -d` afterwards `[UB-5]`; a new SSH session picks up the group)
+and pass `--no-sudo`: the group means "may connect to the public socket", which is
+exactly what the probe does (open question 7).
 
 Any `DIFFER` means an edge feature of section 7.7 is still on (or a challenge page was
 served); fix the setting and re-run. The Playwright part of G6 (CSP violations across
@@ -1061,21 +1266,30 @@ log from the client's `Last-Event-ID` (or `?after`), follows live frames, re-syn
 a gap, marks every frame `replay` or `live`, and ends with `event: stream_end` once
 the run awaits a decision or is terminal (`stream.rs`, `api/v1.rs` `resume_point`).
 Because the stream lives only while the run deliberates, the 8-minute test needs a
-live run on staging (guided runs finish in seconds); live runs cost about $0.81 on
-average (ADR-0007), on the staging key before go-live or the public key after.
+live run on staging (guided runs finish in seconds). Live runs cost about $0.81 on
+average (ADR-0007) **on the dedicated key** (there is no separate staging key: the
+dedicated key is the only one allowed on the server), and every one of them is a
+reservation and a settlement in the staging ledger (section 4.5, rule 1). The test runs
+on the owner machine; the cloudflared restart of the resume step is the one command
+that runs on the server.
 
 ```sh
+# owner machine
 # 1. a session that owns a live run (judge lane or public lane on staging), its cookie jar in $A, the run id in $RUN (8.2 shows the pattern;
 #    the live-run body is {"preset_id":"<preset>"} plus the Turnstile and attestation fields the wiring adds; mint it in the browser if needed)
 # 2. follow it for 8 minutes with timestamps; PASS = no silence over 35 s and no disconnect before stream_end or the deadline
-~/consensus/deploy/scripts/sse-heartbeat-test.sh --hostname <hostname> --run "$RUN" --cookie-jar "$A" --seconds 480
-# 3. resume: with a second stream open in another terminal...
-~/consensus/deploy/scripts/sse-heartbeat-test.sh --hostname <hostname> --run "$RUN" --cookie-jar "$A" --seconds 600 --log /tmp/sse-before.log &
-sudo systemctl restart cloudflared                      # ...the open stream drops (curl exits early: expected)
+deploy/scripts/sse-heartbeat-test.sh --hostname "$H" --run "$RUN" --cookie-jar "$A" --seconds 480
+# 3. resume: with a second stream open in the background...
+deploy/scripts/sse-heartbeat-test.sh --hostname "$H" --run "$RUN" --cookie-jar "$A" --seconds 600 --log /tmp/sse-before.log &
+ssh <server> sudo systemctl restart cloudflared          # ...the open stream drops (curl exits early: expected)
 wait; grep -c 'id: ' /tmp/sse-before.log               # the last id is printed by the script
-~/consensus/deploy/scripts/sse-heartbeat-test.sh --hostname <hostname> --run "$RUN" --cookie-jar "$A" --seconds 120 --resume <last-id> --log /tmp/sse-after.log
+deploy/scripts/sse-heartbeat-test.sh --hostname "$H" --run "$RUN" --cookie-jar "$A" --seconds 120 --resume <last-id> --log /tmp/sse-after.log
 grep -m3 -E 'event: (consensus|resync)|"delivery"' /tmp/sse-after.log   # replay from <last-id>+1 ("delivery":"replay"), then live frames
 ```
+
+(The script reads `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` for the staging
+hostname and reports "no SSE frame at all" when Access or the WAF answered instead of
+the origin.)
 
 If the run ends before eight minutes, start another and add the durations: the
 requirement is one continuous stream of at least 480 s or, failing that, several
@@ -1085,19 +1299,50 @@ heartbeats only.
 ### 8.6 Gate G9: Hyphae on the public server
 
 ```sh
+# server
 pgrep -a hyphae || echo "no hyphae process"                          # no daemon
 sudo ss -lxp | grep -c hyphae                                          # 0
 grep -E '^(HYPHAE_|CONSENSUS_HYPHAE_(PERSONAL|WORK|JOURNAL))' /etc/consensus/public.env || echo "no Hyphae daemon settings"
 sudo find / -xdev \( -name 'hyphae.sock' -o -path '*/.config/hyphae*' -o -path '*/.local/state/hyphae*' \) 2>/dev/null   # nothing
 getent group docker || echo "no docker group"; command -v docker || echo "docker not installed"
 ls -la /opt/hyphae/bin/ /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae      # owned by hyphae, 0755
+stat -c '%A %U:%G %n' /var/lib/consensus/snapshots                                     # drwx------ consensus:consensus: witnesses reachable by the service user only
 # no writer path: inside the service's mount namespace the snapshot directory is read-only (ProtectSystem=strict)
 pid=$(systemctl show -p MainPID --value consensus-public.service)
 sudo nsenter -t "$pid" -m -- touch /var/lib/consensus/snapshots/.probe 2>&1 | grep -q 'Read-only' && echo "snapshots: read-only in the sandbox"
 sudo nsenter -t "$pid" -m -- touch /var/lib/consensus/runs/.probe && sudo rm /var/lib/consensus/runs/.probe && echo "runs: writable (expected)"
-# boot check and readiness
+# the verifier INSIDE the sandbox: hyphae proof verify under the unit's own directives (deploy/scripts/sandbox-probe.sh)
+sudo ~/consensus/deploy/scripts/sandbox-probe.sh                                       # PASS: exit 0, report status "verified", semantic_reexecution_performed true
+sudo ~/consensus/deploy/scripts/sandbox-probe.sh -- /opt/hyphae/bin/hyphae --version   # any other command under the same sandbox
+# boot verification (binary with the snapshot lane) and readiness
+journalctl -u consensus-public -b --no-pager | grep -E 'proofs re-verified at boot|boot_verification_failed|pinned_anchor_mismatch'
 sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' http://localhost/api/v1/ready; echo
 ```
+
+**Why the probe exists.** Guided runs never call Hyphae (`guided.rs` uses
+`FakeProofVerifier`); the real `hyphae proof verify` runs for live runs
+(`HyphaeProofVerifier`, `api/v1.rs`, `hyphae.rs`) and, in a binary with the snapshot
+lane, at boot (`snapshot.rs` `SnapshotMemoryClient::open`: the two served captures are
+re-verified and the journal carries `sealed snapshot <id>: ... proofs re-verified at
+boot <time> (<n> captures valid)`, or the start fails with `boot_verification_failed`).
+Without the probe, the first time the verifier would meet `ProtectSystem=strict`,
+`ProtectHome=yes` (`$HOME=/var/lib/consensus` is read-only to it), `PrivateTmp`,
+`MemoryDenyWriteExecute`, the empty capability set and `SystemCallFilter=@system-service`
+would be the first paying live run. `sandbox-probe.sh` reads the installed unit's
+`[Service]` section and starts a transient unit with `systemd-run --wait --pipe --collect`
+and one `-p` per directive ("Sets a property on the scope or service unit that is
+created"; "the return value will be propagated from the service" `[SD-8]`), all but
+`Type`, `Exec*`, `Kill*`, `Timeout*`, `Restart*`, the credentials and
+`RuntimeDirectory*`, as the service user, and runs the exact
+`hyphae proof verify --proof <capture>.proof --witness <capture>.witness --anchor <anchor>`
+of `hyphae.rs` on one capture of `CONSENSUS_SNAPSHOT_DIR`. PASS requires exit 0 and a
+report with `"status":"verified"` and `"semantic_reexecution_performed":true`, the same
+two facts `hyphae.rs` demands before it calls a proof `Valid`. A FAIL prints the
+verifier's stderr: `Read-only file system` or `Operation not permitted` names a
+sandbox directive; the remedy is a unit change recorded under gate G9 (for example a
+dedicated writable directory for the verifier's state), never a quiet loosening.
+`systemd-run` answering `Unknown assignment` would name a directive this systemd cannot
+set on a transient unit; none of the unit's is expected to be one.
 
 `/api/v1/ready` reports the run store (index head, tampering, tail repair), the
 showcase status, active and queued runs and `shutting_down` (`api/v1.rs` `ready`);
@@ -1108,37 +1353,60 @@ binding), and a failed check disables live mode with the reason in `/health`.
 
 ### 8.7 Go-live
 
-1. Every gate G1–G12 reads PASS with evidence (`docs/security/release-checklist.md`).
-2. `public.env`: `CONSENSUS_TURNSTILE_HOSTNAME=<hostname>`, `CONSENSUS_LIVE_ENABLED=true`
-   (if live mode launches with the portal), `CONSENSUS_LIVE_JUDGE_CODES_FILE` set;
-   the real key in `meta.key`; `sudo systemctl restart consensus-public` and read
-   `journalctl -u consensus-public -n 30` for a clean start.
+1. Every gate G1–G12 reads PASS with evidence (`docs/security/release-checklist.md`),
+   the G11 rehearsal of 8.8 included, and the staging ledger has been retired (4.5).
+2. `public.env`: `CONSENSUS_LIVE_LEDGER_DIR=/var/lib/consensus/ledger/public` (empty:
+   no `lifetime.json` yet), `CONSENSUS_TURNSTILE_HOSTNAME=<hostname>`,
+   `CONSENSUS_LIVE_ENABLED=true` (if live mode launches with the portal),
+   `CONSENSUS_LIVE_JUDGE_CODES_FILE` set, `CONSENSUS_LIVE_LIFETIME_USD` per open
+   question 6; the real key in `meta.key`; `sudo systemctl restart consensus-public`
+   and read `journalctl -u consensus-public -n 30` for a clean start, the boot
+   verification line of 8.6 included.
 3. Owner machine: `cloudflared tunnel route dns consensus-public <hostname>`.
-4. Repeat 8.1, 8.3, 8.4 against `<hostname>`; one guided run end to end in a browser;
-   one live run if enabled.
-5. Record the go-live time (UTC) in `docs/journal.md`.
+4. Owner machine: `H=<hostname>; ACCESS=()` (no Access on the production hostname),
+   then repeat 8.1, 8.3 (`--responses-only`) and 8.4 (`--ssh <server>`) against
+   `<hostname>`; one guided run end to end in a browser; one live run if enabled, after
+   which `kill-switch.sh status` on the server shows the production ledger's first
+   records and `tripped: false`.
+5. Delete the staging service token (7.9) unless staging stays in use, and record the
+   go-live time (UTC) in `docs/journal.md`.
 
 ### 8.8 Gate G11: shutdown, recovery, kill switch, export (staging rehearsal)
 
+Run this **last** in the staging phase, on the staging ledger: the kill-switch step
+trips that ledger for good (section 4.4) and section 4.5 retires it before go-live.
+Live mode must be on (`CONSENSUS_LIVE_ENABLED=true` on staging, with a binary that
+has the live wiring) for the kill-switch step to mean anything: before the wiring,
+`POST /api/v1/live-runs` answers `503 live_disabled` whether or not a ledger is tripped,
+`serve-public` opens no ledger, and G11 stays open. Two terminals: an SSH session on
+the server and a shell on the owner machine with `$H`, `$A` and `"${ACCESS[@]}"` from
+the start of section 8.
+
 ```sh
-# graceful stop during a run: the server cancels active runs and exits within TimeoutStopSec
-curl -sS -b "$A" -X POST -H "Origin: https://<hostname>" -H 'Content-Type: application/json' --data '{"scenario":"retry"}' https://<hostname>/api/v1/runs >/dev/null
-sudo systemctl stop consensus-public.service
-journalctl -u consensus-public -n 20 --no-pager | grep -E 'shutdown|cancell'      # "[shutdown] stopping: cancelling active runs"
-sudo systemctl start consensus-public.service
-# crash recovery: a SIGKILL mid-run; Restart=on-failure brings it back and recovery closes the run as failed, stage interrupted
-curl -sS -b "$A" -X POST -H "Origin: https://<hostname>" -H 'Content-Type: application/json' --data '{"scenario":"retry"}' https://<hostname>/api/v1/runs | tee /tmp/run-k.json >/dev/null
-sudo systemctl kill --signal=SIGKILL consensus-public.service; sleep 8
-journalctl -u consensus-public -n 20 --no-pager | grep recovery                    # "[recovery] closed 1 interrupted run(s) as failed"
-curl -sS -b "$A" "https://<hostname>/api/v1/runs/$(sed -n 's/.*"run_id":"\([^"]*\)".*/\1/p' /tmp/run-k.json)" | grep -o '"stage":"[a-z_]*"'   # interrupted
-# kill switch: trips the ledger at the next admission; live-run creation is refused; guided and showcase stay up
-sudo ~/consensus/deploy/scripts/kill-switch.sh on
-curl -sS -o /dev/null -w '%{http_code}\n' -b "$A" -X POST -H "Origin: https://<hostname>" -H 'Content-Type: application/json' \
-     --data '{"preset_id":"<preset>"}' https://<hostname>/api/v1/live-runs           # refused (5xx with a stable code), never 202
-sudo ~/consensus/deploy/scripts/kill-switch.sh status                                # tripped: true, trip_code: kill_switch
-sudo ~/consensus/deploy/scripts/export-ledger.sh                                     # the trip record is in today's day file
-sudo ~/consensus/deploy/scripts/kill-switch.sh off                                   # the ledger stays tripped until an operator reset
+# 1. graceful stop during a run: the server cancels active runs and exits within TimeoutStopSec
+curl -sS -b "$A" "${ACCESS[@]}" -X POST -H "Origin: https://$H" -H 'Content-Type: application/json' --data '{"scenario":"retry"}' "https://$H/api/v1/runs" >/dev/null   # owner machine
+sudo systemctl stop consensus-public.service                                                                  # server, at once
+journalctl -u consensus-public -n 20 --no-pager | grep -E 'shutdown|cancell'      # server: "[shutdown] stopping: cancelling active runs"
+sudo systemctl start consensus-public.service                                     # server
+# 2. crash recovery: a SIGKILL mid-run; Restart=on-failure brings it back and recovery closes the run as failed, stage interrupted
+curl -sS -b "$A" "${ACCESS[@]}" -X POST -H "Origin: https://$H" -H 'Content-Type: application/json' --data '{"scenario":"retry"}' "https://$H/api/v1/runs" | tee /tmp/run-k.json >/dev/null   # owner machine
+sudo systemctl kill --signal=SIGKILL consensus-public.service; sleep 8            # server, at once
+journalctl -u consensus-public -n 20 --no-pager | grep recovery                    # server: "[recovery] closed 1 interrupted run(s) as failed"
+curl -sS -b "$A" "${ACCESS[@]}" "https://$H/api/v1/runs/$(sed -n 's/.*"run_id":"\([^"]*\)".*/\1/p' /tmp/run-k.json)" | grep -o '"stage":"[a-z_]*"'   # owner machine: interrupted
+# 3. kill switch: trips the STAGING ledger at the next admission; live-run creation is refused; guided runs and the showcase stay up
+sudo ~/consensus/deploy/scripts/kill-switch.sh on                                 # server
+curl -sS -o /dev/null -w '%{http_code}\n' -b "$A" "${ACCESS[@]}" -X POST -H "Origin: https://$H" -H 'Content-Type: application/json' \
+     --data '{"preset_id":"<preset>"}' "https://$H/api/v1/live-runs"              # owner machine: 503 with a stable code, never 202
+curl -sS -o /dev/null -w '%{http_code}\n' -b "$A" "${ACCESS[@]}" -X POST -H "Origin: https://$H" -H 'Content-Type: application/json' \
+     --data '{"scenario":"retry"}' "https://$H/api/v1/runs"                       # owner machine: 202, guided runs unaffected
+sudo ~/consensus/deploy/scripts/kill-switch.sh status                             # server: tripped: true, trip_code: kill_switch, lifetime_spent_usd
+sudo ~/consensus/deploy/scripts/export-ledger.sh                                  # server: today's day file of the staging ledger holds the trip record
+sudo ~/consensus/deploy/scripts/kill-switch.sh off                                # server: removes the file; the staging ledger stays tripped (no reset exists)
 ```
+
+Then retire the staging ledger exactly as section 4.5 shows (export, stop, move to
+`ledger-archive/`, point `public.env` at `ledger/public`) and continue with 8.7. The
+written result for G11 names the archived directory and its `lifetime_spent_usd`.
 
 Retention (bounded guided-run storage) shows as `[retention] purged N expired run(s)`
 in the journal every 10 minutes when something expired (`server.rs` `run_server`).
@@ -1168,16 +1436,22 @@ not headers `[CF-5]`.
 ### 9.2 Daily check (five minutes)
 
 ```sh
+# server
 systemctl status consensus-public.service cloudflared.service --no-pager | grep -E 'Active|Main PID'
 sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' http://localhost/api/v1/ready; echo
-curl -sS -o /dev/null -w 'edge %{http_code} %{time_total}s\n' https://<hostname>/api/v1/health
 df -h / && free -h && journalctl --disk-usage
 journalctl -u consensus-public.service --since -1d -p warning --no-pager | tail -n 20
-sudo ~/consensus/deploy/scripts/kill-switch.sh status                                   # not tripped; the lifetime summary
-sudo tail -n 5 "/var/lib/consensus/ledger/$(date -u +%F).jsonl" 2>/dev/null             # today's reservations and settlements (no PII: ids and amounts)
+sudo ~/consensus/deploy/scripts/kill-switch.sh status                                   # tripped: false; lifetime_spent_usd
+ledger=$(grep -E '^CONSENSUS_LIVE_LEDGER_DIR=' /etc/consensus/public.env | cut -d= -f2-)
+sudo tail -n 5 "$ledger/$(date -u +%F).jsonl" 2>/dev/null                               # today's reservations and settlements (no PII: ids and amounts)
 # egress allowlist still valid? (section 2.4)
 for host in api.meta.ai challenges.cloudflare.com; do getent ahostsv4 "$host" | awk '{print $1}' | sort -u | sed "s/^/$host /"; done
 sudo ufw status | grep -E 'api.meta.ai|challenges.cloudflare.com'
+```
+
+```sh
+# owner machine: the edge (the server cannot reach its own hostname, section 2.4)
+curl -sS -o /dev/null -w 'edge %{http_code} %{time_total}s\n' https://<hostname>/api/v1/health
 ```
 
 The ledger through the operator console, over SSH (never through the tunnel):
@@ -1187,7 +1461,7 @@ The ledger through the operator console, over SSH (never through the tunnel):
 ssh -L 8787:127.0.0.1:8787 <server>
 # on the server, in that session
 sudo systemctl start consensus-operator.service
-sudo cat /etc/consensus/operator.token            # paste as the bearer token in the console at http://127.0.0.1:8787/
+sudo cat /etc/consensus/credentials/operator.token   # paste as the bearer token in the console at http://127.0.0.1:8787/
 # ... when done
 sudo systemctl stop consensus-operator.service
 ```
@@ -1201,41 +1475,49 @@ files above are the record: one JSONL per UTC day plus `lifetime.json`
 ### 9.3 Kill switch
 
 ```sh
-sudo ~/consensus/deploy/scripts/kill-switch.sh on        # creates /var/lib/consensus/ledger/kill-switch (root:consensus 0640)
+sudo ~/consensus/deploy/scripts/kill-switch.sh on        # creates <ledger dir>/kill-switch (root:consensus 0640) in the active ledger of public.env
 sudo ~/consensus/deploy/scripts/kill-switch.sh status
-sudo ~/consensus/deploy/scripts/kill-switch.sh off       # asks; the ledger stays tripped until an operator reset
+sudo ~/consensus/deploy/scripts/kill-switch.sh off       # asks; removes the file only: the ledger stays tripped
 ```
 
 Semantics (`live/budget.rs`): the file's presence trips the ledger at the next
 admission; a tripped ledger refuses every reservation and every draw, so in-flight
-runs stop at their next model call; the trip is persistent, survives restarts, is
-cleared only by an explicit operator reset, and a file still present re-trips it.
-Guided runs and the showcase are unaffected. The ledger also trips on its own on
-401/402/403 from Meta, on an overrun of a bound, and at the lifetime cap.
+runs stop at their next model call; the trip is persistent, survives restarts, and a
+file still present re-trips it. **Nothing in the binary clears a trip** (section 4.4):
+`off` only removes the file, and re-opening live mode means a new ledger directory
+with the tripped one archived (section 4.5), after the reason for the stop is written
+up. Guided runs and the showcase are unaffected. The ledger also trips on its own on
+401/402/403 from Meta, on an overrun of a bound, and at the lifetime cap; those trips
+end the same way. While live mode is disabled no ledger is open, so a file created
+then takes effect at the first admission after live mode is enabled.
 
 ### 9.4 Rotating the operator token
 
 ```sh
 sudo systemctl stop consensus-operator.service 2>/dev/null || true
-openssl rand -hex 32 | sudo tee /etc/consensus/operator.token >/dev/null      # the file keeps root:consensus 0640
-sudo ls -l /etc/consensus/operator.token
+openssl rand -hex 32 | sudo tee /etc/consensus/credentials/operator.token >/dev/null      # the file keeps root:root 0600
+sudo ls -l /etc/consensus/credentials/operator.token
 ```
 
-The token is read at the console's start, so stop it first; nothing else holds it.
+The token is read at the console's start (from the `LoadCredential=` copy, which exists
+only while the unit runs), so stop it first; nothing else holds it.
 
 ### 9.5 Backups
 
 Back up `/var/lib/consensus/runs` and `/var/lib/consensus/ledger` only. Never the
 snapshot directory (its witnesses are private operator artifacts and the owner
 already holds the capture), never `/etc/consensus/credentials`.
-`deploy/scripts/export-ledger.sh --include-runs` writes a tarball that excludes
+`deploy/scripts/export-ledger.sh --include-runs` writes a tarball of the active ledger
+directory (`CONSENSUS_LIVE_LEDGER_DIR` from `public.env`; `--ledger-dir
+/var/lib/consensus/ledger` takes every ledger at once) and the run store, excluding
 `*.witness` and `*.proof` as a safeguard, with its sha256, under
-`/root/consensus-exports/` (`0700`):
+`/root/consensus-exports/` (`0700`); the archive name carries the ledger directory's
+name (`consensus-ledger-public-runs-<stamp>.tar.gz`):
 
 ```sh
 sudo ~/consensus/deploy/scripts/export-ledger.sh --include-runs
 # owner machine
-scp '<server>:/root/consensus-exports/consensus-ledger-runs-*.tar.gz*' . && sha256sum -c consensus-ledger-runs-*.tar.gz.sha256
+scp '<server>:/root/consensus-exports/consensus-ledger-public-runs-*.tar.gz*' . && sha256sum -c consensus-ledger-public-runs-*.tar.gz.sha256
 ```
 
 Run records are per-run hash-chained logs plus a run index (ADR-0005); a visitor's run
@@ -1248,7 +1530,9 @@ exposure is enough; the ledger is append-only.
 Suspected key exposure, unexpected spend, or a compromised host:
 
 1. `sudo ~/consensus/deploy/scripts/kill-switch.sh on` — spending stops at the next
-   admission; in-flight runs stop at their next call.
+   admission; in-flight runs stop at their next call. This ends the current ledger
+   (section 4.4); live mode re-opens, if at all, on a new `ledger/public-<n>` after the
+   write-up, with the tripped ledger archived (section 4.5).
 2. Revoke the dedicated key at dev.meta.ai (release checklist, owner step 1). The ledger
    also trips by itself on the first 401/403 the revoked key receives.
 3. If the host is suspect: `sudo systemctl stop consensus-public.service cloudflared.service`
@@ -1266,16 +1550,19 @@ Suspected key exposure, unexpected spend, or a compromised host:
 
 1. Revoke the dedicated key at dev.meta.ai; confirm the ledger's last day file and
    `lifetime.json` (`kill-switch.sh status`).
-2. `sudo ~/consensus/deploy/scripts/export-ledger.sh --include-runs` and copy the
-   tarball to the owner machine (section 9.5): the ledger export the checklist asks for,
-   and the run archive.
+2. `sudo ~/consensus/deploy/scripts/export-ledger.sh --include-runs` (the production
+   ledger and the runs) and `sudo ~/consensus/deploy/scripts/export-ledger.sh
+   --ledger-dir /var/lib/consensus/ledger-archive` (the retired staging ledger, if its
+   export of section 4.5 was not kept); copy the tarballs to the owner machine (section
+   9.5): the ledger export the checklist asks for, and the run archive.
 3. `sudo systemctl disable --now consensus-public.service`;
    `sudo systemctl disable --now cloudflared.service`.
-4. `sudo shred -u /etc/consensus/credentials/meta.key /etc/consensus/credentials/turnstile.secret /etc/consensus/operator.token /etc/consensus/judge-codes.sha256`
+4. `sudo shred -u /etc/consensus/credentials/meta.key /etc/consensus/credentials/turnstile.secret /etc/consensus/credentials/operator.token /etc/consensus/judge-codes.sha256`
    and `sudo rm -rf /run/credentials/consensus-public.service 2>/dev/null || true`.
 5. Owner machine: `cloudflared tunnel delete consensus-public` (the account certificate
-   manages tunnels `[CF-9]`); remove the two CNAME records, the Access application, the
-   Turnstile widget and, if wanted, the WAF, rate-limit and cache rules.
+   manages tunnels `[CF-9]`); remove the two CNAME records, the Access application and
+   its service token (7.9), the Turnstile widget and, if wanted, the WAF, rate-limit and
+   cache rules.
 6. Keep `research/` (it lives in the repository) and the exported ledger; publish the
    ledger summary with the submission notes if the owner wishes. The snapshot directory
    on the server may be deleted (`sudo rm -rf /var/lib/consensus/snapshots`): the owner
@@ -1295,8 +1582,8 @@ Suspected key exposure, unexpected spend, or a compromised host:
 | `KillMode=mixed`, `KillSignal=SIGTERM` | systemd.kill(5) `[SD-3]` | `mixed`: SIGTERM to the main process, SIGKILL to the remaining control group after the timeout; `KillSignal=` defaults to SIGTERM |
 | `User=`, `Group=`, `SupplementaryGroups=`, `UMask=` | systemd.exec(5) `[SD-1]` | user/group of the processes; supplementary groups extend the database's; `UMask=` defaults to 0022 |
 | `EnvironmentFile=` | systemd.exec(5) | newline-separated `VAR=value`, read shortly before execution, later files override earlier ones |
-| `LoadCredential=ID:PATH` | systemd.exec(5) | copied read-only, accessible to the unit's user only, `$CREDENTIALS_DIRECTORY`, `/run/credentials/UNITNAME` for system services, 1 MB total |
-| `RuntimeDirectory=`, `RuntimeDirectoryMode=` | systemd.exec(5) | below `/run/`, owned by `User=`/`Group=`, mode default 0755, removed on stop, excluded from `ProtectSystem=` |
+| `LoadCredential=ID:PATH` (`meta.key`, `turnstile.secret`; plus `operator.token` in the operator unit) | systemd.exec(5) | copied read-only, accessible to the unit's user only, `$CREDENTIALS_DIRECTORY`, `/run/credentials/UNITNAME` for system services, 1 MB total |
+| *(not used)* `RuntimeDirectory=` — replaced by `/etc/tmpfiles.d/consensus.conf` (`d /run/consensus 2750 consensus consensus-sock - -`) and `ReadWritePaths=/run/consensus` | systemd.exec(5); tmpfiles.d(5), systemd-tmpfiles(8) `[SD-8]` | `RuntimeDirectory=` owns the directory `User=`/`Group=` and re-applies that ownership to an existing directory, which would put the socket in the group `consensus`; a `d` line creates the directory at boot with the given mode and ownership, setgid included (the page's own examples use `1777`) |
 | `NoNewPrivileges=`, `ProtectSystem=strict`, `ReadWritePaths=`, `ProtectHome=`, `PrivateTmp=`, `PrivateDevices=` | systemd.exec(5) | as quoted in section 5.1 |
 | `ProtectKernelTunables=`, `ProtectKernelModules=`, `ProtectKernelLogs=`, `ProtectControlGroups=`, `ProtectClock=`, `ProtectHostname=`, `ProtectProc=invisible` | systemd.exec(5) | kernel tunables read-only; module loading denied; kernel log inaccessible; cgroup fs read-only; clock writes denied; UTS namespace; other users' processes hidden from `/proc` (effective with `User=`) |
 | `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6` | systemd.exec(5) | allow-list of socket families; `AF_UNIX` should be included |
@@ -1347,6 +1634,7 @@ source):
 - `[CF-29]` Configuration Rules settings — https://developers.cloudflare.com/rules/configuration-rules/settings/
 - `[CF-30]` Encryption modes — https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/ ; Always Use HTTPS — https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/
 - `[CF-31]` Self-hosted Access application — https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/
+- `[CF-32]` Access service tokens (creation, the `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers, Service Auth, strict mode, revocation) — https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/ ; Access policies (actions, the Service Token selector, evaluation order) — https://developers.cloudflare.com/cloudflare-one/access-controls/policies/
 
 systemd (manual pages for systemd 262, fetched 2026-10-28; Ubuntu 24.04 ships systemd 255,
 and every directive used here predates it, the newest being `LoadCredential=` from v247):
@@ -1358,6 +1646,7 @@ and every directive used here predates it, the newest being `LoadCredential=` fr
 - `[SD-5]` systemd.unit(5) — https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html
 - `[SD-6]` journald.conf(5) — https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html
 - `[SD-7]` timesyncd.conf(5) — https://www.freedesktop.org/software/systemd/man/latest/timesyncd.conf.html ; timedatectl(1) — https://www.freedesktop.org/software/systemd/man/latest/timedatectl.html
+- `[SD-8]` tmpfiles.d(5) (the `d` line, the mode field, boot-time application) — https://www.freedesktop.org/software/systemd/man/latest/tmpfiles.d.html ; systemd-tmpfiles(8) (`--create`, a configuration file as argument) — https://www.freedesktop.org/software/systemd/man/latest/systemd-tmpfiles.html ; systemd-run(1) (`--property=`, `--wait`, `--pipe`, `--collect`, exit-status propagation) — https://www.freedesktop.org/software/systemd/man/latest/systemd-run.html
 
 Ubuntu:
 
@@ -1365,6 +1654,7 @@ Ubuntu:
 - `[UB-2]` Ubuntu Server documentation, Firewalls — https://ubuntu.com/server/docs/how-to/security/firewalls/
 - `[UB-3]` ufw(8), Ubuntu 24.04 manual page — https://manpages.ubuntu.com/manpages/noble/man8/ufw.8.html
 - `[UB-4]` swapon(8), mkswap(8), fstab(5), Ubuntu 24.04 manual pages — https://manpages.ubuntu.com/manpages/noble/man8/swapon.8.html , https://manpages.ubuntu.com/manpages/noble/man8/mkswap.8.html , https://manpages.ubuntu.com/manpages/noble/man5/fstab.5.html
+- `[UB-5]` mknod(2) ("If the directory containing the node has the set-group-ID bit set ... the new node will inherit the group ownership from its parent directory"; `S_IFSOCK` is one of the node types), gpasswd(1) (`-a`, `-d`), sudo(8) (`-n`: "If a password is required for the command to run, sudo will display an error message and exit"), head(1) (`-c -NUM`), Ubuntu 24.04 manual pages — https://manpages.ubuntu.com/manpages/noble/man2/mknod.2.html , https://manpages.ubuntu.com/manpages/noble/man1/gpasswd.1.html , https://manpages.ubuntu.com/manpages/noble/man8/sudo.8.html , https://manpages.ubuntu.com/manpages/noble/man1/head.1.html
 
 Hyphae:
 
@@ -1380,9 +1670,11 @@ This repository: `docs/adr/0006-public-api-sessions-listener-split.md`,
 `crates/consensus-api/src/config.rs`, `crates/consensus-api/src/server.rs`,
 `crates/consensus-api/src/stream.rs`, `crates/consensus-api/src/api/mod.rs`,
 `crates/consensus-api/src/api/v1.rs`, `crates/consensus-api/src/static_files.rs`,
-`crates/consensus-api/src/showcase.rs`, `scripts/linux-gates.sh`,
-`scripts/hyphae-container/README.md`, `research/README.md`, `apps/web/README.md`,
-`apps/web/scripts/in-docker.sh`.
+`crates/consensus-api/src/showcase.rs`, `crates/consensus-api/src/guided.rs`,
+`crates/consensus-api/src/hyphae.rs`, `crates/consensus-api/src/snapshot.rs` (on
+`feat/public-portal`), `scripts/linux-gates.sh`, `scripts/hyphae-container/README.md`,
+`research/README.md`, `apps/web/README.md`, `apps/web/scripts/in-docker.sh`, and the
+templates and scripts under `deploy/`.
 
 ## Open questions for the owner
 
@@ -1405,3 +1697,18 @@ This repository: `docs/adr/0006-public-api-sessions-listener-split.md`,
 5. **Staging after go-live.** `staging.<hostname>` keeps serving the same socket behind
    Access; remove its ingress rule and DNS record when staging is no longer needed, or at
    teardown.
+6. **Lifetime cap after staging.** The production ledger starts at zero (section 4.5),
+   so with the default `CONSENSUS_LIVE_LIFETIME_USD=60.00` the key can spend $60 after
+   go-live plus whatever staging spent. If the $60 is the key's total, set the production
+   lifetime cap to `60.00` minus the staging ledger's `lifetime_spent_usd` (the judge
+   slice of $15 must still fit, `live/config.rs`). Decide before step 2 of 8.7.
+7. **Origin probes over SSH.** `verify-edge.sh --ssh` runs `sudo -n curl` on the server.
+   Either the owner's SSH user may run `sudo` without a password (the usual cloud-image
+   default), or the user joins `consensus-sock` for the duration of the checks and the
+   script runs with `--no-sudo`. The second widens the socket group by one trusted
+   account; the first widens nothing. Pick one and note it in the G6 evidence.
+8. **A ledger reset in the binary.** Everything in 4.4, 4.5 and 8.8 follows from the
+   missing caller of `Ledger::reset`. An operator-console route that calls it (loopback,
+   bearer token, written to the day file as `reset {by, at}`) would make the per-phase
+   ledgers unnecessary; this runbook does not assume it. If a parallel lane adds it,
+   section 4.5 becomes "export, reset, continue" and the archive step disappears.

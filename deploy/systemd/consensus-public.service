@@ -29,12 +29,16 @@ EnvironmentFile=/etc/consensus/public.env
 LoadCredential=meta.key:/etc/consensus/credentials/meta.key
 LoadCredential=turnstile.secret:/etc/consensus/credentials/turnstile.secret
 
-# /run/consensus, owned consensus:consensus, mode 0750: the cloudflared user
-# (supplementary group consensus) traverses it and connects to the 0660
-# socket the server creates there.
-RuntimeDirectory=consensus
-RuntimeDirectoryMode=0750
-
+# The socket directory /run/consensus is deliberately NOT a RuntimeDirectory=:
+# systemd would own it consensus:consensus and the socket the server binds
+# inside would carry the group consensus, which cloudflared would then have
+# to join, and with it read everything else that group may read (the env
+# files, the judge digests, the snapshot's witnesses). Instead
+# deploy/tmpfiles.d/consensus.conf creates the directory at boot as
+# 2750 consensus:consensus-sock: the setgid bit makes the socket inherit the
+# group consensus-sock (mknod(2)), the server sets it to 0660, and the only
+# extra group cloudflared has is consensus-sock. The directory is writable
+# through ReadWritePaths= below.
 ExecStart=/usr/local/bin/consensus-api serve-public
 
 # SIGTERM to the main process only: the server cancels active runs and waits
@@ -49,11 +53,12 @@ RestartSec=5s
 # --- Sandbox ---------------------------------------------------------------
 NoNewPrivileges=yes
 ProtectSystem=strict
-# The only writable paths: the per-run store and the USD ledger (the kill
-# switch file lives in the ledger directory). research/, snapshots/ and web/
-# stay read-only (gate G9: no writer path near the proofs). /run/consensus is
-# writable through RuntimeDirectory=; /tmp through PrivateTmp=.
-ReadWritePaths=/var/lib/consensus/runs /var/lib/consensus/ledger
+# The only writable paths: the per-run store, the ledger tree (one
+# sub-directory per ledger: staging, public; the kill-switch file lives in
+# the active one) and the socket directory. research/, snapshots/ and web/
+# stay read-only (gate G9: no writer path near the proofs). /tmp is private
+# and writable through PrivateTmp=.
+ReadWritePaths=/var/lib/consensus/runs /var/lib/consensus/ledger /run/consensus
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

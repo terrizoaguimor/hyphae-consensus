@@ -19,15 +19,19 @@ Group=consensus
 UMask=0027
 
 # The public server's non-secret configuration first, then the operator
-# overrides (token file, this unit's own credential paths). Later files win.
+# overrides (token path, this unit's own credential paths). Later files win.
 EnvironmentFile=/etc/consensus/public.env
 EnvironmentFile=/etc/consensus/operator.env
 
 # The console consults the same dedicated key (an operator live run debits
 # the same ledger, gate G3) and the same Turnstile secret, from this unit's
 # own credentials directory /run/credentials/consensus-operator.service/.
+# The bearer token travels the same way: root:root 0600 on disk, readable
+# by the service user only while the console runs, never by any other
+# account (operator.env points CONSENSUS_OPERATOR_TOKEN_FILE at it).
 LoadCredential=meta.key:/etc/consensus/credentials/meta.key
 LoadCredential=turnstile.secret:/etc/consensus/credentials/turnstile.secret
+LoadCredential=operator.token:/etc/consensus/credentials/operator.token
 
 ExecStart=/usr/local/bin/consensus-api serve-operator
 
@@ -36,7 +40,7 @@ KillSignal=SIGTERM
 TimeoutStopSec=90
 # No Restart=: the operator starts and stops this unit by hand.
 
-# --- Sandbox (identical to consensus-public.service) -----------------------
+# --- Sandbox (as consensus-public.service, minus the socket directory) -----
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=/var/lib/consensus/runs /var/lib/consensus/ledger

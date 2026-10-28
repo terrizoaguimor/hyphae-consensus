@@ -8,9 +8,13 @@
 #   sudo deploy/scripts/install.sh --binary ./consensus-api --sha256 <digest> [--yes]
 #
 # What it does (idempotent; nothing is started, no firewall rule is touched):
-#   1. system users and groups: consensus, hyphae, cloudflared (in group consensus)
-#   2. directories and modes under /etc/consensus, /var/lib/consensus, /opt/hyphae,
-#      /etc/cloudflared
+#   1. system users and groups: consensus, hyphae, cloudflared, and the socket
+#      group consensus-sock (cloudflared's ONLY extra group; it is removed from
+#      the group consensus if an earlier layout put it there)
+#   2. directories and modes under /etc/consensus, /var/lib/consensus
+#      (ledger/staging and ledger/public, snapshots 0700), /opt/hyphae,
+#      /etc/cloudflared, and /run/consensus (2750 consensus:consensus-sock)
+#      through /etc/tmpfiles.d/consensus.conf
 #   3. the consensus-api binary -> /usr/local/bin after a sha256 check against
 #      the digest printed on the build host
 #   4. the unit files and the cloudflared drop-in -> /etc/systemd/system
@@ -52,7 +56,8 @@ done
 if [ -z "$BINARY" ] || [ -z "$EXPECTED_SHA256" ]; then usage; exit 64; fi
 [ -f "$BINARY" ] || { echo "binary not found: $BINARY" >&2; exit 1; }
 for f in systemd/consensus-public.service systemd/consensus-operator.service \
-         systemd/cloudflared.service.d/10-consensus.conf cloudflared/config.yml.example \
+         systemd/cloudflared.service.d/10-consensus.conf tmpfiles.d/consensus.conf \
+         cloudflared/config.yml.example \
          etc/consensus/public.env.example etc/consensus/operator.env.example; do
   [ -f "$DEPLOY_DIR/$f" ] || { echo "missing template: $DEPLOY_DIR/$f" >&2; exit 1; }
 done
@@ -72,18 +77,27 @@ ensure_user() {
     useradd --system --gid "$3" --home-dir "$2" --no-create-home --shell /usr/sbin/nologin "$1"
   fi
 }
+in_group() { id -nG "$1" | tr ' ' '\n' | grep -qx "$2"; }
 
 echo "== users and groups"
-ensure_group consensus;   ensure_user consensus   /var/lib/consensus consensus
-ensure_group hyphae;      ensure_user hyphae      /opt/hyphae        hyphae
-ensure_group cloudflared; ensure_user cloudflared /nonexistent       cloudflared
-# cloudflared reaches the socket through the consensus group (drop-in
-# SupplementaryGroups=consensus; the group membership below is the fallback
-# for a cloudflared started by hand).
-usermod -a -G consensus cloudflared
+ensure_group consensus;      ensure_user consensus   /var/lib/consensus consensus
+ensure_group hyphae;         ensure_user hyphae      /opt/hyphae        hyphae
+ensure_group cloudflared;    ensure_user cloudflared /nonexistent       cloudflared
+ensure_group consensus-sock
+# cloudflared reaches the socket through consensus-sock, the group that owns
+# nothing but /run/consensus and public.sock (the drop-in sets
+# SupplementaryGroups=consensus-sock; the membership below is the fallback
+# for a cloudflared started by hand). It must NOT be in the group consensus,
+# which reads /etc/consensus and, via the service user, the witnesses.
+in_group cloudflared consensus-sock || usermod -a -G consensus-sock cloudflared
+if in_group cloudflared consensus; then
+  gpasswd -d cloudflared consensus
+  echo "   removed cloudflared from the group consensus (restart cloudflared to apply)"
+fi
+in_group consensus consensus-sock && echo "   note: consensus is in consensus-sock; not needed (the socket's owner is consensus)"
 # Nobody here may be in the docker group (gate G9: no daemon, no docker).
 for u in consensus hyphae cloudflared; do
-  if id -nG "$u" | tr ' ' '\n' | grep -qx docker; then
+  if in_group "$u" docker; then
     echo "refusing to continue: user $u is in the docker group" >&2
     exit 1
   fi
@@ -93,11 +107,25 @@ echo "== directories"
 install -d -o root      -g consensus -m 0750 /etc/consensus
 install -d -o root      -g root      -m 0700 /etc/consensus/credentials
 install -d -o consensus -g consensus -m 0750 /var/lib/consensus
-for d in runs ledger research snapshots web; do
+for d in runs ledger research web; do
   install -d -o consensus -g consensus -m 0750 "/var/lib/consensus/$d"
 done
+# One ledger directory per phase (runbook 4.5): the kill-switch rehearsal
+# trips the staging ledger for good (no reset exists in the binary); go-live
+# switches CONSENSUS_LIVE_LEDGER_DIR to the empty production ledger.
+for d in ledger/staging ledger/public; do
+  install -d -o consensus -g consensus -m 0750 "/var/lib/consensus/$d"
+done
+install -d -o root -g root -m 0700 /var/lib/consensus/ledger-archive
+# The snapshot tree holds private witnesses: the service user and nobody else.
+install -d -o consensus -g consensus -m 0700 /var/lib/consensus/snapshots
 install -d -o hyphae -g hyphae -m 0755 /opt/hyphae /opt/hyphae/bin
 install -d -o root   -g cloudflared -m 0750 /etc/cloudflared
+# /run/consensus: 2750 consensus:consensus-sock, recreated at every boot by
+# systemd-tmpfiles-setup.service from the tmpfiles.d entry; applied now too.
+install -o root -g root -m 0644 "$DEPLOY_DIR/tmpfiles.d/consensus.conf" /etc/tmpfiles.d/consensus.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/consensus.conf
+echo "   /run/consensus: $(stat -c '%A %U:%G' /run/consensus) (expected drwxr-s--- consensus:consensus-sock)"
 
 echo "== binary"
 actual="$(sha256sum "$BINARY" | cut -d' ' -f1)"
@@ -147,11 +175,14 @@ systemctl daemon-reload
 cat <<'EOF'
 == done. Next steps (runbook sections 3 to 6):
    - copy web/, research/ and the snapshot directory into /var/lib/consensus
-     and check their checksums (sha256sum -c)
+     and check their checksums (sha256sum -c); the snapshot directory stays 0700
    - install the Hyphae 4.0.0 binary under /opt/hyphae (owned by hyphae)
-   - create the credential files in /etc/consensus/credentials (root 0600)
+   - create the credential files in /etc/consensus/credentials (root 0600):
+     meta.key, turnstile.secret, operator.token
    - fill /etc/consensus/public.env, /etc/consensus/operator.env and
      /etc/cloudflared/config.yml; copy the tunnel credentials file to
      /etc/cloudflared/<TUNNEL-UUID>.json (root:cloudflared 0640)
    - systemctl enable --now consensus-public; systemctl restart cloudflared
+   - least privilege check (runbook 5.1): sudo -u cloudflared cat
+     /etc/consensus/public.env must be refused; the socket must be reachable
 EOF

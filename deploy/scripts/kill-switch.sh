@@ -5,16 +5,20 @@
 # the presence of the kill-switch file trips the USD ledger at the next
 # admission; a tripped ledger refuses every reservation and every draw, so
 # in-flight runs stop at their next model call. The trip is persistent: it
-# survives a restart and is cleared only by an explicit operator reset, and a
-# file still present re-trips it. Removing the file alone does not re-open
-# live mode. Runbook section 9.3.
+# survives a restart and a file still present re-trips it. THERE IS NO RESET
+# IN THE BINARY: `Ledger::reset` exists in budget.rs but nothing in
+# serve-public, serve-operator or any subcommand calls it, so removing the
+# file never re-opens live mode. The remedy is a new ledger directory, the
+# tripped one archived (runbook 4.5); that is why the G11 rehearsal runs on
+# the staging ledger and go-live starts the production ledger empty.
+# Runbook sections 4.5 and 9.3.
 #
 #   sudo deploy/scripts/kill-switch.sh status
 #   sudo deploy/scripts/kill-switch.sh on
 #   sudo deploy/scripts/kill-switch.sh off [--yes]
 #
 # The path comes from CONSENSUS_LIVE_KILL_SWITCH_FILE in /etc/consensus/public.env,
-# else <CONSENSUS_LIVE_LEDGER_DIR>/kill-switch, else /var/lib/consensus/ledger/kill-switch.
+# else <CONSENSUS_LIVE_LEDGER_DIR>/kill-switch, else /var/lib/consensus/ledger/public/kill-switch.
 set -euo pipefail
 
 ENV_FILE=/etc/consensus/public.env
@@ -35,23 +39,24 @@ env_value() {
   grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n 1 | cut -d= -f2- | tr -d '"' || true
 }
 LEDGER_DIR="$(env_value CONSENSUS_LIVE_LEDGER_DIR)"
-LEDGER_DIR="${LEDGER_DIR:-/var/lib/consensus/ledger}"
+LEDGER_DIR="${LEDGER_DIR:-/var/lib/consensus/ledger/public}"
 FILE="$(env_value CONSENSUS_LIVE_KILL_SWITCH_FILE)"
 FILE="${FILE:-$LEDGER_DIR/kill-switch}"
 
 show_status() {
+  echo "ledger: $LEDGER_DIR"
   if [ -e "$FILE" ]; then
     echo "kill switch: ON  ($FILE exists; $(stat -c '%U:%G %a, modified %y' "$FILE"))"
   else
     echo "kill switch: off ($FILE is absent)"
   fi
   if [ -r "$LEDGER_DIR/lifetime.json" ]; then
-    echo "ledger summary ($LEDGER_DIR/lifetime.json): trip fields"
+    echo "ledger summary ($LEDGER_DIR/lifetime.json): trip and spend fields"
     tr -d '\n' <"$LEDGER_DIR/lifetime.json" \
-      | grep -o -E '"(tripped|trip_code|trip_reason)"[[:space:]]*:[[:space:]]*("[^"]*"|[^,}]*)' \
+      | grep -o -E '"(tripped|trip_code|trip_reason|lifetime_spent_usd)"[[:space:]]*:[[:space:]]*("[^"]*"|[^,}]*)' \
       | sed 's/^/   /' || true
   else
-    echo "no ledger summary yet at $LEDGER_DIR/lifetime.json"
+    echo "no ledger summary yet at $LEDGER_DIR/lifetime.json (no live admission has happened on this ledger)"
   fi
 }
 
@@ -60,18 +65,20 @@ case "$ACTION" in
     show_status ;;
   on)
     [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
+    install -d -o consensus -g consensus -m 0750 "$LEDGER_DIR"
     install -o root -g consensus -m 0640 /dev/null "$FILE"
     echo "created $FILE: the ledger trips at the next admission (code kill_switch); in-flight runs stop at their next call."
+    echo "This trip is permanent for this ledger directory (no reset in the binary): see runbook 4.5 before re-opening live mode."
     show_status ;;
   off)
     [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
     if [ ! -e "$FILE" ]; then echo "nothing to do: $FILE is absent"; show_status; exit 0; fi
     if [ "$ASSUME_YES" -ne 1 ]; then
-      read -r -p "remove $FILE? The ledger stays tripped until an operator reset. [y/N] " answer
+      read -r -p "remove $FILE? The ledger stays tripped: the binary has no reset (runbook 4.5). [y/N] " answer
       if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then echo "kept the kill switch"; exit 1; fi
     fi
     rm -f "$FILE"
-    echo "removed $FILE. The ledger remains tripped (persistent) until an operator reset clears it."
+    echo "removed $FILE. If the ledger has tripped, it remains tripped: re-opening live mode means a new ledger directory (runbook 4.5)."
     show_status ;;
   *)
     echo "usage: kill-switch.sh status|on|off [--yes] [--env <file>]" >&2; exit 64 ;;

@@ -16,3 +16,4 @@ pub mod hyphae;
 pub mod live;
 pub mod meta;
 pub mod server;
+pub mod snapshot;

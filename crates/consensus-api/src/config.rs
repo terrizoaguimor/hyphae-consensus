@@ -24,6 +24,8 @@
 //! | `CONSENSUS_HYPHAE_{PERSONAL,WORK,JOURNAL}_COLLECTION` | unset | explicit collection ids |
 //! | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` | unset | pinned proof anchor, 64 hex digits |
 //! | `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` | 60 | deadline of one `hyphae proof verify` |
+//! | `CONSENSUS_SNAPSHOT_DIR` | unset | sealed snapshot directory (`manifest.json` inside, ADR-0008); with it `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` is required and must equal the manifest's anchor |
+//! | `CONSENSUS_SNAPSHOT_VERIFIER_DIR` | unset | the same directory as the verifier binary sees it (a container path when `CONSENSUS_HYPHAE_BIN` runs Hyphae in a container); unset when the binary is native |
 //!
 //! A `safety_identifier` is never read from the environment: the caller
 //! sets it per run ([`MetaConfig::safety_identifier`]).
@@ -666,6 +668,83 @@ impl HyphaeConfig {
             }
         }
         argv
+    }
+}
+
+/// Where the public live mode's evidence comes from: a sealed snapshot
+/// directory (ADR-0008, [`crate::snapshot`]). Present only when
+/// `CONSENSUS_SNAPSHOT_DIR` is set; then the pinned anchor is mandatory,
+/// since a snapshot is never served against an anchor it reported itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotConfig {
+    /// `CONSENSUS_SNAPSHOT_DIR`: the directory holding `manifest.json`.
+    pub dir: PathBuf,
+    /// `CONSENSUS_SNAPSHOT_VERIFIER_DIR`: the same directory as the
+    /// verifier binary sees it, when that differs (e.g. a container path
+    /// behind `scripts/hyphae-docker.cmd`); artifact paths are joined under
+    /// it with `/`.
+    pub verifier_dir: Option<String>,
+    /// `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`, normalized by
+    /// [`normalize_anchor`]; boot fails unless it equals the manifest's.
+    pub expected_anchor: String,
+    /// `CONSENSUS_HYPHAE_BIN`: the verifier binary (or wrapper).
+    pub binary: String,
+    /// `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS`: deadline of one verifier run.
+    pub verify_timeout: Duration,
+}
+
+impl SnapshotConfig {
+    /// The configuration in the environment, or `None` when
+    /// `CONSENSUS_SNAPSHOT_DIR` is unset or a setting is unusable (fail
+    /// closed); [`try_from_env`](Self::try_from_env) says which.
+    pub fn from_env() -> Option<Self> {
+        Self::try_from_env().ok().flatten()
+    }
+
+    /// `Ok(None)` without `CONSENSUS_SNAPSHOT_DIR`; an error naming the
+    /// variable when the pinned anchor is missing or any setting is
+    /// unusable.
+    pub fn try_from_env() -> Result<Option<Self>, ConfigError> {
+        Self::from_lookup(&process_env)
+    }
+
+    /// [`try_from_env`](Self::try_from_env) over any variable source; an
+    /// empty value counts as unset.
+    pub fn from_vars(get: impl Fn(&str) -> Option<String>) -> Result<Option<Self>, ConfigError> {
+        let lookup =
+            |name: &'static str| Ok::<_, ConfigError>(get(name).filter(|v| !v.trim().is_empty()));
+        Self::from_lookup(&lookup)
+    }
+
+    fn from_lookup(get: Lookup<'_>) -> Result<Option<Self>, ConfigError> {
+        let Some(dir) = get("CONSENSUS_SNAPSHOT_DIR")? else {
+            return Ok(None);
+        };
+        let expected_anchor = match get("CONSENSUS_HYPHAE_EXPECTED_ANCHOR")? {
+            Some(value) => normalize_anchor(&value)
+                .map_err(|m| ConfigError::new("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", m))?,
+            None => {
+                return Err(ConfigError::new(
+                    "CONSENSUS_HYPHAE_EXPECTED_ANCHOR",
+                    "is required with CONSENSUS_SNAPSHOT_DIR: a sealed snapshot is only served against the operator-pinned anchor",
+                ))
+            }
+        };
+        let verify_timeout = match get("CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS")? {
+            Some(v) => Duration::from_secs(parse_bounded(
+                "CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS",
+                &v,
+                1..=3600,
+            )?),
+            None => Duration::from_secs(DEFAULT_VERIFY_TIMEOUT_SECS),
+        };
+        Ok(Some(Self {
+            dir: PathBuf::from(dir.trim()),
+            verifier_dir: get("CONSENSUS_SNAPSHOT_VERIFIER_DIR")?.map(|v| v.trim().to_string()),
+            expected_anchor,
+            binary: get("CONSENSUS_HYPHAE_BIN")?.unwrap_or_else(|| "hyphae".into()),
+            verify_timeout,
+        }))
     }
 }
 

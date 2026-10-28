@@ -567,9 +567,9 @@ fn a_tampered_snapshot_does_not_boot_and_live_mode_stays_refused_without_a_facto
     assert_eq!(err.code, codes::DIGEST_MISMATCH, "{err}");
     assert!(fx.calls().is_empty());
 
-    // What the strict boot reports (`SnapshotFactory::from_vars`, the form
-    // an operator check uses): the variable, the code, the relative file
-    // name; never the local directory.
+    // What the strict entry point reports (`SnapshotFactory::from_vars`;
+    // serve-public uses the degrading one below): the variable, the code,
+    // the relative file name; never the local directory.
     let local = fx.dir.to_string_lossy().into_owned();
     let settings = [
         ("CONSENSUS_SNAPSHOT_DIR", local.clone()),

@@ -46,10 +46,11 @@ with its boot verification (ADR-0008: on `feat/public-portal` since D2-B,
 `crates/consensus-api/src/snapshot.rs`: `SnapshotMemoryClient::open` re-runs
 `hyphae proof verify` on the two served captures at startup, code
 `boot_verification_failed`; `CONSENSUS_SNAPSHOT_VERIFIER_DIR` stays unset with a native
-binary); and the public live-mode wiring behind `AppState::live_gate` (until it lands
-`POST /api/v1/live-runs` answers `503 live_disabled`, `crates/consensus-api/src/api/mod.rs`,
-and `server.rs` there refuses to start public live mode without the snapshot client).
-Build the deployed binary from a commit that has them.
+binary); and the public live-mode wiring behind `AppState::live_gate`, with the sealed
+snapshot as its evidence factory (`crates/consensus-api/src/live/snapshot_factory.rs`; ADR-0008
+"Wiring": the snapshot is read only with live mode enabled, and one that does not boot leaves
+the portal up with live mode unavailable, section 8.6). Build the deployed binary from a
+commit that has them.
 
 One fact shapes sections 4.4, 4.5, 8.8 and 9.3: **a trip lasts until an operator
 resets it.** A trip is persistent across restarts (`budget.rs`, "Trips"), and neither
@@ -462,7 +463,9 @@ sudo -u cloudflared ls /var/lib/consensus/snapshots 2>&1 | grep -q 'Permission d
 
 The anchor for `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` is the shared anchor recorded in
 the snapshot's `manifest.json` (64 hex digits; `config.rs` normalises case and
-whitespace and refuses anything else).
+whitespace and refuses anything else). Both that line and `CONSENSUS_SNAPSHOT_DIR` are
+commented out in the `public.env` template until the snapshot is on the server;
+uncomment them now (with live mode still off they are only noticed, never read).
 
 ### 3.4 Users, directories, binary, units, templates: `install.sh`
 
@@ -511,8 +514,8 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_PUBLIC_MODE` | `true` | refuses `CONSENSUS_META_DEBUG_DIR` and development-only behaviour (`config.rs`) |
 | `CONSENSUS_META_API_KEY_FILE` | `/run/credentials/consensus-public.service/meta.key` | parallel lane; the path systemd gives a `LoadCredential=meta.key:...` for this unit (`/run/credentials/UNITNAME`, `[SD-1]`) |
 | `CONSENSUS_HYPHAE_BIN` | `/opt/hyphae/bin/hyphae` | section 3.2 |
-| `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` | the snapshot's anchor, 64 hex | mandatory for every non-simulated mode (ADR-0008 decision 5) |
-| `CONSENSUS_SNAPSHOT_DIR` | `/var/lib/consensus/snapshots/<snapshot-id>` | parallel lane; `CONSENSUS_SNAPSHOT_VERIFIER_DIR` stays unset (native verifier, same paths) |
+| `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` | the snapshot's anchor, 64 hex | mandatory for every non-simulated mode (ADR-0008 decision 5); commented out in the template until the capture exists (section 3.3); with live mode enabled a missing or malformed value stops startup naming it |
+| `CONSENSUS_SNAPSHOT_DIR` | `/var/lib/consensus/snapshots/<snapshot-id>` | commented out in the template until the capture exists; read only with `CONSENSUS_LIVE_ENABLED=true` (with live mode off a set value earns one `[snapshot]` notice and nothing is loaded); unset with live mode on stops startup; a snapshot that does not boot leaves the portal up with live mode unavailable (section 8.6); `CONSENSUS_SNAPSHOT_VERIFIER_DIR` stays unset (native verifier, same paths) |
 | `CONSENSUS_LIVE_ENABLED` | `false` until section 8.7, then `true` | `live/config.rs` |
 | `CONSENSUS_LIVE_LEDGER_DIR` | `/var/lib/consensus/ledger/staging` during staging; `/var/lib/consensus/ledger/public` from go-live | required when enabled; one directory per phase, so production starts at zero (section 4.5) |
 | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | `/etc/consensus/judge-codes.sha256`, set only once the file has at least one digest | an empty digest file is a configuration error (`live/judge.rs`) |
@@ -521,7 +524,10 @@ Fill in every `<placeholder>`:
 
 Everything else keeps its default, and the defaults are the owner decisions: $10.00 a
 UTC day, $60.00 lifetime, $15.00 judge slice (`CONSENSUS_LIVE_DAILY_USD`,
-`CONSENSUS_LIVE_LIFETIME_USD`, `CONSENSUS_LIVE_JUDGE_USD`), the 23 portal-blocked
+`CONSENSUS_LIVE_LIFETIME_USD`, `CONSENSUS_LIVE_JUDGE_USD`), a 32,000-token per-call input
+cap (`CONSENSUS_LIVE_INPUT_CAP_TOKENS`; with the 70,000-token run cap and the 16,000-token
+output bound a run's worst case is $2.36, inside the $2.50 the day offers at 00:00 UTC;
+8,000 refused every snapshot-backed run at its first evaluation), the 23 portal-blocked
 codes and `KR` live-only (`CONSENSUS_GEO_BLOCKED_COUNTRIES`,
 `CONSENSUS_GEO_LIVE_ONLY_BLOCKED`), the Turnstile actions `live-run` and `session`,
 the 15 s SSE heartbeat, the socket path and `CONSENSUS_TRUST_PROXY_HEADERS=true`.
@@ -542,7 +548,8 @@ ledger (gate G3).
 
 The server validates every variable at startup and stops with the variable's name on
 an invalid value (`public_config.rs`, `live/config.rs`); a failed start is visible with
-`journalctl -u consensus-public -n 50`.
+`journalctl -u consensus-public -n 50`. A snapshot that does not boot is not a failed
+start: the portal comes up with live mode unavailable and says so (section 8.6).
 
 ### 4.2 Credential files (read by systemd, never by the shell history)
 
@@ -753,10 +760,10 @@ systemctl status consensus-public.service --no-pager
 sudo ss -lxp | grep /run/consensus/public.sock          # the socket, owned by consensus-api
 stat -c '%A %U:%G %n' /run/consensus/public.sock          # srw-rw---- consensus:consensus-sock (the group inherited from the setgid directory)
 sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' \
-     -H 'CF-Connecting-IP: 203.0.113.10' http://localhost/api/v1/health
+     -H 'CF-Connecting-IP: 203.0.113.10' -H 'CF-IPCountry: US' http://localhost/api/v1/health   # without CF-IPCountry: 451 geo_unknown
 # least privilege of cloudflared: the socket yes, everything else no
 sudo -u cloudflared curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' \
-     -H 'CF-Connecting-IP: 203.0.113.10' -o /dev/null -w 'cloudflared -> socket: %{http_code}\n' http://localhost/api/v1/health   # 200
+     -H 'CF-Connecting-IP: 203.0.113.10' -H 'CF-IPCountry: US' -o /dev/null -w 'cloudflared -> socket: %{http_code}\n' http://localhost/api/v1/health   # 200
 for p in /etc/consensus/public.env /etc/consensus/judge-codes.sha256 /etc/consensus/credentials/operator.token \
          /var/lib/consensus/snapshots /var/lib/consensus/runs /var/lib/consensus/ledger; do
   sudo -u cloudflared ls -d "$p" >/dev/null 2>&1 && echo "LEAK: cloudflared reaches $p" || echo "ok: cloudflared cannot read $p"
@@ -1321,17 +1328,57 @@ sudo nsenter -t "$pid" -m -- touch /var/lib/consensus/runs/.probe && sudo rm /va
 # the verifier INSIDE the sandbox: hyphae proof verify under the unit's own directives (deploy/scripts/sandbox-probe.sh)
 sudo ~/consensus/deploy/scripts/sandbox-probe.sh                                       # PASS: exit 0, report status "verified", semantic_reexecution_performed true
 sudo ~/consensus/deploy/scripts/sandbox-probe.sh -- /opt/hyphae/bin/hyphae --version   # any other command under the same sandbox
-# boot verification (binary with the snapshot lane) and readiness
-journalctl -u consensus-public -b --no-pager | grep -E 'proofs re-verified at boot|boot_verification_failed|pinned_anchor_mismatch'
-sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' http://localhost/api/v1/ready; echo
+# boot verification (live mode enabled) and readiness
+journalctl -u consensus-public -b --no-pager | grep -E 'Sealed snapshot evidence|\[snapshot\]|Public live mode'
+sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' -H 'CF-IPCountry: US' http://localhost/api/v1/ready; echo
 ```
+
+**What a good boot shows.** With live mode enabled, the journal has `Sealed snapshot evidence:
+<snapshot-id> (project demo-repo, 7 records, anchor <12 hex>…, captured <time>, proofs
+re-verified at boot <time>)` and `Public live mode: enabled on the owner's key (...)`, no
+`[snapshot]` line, and `/api/v1/ready` answers `"ready":true` with `"evidence_ok":true`. With
+live mode disabled there is no snapshot line at all, or, when `CONSENSUS_SNAPSHOT_DIR` is set
+anyway, the one notice `[snapshot] CONSENSUS_SNAPSHOT_DIR is set, but public live mode is
+disabled (CONSENSUS_LIVE_ENABLED): the snapshot is not loaded or verified`.
+
+**What a failed boot check shows.** A snapshot that does not load, verify or match does not
+stop the server. The journal has `[snapshot] live evidence unavailable: <code>` (once) and
+`Public live mode: enabled on the owner's key (...); its evidence is UNAVAILABLE (<code>):
+every live run is refused (503 live_unavailable) until the snapshot is fixed and the server
+restarted`; `/api/v1/ready` answers `"ready":false` with `"live":{"ledger_ok":true,
+"tripped":false,"evidence_ok":false}`; `/api/v1/capabilities` answers `"live_enabled":false`
+without a live section, so the web app shows live mode as disabled; `POST /api/v1/live-runs`
+answers `503 live_unavailable` before Turnstile (no token spent, nothing reserved). Guided
+runs, the showcase, the research files and the static site keep serving. The code says what
+to fix, then `sudo systemctl restart consensus-public`:
+
+| Code | Meaning | Remedy |
+|---|---|---|
+| `snapshot_dir_missing` | `CONSENSUS_SNAPSHOT_DIR` names no directory (not copied yet) | copy the snapshot (section 3.3) |
+| `checksums_invalid`, `checksums_incomplete`, `checksums_mismatch`, `digest_mismatch`, `file_unreadable`, `file_too_large`, `symlink_refused`, `layout_too_deep` | the directory is not the captured one byte for byte | re-copy it and run `sha256sum -c SHA256SUMS` in it (section 3.3) |
+| `pinned_anchor_mismatch` | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` is not the manifest's `anchor_hex` | set the anchor published with the snapshot |
+| `project_mismatch` | the snapshot serves another project than the presets' `demo-repo` | deploy the `demo-repo` snapshot |
+| `boot_verification_failed` | `hyphae proof verify` refused a served capture, or its digests are not the capture-time ones | run `sandbox-probe.sh` (above) on the deployed directory; a sandbox error is a unit change under gate G9 |
+| any other `manifest_*`, `capture_*`, `response_invalid`, `memory_ids_mismatch`, `foreign_record`, `store_mismatch`, `verify_record_invalid`, `proof_shared` | the manifest or a capture is not the documented one | re-copy the snapshot; `python -I scripts/snapshot_manifest.py check <dir>` on the owner machine names the file |
+
+The same state follows any change to the served files after boot (a proof, witness or
+`manifest.json` deleted, truncated or replaced): the next status read (`/ready`,
+`/capabilities` or an admission; the routes reuse a read for at most two seconds, an
+admission always re-hashes) logs `[snapshot] live evidence unavailable: <code>` and turns
+live mode unavailable, and the first read after the files are the verified ones again logs
+`[snapshot] live evidence ok again`, without a restart. A run whose files are swapped
+under it records its proofs `invalid` and is blocked. A configuration
+error (live mode enabled with `CONSENSUS_SNAPSHOT_DIR` unset, or a missing or malformed
+`CONSENSUS_HYPHAE_EXPECTED_ANCHOR`) still stops startup with `error: <VARIABLE>: ...`
+(`journalctl -u consensus-public -n 50`).
 
 **Why the probe exists.** Guided runs never call Hyphae (`guided.rs` uses
 `FakeProofVerifier`); the real `hyphae proof verify` runs for live runs
-(`HyphaeProofVerifier`, `api/v1.rs`, `hyphae.rs`) and, in a binary with the snapshot
-lane, at boot (`snapshot.rs` `SnapshotMemoryClient::open`: the two served captures are
-re-verified and the journal carries `sealed snapshot <id>: ... proofs re-verified at
-boot <time> (<n> captures valid)`, or the start fails with `boot_verification_failed`).
+(`HyphaeProofVerifier`, `api/v1.rs`, `hyphae.rs`) and, with live mode enabled, at boot
+(`live/snapshot_factory.rs`, `snapshot.rs` `SnapshotMemoryClient::from_snapshot`: the two
+served captures are re-verified and the journal carries `Sealed snapshot evidence: <id>
+(... proofs re-verified at boot <time>)`, or `[snapshot] live evidence unavailable:
+boot_verification_failed` with live mode unavailable, as above).
 Without the probe, the first time the verifier would meet `ProtectSystem=strict`,
 `ProtectHome=yes` (`$HOME=/var/lib/consensus` is read-only to it), `PrivateTmp`,
 `MemoryDenyWriteExecute`, the empty capability set and `SystemCallFilter=@system-service`
@@ -1352,11 +1399,12 @@ dedicated writable directory for the verifier's state), never a quiet loosening.
 set on a transient unit; none of the unit's is expected to be one.
 
 `/api/v1/ready` reports the run store (index head, tampering, tail repair), the
-showcase status, active and queued runs and `shutting_down` (`api/v1.rs` `ready`);
-the snapshot lane adds the boot check of ADR-0008 decision 1 (kind, scope, anchor,
-binding), and a failed check disables live mode with the reason in `/health`.
-`/api/v1/health` is static facts only: version, schema, policy, `contract_sha256`,
-`executor: disabled` (`api/types.rs`).
+showcase status, active and queued runs and `shutting_down` (`api/v1.rs` `ready`), and,
+with live mode enabled, `live.ledger_ok`, `live.tripped` and `live.evidence_ok`: the
+boot check of ADR-0008 decision 1 (kind, scope, anchor, binding) and the files still
+being the verified ones. It carries the boolean only; the reason code is in the journal
+(`[snapshot] ...`, above). `/api/v1/health` is static facts only: version, schema,
+policy, `contract_sha256`, `executor: disabled` (`api/types.rs`).
 
 ### 8.7 Go-live
 
@@ -1366,9 +1414,13 @@ binding), and a failed check disables live mode with the reason in `/health`.
    no `lifetime.json` yet), `CONSENSUS_TURNSTILE_HOSTNAME=<hostname>`,
    `CONSENSUS_LIVE_ENABLED=true` (if live mode launches with the portal),
    `CONSENSUS_LIVE_JUDGE_CODES_FILE` set, `CONSENSUS_LIVE_LIFETIME_USD=60.00` (open
-   question 6); the real key in `meta.key`; `sudo systemctl restart consensus-public`
-   and read `journalctl -u consensus-public -n 30` for a clean start, the boot
-   verification line of 8.6 included.
+   question 6), `CONSENSUS_SNAPSHOT_DIR` and `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`
+   uncommented (section 3.3); the real key in `meta.key`; `sudo systemctl restart
+   consensus-public` and read `journalctl -u consensus-public -n 30` for a clean start:
+   the `Sealed snapshot evidence:` line of 8.6 and no `[snapshot] live evidence
+   unavailable` line (a snapshot that did not boot keeps the portal up with live mode
+   off: fix it per the table in 8.6 and restart), then `/api/v1/ready` with
+   `"evidence_ok":true`.
 3. Owner machine: `cloudflared tunnel route dns consensus-public <hostname>`.
 4. Owner machine: `H=<hostname>; ACCESS=()` (no Access on the production hostname),
    then repeat 8.1, 8.3 (`--responses-only`) and 8.4 (`--ssh <server>`) against
@@ -1453,7 +1505,8 @@ not headers `[CF-5]`.
 ```sh
 # server
 systemctl status consensus-public.service cloudflared.service --no-pager | grep -E 'Active|Main PID'
-sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' http://localhost/api/v1/ready; echo
+sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' -H 'CF-IPCountry: US' http://localhost/api/v1/ready; echo   # "ready":true; "evidence_ok":false is section 8.6
+journalctl -u consensus-public.service --since -1d --no-pager | grep '\[snapshot\]'     # nothing, or the evidence's transitions (8.6)
 df -h / && free -h && journalctl --disk-usage
 journalctl -u consensus-public.service --since -1d -p warning --no-pager | tail -n 20
 sudo ~/consensus/deploy/scripts/kill-switch.sh status                                   # tripped: false; lifetime_spent_usd

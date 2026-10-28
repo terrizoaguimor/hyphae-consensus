@@ -1,9 +1,9 @@
 # ADR-0008: Public evidence for live mode — a sealed Hyphae snapshot
 
 Date: 2026-10-27 · Status: accepted; `SnapshotMemoryClient` implemented and wired into the
-public live mode as its evidence factory (`SnapshotFactory`, `CONSENSUS_SNAPSHOT_DIR`; commit
-pending integration); the capture session (plan item B11, 2026-10-29) pending · Scope: the
-public portal's live mode
+public live mode as its evidence factory (`SnapshotFactory`, `CONSENSUS_SNAPSHOT_DIR`;
+integrated 2026-10-28 with the fixes of its review, see "Wiring" below); the capture session
+(plan item B11, 2026-10-29) pending · Scope: the public portal's live mode
 
 ## Context
 
@@ -25,7 +25,15 @@ the recorded batteries cannot sit behind a public server:
 1. **Three evidence modes, fixed server-side per route, never a silent fallback:**
    `simulated` (guided mode, `fake-verifier`, labelled SIMULATED), `sealed_snapshot`
    (public live mode), `live_hyphae` (operator lab only, never public). A snapshot that
-   fails its boot check disables the mode, and `/health` says why.
+   fails its boot check disables the mode and says why, and so does one whose served files
+   change after boot: the rest of the portal (guided mode, the showcase, the static site)
+   keeps serving, every live admission is answered `503 live_unavailable` before Turnstile,
+   `/ready` reports `ready: false` with `live.evidence_ok: false`, `/capabilities` reports
+   `live_enabled: false` without a live section, and the server log carries the stable
+   reason code (`[snapshot] live evidence unavailable: <code>`, once at startup and once on
+   every change between ok and not ok, never a path). `/health` stays static facts. A
+   configuration error (an unset `CONSENSUS_SNAPSHOT_DIR` or a missing or malformed pinned
+   anchor with live mode enabled) still stops startup, naming the variable.
 
 2. **Capture, once, in an authorized container session**, scripted as
    `capture-snapshot.sh` with every mutating command documented: a new HOME with
@@ -110,3 +118,35 @@ the recorded batteries cannot sit behind a public server:
   only available write path (`hyphae_store`, the MCP writer path of the seed scripts) is a
   daemon client; whether `hyphae agent ui` itself needs that daemon is unverified until the
   session (`--ui-direct` covers the other case).
+
+## Wiring (2026-10-28, lane D2 and its review)
+
+`crates/consensus-api/src/live/snapshot_factory.rs` is the public live gate's evidence
+factory; `server.rs` `serve_public_with` decides when it is built.
+
+- **Startup.** The live configuration is read first. With live mode disabled the snapshot
+  is never loaded or verified, and a set `CONSENSUS_SNAPSHOT_DIR` earns one notice. With
+  live mode enabled, `SnapshotFactory::live_evidence_from_env` runs before the server
+  listens: an unset directory or an unusable snapshot setting stops startup naming the
+  variable; a snapshot that does not load, verify, bind its pinned anchor or serve the
+  presets' project (`snapshot_dir_missing`, `checksums_mismatch`, `digest_mismatch`,
+  `pinned_anchor_mismatch`, `boot_verification_failed`, `project_mismatch`, ...) becomes
+  `UnavailableEvidence`, which reports its code and builds nothing (decision 1); a snapshot
+  that boots prints one line (id, project, record count, anchor prefix, verification time,
+  no path).
+- **Admissions and runs.** The gate refuses before Turnstile while the factory's status is
+  not ok. Every admission then re-hashes the served files in full
+  (`SnapshotMemoryClient::check_artifacts`) and refuses a changed snapshot before any model
+  call, releasing the reservation. Each run gets a copy of the client and a fresh, pinned
+  `hyphae proof verify` verifier wrapped in `BootBoundVerifier`: since every proof of a
+  session shares the anchor, a `Valid` stands only when the report's `proof_digest` and
+  `result_digest` are the ones boot accepted for the record's `proof_ref`; anything else is
+  `Invalid` with a fixed detail, so the policy blocks the run.
+- **Status.** The factory's status (`/ready`'s `evidence_ok`, `/capabilities`'s
+  `live_enabled`) is the same re-hash, cached for two seconds (`READY_CACHE_TTL`) so an
+  anonymous caller cannot make the server hash the artifacts at will; an admission's own
+  re-check refreshes it. Public responses carry the boolean only; the code is in the log.
+- What stays open: the honest label of decision 6 and the "proof covers" sentence of
+  decision 4 in the receipt and the web app (not in this lane), and the behaviour of the
+  real `hyphae proof verify` on the 2026-10-29 snapshot (every verifier result in the
+  tests comes from a fake binary).

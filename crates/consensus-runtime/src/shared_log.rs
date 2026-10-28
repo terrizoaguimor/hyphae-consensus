@@ -1111,6 +1111,13 @@ mod tests {
         lost: u64,
         held: u64,
         to_stream: Mutex<mpsc::Sender<ConsensusEvent>>,
+        /// How many records the stream has sent, reported after each one.
+        /// The writer is held at the record after the lost one until the
+        /// stream has filled that gap, so the fill finds the log ending
+        /// there; a stream that lags behind the whole deliberation would
+        /// otherwise take the recommendation in the same fill and merge
+        /// the two gaps into one.
+        caught_up: Mutex<mpsc::Receiver<u64>>,
         holding: Mutex<Option<mpsc::Sender<()>>>,
         released: (Mutex<bool>, Condvar),
     }
@@ -1136,6 +1143,17 @@ mod tests {
                 );
             }
             self.to_stream.lock().unwrap().send(event.clone()).unwrap();
+            if event.sequence == self.lost + 1 {
+                let caught_up = self.caught_up.lock().unwrap();
+                loop {
+                    let sent = caught_up
+                        .recv_timeout(STEP)
+                        .expect("the stream never filled the lost record's gap");
+                    if sent > self.lost {
+                        break;
+                    }
+                }
+            }
             if event.sequence == self.held + 1 {
                 let (released, changed) = &self.released;
                 *released.lock().unwrap() = true;
@@ -1156,11 +1174,13 @@ mod tests {
         };
         let path = temp_log("stream.jsonl");
         let (to_stream, published) = mpsc::channel();
+        let (report, caught_up) = mpsc::channel();
         let (holding, recommendation_held) = mpsc::channel();
         let publisher = Arc::new(Reordering {
             lost: 3,
             held,
             to_stream: Mutex::new(to_stream),
+            caught_up: Mutex::new(caught_up),
             holding: Mutex::new(Some(holding)),
             released: (Mutex::new(false), Condvar::new()),
         });
@@ -1187,6 +1207,8 @@ mod tests {
                 };
                 for event in published {
                     stream.on_published(event);
+                    // The publisher is gone once the run's writers are.
+                    let _ = report.send(stream.sent.len() as u64);
                 }
                 stream
             })
@@ -1214,9 +1236,9 @@ mod tests {
         assert_eq!(stream.sent, expected, "every record once, in order");
         assert_eq!(stream.ends, 1, "the stream ended once");
         assert_eq!(stream.run.state, RunState::Approved);
-        // Two gaps: the lost record, and the decision before the
-        // recommendation.
-        assert!(stream.filled_from_log >= 2, "{}", stream.filled_from_log);
+        // Two gaps, each filled once: the lost record (the writer waited
+        // for that fill) and the decision before the recommendation.
+        assert_eq!(stream.filled_from_log, 2);
     }
 
     /// Windows locks are mandatory: while another handle holds the whole

@@ -446,8 +446,9 @@ per-item verdicts, carry-forward, fail-closed evaluation contract) and the harde
 adapter (strict schema per role, `max_completion_tokens` 16,000, one 240 s budget per call
 for this battery, no retry after a request was sent). Same demo store as §5 (7 records),
 anchor pinned to `d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168` (unchanged
-since §5.2: no write happened). Raw data, local and git-ignored:
-`demo-run/live-battery-2026-10-27-p13-smoke.jsonl` and the matching directory. Every
+since §5.2: no write happened). Raw data: `demo-run/live-battery-2026-10-27-p13-smoke.jsonl`
+and the matching directory (git-ignored originals), archived verbatim as
+`research/2026-10-27/live-battery-2026-10-27-p13-smoke.jsonl` and `-p13-smoke/`. Every
 invocation now records `prompt_sha256`, `schema_sha256`, `finish_reason` (`stop` in all 7
 calls), `attempts` (1) and the reasoning tokens.
 
@@ -481,6 +482,63 @@ calls), `attempts` (1) and the reasoning tokens.
   `backend_project: demo-repo` and a `proof_ref` on every retrieved record; the verifier
   report fields (`kind`, `scope`) on every verification. `Task.mode` is still absent (the
   console does not set it yet).
+
+### 6.2 Smoke runs on `prompt-freeze-2` (2 runs; not counted as validation)
+
+**Setup.** Code at tag `prompt-freeze-2` (`881550d`): as `prompt-freeze-1`, plus the keyed
+per-call Evaluator schema (one required key per claim id and per open item id, so an
+omitted, repeated or unknown id is `MalformedOutput`), one added line in the Evaluator
+prompt listing the claim ids, and one bounded retry on post-send transport errors. Same
+store, same pinned anchor, same console with a 240 s budget per call; raw drafts kept in
+`demo-run/meta-debug-2026-10-27/pf2-smoke/` (git-ignored). Log and run records archived
+verbatim as `research/2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl` and
+`-pf2-smoke/`. Run 2026-10-28 03:23–03:31 UTC.
+
+| Run | Task (project) | Outcome | Revisions | Critic items per round | Evaluator per round (corroborated/claims, open items) | Integrity (all rounds) | Calls | Model latency | Tokens in/out (reasoning) |
+|---|---|---|---|---|---|---|---|---|---|
+| K03 | Raise payment retry attempts to 10 (`demo-repo`) | **supported** (for the revised proposal, see below) | 1 | 9 → 0 | 1/4, 9 open → 3/3, 0 open | 13 valid | 6 | 205.5 s | 9,705 / 25,418 (21,843) |
+| K04 | Increase payment HTTP timeout to 30 seconds (`demo-repo`) | **supported** (for the revised proposal, see below) | 1 | 3 → 0 | 0/2, 3 open → 5/5, 0 open | 12 valid | 6 | 141.6 s | 6,652 / 19,218 (17,313) |
+
+- **The keyed schema did what it was built for.** Every claim received exactly one
+  assessment in all four evaluations (4, 3, 2 and 5 claims), each with cited or
+  contradicting record ids, and every open item received an explicit verdict with a reason
+  naming records: K03's 9 round-1 objections were all `unresolved` in round 1 and all
+  `resolved` in round 2; K04's 3 likewise. K03's round-2 evaluation also cleared the three
+  contradictions carried from round 1, each with a reason. The Meta API accepted a schema
+  with `$ref` entries directly under `properties`; `schema_sha256` differs per Evaluator
+  call as designed (`f05508dc…`, `4eacf846…`, `06a3d8e3…`, `11e06893…`) while the other
+  roles' schema and prompt hashes are constant across both runs, and the Evaluator prompt
+  hash changed from `prompt-freeze-1` as expected (`1a5e2b59…`). All 12 calls ended with
+  `finish_reason: stop` after 1 attempt; the transport retry was not needed. The empty
+  `item_verdicts` object (a round with no open item at all) did not occur: both second
+  rounds carried items, so that schema shape is still unexercised live.
+- **Both runs ended `supported` for a proposal that no longer does what the task asked.**
+  In K03 the Proposer's revision replaced "set attempts to 10" with "set `max_attempts=3`
+  and `jitter_ms=50`", the values of the stored decision; in K04 "increase the HTTP timeout
+  to 30 s" became a retry-policy change whose five claims restate stored records. The
+  round-2 Critic raised no new item in either run (it is told not to repeat carried
+  objections), the Evaluator corroborated every revised claim and resolved every carried
+  item, and the rules of policy 1.2 therefore returned `supported`. The runtime does not
+  judge whether a revision still serves the task; that is the human's call, and the record
+  holds what it needs: the superseded proposal, the revision with its `supersedes` and
+  `addressed_items`, the carried verdicts and the unresolved uncertainties (4 and 3) in the
+  recommendation. Under protocol 1.2 the same task texts ended `contested` in the final
+  battery (F03, F06), and R06 reached `supported` with 7 round-1 objections never re-judged
+  (correction 4); here every objection carries a verdict. The Decision center must show the
+  scope change next to the outcome, never the word `supported` alone.
+- Round 1 behaved as the batteries did: the first proposal's claims were contradicted
+  (K03: claims 2 and 4, by 2 and 3 records; 1 of 4 corroborated) or unsupported (K04: 0 of
+  2), and the Critic objected (9 and 3 items: constraint conflict, contradictory evidence,
+  unsupported claims, regression risk, missing tests).
+- Verified facts: 25 verification records `valid`, `kind: memory`, `scope:
+  semantic_reexecution`, the pinned anchor; 14 `RecallProven` events (7 per run, one per
+  proven recall, every recall returning 5 records); 7 distinct records retrieved per run
+  (the whole store) with `retrieval: live_recall`, `proof_ref` and `proof_request`
+  (operation, project, query, limit 5) on each; `Task.mode` still absent (old console);
+  `safety_identifier_sent: false` on the operator console (the public server sends one).
+- What this smoke does not establish: outcomes on the other battery tasks or any rate of
+  `supported`. The counted battery runs on this freeze (4 runs remain in the authorized
+  re-validation budget of 8; K01–K04 used the other 4).
 
 ## Corrections (2026-10-27, independent audit)
 

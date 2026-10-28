@@ -86,12 +86,43 @@ LOGS = [
             "hostile note's text as retrieved evidence (a prompt-injection example, kept by design)."
         ),
     },
+    {
+        "path": "2026-10-27/live-battery-2026-10-27-p13-smoke.jsonl",
+        "source": "demo-run/live-battery-2026-10-27-p13-smoke.jsonl",
+        "battery": "live-battery-2026-10-27-p13-smoke",
+        "records_dir": "2026-10-27/live-battery-2026-10-27-p13-smoke",
+        "description": (
+            "Smoke runs K01-K02 on tag prompt-freeze-1 (docs/evaluation.md section 6.1; superseded, "
+            "not counted as validation), schema 1.3, hash-chained from genesis. Live Meta + Hyphae "
+            "demo store; proofs verified at run time with hyphae proof verify against the pinned "
+            "demo-store anchor (see README). K01 ended insufficient_evidence because the Evaluator "
+            "returned empty assessments under that freeze's schema; K02 failed at critique on a "
+            "post-send transport error that the adapter of that freeze did not retry."
+        ),
+    },
+    {
+        "path": "2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl",
+        "source": "demo-run/live-battery-2026-10-27-pf2-smoke.jsonl",
+        "battery": "live-battery-2026-10-27-pf2-smoke",
+        "records_dir": "2026-10-27/live-battery-2026-10-27-pf2-smoke",
+        "description": (
+            "Smoke runs K03-K04 on tag prompt-freeze-2 (docs/evaluation.md section 6.2; not counted "
+            "as validation), schema 1.3, hash-chained from genesis. Live Meta + Hyphae demo store; "
+            "proofs verified at run time with hyphae proof verify against the pinned demo-store "
+            "anchor (see README). Both ended supported for a revised proposal that departs from the "
+            "task text (see section 6.2)."
+        ),
+    },
 ]
 
 # Run-record file tags that docs/evaluation.md labels differently.
 LABEL_OVERRIDES = {
     ("2026-10-27/live-battery-2026-10-27-prefix", "R01-reference"): "P01",
     ("2026-10-27/live-battery-2026-10-27-prefix", "R02-reference-repeat"): "P02",
+    ("2026-10-27/live-battery-2026-10-27-p13-smoke", "R03-raise-to-10"): "K01",
+    ("2026-10-27/live-battery-2026-10-27-p13-smoke", "R06-timeout-30s"): "K02",
+    ("2026-10-27/live-battery-2026-10-27-pf2-smoke", "R03-raise-to-10"): "K03",
+    ("2026-10-27/live-battery-2026-10-27-pf2-smoke", "R06-timeout-30s"): "K04",
 }
 
 

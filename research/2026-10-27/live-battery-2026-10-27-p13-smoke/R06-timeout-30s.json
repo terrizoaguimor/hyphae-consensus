@@ -1,0 +1,536 @@
+{
+ "tag": "R06-timeout-30s",
+ "task": {
+  "project": "demo-repo",
+  "title": "Increase payment HTTP timeout to 30 seconds",
+  "description": "Some payment calls take longer than the current per-request timeout. Propose raising the per-request timeout to 30 seconds."
+ },
+ "http_status": 201,
+ "wall_seconds": 94.6,
+ "detail": {
+  "summary": {
+   "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+   "state": "failed",
+   "recommendation": null,
+   "authorization": "pending",
+   "title": "Increase payment HTTP timeout to 30 seconds"
+  },
+  "revision_round": 0,
+  "recommendation": null,
+  "verifications": [],
+  "model_invocations": [
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a18036-b1ea-767c-9142-8f9bd21da659",
+    "latency_ms": 28254,
+    "input_tokens": 287,
+    "output_tokens": 2845,
+    "finish_reason": "stop",
+    "reasoning_tokens": 2612,
+    "max_completion_tokens": 16000,
+    "schema_name": "DraftProposal",
+    "schema_sha256": "d5119c7cad009be21c7da8a3153e5ad03ca6e86d2241cc56179221ea88ef85b9",
+    "prompt_sha256": "5107e606aaea68f0ed4c29b673fb66bf24395a0dcb3171718a0ee2b0d1ed0bac",
+    "safety_identifier_sent": false,
+    "attempts": 1
+   }
+  ],
+  "events": [
+   {
+    "schema_version": "1.3",
+    "sequence": 38,
+    "event_id": "evt-feac8464-ddc1-4152-95ee-35771ff33fdf",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "human",
+     "id": "live-battery"
+    },
+    "occurred_at": "2026-10-28T01:53:21.126758200+00:00",
+    "prev_hash": "b4c8d59f4ab0e8d86f1862d0a1a1723ac7acedb74625548c118755e266eeaa12",
+    "hash": "e6cf281d946d66fbf0d9f7ba80cc640a209942c8ee99dd3042b9f7c12a5e4b3c",
+    "payload": {
+     "type": "task_created",
+     "task": {
+      "schema_version": "1.3",
+      "id": "task-c7ff9cae-ba7f-40af-9614-acc96f98f803",
+      "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+      "project_id": "demo-repo",
+      "title": "Increase payment HTTP timeout to 30 seconds",
+      "description": "Some payment calls take longer than the current per-request timeout. Propose raising the per-request timeout to 30 seconds.",
+      "created_at": "2026-10-28T01:53:21.126746100+00:00"
+     }
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 39,
+    "event_id": "evt-22f8db5a-e216-4699-badd-356ef5005f02",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "agent",
+     "role": "proposer"
+    },
+    "occurred_at": "2026-10-28T01:53:49.382705200+00:00",
+    "prev_hash": "e6cf281d946d66fbf0d9f7ba80cc640a209942c8ee99dd3042b9f7c12a5e4b3c",
+    "hash": "564d1d75c8da56fa283dfb608be4ab8d3ae42f8285f20381bcdedd6109f4b0a4",
+    "payload": {
+     "type": "proposal_submitted",
+     "proposal": {
+      "schema_version": "1.3",
+      "id": "prop-1",
+      "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+      "author_role": "proposer",
+      "summary": "Raise the payment HTTP per-request timeout to 30 seconds.",
+      "plan_steps": [
+       "Raise the payment HTTP per-request timeout to 30 seconds."
+      ],
+      "claims": [
+       {
+        "id": "claim-2",
+        "statement": "The proposed payment HTTP per-request timeout is 30 seconds.",
+        "evidence_refs": []
+       },
+       {
+        "id": "claim-3",
+        "statement": "The current payment HTTP per-request timeout is less than 30 seconds.",
+        "evidence_refs": []
+       },
+       {
+        "id": "claim-4",
+        "statement": "A 30-second payment HTTP per-request timeout does not exceed any documented maximum timeout or overall request deadline applicable to payment HTTP calls.",
+        "evidence_refs": []
+       },
+       {
+        "id": "claim-5",
+        "statement": "No documented decision fixes the payment HTTP per-request timeout at a value below 30 seconds.",
+        "evidence_refs": []
+       }
+      ],
+      "assumptions": [
+       "Slow payment calls that exceed the current timeout would complete within 30 seconds.",
+       "The intended change concerns timeout duration only; retry, idempotency, and other request behavior are unchanged."
+      ],
+      "uncertainties": [
+       "Exact current payment HTTP per-request timeout value.",
+       "Which payment endpoints and configuration settings are in scope.",
+       "Latency distribution of the slow payment calls.",
+       "Whether longer in-flight requests affect documented resource, retry, or idempotency constraints."
+      ],
+      "created_at": "2026-10-28T01:53:49.382672900+00:00"
+     },
+     "invocation": {
+      "provider": "meta",
+      "model": "muse-wonder-1.0",
+      "request_id": "chatcmpl-01a18036-b1ea-767c-9142-8f9bd21da659",
+      "latency_ms": 28254,
+      "input_tokens": 287,
+      "output_tokens": 2845,
+      "finish_reason": "stop",
+      "reasoning_tokens": 2612,
+      "max_completion_tokens": 16000,
+      "schema_name": "DraftProposal",
+      "schema_sha256": "d5119c7cad009be21c7da8a3153e5ad03ca6e86d2241cc56179221ea88ef85b9",
+      "prompt_sha256": "5107e606aaea68f0ed4c29b673fb66bf24395a0dcb3171718a0ee2b0d1ed0bac",
+      "safety_identifier_sent": false,
+      "attempts": 1
+     }
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 40,
+    "event_id": "evt-3e98cd57-4de7-4ba5-b4a8-ec546aee15a3",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.463688100+00:00",
+    "prev_hash": "564d1d75c8da56fa283dfb608be4ab8d3ae42f8285f20381bcdedd6109f4b0a4",
+    "hash": "9a7aaa5649a139e0b432c6e111d255f58a7dbab0a4cec9e34f08317627243c86",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.3",
+      "id": "287567405605917891851290763137356115373",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:287567405605917891851290763137356115373",
+      "kind": "fact",
+      "content": "Fact: the payment-client default RetryPolicy is max_attempts = 1 with jitter_ms = 0, so a single transient upstream timeout surfaces to users as a payment timeout.",
+      "retrieved_at": "2026-10-28T01:53:49.463621600+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.witness",
+      "retrieval": "live_recall",
+      "proof_ref": "recall-01a18036-ad8b-76e0-abf8-e62573e1ef77",
+      "proof_request": {
+       "operation": "recall",
+       "project": "demo-repo",
+       "query": "The proposed payment HTTP per-request timeout is 30 seconds.",
+       "limit": 5
+      },
+      "backend_project": "demo-repo",
+      "backend_scope": "project"
+     }
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 41,
+    "event_id": "evt-e628a818-a747-4b41-8f2b-4963576d9c60",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.464539500+00:00",
+    "prev_hash": "9a7aaa5649a139e0b432c6e111d255f58a7dbab0a4cec9e34f08317627243c86",
+    "hash": "16337913e557566761c1b1efa5b3fc14fd320b7d6fb32274a65450f5e5e86ca4",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.3",
+      "id": "328114099256634798832222840773545327795",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:328114099256634798832222840773545327795",
+      "kind": "decision",
+      "content": "Decision (2026-09 payments review): fix payment timeouts by setting the payment-client RetryPolicy to max_attempts = 3 with jitter_ms of at least 50; raising the attempt cap above 3 is not allowed.",
+      "retrieved_at": "2026-10-28T01:53:49.463642900+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.witness",
+      "retrieval": "live_recall",
+      "proof_ref": "recall-01a18036-ad8b-76e0-abf8-e62573e1ef77",
+      "proof_request": {
+       "operation": "recall",
+       "project": "demo-repo",
+       "query": "The proposed payment HTTP per-request timeout is 30 seconds.",
+       "limit": 5
+      },
+      "backend_project": "demo-repo",
+      "backend_scope": "project"
+     }
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 42,
+    "event_id": "evt-2e43b085-2d4f-4ffa-a299-51cfc57e89cd",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.465352600+00:00",
+    "prev_hash": "16337913e557566761c1b1efa5b3fc14fd320b7d6fb32274a65450f5e5e86ca4",
+    "hash": "83048a222bc831831a4e36d7fb9b6dd3337615d86f3cb4cb45c20eb5a8cc64b2",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.3",
+      "id": "237412834382378687445660534362297845298",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:237412834382378687445660534362297845298",
+      "kind": "fact",
+      "content": "Fact: the payment-client test constraint_cap_is_three_attempts fails for any RetryPolicy with max_attempts above 3 or with jitter_ms equal to 0.",
+      "retrieved_at": "2026-10-28T01:53:49.463648100+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.witness",
+      "retrieval": "live_recall",
+      "proof_ref": "recall-01a18036-ad8b-76e0-abf8-e62573e1ef77",
+      "proof_request": {
+       "operation": "recall",
+       "project": "demo-repo",
+       "query": "The proposed payment HTTP per-request timeout is 30 seconds.",
+       "limit": 5
+      },
+      "backend_project": "demo-repo",
+      "backend_scope": "project"
+     }
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 43,
+    "event_id": "evt-4c9f6d18-ec6f-48e1-a2f5-123866e60c7c",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.466066500+00:00",
+    "prev_hash": "83048a222bc831831a4e36d7fb9b6dd3337615d86f3cb4cb45c20eb5a8cc64b2",
+    "hash": "2ae8b0e31f63f709f6be4ecdf7f4d783f19297333c5bbbf1bf9026bc6660c347",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.3",
+      "id": "161896895843658017381255677281559699870",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:161896895843658017381255677281559699870",
+      "kind": "fact",
+      "content": "Fact: send_with_retries in payment-client retries only SendError::Timeout, up to RetryPolicy.max_attempts; upstream errors are returned at once without a retry.",
+      "retrieved_at": "2026-10-28T01:53:49.463652500+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.witness",
+      "retrieval": "live_recall",
+      "proof_ref": "recall-01a18036-ad8b-76e0-abf8-e62573e1ef77",
+      "proof_request": {
+       "operation": "recall",
+       "project": "demo-repo",
+       "query": "The proposed payment HTTP per-request timeout is 30 seconds.",
+       "limit": 5
+      },
+      "backend_project": "demo-repo",
+      "backend_scope": "project"
+     }
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 44,
+    "event_id": "evt-6363ce70-c6c5-44c8-b1ca-9fd7dad3a3fa",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.466739+00:00",
+    "prev_hash": "2ae8b0e31f63f709f6be4ecdf7f4d783f19297333c5bbbf1bf9026bc6660c347",
+    "hash": "2ba259487ac19ed518b08c1bb751149bf2953ae2c0e100db91c2f5be132a15c7",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.3",
+      "id": "295729039551322334710406856728557559035",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:295729039551322334710406856728557559035",
+      "kind": "fact",
+      "content": "Fact: in the 2026-08 outage, retry bursts from payment clients amplified an upstream slowdown into a full outage.",
+      "retrieved_at": "2026-10-28T01:53:49.463657200+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ad8b-76e0-abf8-e62573e1ef77.witness",
+      "retrieval": "live_recall",
+      "proof_ref": "recall-01a18036-ad8b-76e0-abf8-e62573e1ef77",
+      "proof_request": {
+       "operation": "recall",
+       "project": "demo-repo",
+       "query": "The proposed payment HTTP per-request timeout is 30 seconds.",
+       "limit": 5
+      },
+      "backend_project": "demo-repo",
+      "backend_scope": "project"
+     }
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 45,
+    "event_id": "evt-383c7bb3-29c8-456e-a0f3-2adf81c09f34",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.467350500+00:00",
+    "prev_hash": "2ba259487ac19ed518b08c1bb751149bf2953ae2c0e100db91c2f5be132a15c7",
+    "hash": "cc46cea0137502956a5ce0c07bf00d6bc2cf21a71085851d7af14c0ecfd17cb0",
+    "payload": {
+     "type": "recall_proven",
+     "request": {
+      "operation": "recall",
+      "project": "demo-repo",
+      "query": "The proposed payment HTTP per-request timeout is 30 seconds.",
+      "limit": 5
+     },
+     "evidence_ids": [
+      "287567405605917891851290763137356115373",
+      "328114099256634798832222840773545327795",
+      "237412834382378687445660534362297845298",
+      "161896895843658017381255677281559699870",
+      "295729039551322334710406856728557559035"
+     ],
+     "proof_ref": "recall-01a18036-ad8b-76e0-abf8-e62573e1ef77",
+     "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+     "empty": false
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 46,
+    "event_id": "evt-167091a0-2ddc-4920-9bca-fd77bc7be2a2",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.522661600+00:00",
+    "prev_hash": "cc46cea0137502956a5ce0c07bf00d6bc2cf21a71085851d7af14c0ecfd17cb0",
+    "hash": "634226949c7aa69f4658daa0436ca24129259c5eeb79ddac3b53fe5ea8a9428b",
+    "payload": {
+     "type": "recall_proven",
+     "request": {
+      "operation": "recall",
+      "project": "demo-repo",
+      "query": "The current payment HTTP per-request timeout is less than 30 seconds.",
+      "limit": 5
+     },
+     "evidence_ids": [
+      "287567405605917891851290763137356115373",
+      "328114099256634798832222840773545327795",
+      "237412834382378687445660534362297845298",
+      "161896895843658017381255677281559699870",
+      "295729039551322334710406856728557559035"
+     ],
+     "proof_ref": "recall-01a18036-adc8-72b2-8b07-660cba3adf00",
+     "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+     "empty": false
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 47,
+    "event_id": "evt-10e1b5ca-e641-4a0e-bfe7-0791d651b966",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.577147500+00:00",
+    "prev_hash": "634226949c7aa69f4658daa0436ca24129259c5eeb79ddac3b53fe5ea8a9428b",
+    "hash": "0ddabcbd7d7851c109356db8ea7163a3d6af0ed5ab84a9a5c4bca53077152358",
+    "payload": {
+     "type": "recall_proven",
+     "request": {
+      "operation": "recall",
+      "project": "demo-repo",
+      "query": "A 30-second payment HTTP per-request timeout does not exceed any documented maximum timeout or overall request deadline applicable to payment HTTP calls.",
+      "limit": 5
+     },
+     "evidence_ids": [
+      "237412834382378687445660534362297845298",
+      "287567405605917891851290763137356115373",
+      "161896895843658017381255677281559699870",
+      "328114099256634798832222840773545327795",
+      "295729039551322334710406856728557559035"
+     ],
+     "proof_ref": "recall-01a18036-adff-7113-9733-5f157209350b",
+     "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+     "empty": false
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 48,
+    "event_id": "evt-86d09331-2c25-4b9c-9938-d5bbfbd4f964",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.629789+00:00",
+    "prev_hash": "0ddabcbd7d7851c109356db8ea7163a3d6af0ed5ab84a9a5c4bca53077152358",
+    "hash": "629e8a789ef21f74d4c617a803fd9d221f4623bf0e631863c13080c49074dd5c",
+    "payload": {
+     "type": "evidence_retrieved",
+     "evidence": {
+      "schema_version": "1.3",
+      "id": "186670067796945807561772405393844769735",
+      "project_id": "demo-repo",
+      "backend_ref": "hyphae-memory:186670067796945807561772405393844769735",
+      "kind": "constraint",
+      "content": "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+      "retrieved_at": "2026-10-28T01:53:49.629752400+00:00",
+      "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+      "proof_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ae35-7533-b542-0296f7dfc422.proof",
+      "witness_file": "/hyphae-home/.local/state/hyphae/proofs/recall-01a18036-ae35-7533-b542-0296f7dfc422.witness",
+      "retrieval": "live_recall",
+      "proof_ref": "recall-01a18036-ae35-7533-b542-0296f7dfc422",
+      "proof_request": {
+       "operation": "recall",
+       "project": "demo-repo",
+       "query": "No documented decision fixes the payment HTTP per-request timeout at a value below 30 seconds.",
+       "limit": 5
+      },
+      "backend_project": "demo-repo",
+      "backend_scope": "project"
+     }
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 49,
+    "event_id": "evt-7537cb78-aeb4-49c0-b5d8-41cf42351df7",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:53:49.630604700+00:00",
+    "prev_hash": "629e8a789ef21f74d4c617a803fd9d221f4623bf0e631863c13080c49074dd5c",
+    "hash": "e6b7dd387d921c55b9d2823458ebb6095a5a62fbb67d797f9b67de6c528418c7",
+    "payload": {
+     "type": "recall_proven",
+     "request": {
+      "operation": "recall",
+      "project": "demo-repo",
+      "query": "No documented decision fixes the payment HTTP per-request timeout at a value below 30 seconds.",
+      "limit": 5
+     },
+     "evidence_ids": [
+      "287567405605917891851290763137356115373",
+      "161896895843658017381255677281559699870",
+      "328114099256634798832222840773545327795",
+      "295729039551322334710406856728557559035",
+      "186670067796945807561772405393844769735"
+     ],
+     "proof_ref": "recall-01a18036-ae35-7533-b542-0296f7dfc422",
+     "anchor": "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168",
+     "empty": false
+    }
+   },
+   {
+    "schema_version": "1.3",
+    "sequence": 50,
+    "event_id": "evt-fe680b93-56a8-4ab4-a79c-b49921a1a74d",
+    "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+    "actor": {
+     "kind": "runtime"
+    },
+    "occurred_at": "2026-10-28T01:54:55.448616500+00:00",
+    "prev_hash": "e6b7dd387d921c55b9d2823458ebb6095a5a62fbb67d797f9b67de6c528418c7",
+    "hash": "33c8eb96278a1e15cbe447fc03019edfc1c6a9f0e2697526395a2f89b386ad86",
+    "payload": {
+     "type": "run_failed",
+     "reason": "meta_transport: the request to the Meta API failed after it was sent (error sending request)",
+     "stage": "critique",
+     "code": "meta_transport"
+    }
+   }
+  ]
+ },
+ "receipt_status": 200,
+ "receipt": {
+  "schema_version": "1.3",
+  "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+  "final_state": "failed",
+  "authorization": "pending",
+  "model_invocations": [
+   {
+    "provider": "meta",
+    "model": "muse-wonder-1.0",
+    "request_id": "chatcmpl-01a18036-b1ea-767c-9142-8f9bd21da659",
+    "latency_ms": 28254,
+    "input_tokens": 287,
+    "output_tokens": 2845,
+    "finish_reason": "stop",
+    "reasoning_tokens": 2612,
+    "max_completion_tokens": 16000,
+    "schema_name": "DraftProposal",
+    "schema_sha256": "d5119c7cad009be21c7da8a3153e5ad03ca6e86d2241cc56179221ea88ef85b9",
+    "prompt_sha256": "5107e606aaea68f0ed4c29b673fb66bf24395a0dcb3171718a0ee2b0d1ed0bac",
+    "safety_identifier_sent": false,
+    "attempts": 1
+   }
+  ],
+  "verifications": [],
+  "event_count": 13,
+  "head_hash": "33c8eb96278a1e15cbe447fc03019edfc1c6a9f0e2697526395a2f89b386ad86",
+  "generated_at": "2026-10-28T01:54:55.563604400+00:00",
+  "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it."
+ }
+}

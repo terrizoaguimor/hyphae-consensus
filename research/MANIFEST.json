@@ -476,6 +476,80 @@
       ],
       "runs": 1,
       "description": "Run record for H02 (H02-hostile-reference), in the format scripts/live_battery.py writes: the task, the HTTP status and wall time of POST /api/runs, the console's run detail (summary, events, model invocations, verifications) and the receipt downloaded after the run."
+    },
+    {
+      "path": "2026-10-27/live-battery-2026-10-27-p13-smoke.jsonl",
+      "source": "demo-run/live-battery-2026-10-27-p13-smoke.jsonl",
+      "bytes": 75129,
+      "sha256": "baa02b6f50cfe7f700031a80699ec79b283800ddd908866250e041aaba0a9250",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 2,
+      "events": 50,
+      "description": "Smoke runs K01-K02 on tag prompt-freeze-1 (docs/evaluation.md section 6.1; superseded, not counted as validation), schema 1.3, hash-chained from genesis. Live Meta + Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README). K01 ended insufficient_evidence because the Evaluator returned empty assessments under that freeze's schema; K02 failed at critique on a post-send transport error that the adapter of that freeze did not retry."
+    },
+    {
+      "path": "2026-10-27/live-battery-2026-10-27-p13-smoke/R03-raise-to-10.json",
+      "source": "demo-run/live-battery-2026-10-27-p13-smoke/R03-raise-to-10.json",
+      "bytes": 117551,
+      "sha256": "27b2fb0f003ec1258c3436b0294217430399e982d97ad77ded864cd18b72b8bc",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for K01 (R03-raise-to-10), in the format scripts/live_battery.py writes: the task, the HTTP status and wall time of POST /api/runs, the console's run detail (summary, events, model invocations, verifications) and the receipt downloaded after the run."
+    },
+    {
+      "path": "2026-10-27/live-battery-2026-10-27-p13-smoke/R06-timeout-30s.json",
+      "source": "demo-run/live-battery-2026-10-27-p13-smoke/R06-timeout-30s.json",
+      "bytes": 22220,
+      "sha256": "cf162462e4d7f98061e8478775428ca7ec7e2ef25c092b2231c84cc6eab5bb3d",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for K02 (R06-timeout-30s), in the format scripts/live_battery.py writes: the task, the HTTP status and wall time of POST /api/runs, the console's run detail (summary, events, model invocations, verifications) and the receipt downloaded after the run."
+    },
+    {
+      "path": "2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl",
+      "source": "demo-run/live-battery-2026-10-27-pf2-smoke.jsonl",
+      "bytes": 114675,
+      "sha256": "d595b171ad8b44e6bdf52a8f74d30710807ac4d1206b32ff7bcecb4ae00e0e5c",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 2,
+      "events": 69,
+      "description": "Smoke runs K03-K04 on tag prompt-freeze-2 (docs/evaluation.md section 6.2; not counted as validation), schema 1.3, hash-chained from genesis. Live Meta + Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README). Both ended supported for a revised proposal that departs from the task text (see section 6.2)."
+    },
+    {
+      "path": "2026-10-27/live-battery-2026-10-27-pf2-smoke/R03-raise-to-10.json",
+      "source": "demo-run/live-battery-2026-10-27-pf2-smoke/R03-raise-to-10.json",
+      "bytes": 121398,
+      "sha256": "e67642e5b4ab0a8cefc7d91e66a53a0409a2fef6c4f0c071d34801c23a3f18ed",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for K03 (R03-raise-to-10), in the format scripts/live_battery.py writes: the task, the HTTP status and wall time of POST /api/runs, the console's run detail (summary, events, model invocations, verifications) and the receipt downloaded after the run."
+    },
+    {
+      "path": "2026-10-27/live-battery-2026-10-27-pf2-smoke/R06-timeout-30s.json",
+      "source": "demo-run/live-battery-2026-10-27-pf2-smoke/R06-timeout-30s.json",
+      "bytes": 106593,
+      "sha256": "185292f7930de72a4f04146f2d8a1206adc3385833956661dcb93b6efd90ca51",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for K04 (R06-timeout-30s), in the format scripts/live_battery.py writes: the task, the HTTP status and wall time of POST /api/runs, the console's run detail (summary, events, model invocations, verifications) and the receipt downloaded after the run."
     }
   ],
   "runs": [
@@ -958,6 +1032,54 @@
       "schema_version": "1.2",
       "file": "2026-10-27/live-battery-2026-10-27-hostile.jsonl",
       "record": "2026-10-27/live-battery-2026-10-27-hostile/H02-hostile-reference.json"
+    },
+    {
+      "run_id": "run-382ff22d-1fc3-4e0f-8aa5-f88bffb57ccd",
+      "label": "K01",
+      "battery": "live-battery-2026-10-27-p13-smoke",
+      "task_title": "Raise payment retry attempts to 10",
+      "project": "demo-repo",
+      "outcome": "insufficient_evidence",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-10-27/live-battery-2026-10-27-p13-smoke.jsonl",
+      "record": "2026-10-27/live-battery-2026-10-27-p13-smoke/R03-raise-to-10.json"
+    },
+    {
+      "run_id": "run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0",
+      "label": "K02",
+      "battery": "live-battery-2026-10-27-p13-smoke",
+      "task_title": "Increase payment HTTP timeout to 30 seconds",
+      "project": "demo-repo",
+      "outcome": "failed:critique",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-10-27/live-battery-2026-10-27-p13-smoke.jsonl",
+      "record": "2026-10-27/live-battery-2026-10-27-p13-smoke/R06-timeout-30s.json"
+    },
+    {
+      "run_id": "run-c2b65432-b592-46c1-b048-6a7a6952c80c",
+      "label": "K03",
+      "battery": "live-battery-2026-10-27-pf2-smoke",
+      "task_title": "Raise payment retry attempts to 10",
+      "project": "demo-repo",
+      "outcome": "supported",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl",
+      "record": "2026-10-27/live-battery-2026-10-27-pf2-smoke/R03-raise-to-10.json"
+    },
+    {
+      "run_id": "run-93275c1e-3947-4e8f-bacb-6a5f0a37a0f4",
+      "label": "K04",
+      "battery": "live-battery-2026-10-27-pf2-smoke",
+      "task_title": "Increase payment HTTP timeout to 30 seconds",
+      "project": "demo-repo",
+      "outcome": "supported",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl",
+      "record": "2026-10-27/live-battery-2026-10-27-pf2-smoke/R06-timeout-30s.json"
     }
   ]
 }

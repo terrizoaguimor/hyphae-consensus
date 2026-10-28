@@ -1,7 +1,7 @@
 # Research archive
 
 Verbatim copies of every recorded Hyphae Consensus run from 2026-10-26 and
-2026-10-27: 6 event logs holding 40 runs (671 events), and 33 run records.
+2026-10-27: 8 event logs holding 44 runs (790 events), and 37 run records.
 Each file was copied byte for byte with `cp` from `demo-run/`, which is
 git-ignored and remains the unmodified original, and each copy was checked
 against its source with SHA-256. Nothing was edited, redacted or re-encoded.
@@ -34,6 +34,8 @@ are UTC, so the 2026-10-26 battery's events read `2026-10-27T04:26Z` to
 | `2026-10-27/live-battery-2026-10-27.jsonl` and its directory | Battery 1, §5.2 | R01–R08 | 1.2 |
 | `2026-10-27/live-battery-2026-10-27-final.jsonl` and `-final/` | Final battery, §5.3 | F01–F06 | 1.2 |
 | `2026-10-27/live-battery-2026-10-27-hostile.jsonl` and `-hostile/` | Hostile note with a valid proof, §5.4 | H01–H02 | 1.2 |
+| `2026-10-27/live-battery-2026-10-27-p13-smoke.jsonl` and `-p13-smoke/` | Protocol 1.3 smoke runs on tag `prompt-freeze-1` (superseded), §6.1; not counted as validation | K01–K02 | 1.3 |
+| `2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl` and `-pf2-smoke/` | Protocol 1.3 smoke runs on tag `prompt-freeze-2`, §6.2; not counted as validation | K03–K04 | 1.3 |
 | `MANIFEST.json` | Per data file: path, original path, bytes, SHA-256, kind, schema versions, runs (and events, for logs). Per run: run id, label, battery, task title, project, outcome (recommendation kind or `failed:<stage>`), authorization, schema version, log, run record | | |
 | `SHA256SUMS` | The same digests, for `sha256sum -c` | | |
 
@@ -41,8 +43,11 @@ Labels L, I, S, P, R, F and H come from the run-record file names and
 `docs/evaluation.md`. The two prefix records are named `R01-reference.json`
 and `R02-reference-repeat.json` after the driver's task tags;
 `docs/evaluation.md` and `MANIFEST.json` call those runs P01 and P02. The
-console runs have no labels elsewhere: C01–C07 are assigned here, in log
-order.
+smoke records of §6 are likewise named `R03-raise-to-10.json` and
+`R06-timeout-30s.json` after the driver's task tags (the same task texts as
+R03/F03 and R06/F06); `docs/evaluation.md` and `MANIFEST.json` call them
+K01–K02 (`-p13-smoke`) and K03–K04 (`-pf2-smoke`). The console runs have no
+labels elsewhere: C01–C07 are assigned here, in log order.
 
 Every run record has the fields `scripts/live_battery.py` writes for one
 task: the task, the HTTP status and wall time of `POST /api/runs`, the

@@ -11,6 +11,7 @@ use consensus_api::config::HyphaeConfig;
 use consensus_api::hyphae::{
     CommandError, CommandOutput, CommandRunner, HyphaeMemoryClient, HyphaeProofVerifier,
     InMemoryTransport, McpTransport, StdioTransport, SystemCommandRunner,
+    CREDENTIAL_PATH_VARIABLES,
 };
 use consensus_domain::*;
 use consensus_runtime::clock::{FixedClock, SequentialIdGen};
@@ -781,35 +782,42 @@ fn the_system_runner_kills_a_command_past_its_deadline() {
 #[test]
 fn hyphae_children_never_inherit_the_meta_key() {
     // MA-4: the verifier (and `hyphae mcp`, built the same way) starts
-    // without any Meta key variable, whatever this process holds.
-    for name in consensus_api::config::META_KEY_VARIABLES {
+    // without any Meta key variable, whatever this process holds, and
+    // without the variables that say where the server's credential files
+    // are (systemd's directory and the file settings pointing into it).
+    let keys = consensus_api::config::META_KEY_VARIABLES;
+    let paths = CREDENTIAL_PATH_VARIABLES;
+    for name in keys {
         std::env::set_var(name, "LLM_1_canary-secret");
     }
+    for name in paths {
+        std::env::set_var(name, "/run/credentials/canary-unit/canary-file");
+    }
+    let names: Vec<&str> = keys.iter().chain(paths.iter()).copied().collect();
     let echo: Vec<String> = if cfg!(windows) {
-        [
-            "powershell",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Write-Output \"[$env:CONSENSUS_META_API_KEY|$env:MODEL_API_KEY|$env:META_API_KEY]\"",
+        let fields: Vec<String> = names.iter().map(|n| format!("$env:{n}")).collect();
+        vec![
+            "powershell".into(),
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-Command".into(),
+            format!("Write-Output \"[{}]\"", fields.join("|")),
         ]
-        .map(String::from)
-        .to_vec()
     } else {
-        [
-            "sh",
-            "-c",
-            "echo \"[$CONSENSUS_META_API_KEY|$MODEL_API_KEY|$META_API_KEY]\"",
+        let fields: Vec<String> = names.iter().map(|n| format!("${n}")).collect();
+        vec![
+            "sh".into(),
+            "-c".into(),
+            format!("echo \"[{}]\"", fields.join("|")),
         ]
-        .map(String::from)
-        .to_vec()
     };
     let out = SystemCommandRunner.run(&echo, Duration::from_secs(60));
-    for name in consensus_api::config::META_KEY_VARIABLES {
+    for name in &names {
         std::env::remove_var(name);
     }
     let out = out.unwrap();
-    assert_eq!(out.stdout.trim(), "[||]", "{out:?}");
+    let empty = format!("[{}]", "|".repeat(names.len() - 1));
+    assert_eq!(out.stdout.trim(), empty, "{out:?}");
     assert!(!out.stdout.contains("canary"));
 }
 

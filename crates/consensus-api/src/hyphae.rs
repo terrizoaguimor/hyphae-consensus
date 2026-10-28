@@ -112,14 +112,32 @@ impl McpTransport for InMemoryTransport {
 
 /// A command for a Hyphae child process, without the Meta key in its
 /// environment (MA-4): Hyphae never needs it, and a wrapper such as
-/// `docker exec` would carry it further.
+/// `docker exec` would carry it further. Nor is the child told where the
+/// server's credential files are ([`CREDENTIAL_PATH_VARIABLES`]). Under
+/// systemd the verifier runs as the server's user and could read them:
+/// this withholds their paths, it does not make the files unreadable.
 fn hyphae_command(program: &str) -> Command {
     let mut command = Command::new(program);
-    for name in crate::config::META_KEY_VARIABLES {
+    for name in crate::config::META_KEY_VARIABLES
+        .iter()
+        .chain(CREDENTIAL_PATH_VARIABLES.iter())
+    {
         command.env_remove(name);
     }
     command
 }
+
+/// The variables that locate the server's own credential files: systemd's
+/// `CREDENTIALS_DIRECTORY` (`LoadCredential=`) and the file settings that
+/// point into it. Hyphae's own key file reaches `hyphae mcp` as an
+/// argument, never through these.
+pub const CREDENTIAL_PATH_VARIABLES: [&str; 5] = [
+    "CREDENTIALS_DIRECTORY",
+    crate::config::META_KEY_FILE_VARIABLE,
+    crate::live::config::vars::TURNSTILE_SECRET_FILE,
+    "CONSENSUS_OPERATOR_TOKEN_FILE",
+    crate::live::config::vars::JUDGE_CODES_FILE,
+];
 
 /// The file name of a program path: errors are persisted, local paths
 /// are not (SEC-9).
@@ -821,7 +839,8 @@ fn capture<R: Read + Send + 'static>(stream: Option<R>) -> Receiver<(Vec<u8>, bo
 /// Runs commands as child processes with a deadline (HY-2): past it the
 /// child is killed and the run is [`CommandError::TimedOut`]. Each output
 /// stream is capped at [`MAX_COMMAND_OUTPUT_BYTES`], and the Meta key
-/// variables are removed from the child's environment. Only the direct
+/// variables and [`CREDENTIAL_PATH_VARIABLES`] are removed from the
+/// child's environment. Only the direct
 /// child is killed: a wrapper's own children (a `cmd.exe` running `docker
 /// exec`, say) are not, so deployments run the verifier binary directly.
 pub struct SystemCommandRunner;

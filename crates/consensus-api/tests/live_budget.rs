@@ -5,7 +5,8 @@
 use chrono::{DateTime, TimeDelta, Utc};
 use consensus_api::live::budget::{
     AttemptEstimate, AttemptMeter, BudgetConfig, Lane, Ledger, LedgerClock, LedgerError,
-    LedgerOptions, Outcome, RecordedOutcome, Refusal, TripReason, Usage, LOCK_FILE, SUMMARY_FILE,
+    LedgerOptions, Outcome, RecordedOutcome, Refusal, ReservationId, TripReason, Usage, LOCK_FILE,
+    SUMMARY_FILE,
 };
 use consensus_api::live::money::{Ppm, Usd};
 use std::path::{Path, PathBuf};
@@ -137,7 +138,16 @@ const ATTEMPT_EST: &str = "0.324096"; // 1024 × $4/M + 16000 × $20/M
 fn fifty_concurrent_reservations_never_exceed_the_cap() {
     let dir = TempDir::new("concurrent");
     let clock = TestClock::at("2026-10-27T12:00:00Z");
-    let ledger = open(dir.path(), unpaced_cfg(), &clock);
+    // The default lock wait (10 s): fifty threads serialize through the
+    // file lock, each admitted one doing two fsyncs and a rename while it
+    // holds it, and the claim under test is the cap, not disk timing.
+    let ledger = Ledger::open_with(
+        dir.path(),
+        unpaced_cfg(),
+        clock.clock(),
+        LedgerOptions::default(),
+    )
+    .unwrap();
     let admitted = Arc::new(Mutex::new(Vec::new()));
     let refused = Arc::new(Mutex::new(Vec::new()));
     let handles: Vec<_> = (0..50)
@@ -220,7 +230,7 @@ fn unknown_outcomes_charge_the_full_estimate_and_never_refund() {
         assert!(settled.tripped.is_none());
         expected = expected.saturating_add(est);
     }
-    let released = ledger.release(reservation).unwrap();
+    let released = ledger.release(&reservation).unwrap();
     assert_eq!(released.spent, expected);
     assert_eq!(released.spent, usd("1.620480"));
     let snap = ledger.snapshot().unwrap();
@@ -281,7 +291,7 @@ fn retries_take_one_draw_per_attempt() {
         vec![1, 2, 3]
     );
     assert_eq!(records(dir.path(), "2026-10-27", "settlement").len(), 3);
-    let released = ledger.release(reservation).unwrap();
+    let released = ledger.release(&reservation).unwrap();
     assert_eq!(released.spent, usd("0.548688"));
 }
 
@@ -414,7 +424,7 @@ fn reasoning_included_changes_neither_the_charge_nor_the_trip() {
         .as_str()
         .unwrap()
         .contains("inconsistent usage"));
-    assert!(ledger.release(reservation).is_ok());
+    assert!(ledger.release(&reservation).is_ok());
 }
 
 #[test]
@@ -831,7 +841,7 @@ fn exact_decimal_money_over_ten_thousand_settlements() {
         let draw = ledger.draw(&reservation, full_attempt()).unwrap();
         ledger.settle(draw, Outcome::Success(usage)).unwrap();
     }
-    let released = ledger.release(reservation).unwrap();
+    let released = ledger.release(&reservation).unwrap();
     assert_eq!(released.spent, Usd::from_micros(9_752 * n));
     assert_eq!(released.spent.to_fixed(), "1.950400");
     let snap = ledger.snapshot().unwrap();
@@ -986,7 +996,7 @@ fn the_reservation_is_a_hard_ceiling() {
         .unwrap();
     assert_eq!(small.estimate(), usd("0.024096"));
     ledger.settle(small, Outcome::Status(500)).unwrap();
-    let released = ledger.release(reservation).unwrap();
+    let released = ledger.release(&reservation).unwrap();
     assert!(released.spent <= usd(WORST_CASE));
     assert_eq!(released.spent, usd("1.644576"));
 }
@@ -1016,7 +1026,7 @@ fn release_frees_the_day_down_to_what_was_spent() {
             }),
         )
         .unwrap();
-    let released = ledger.release(run).unwrap();
+    let released = ledger.release(&run).unwrap();
     assert_eq!(released.spent, usd("0.044"));
     let snap = ledger.snapshot().unwrap();
     assert_eq!(snap.daily_committed, usd("7.564"), "4 × 1.88 + 0.044");
@@ -1034,7 +1044,7 @@ fn draws_and_settlements_are_checked_against_the_record() {
     let reservation = ledger.reserve(Lane::Public).unwrap();
     let meter = ledger.meter(&reservation);
     let draw = meter.draw(full_attempt()).unwrap();
-    ledger.release(reservation).unwrap();
+    ledger.release(&reservation).unwrap();
     // The run is over: settling its last attempt still counts, drawing more does not.
     assert!(matches!(
         meter.draw(full_attempt()),
@@ -1055,7 +1065,7 @@ fn a_torn_tail_is_cut_and_a_corrupt_line_fails_closed() {
     {
         let ledger = open(dir.path(), unpaced_cfg(), &clock);
         let r = ledger.reserve(Lane::Public).unwrap();
-        ledger.release(r).unwrap();
+        ledger.release(&r).unwrap();
         let mut f = std::fs::OpenOptions::new()
             .append(true)
             .open(&day_file)
@@ -1123,7 +1133,7 @@ fn the_lifetime_summary_is_a_floor_when_day_files_go_missing() {
         let r = ledger.reserve(Lane::Public).unwrap();
         let draw = ledger.draw(&r, full_attempt()).unwrap();
         ledger.settle(draw, Outcome::Timeout).unwrap();
-        ledger.release(r).unwrap();
+        ledger.release(&r).unwrap();
     }
     let summary: serde_json::Value =
         serde_json::from_slice(&std::fs::read(dir.path().join(SUMMARY_FILE)).unwrap()).unwrap();
@@ -1206,4 +1216,193 @@ fn snapshot_and_refusals_expose_stable_codes_and_string_money() {
         .retry_after(),
         Some(Duration::from_secs(7))
     );
+}
+
+#[test]
+fn a_failed_release_keeps_the_handle_and_the_slot_until_it_succeeds() {
+    let dir = TempDir::new("release-retry");
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    let ledger = open(dir.path(), owner_cfg(), &clock);
+    let reservation = ledger.reserve(Lane::Public).unwrap();
+    assert!(
+        matches!(
+            ledger.reserve(Lane::Public),
+            Err(Refusal::Concurrency { .. })
+        ),
+        "one slot"
+    );
+
+    // Another writer holds the lock: the release fails closed...
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(dir.path().join(LOCK_FILE))
+        .unwrap();
+    lock.try_lock().unwrap();
+    assert!(matches!(
+        ledger.release(&reservation),
+        Err(LedgerError::Locked { .. })
+    ));
+    // ...and nothing changed: the reservation still counts at its worst
+    // case and the handle still holds its slot (read without the lock).
+    let snap = ledger.snapshot_cached(Duration::from_secs(60)).unwrap();
+    assert_eq!(snap.unsettled_reservations, 1);
+    assert_eq!(snap.active_public, 1);
+    assert_eq!(snap.daily_committed, usd(WORST_CASE));
+    lock.unlock().unwrap();
+    assert!(
+        matches!(
+            ledger.reserve(Lane::Public),
+            Err(Refusal::Concurrency { .. })
+        ),
+        "the slot is held until the release is durable"
+    );
+
+    // The same handle releases once the lock is free.
+    let released = ledger.release(&reservation).unwrap();
+    assert_eq!(released.spent, Usd::ZERO);
+    let snap = ledger.snapshot().unwrap();
+    assert_eq!(snap.unsettled_reservations, 0);
+    assert_eq!(snap.active_public, 0);
+    assert_eq!(snap.daily_committed, Usd::ZERO);
+    // Idempotent: a second release changes nothing and writes nothing.
+    assert_eq!(ledger.release(&reservation).unwrap().spent, Usd::ZERO);
+    assert_eq!(records(dir.path(), "2026-10-27", "release").len(), 1);
+    assert!(ledger.reserve(Lane::Public).is_ok());
+}
+
+#[test]
+fn release_by_id_reconciles_a_crashed_reservation() {
+    let dir = TempDir::new("release-by-id");
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    let id = {
+        let ledger = open(dir.path(), owner_cfg(), &clock);
+        let reservation = ledger.reserve(Lane::Public).unwrap();
+        let draw = ledger.draw(&reservation, full_attempt()).unwrap();
+        ledger
+            .settle(
+                draw,
+                Outcome::Success(Usage::from_chat_usage(1_000, 2_000, None)),
+            )
+            .unwrap();
+        let _open_attempt = ledger.draw(&reservation, full_attempt()).unwrap();
+        reservation.id().clone()
+        // The process dies here: no release, one attempt still open.
+    };
+    let ledger = open(dir.path(), owner_cfg(), &clock);
+    let before = ledger.snapshot().unwrap();
+    assert_eq!(before.unsettled_reservations, 1);
+    assert_eq!(before.daily_committed, usd(WORST_CASE));
+
+    let released = ledger
+        .release_by_id(&id, "operator: dashboard shows one call")
+        .unwrap();
+    // The settled charge plus the open attempt at its estimate: never less.
+    assert_eq!(
+        released.spent,
+        usd("0.044").saturating_add(usd(ATTEMPT_EST))
+    );
+    let after = ledger.snapshot().unwrap();
+    assert_eq!(after.unsettled_reservations, 0);
+    assert_eq!(after.daily_committed, released.spent);
+    assert_eq!(after.lifetime_committed, released.spent);
+    let releases = records(dir.path(), "2026-10-27", "release");
+    assert_eq!(releases.len(), 1);
+    assert_eq!(releases[0]["by"], "operator: dashboard shows one call");
+    assert_eq!(releases[0]["reservation"], id.as_str());
+    // Idempotent; an unknown id is an error and writes nothing.
+    assert_eq!(
+        ledger.release_by_id(&id, "again").unwrap().spent,
+        released.spent
+    );
+    let unknown: ReservationId = serde_json::from_str("\"not-a-reservation\"").unwrap();
+    assert!(matches!(
+        ledger.release_by_id(&unknown, "typo"),
+        Err(LedgerError::UnknownReservation(_))
+    ));
+    assert_eq!(records(dir.path(), "2026-10-27", "release").len(), 1);
+    // A plain release writes no `by`.
+    let r = ledger.reserve(Lane::Public).unwrap();
+    ledger.release(&r).unwrap();
+    let releases = records(dir.path(), "2026-10-27", "release");
+    assert_eq!(releases.len(), 2);
+    assert!(releases[1].get("by").is_none());
+}
+
+#[test]
+fn snapshot_cached_never_waits_for_the_lock_and_never_writes() {
+    let dir = TempDir::new("snapshot-cached");
+    let switch = dir.path().join("kill-switch");
+    let cfg = BudgetConfig {
+        kill_switch_file: Some(switch.clone()),
+        ..unpaced_cfg()
+    };
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    let a = open(dir.path(), cfg.clone(), &clock);
+    let b = open(dir.path(), cfg, &clock);
+    let ra = a.reserve(Lane::Public).unwrap();
+    // When the lock is free a stale handle reads the others' records.
+    assert_eq!(
+        b.snapshot_cached(Duration::ZERO).unwrap().daily_committed,
+        usd(WORST_CASE)
+    );
+    // Time-dependent figures are computed for now, even from the cache.
+    clock.set("2026-10-28T00:00:00Z");
+    let snap = b.snapshot_cached(Duration::from_secs(3600)).unwrap();
+    assert_eq!(snap.day, "2026-10-28");
+    assert_eq!(snap.daily_committed, Usd::ZERO);
+    assert_eq!(snap.lifetime_committed, usd(WORST_CASE));
+    clock.set("2026-10-27T12:00:00Z");
+
+    // Another writer holds the lock for a long time: the blocking read
+    // fails closed after its wait; the cached read keeps answering from
+    // the in-process state without waiting at all.
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(dir.path().join(LOCK_FILE))
+        .unwrap();
+    lock.try_lock().unwrap();
+    assert!(matches!(b.snapshot(), Err(LedgerError::Locked { .. })));
+    let started = std::time::Instant::now();
+    for _ in 0..1_000 {
+        let snap = b.snapshot_cached(Duration::from_secs(60)).unwrap();
+        assert_eq!(snap.daily_committed, usd(WORST_CASE));
+    }
+    for _ in 0..10 {
+        // Stale and the lock is busy: still answered, still no wait.
+        assert_eq!(
+            b.snapshot_cached(Duration::ZERO).unwrap().daily_committed,
+            usd(WORST_CASE)
+        );
+    }
+    // 1,010 blocking reads would have waited 1,010 × lock_wait (300 ms).
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
+
+    // The kill-switch file is noticed by write paths only: the cached read
+    // reports no trip and writes no record, with or without the lock...
+    std::fs::write(&switch, b"stop\n").unwrap();
+    assert!(!a.snapshot_cached(Duration::ZERO).unwrap().tripped);
+    lock.unlock().unwrap();
+    assert!(!a.snapshot_cached(Duration::ZERO).unwrap().tripped);
+    assert!(records(dir.path(), "2026-10-27", "trip").is_empty());
+    // ...the next admission trips; the handle's own writes refresh its
+    // state at once and the other handle sees the trip when it refreshes.
+    assert!(matches!(
+        a.reserve(Lane::Public),
+        Err(Refusal::Tripped {
+            code: TripReason::KillSwitch,
+            ..
+        })
+    ));
+    assert!(a.snapshot_cached(Duration::from_secs(60)).unwrap().tripped);
+    let fresh = b.snapshot_cached(Duration::ZERO).unwrap();
+    assert!(fresh.tripped);
+    assert_eq!(fresh.trip_code, Some(TripReason::KillSwitch));
+    assert_eq!(records(dir.path(), "2026-10-27", "trip").len(), 1);
+    drop(ra);
 }

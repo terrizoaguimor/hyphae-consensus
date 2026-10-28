@@ -21,7 +21,9 @@
 //! change, appends, fsyncs, rewrites the summary and releases the lock. A
 //! second handle is therefore never refused; it just sees the first one's
 //! records. The lock wait is bounded ([`LedgerOptions::lock_wait`]); when
-//! it runs out the operation fails closed ([`LedgerError::Locked`]).
+//! it runs out the operation fails closed ([`LedgerError::Locked`]). The
+//! one read path that never waits for the lock is
+//! [`Ledger::snapshot_cached`], meant for the public `/capabilities`.
 //!
 //! **Records.** `reservation {id, lane, worst_case_usd, at}`,
 //! `draw {reservation, attempt, est_usd, input_bound_tokens,
@@ -404,6 +406,9 @@ enum Record {
     Release {
         v: u32,
         reservation: ReservationId,
+        /// Set when an operator released it by id after a crash.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<String>,
         at: String,
     },
     Trip {
@@ -625,13 +630,16 @@ impl Default for LedgerOptions {
 }
 
 /// A run's admitted budget. Not `Clone`: one handle per reservation.
-/// Dropping it without [`Ledger::release`] is treated as a crash: the
-/// reservation keeps counting at its worst case.
+/// Dropping it without a successful [`Ledger::release`] is treated as a
+/// crash: the reservation keeps counting at its worst case (only an
+/// operator's [`Ledger::release_by_id`] can end it then). The handle holds
+/// its concurrency slot until the release record is durable, so a failed
+/// release can be retried with the same handle.
 pub struct Reservation {
     id: ReservationId,
     lane: Lane,
     worst_case: Usd,
-    _slot: Option<SlotGuard>,
+    slot: Mutex<Option<SlotGuard>>,
 }
 
 impl fmt::Debug for Reservation {
@@ -657,9 +665,17 @@ impl Reservation {
     pub fn worst_case(&self) -> Usd {
         self.worst_case
     }
+
+    /// Frees the in-process slot; called once the release is durable. Must
+    /// not run while the ledger's state mutex is held (the guard takes it).
+    fn free_slot(&self) {
+        let guard = self.slot.lock().unwrap_or_else(|e| e.into_inner()).take();
+        drop(guard);
+    }
 }
 
-/// An in-process slot, freed when the reservation handle drops.
+/// An in-process slot, freed when the reservation is released or its
+/// handle drops.
 struct SlotGuard {
     inner: Arc<Inner>,
     lane: Lane,
@@ -887,6 +903,8 @@ struct Cursor {
 struct State {
     reservations: BTreeMap<ReservationId, ResState>,
     tripped: Option<Trip>,
+    /// When the files were last read under the lock.
+    last_catch_up: Option<Instant>,
     cursors: BTreeMap<String, Cursor>,
     spent_floor: Usd,
     inconsistent: Option<String>,
@@ -985,7 +1003,7 @@ impl Inner {
         (self.clock)()
     }
 
-    fn acquire_lock(&self) -> Result<FileLock, LedgerError> {
+    fn open_lock_file(&self) -> Result<(PathBuf, File), LedgerError> {
         let path = self.dir.join(LOCK_FILE);
         let file = OpenOptions::new()
             .read(true)
@@ -994,6 +1012,11 @@ impl Inner {
             .truncate(false)
             .open(&path)
             .map_err(|e| LedgerError::io(&path, e))?;
+        Ok((path, file))
+    }
+
+    fn acquire_lock(&self) -> Result<FileLock, LedgerError> {
+        let (path, file) = self.open_lock_file()?;
         let started = Instant::now();
         loop {
             match file.try_lock() {
@@ -1010,6 +1033,17 @@ impl Inner {
                 }
                 Err(TryLockError::Error(e)) => return Err(LedgerError::io(&path, e)),
             }
+        }
+    }
+
+    /// One attempt at the lock, never waiting: `None` when another writer
+    /// holds it.
+    fn try_acquire_lock(&self) -> Result<Option<FileLock>, LedgerError> {
+        let (path, file) = self.open_lock_file()?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(FileLock(file))),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(e)) => Err(LedgerError::io(&path, e)),
         }
     }
 
@@ -1512,6 +1546,10 @@ impl Ledger {
         &self.inner.cfg
     }
 
+    /// Runs `f` under the file lock and the state mutex, after reading what
+    /// other handles appended. Lock order: file lock first, then the state
+    /// mutex ([`Ledger::snapshot_cached`] takes them the other way round
+    /// but never waits for the file lock, so the two cannot deadlock).
     fn locked<T, E: From<LedgerError>>(
         &self,
         f: impl FnOnce(&Inner, &mut State) -> Result<T, E>,
@@ -1519,6 +1557,7 @@ impl Ledger {
         let _lock = self.inner.acquire_lock()?;
         let mut st = self.inner.state();
         self.inner.catch_up(&mut st)?;
+        st.last_catch_up = Some(Instant::now());
         f(&self.inner, &mut st)
     }
 
@@ -1613,7 +1652,7 @@ impl Ledger {
                 id,
                 lane,
                 worst_case,
-                _slot: slot,
+                slot: Mutex::new(slot),
             })
         })
     }
@@ -1806,10 +1845,33 @@ impl Ledger {
     }
 
     /// Ends a run's reservation: from now on it counts at what it spent.
-    /// Idempotent for an already released reservation.
-    pub fn release(&self, reservation: Reservation) -> Result<Released, LedgerError> {
-        let id = reservation.id.clone();
-        let released = self.locked(move |ledger, st| {
+    /// Idempotent, and retry-safe: on an error (the lock wait ran out, an
+    /// I/O failure) nothing was released, the caller keeps the handle and
+    /// its slot, and may call again. The slot is freed only once the
+    /// release record is durable.
+    pub fn release(&self, reservation: &Reservation) -> Result<Released, LedgerError> {
+        let released = self.release_record(&reservation.id, None)?;
+        reservation.free_slot();
+        Ok(released)
+    }
+
+    /// Operator-only: releases a reservation by id, for reconciliation
+    /// after a crash left it counting at its worst case (check the
+    /// provider dashboard first; `by` is recorded with the release). It
+    /// frees no in-process slot: a handle still alive in some process keeps
+    /// its slot until it drops. Idempotent. Never reachable from the public
+    /// listener.
+    pub fn release_by_id(&self, id: &ReservationId, by: &str) -> Result<Released, LedgerError> {
+        self.release_record(id, Some(by.to_string()))
+    }
+
+    fn release_record(
+        &self,
+        id: &ReservationId,
+        by: Option<String>,
+    ) -> Result<Released, LedgerError> {
+        let id = id.clone();
+        self.locked(move |ledger, st| {
             let res = st
                 .reservations
                 .get(&id)
@@ -1820,6 +1882,7 @@ impl Ledger {
                     Record::Release {
                         v: RECORD_VERSION,
                         reservation: id.clone(),
+                        by,
                         at: rfc3339(ledger.now()),
                     },
                 )?;
@@ -1828,9 +1891,7 @@ impl Ledger {
             ledger.check_lifetime(st)?;
             ledger.write_summary(st)?;
             Ok::<Released, LedgerError>(Released { spent })
-        });
-        drop(reservation);
-        released
+        })
     }
 
     /// Operator-only: clears a trip. Never reachable from the public
@@ -1855,8 +1916,11 @@ impl Ledger {
         })
     }
 
-    /// The current state, after reading what other handles appended. It
-    /// also notices a kill-switch file and trips.
+    /// Operator-only: the current state after waiting for the file lock and
+    /// reading what other handles appended. It also notices a kill-switch
+    /// file and trips (a write). Never serve it from an unauthenticated
+    /// route: a client hammering it would compete with admissions for the
+    /// lock. `/capabilities` uses [`Ledger::snapshot_cached`].
     pub fn snapshot(&self) -> Result<Snapshot, LedgerError> {
         self.locked(|ledger, st| {
             ledger.check_kill_switch(st)?;
@@ -1864,7 +1928,30 @@ impl Ledger {
         })
     }
 
-    /// True when the ledger refuses every reservation.
+    /// The read path for `/capabilities`: never waits for the file lock,
+    /// never writes. It serves this process's in-process state, which every
+    /// operation of this handle group refreshes; when that state is older
+    /// than `max_age` *and* the file lock happens to be free, it reads what
+    /// other processes appended first (one non-blocking `try_lock`, at most
+    /// once per `max_age`). Time-dependent figures (`day`,
+    /// `daily_available_now`, the hourly windows) are always computed for
+    /// now; another process's records may be up to `max_age` late. It does
+    /// not check the kill-switch file: that is a write, done at the next
+    /// admission.
+    pub fn snapshot_cached(&self, max_age: Duration) -> Result<Snapshot, LedgerError> {
+        let mut st = self.inner.state();
+        let stale = st.last_catch_up.is_none_or(|at| at.elapsed() >= max_age);
+        if stale {
+            if let Some(_lock) = self.inner.try_acquire_lock()? {
+                self.inner.catch_up(&mut st)?;
+                st.last_catch_up = Some(Instant::now());
+            }
+        }
+        Ok(self.inner.snapshot(&st))
+    }
+
+    /// True when the ledger refuses every reservation (operator-only, see
+    /// [`Ledger::snapshot`]).
     pub fn is_tripped(&self) -> Result<bool, LedgerError> {
         self.snapshot().map(|s| s.tripped)
     }

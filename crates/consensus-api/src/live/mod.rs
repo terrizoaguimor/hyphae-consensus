@@ -36,12 +36,27 @@
 //!   spent before the reservation exists.
 //! - Hold the [`budget::Reservation`] for the run's whole life and call
 //!   [`budget::Ledger::release`] on every terminal state (finished,
-//!   failed, cancelled, panicked). A reservation that is only dropped is
-//!   treated as a crash and keeps counting at its worst case.
+//!   failed, cancelled, panicked). It takes the handle by reference and is
+//!   retry-safe: on `Err` nothing was released and the handle keeps its
+//!   slot, so retry (with backoff) before giving up; log the id of a
+//!   reservation you could not release. A reservation that is only
+//!   dropped is treated as a crash and keeps counting at its worst case
+//!   until an operator reconciles it with [`budget::Ledger::release_by_id`]
+//!   (operator console only).
 //! - Give the adapter [`budget::Ledger::meter`]; it draws before each
-//!   HTTP attempt and settles right after. A draw refusal fails the run
-//!   at stage `budget`; a settlement error leaves the attempt counted at
-//!   its estimate, so the run should fail closed too.
+//!   HTTP attempt and settles right after with
+//!   [`budget::Usage::from_chat_usage`] (`completion_tokens` as reported,
+//!   reasoning included). A draw refusal fails the run at stage `budget`;
+//!   a settlement error leaves the attempt counted at its estimate, so the
+//!   run should fail closed too.
+//! - `/capabilities` reads the ledger with
+//!   [`budget::Ledger::snapshot_cached`] (a few seconds of `max_age`) and
+//!   publishes [`budget::Snapshot::public`] only. [`budget::Ledger::snapshot`]
+//!   waits for the file lock and may write a trip record: operator-only.
+//!   Never serialize a [`budget::Snapshot`] wholesale or put a
+//!   [`budget::Refusal`]'s or [`budget::LedgerError`]'s `Display` text in
+//!   a response: they carry upstream statuses, amounts and paths. The wire
+//!   gets [`budget::Refusal::code`] and [`budget::TripReason::as_str`].
 //! - [`budget::BudgetConfig::max_concurrent`] slots are per process; a
 //!   server-side semaphore keyed by client (/64) is still needed.
 //! - The ledger and the HTTP Siteverify client block on I/O: call them

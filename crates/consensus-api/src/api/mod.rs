@@ -98,12 +98,14 @@ impl OperatorAuth {
 /// Constant-time byte comparison (length included in the result, not in
 /// the timing of the loop).
 pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    let mut diff = (a.len() ^ b.len()) as u8;
+    // The whole length difference, never a truncation of it: as a `u8`,
+    // lengths 256 apart compared equal when the longer value ended in NULs.
+    let mut diff = a.len() ^ b.len();
     let n = a.len().max(b.len());
     for i in 0..n {
         let x = a.get(i).copied().unwrap_or(0);
         let y = b.get(i).copied().unwrap_or(0);
-        diff |= x ^ y;
+        diff |= usize::from(x ^ y);
     }
     diff == 0
 }
@@ -758,6 +760,14 @@ mod tests {
         assert!(!constant_time_eq(b"abc", b"ab"));
         assert!(!constant_time_eq(b"", b"a"));
         assert!(constant_time_eq(b"", b""));
+        // Lengths a multiple of 256 apart, the longer one padded with NULs.
+        let token = [b'k'; 32];
+        for pad in [256, 512] {
+            let padded = [token.as_slice(), &vec![0u8; pad]].concat();
+            assert!(!constant_time_eq(&token, &padded), "{pad} NUL bytes");
+            assert!(!constant_time_eq(&padded, &token), "{pad} NUL bytes");
+        }
+        assert!(!constant_time_eq(b"", &[0u8; 256]));
         let auth = OperatorAuth::new("secret-token");
         assert!(auth.accepts(b"secret-token"));
         assert!(!auth.accepts(b"secret-tokeN"));

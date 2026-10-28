@@ -42,8 +42,16 @@
 # Usage (inside the container):
 #   sh /hyphae-home/capture-snapshot.sh [--dry-run] [--ui-direct] <snapshot-id>
 #   sh /hyphae-home/capture-snapshot.sh --inspect <json file>
+#   sh capture-snapshot.sh --selftest        (host side, no Hyphae needed)
 #   --inspect    no session: print what this script extracts from a saved
 #                "agent ui" response or "proof verify" report (debugging aid)
+#   --selftest   no session: check the parts of this script that a session
+#                cannot rehearse (store response classification, the
+#                tokenizer's refusal of raw control characters, the bounded
+#                daemon stop and the signal traps, with sleep processes as
+#                the daemon); run it under dash + mawk in a throwaway
+#                debian:trixie-slim container and under dash + gawk on the
+#                host before a session. Writes only under /tmp.
 #   --dry-run    print every command, execute nothing, create nothing
 #   --ui-direct  stop the daemon after seeding, BEFORE the "agent ui" captures.
 #                Use only if the session shows that "agent ui" opens the data
@@ -60,19 +68,23 @@
 #   siblings       /hyphae-home/{hyphae-env.sh,seed.sh,seed-demo-facts.sh}
 # Exit codes: 0 ok; 2 usage; 3 precondition, setup, daemon or seeding failure;
 # 4 a capture failed its checks; 5 a verification failed; 6 the credential
-# destruction could not be confirmed.
+# destruction could not be confirmed; 130, 143, 129 when SIGINT, SIGTERM or
+# SIGHUP interrupted the session (the daemon is stopped and the scratch
+# directory removed first; the signal is then re-raised).
 set -eu
 
 # ---------------------------------------------------------------- arguments
 usage() {
   echo "usage: sh capture-snapshot.sh [--dry-run] [--ui-direct] <snapshot-id>"
   echo "       sh capture-snapshot.sh --inspect <json file>"
+  echo "       sh capture-snapshot.sh --selftest"
 }
 MODE=capture
 DRY_RUN=no
 UI_MODE=daemon
 SNAPSHOT_ID=""
 INSPECT_FILE=""
+VICTIM_DIR=""
 while [ $# -gt 0 ]; do
   case $1 in
     --dry-run) DRY_RUN=yes ;;
@@ -84,6 +96,14 @@ while [ $# -gt 0 ]; do
       INSPECT_FILE=$2
       shift
       ;;
+    --selftest) MODE=selftest ;;
+    # Internal: the child process of the --selftest trap rehearsal.
+    --selftest-victim)
+      if [ $# -lt 2 ]; then usage >&2; exit 2; fi
+      MODE=selftest-victim
+      VICTIM_DIR=$2
+      shift
+      ;;
     -h|--help) usage; exit 0 ;;
     -*) usage >&2; exit 2 ;;
     *)
@@ -93,11 +113,11 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-if [ "$MODE" = inspect ]; then
-  SNAPSHOT_ID=inspect
-elif [ -z "$SNAPSHOT_ID" ]; then
-  usage >&2; exit 2
-fi
+case $MODE in
+  inspect) SNAPSHOT_ID=inspect ;;
+  selftest|selftest-victim) SNAPSHOT_ID=selftest ;;
+  *) if [ -z "$SNAPSHOT_ID" ]; then usage >&2; exit 2; fi ;;
+esac
 case $SNAPSHOT_ID in
   -*|*[!a-z0-9-]*) echo "snapshot id must match ^[a-z0-9][a-z0-9-]{0,63}$" >&2; exit 2 ;;
 esac
@@ -129,6 +149,10 @@ CRED_DIR=$NEW_HOME/.config/hyphae/credentials
 # equality is reported as a warning (it would mean the pinned public anchor no
 # longer distinguishes the snapshot from the demo store), not as a failure.
 DEMO_STORE_ANCHOR=d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168
+# How long stop_daemon waits for the daemon process to exit after each stop
+# signal (SIGINT, then SIGTERM) before escalating; the last step is SIGKILL.
+# The wait for the socket to vanish after SIGINT (30 s) comes before this.
+DAEMON_STOP_GRACE=10
 
 TMP=""
 LOG_READY=""
@@ -229,8 +253,10 @@ plain() {
 # empty_object, empty_array. String values keep their JSON escapes raw; the
 # fields this script uses (paths, hex digests, decimal ids) are rejected if
 # they contain any escape. Any syntax it does not understand, any object key
-# outside [A-Za-z0-9_-] and any trailing data is a hard failure (exit 3), so
-# an unexpected shape stops the session instead of producing a partial index.
+# outside [A-Za-z0-9_-], any raw control character (bytes 0x00-0x1F, which
+# JSON forbids inside a string; a raw newline would otherwise split one leaf
+# into two lines) and any trailing data is a hard failure (exit 3), so an
+# unexpected shape stops the session instead of producing a partial index.
 # It handles compact one-line output as well as pretty-printed output: the
 # "agent ui" help text does not say which one it prints (unverified), while
 # the live "proof verify" report seen on 2026-10-27 was pretty-printed.
@@ -260,7 +286,7 @@ function skip_ws(   c) {
 function emit(path, type, value) {
   printf("%s\t%s\t%s\n", path, type, value)
 }
-function parse_string(   s, rest, c, esc) {
+function parse_string(   s, rest, c, esc, frag) {
   if (substr(buf, pos, 1) != "\"") fail("expected a string")
   pos++
   s = ""
@@ -268,8 +294,16 @@ function parse_string(   s, rest, c, esc) {
     if (pos > n) fail("unterminated string")
     rest = substr(buf, pos)
     if (match(rest, /["\\]/) == 0) fail("unterminated string")
-    s = s substr(rest, 1, RSTART - 1)
+    frag = substr(rest, 1, RSTART - 1)
     pos += RSTART - 1
+    # JSON forbids raw control characters inside a string (they must be
+    # escaped); the class is octal 001-037 = bytes 0x01-0x1F, which both
+    # mawk and gawk accept. A NUL byte is refused before awk runs (json_leaves).
+    if (match(frag, /[\001-\037]/) > 0) {
+      pos = pos - length(frag) + RSTART - 1
+      fail("raw control character inside a string")
+    }
+    s = s frag
     c = substr(buf, pos, 1)
     if (c == "\"") { pos++; return s }
     esc = substr(buf, pos + 1, 1)
@@ -337,6 +371,12 @@ function parse_value(path,   c, s, key, i) {
 }
 '
 json_leaves() { # json_leaves <json file> <leaves file>
+  # A NUL byte is never valid JSON (not even as whitespace) and an awk regular
+  # expression cannot name it, so it is refused here, before the tokenizer.
+  if [ "$(tr -cd '\000' < "$1" | wc -c | tr -d ' ')" -ne 0 ]; then
+    echo "json-leaves: NUL byte in the input" >&2
+    return 3
+  fi
   awk "$JSON_LEAVES" < "$1" > "$2"
 }
 # The value of exactly one leaf with this path and type; failure otherwise
@@ -414,26 +454,50 @@ start_daemon() {
   sleep 1
   log "daemon ready on $HYPHAE_SOCK"
 }
+# Polls (every 0.5 s, at most <seconds> seconds) for the daemon process to be
+# gone: 0 when it is, 1 when it is still running at the end.
+daemon_gone_within() { # daemon_gone_within <seconds>
+  _n=$(( $1 * 2 ))
+  while kill -0 "$DAEMON_PID" 2>/dev/null; do
+    if [ "$_n" -le 0 ]; then return 1; fi
+    _n=$((_n - 1))
+    sleep 0.5
+  done
+  return 0
+}
+# Stops the daemon this script started and reaps it, in bounded time: SIGINT
+# (the daemon removes its socket, then exits), SIGTERM after DAEMON_STOP_GRACE
+# seconds if it is still running, SIGKILL after another DAEMON_STOP_GRACE
+# seconds. The bound matters: step 7 (credential destruction) and the cleanup
+# trap come after this, and an unbounded wait on a daemon that ignores its
+# signals would leave the credentials in place.
 stop_daemon() {
   if [ -z "$DAEMON_PID" ]; then return 0; fi
   log "+ kill -INT $DAEMON_PID   (the daemon of $NEW_HOME; SIGINT makes it remove its socket)"
   kill -INT "$DAEMON_PID" 2>/dev/null || log "daemon $DAEMON_PID was already gone"
   _i=0
-  while [ -S "$HYPHAE_SOCK" ]; do
+  while [ -S "$HYPHAE_SOCK" ] && kill -0 "$DAEMON_PID" 2>/dev/null; do
     _i=$((_i + 1))
     if [ "$_i" -gt 60 ]; then
-      log "WARNING: the socket is still present after 30 s; sending SIGTERM"
-      kill -TERM "$DAEMON_PID" 2>/dev/null || true
+      log "WARNING: the socket is still present after 30 s"
       break
     fi
     sleep 0.5
   done
+  if ! daemon_gone_within "$DAEMON_STOP_GRACE"; then
+    log "WARNING: daemon $DAEMON_PID is still running $DAEMON_STOP_GRACE s after SIGINT; sending SIGTERM"
+    kill -TERM "$DAEMON_PID" 2>/dev/null || true
+    if ! daemon_gone_within "$DAEMON_STOP_GRACE"; then
+      log "WARNING: daemon $DAEMON_PID is still running $DAEMON_STOP_GRACE s after SIGTERM; sending SIGKILL (its socket $HYPHAE_SOCK may be left behind)"
+      kill -KILL "$DAEMON_PID" 2>/dev/null || true
+    fi
+  fi
   wait "$DAEMON_PID" 2>/dev/null || true
   DAEMON_PID=""
   log "daemon stopped"
 }
-cleanup() {
-  _status=$?
+cleanup() { # cleanup <exit status>
+  _status=$1
   if [ -n "$DAEMON_PID" ]; then
     log "cleanup: stopping the daemon this session started"
     stop_daemon
@@ -443,7 +507,24 @@ cleanup() {
     log "session FAILED (exit $_status). Nothing was deleted. The instance HOME $NEW_HOME may still hold credentials: review it, destroy them by hand (docs/architecture/sealed-snapshot.md, section Failure handling), or rerun with a new snapshot id. Output so far: $OUT"
   fi
 }
-trap cleanup EXIT
+# dash runs the EXIT trap on exit only, not when a signal kills the shell, so
+# SIGINT (terminal), SIGTERM and SIGHUP (a docker exec session torn down) get
+# the same cleanup and are then re-raised with their default action, so the
+# exit status says which signal it was. POSIX defers a trap while a foreground
+# child runs (hyphae agent ui, say): the cleanup follows when it returns.
+# SIGKILL cannot be caught; docs/architecture/sealed-snapshot.md (section 3,
+# failure handling) says how to find a daemon left behind without ps.
+on_signal() { # on_signal <signal name> <exit status>
+  trap - INT TERM HUP EXIT
+  log "received SIG$1: stopping the daemon and cleaning up before exiting"
+  cleanup "$2"
+  kill "-$1" $$
+  exit "$2"
+}
+trap 'cleanup $?' EXIT
+trap 'on_signal INT 130' INT
+trap 'on_signal TERM 143' TERM
+trap 'on_signal HUP 129' HUP
 
 # ---------------------------------------------------------------- seeding
 # One memory through the writer credential, with hyphae_store from
@@ -451,6 +532,24 @@ trap cleanup EXIT
 # identity is derived from project + layer + text, so identical text gives the
 # same memory id as the recorded research runs). The text must appear
 # verbatim in seed.sh or seed-demo-facts.sh next to this script.
+# The one response line hyphae_store prints (the JSON-RPC message with
+# "id":2) counts as a stored record only when it is a tools/call RESULT object
+# without an error marker. "hyphae mcp" answers a refused request (reader key
+# where the writer is needed, write not allowed, bad arguments) with a
+# JSON-RPC ERROR object ({"jsonrpc":"2.0","id":2,"error":{...}}), which
+# carries neither isError nor a tool-error envelope: without the positive
+# marker it would pass as a success and the session would fail later, at the
+# capture, with a misleading message. 0 = stored, 1 = anything else.
+store_response_ok() { # store_response_ok <response line>
+  case $1 in
+    '') return 1 ;;
+    *'"isError":true'*|*'"isError": true'*|*tool-error*|*'"error":'*|*'"error" :'*) return 1 ;;
+  esac
+  case $1 in
+    *'"result":{'*|*'"result": {'*) return 0 ;;
+  esac
+  return 1
+}
 seed_one() { # seed_one <kind> <text>
   _kind=$1; _text=$2
   case $_text in
@@ -463,9 +562,9 @@ seed_one() { # seed_one <kind> <text>
   if [ "$DRY_RUN" = yes ]; then return 0; fi
   _resp=$(hyphae_store "$PROJECT" "$_kind" "$_text") || die 3 "hyphae_store failed"
   if [ -z "$_resp" ]; then die 3 "hyphae_store returned no response line (daemon not reachable?)"; fi
-  case $_resp in
-    *'"isError":true'*|*'"isError": true'*|*tool-error*) die 3 "hyphae_store reported an error: $_resp" ;;
-  esac
+  if ! store_response_ok "$_resp"; then
+    die 3 "hyphae_store did not return a tools/call result object (a JSON-RPC error, a tool error or an unexpected shape); raw response: $_resp"
+  fi
   log "  store response: $_resp"
   SEEDED=$((SEEDED + 1))
 }
@@ -629,6 +728,142 @@ if [ "$MODE" = inspect ]; then
   for _k in status kind scope semantic_reexecution_performed anchor_digest code message; do
     if _v=$(leaf_any "$TMP/leaves" ".$_k"); then echo "$_k = $_v"; fi
   done
+  exit 0
+fi
+
+# ---------------------------------------------------------------- selftest
+# --selftest: host-side checks of the parts of this script a session cannot
+# rehearse, with no Hyphae involved: store_response_ok on the response shapes
+# "hyphae mcp" can print, the tokenizer's refusal of raw control characters
+# (and --inspect on such a file), the bounded daemon stop (stop_daemon) and
+# the signal traps (a child of this script, --selftest-victim, with a sleep
+# process as its daemon, is sent SIGTERM; SELFTEST_SH names the shell that
+# runs the child, default sh). Writes only a scratch directory under /tmp,
+# removed at exit. Exit 0 when every check passed, 1 otherwise.
+if [ "$MODE" = selftest-victim ]; then
+  # The rehearsal child: a fake daemon that ignores SIGINT and SIGTERM stands
+  # in for hyphae serve; the traps installed above must stop it (SIGKILL after
+  # the bounded waits) when this process receives SIGTERM, then re-raise it.
+  DAEMON_STOP_GRACE=1
+  NEW_HOME=$VICTIM_DIR
+  HYPHAE_SOCK=$VICTIM_DIR/no-such-socket
+  sh -c 'trap "" INT TERM; while :; do sleep 1; done' &
+  DAEMON_PID=$!
+  printf '%s\n' "$DAEMON_PID" > "$VICTIM_DIR/daemon.pid"
+  : > "$VICTIM_DIR/ready"
+  while :; do sleep 0.2; done
+fi
+if [ "$MODE" = selftest ]; then
+  TMP=$(mktemp -d /tmp/capture-snapshot.XXXXXX)
+  PASSED=0
+  FAILED=0
+  check() { # check <label> <command...>: passes when the command exits 0
+    _label=$1; shift
+    if "$@"; then PASSED=$((PASSED + 1)); echo "ok   $_label"
+    else FAILED=$((FAILED + 1)); echo "FAIL $_label"; fi
+  }
+  not() { ! "$@"; }
+  # json_leaves must fail and name the reason on stderr.
+  refused() { # refused <json file> <message fragment>
+    if json_leaves "$1" "$TMP/leaves" 2> "$TMP/err"; then return 1; fi
+    grep -q -F -- "$2" "$TMP/err"
+  }
+  accepted() { json_leaves "$1" "$TMP/leaves" 2> "$TMP/err"; }
+  leaf_is() { [ "$(leaf "$1" "$2" "$3")" = "$4" ]; }
+  inspect_refuses() { # --inspect exits 4 on a file the tokenizer refuses
+    _rc=0
+    "${SELFTEST_SH:-sh}" "$0" --inspect "$1" > "$TMP/inspect.out" 2>&1 || _rc=$?
+    [ "$_rc" -eq 4 ] && grep -q "NOT JSON" "$TMP/inspect.out"
+  }
+  pid_gone() { [ -n "$1" ] && ! kill -0 "$1" 2>/dev/null; }
+  # stop_daemon on the current DAEMON_PID: returns within <seconds>, the
+  # process is gone afterwards, and its log (to <file>) says so.
+  stopped_within() { # stopped_within <seconds> <log file>
+    _pid=$DAEMON_PID
+    _t0=$(date +%s)
+    stop_daemon > "$2"
+    _dt=$(( $(date +%s) - _t0 ))
+    if ! pid_gone "$_pid"; then echo "  daemon $_pid still exists after stop_daemon"; return 1; fi
+    if [ "$_dt" -gt "$1" ]; then echo "  stop_daemon took $_dt s, bound $1 s"; return 1; fi
+    grep -q "daemon stopped" "$2"
+  }
+
+  echo "selftest: store response classification (seed_one)"
+  _ok='{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"id\":\"186670067796945807561772405393844769735\"}"}],"structuredContent":{"id":"186670067796945807561772405393844769735","project":"demo-repo","kind":"fact"},"isError":false}}'
+  _iserr='{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"write not allowed"}],"isError":true}}'
+  _iserr_sp='{"jsonrpc": "2.0", "id": 2, "result": {"content": [], "isError": true}}'
+  _toolerr='{"jsonrpc":"2.0","id":2,"result":{"structuredContent":{"schema":"hyphae-native-mcp-tool-error-v2","error":{"category":"permission","message":"write not allowed"}},"isError":false}}'
+  _rpcerr='{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"message":"authentication refused"}}'
+  _rpcerr_sp='{"jsonrpc": "2.0", "id": 2, "error": {"code": -32602, "message": "invalid params"}}'
+  check "a tools/call result object counts as a stored record" store_response_ok "$_ok"
+  check "an empty line does not" not store_response_ok ""
+  check "isError:true does not" not store_response_ok "$_iserr"
+  check "isError: true (spaced) does not" not store_response_ok "$_iserr_sp"
+  check "a tool-error envelope does not" not store_response_ok "$_toolerr"
+  check "a JSON-RPC error object does not" not store_response_ok "$_rpcerr"
+  check "a spaced JSON-RPC error object does not" not store_response_ok "$_rpcerr_sp"
+  check "a message without a result object does not" not store_response_ok '{"jsonrpc":"2.0","id":2}'
+
+  echo "selftest: tokenizer (json_leaves) and raw control characters"
+  printf '{"project":"demo\nrepo","id":"1"}\n' > "$TMP/newline.json"
+  printf '{"project":"demo\trepo"}\n' > "$TMP/tab.json"
+  printf '{"project":"demo\000repo"}\n' > "$TMP/nul.json"
+  printf '%s\n' '{"text":"line\nbreak\tand \"quote\"","n":1}' > "$TMP/escaped.json"
+  printf '{\n  "memories": [\n    {"id": "1", "project": "demo-repo"}\n  ],\n  "proof": null\n}\n' > "$TMP/pretty.json"
+  check "a raw newline inside a string is refused" refused "$TMP/newline.json" "raw control character"
+  check "a raw tab inside a string is refused" refused "$TMP/tab.json" "raw control character"
+  check "a NUL byte is refused" refused "$TMP/nul.json" "NUL byte"
+  check "escaped control characters are accepted" accepted "$TMP/escaped.json"
+  check "the escaped leaf keeps its escapes raw" leaf_is "$TMP/leaves" .text string 'line\nbreak\tand \"quote\"'
+  check "pretty-printed JSON (newlines between tokens) is accepted" accepted "$TMP/pretty.json"
+  check "the pretty-printed sample yields its leaves" leaf_is "$TMP/leaves" '.memories[0].project' string demo-repo
+  check "--inspect refuses the raw newline sample with exit 4" inspect_refuses "$TMP/newline.json"
+
+  echo "selftest: bounded daemon stop (stop_daemon, grace 1 s)"
+  DAEMON_STOP_GRACE=1
+  HYPHAE_SOCK=$TMP/no-such-socket
+  sh -c 'exit 0' &
+  DAEMON_PID=$!
+  check "a daemon that already exited is reaped at once" stopped_within 4 "$TMP/stop-exited.log"
+  # A background child of a non-interactive shell inherits SIGINT ignored, so
+  # a plain sleep stands for a daemon that answers SIGTERM only.
+  sleep 300 &
+  DAEMON_PID=$!
+  check "a daemon ignoring SIGINT is stopped by SIGTERM" stopped_within 5 "$TMP/stop-term.log"
+  check "  and the escalation to SIGTERM is logged" grep -q "sending SIGTERM" "$TMP/stop-term.log"
+  check "  without a SIGKILL" not grep -q "sending SIGKILL" "$TMP/stop-term.log"
+  sh -c 'trap "" INT TERM; while :; do sleep 1; done' &
+  DAEMON_PID=$!
+  check "a daemon ignoring SIGINT and SIGTERM is killed within the bound" stopped_within 7 "$TMP/stop-kill.log"
+  check "  and the SIGKILL is logged" grep -q "sending SIGKILL" "$TMP/stop-kill.log"
+
+  echo "selftest: signal traps (a child of this script with a fake daemon is sent SIGTERM)"
+  _vdir=$TMP/victim
+  mkdir -p "$_vdir"
+  "${SELFTEST_SH:-sh}" "$0" --selftest-victim "$_vdir" > "$_vdir/out.log" 2>&1 &
+  _victim=$!
+  _i=0
+  while [ ! -f "$_vdir/ready" ]; do
+    _i=$((_i + 1))
+    if [ "$_i" -gt 50 ]; then break; fi
+    sleep 0.2
+  done
+  check "the rehearsal child started its fake daemon" test -f "$_vdir/daemon.pid"
+  _dpid=$(cat "$_vdir/daemon.pid" 2>/dev/null || true)
+  _t0=$(date +%s)
+  kill -TERM "$_victim" 2>/dev/null || true
+  _vrc=0
+  wait "$_victim" || _vrc=$?
+  _dt=$(( $(date +%s) - _t0 ))
+  check "SIGTERM ran the cleanup trap (logged)" grep -q "received SIGTERM" "$_vdir/out.log"
+  check "the trap stopped the daemon (SIGKILL after the bounded waits)" grep -q "sending SIGKILL" "$_vdir/out.log"
+  check "  and reaped it (daemon stopped logged)" grep -q "daemon stopped" "$_vdir/out.log"
+  check "the fake daemon is gone" pid_gone "$_dpid"
+  check "the child exited with the re-raised signal status 143 (got $_vrc)" test "$_vrc" -eq 143
+  check "the cleanup on SIGTERM stayed within the bound (took $_dt s)" test "$_dt" -le 8
+
+  echo "selftest: $PASSED passed, $FAILED failed"
+  if [ "$FAILED" -ne 0 ]; then exit 1; fi
   exit 0
 fi
 

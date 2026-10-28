@@ -1,7 +1,9 @@
 # ADR-0010: Protocol 1.3 — fail-closed evaluation contract and cross-round carry-forward
 
 Date: 2026-10-27 · Status: accepted, implemented (commits `1ee386a`, `92ccfeb`,
-`08f6d33`, `c8749f5`), **not yet live-validated** · Scope: schema 1.3
+`08f6d33`, `c8749f5`; keyed Evaluator schema `3d1aeec`), **smoke-validated live on
+`prompt-freeze-2`** (K03, K04: `docs/evaluation.md` §6.2; the counted battery is still
+pending) · Scope: schema 1.3
 
 ADR-0005 (per-run logs and asynchronous execution) and ADR-0006 (public API and
 sessions) are written after their lanes land; the numbering is not chronological.

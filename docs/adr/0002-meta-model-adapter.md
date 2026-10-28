@@ -149,3 +149,41 @@ found.
 - **Decision 4: retries.** 429 and every 5xx, 504 included, are retried after
   250 and 500 ms without honoring `Retry-After`, against Meta's error-handling
   guidance (MA-8, not adversarially verified). Planned: C6.
+
+## Note — 2026-10-27 evening: what the hardened adapter changed
+
+Commits `6c98fb4`, `e22399a` (lane R-b) and `3d1aeec`, `0745f3b` (tag
+`prompt-freeze-2`) replace the behaviour the audit note above describes. The
+decisions are kept as history; the current behaviour is:
+
+- **Decisions 3 and 8 (MA-1) are closed.** The runtime validates every
+  evaluation against the protocol 1.3 contract for every `ModelClient`, before
+  it is recorded and again on replay (ADR-0010). The adapter maps an unknown,
+  repeated or missing decision-relevant id to `MalformedOutput` naming the field
+  and the id; nothing is dropped or completed. Since `prompt-freeze-2` the
+  Evaluator schema is built per call with one required key per claim id and per
+  open item id, so an omitted assessment or verdict is impossible by
+  construction (smoke run K01 had shown that a strict schema with arrays still
+  allowed an empty `assessments` list; K03 and K04 confirm the keyed schema live,
+  `docs/evaluation.md` §6).
+- **Decision 11 (uncertainties)**: `Recommendation.unresolved_uncertainties`
+  (schema 1.3) carries the final proposal's uncertainties to the human and into
+  receipts v2; K03 and K04 record 4 and 3 of them.
+- **Decision 5 (key handling)**: the key is read with the precedence
+  `CONSENSUS_META_API_KEY`, `MODEL_API_KEY`, `META_API_KEY`, zeroized on drop,
+  and never logged; raw model output is kept only when `CONSENSUS_META_DEBUG_DIR`
+  is set, which `CONSENSUS_PUBLIC_MODE` refuses. Fixed public error codes and
+  messages (C5) belong to the public API lane (ADR-0006).
+- **Decision 6 (prompt injection)**: delimiter neutralization is case- and
+  whitespace-insensitive and covers fullwidth look-alikes; the task, the evidence
+  (as a JSON array), the objections and the evaluation under review sit in
+  separate untrusted blocks; every invocation records `prompt_sha256` and
+  `schema_sha256` of what was sent.
+- **Decision 4 (retries)**: only 429 and 503 are retried, with full-jitter
+  backoff that honours `Retry-After` within a fixed bound and the call's budget;
+  timeouts, 504 and 400/401/402/403/404/413 are never retried; a request that
+  fails after it was sent without an HTTP status is retried exactly once when
+  `CONSENSUS_META_RETRY_TRANSPORT_ONCE` is on (the default), recorded as
+  `attempts: 2` on the answering call (smoke run K02 motivated this). The
+  request also bounds the output (`max_completion_tokens`, 16,000 by default)
+  and records `finish_reason`, `refusal` and the reasoning tokens.

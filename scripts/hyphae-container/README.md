@@ -133,10 +133,30 @@ cross-checks the seed texts against `seed.sh` and `seed-demo-facts.sh`).
 ```powershell
 . .\scripts\hyphae-container\live-env.ps1                              # demo store
 . .\scripts\hyphae-container\live-env.ps1 /hyphae-home/lab-injection   # lab store
-cargo run -p consensus-api -- serve
 $env:CONSENSUS_LIVE_TESTS = "1"
 cargo test -p consensus-api --test hyphae_adapter live_ -- --ignored --nocapture
 ```
+
+A live battery runs through the operator server (`serve-operator`, loopback, a
+bearer token) and `scripts/live_battery.py`; no heavy build may run meanwhile
+(the verifier's deadline turns CPU starvation into spurious `invalid` records):
+
+```powershell
+. .\scripts\hyphae-container\live-env.ps1                              # or the lab store, for H01/H02
+$env:CONSENSUS_HYPHAE_EXPECTED_ANCHOR = "<the store's 64-hex anchor>" # pinned, never self-reported
+$env:CONSENSUS_RUN_STORE_DIR = "demo-run\<battery>\store"             # git-ignored, fresh per battery
+$env:CONSENSUS_OPERATOR_TOKEN_FILE = "$env:TEMP\hc-operator.token"
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+($b | ForEach-Object { $_.ToString("x2") }) -join "" | Set-Content -NoNewline $env:CONSENSUS_OPERATOR_TOKEN_FILE
+Copy-Item target\debug\consensus-api.exe "$env:TEMP\consensus-api-battery.exe"   # a running server locks its binary
+& "$env:TEMP\consensus-api-battery.exe" serve-operator 2>&1 | Out-File -Encoding utf8 "demo-run\<battery>\server.log"
+# second PowerShell, same CONSENSUS_OPERATOR_TOKEN_FILE:
+python -I scripts\live_battery.py http://127.0.0.1:8787 demo-run\<battery>\results M01=R01-reference
+```
+
+The script never prints or writes the token and never records a decision. After
+the battery, stop the server and archive both `results\<name>.jsonl` (the records
+as served) and the store's `runs\<run_id>.jsonl`: their sha256 must be equal.
 
 `scripts/hyphae-docker.cmd` forwards every invocation (MCP stdio and
 `proof verify`) into the container via `docker exec -i`, so every path the

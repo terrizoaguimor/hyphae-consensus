@@ -1826,6 +1826,17 @@
     gap: var(--spacing-2);
   }
 
+  /* The revision view: the original and the revised claims, side by side. */
+  .hc-revision {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .hc-revision > p {
+    margin: 0;
+  }
+
   /* The chain checked in this browser: the verdict, then each comparison. */
   .hc-chain-verdict {
     display: flex;

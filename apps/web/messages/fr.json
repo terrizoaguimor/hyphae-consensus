@@ -868,6 +868,26 @@
       "count": "Nombre d’enregistrements par rapport à celui du reçu ({count}).",
       "countNoReceipt": "Le reçu n’a pas été lu : le nombre d’enregistrements n’est donc pas comparé.",
       "limits": "Une chaîne cohérente montre que ces octets sont cohérents entre eux et avec les copies comparées ci-dessus. La chaîne n’est pas signée : un journal réécrit et entièrement rehaché serait cohérent lui aussi, sauf si une empreinte obtenue plus tôt (un manifeste dans un commit étiqueté, un reçu enregistré avant) dit le contraire ; et elle ne dit rien de la vérité des enregistrements."
+    },
+    "revision": {
+      "heading": "Affirmations de {original} et de {revised}, côte à côte",
+      "intro": "Comparées affirmation par affirmation à partir des enregistrements des propositions, par les id d’affirmation que portent les enregistrements ; un id réutilisé pour une autre affirmation apparaît comme modifié.",
+      "english": "Les affirmations sont la sortie originale du modèle (en anglais).",
+      "caption": "Les affirmations de la proposition d’origine et de la proposition révisée",
+      "claim": "Affirmation",
+      "originalColumn": "D’origine ({id})",
+      "revisedColumn": "Révisée ({id})",
+      "change": "Changement",
+      "none": "aucune",
+      "kinds": {
+        "unchanged": "inchangée",
+        "changed": "modifiée",
+        "added": "ajoutée",
+        "removed": "retirée"
+      },
+      "refs": "éléments cités : {before} avant, {after} après",
+      "step": "La révision {id} a remplacé {supersedes} et dit traiter {items} (sa propre affirmation, pas un verdict).",
+      "stepNoItems": "La révision {id} a remplacé {supersedes} et ne nomme aucun point qu’elle traite."
     }
   },
   "Showcase": {

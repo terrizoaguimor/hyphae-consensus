@@ -991,6 +991,33 @@ test("the scope change sits under the recommendation it qualifies", async ({ pag
   );
 });
 
+test("the revision view compares the original and the revised proposal claim by claim", async ({ page }) => {
+  await mockApi(page, { detail: awaitingDecisionDetail() });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  // Next to the scope line: the claims of prop-1 and prop-2, by claim id.
+  const compare = page.locator("[data-superseded] [data-revision-compare]");
+  await expect(compare.locator("h4")).toHaveText(
+    t("en", "Run.revision.heading", { original: "prop-1", revised: "prop-2" }),
+  );
+  await expect(compare.locator("tbody tr")).toHaveCount(2);
+  const first = compare.locator("[data-claim-id='claim-1'][data-claim-change='changed']");
+  await expect(first.locator("td").nth(0)).toHaveText("Payment timeouts are caused by insufficient retries");
+  await expect(first.locator("td").nth(1)).toHaveText("Payment timeouts correlate with retry bursts above 5 attempts");
+  await expect(first.locator("td").nth(2)).toHaveText(t("en", "Run.revision.kinds.changed"));
+  await expect(first.locator("td [lang='en']")).toHaveCount(2);
+  await expect(compare.locator("[data-claim-id='claim-2'][data-claim-change='changed']")).toContainText(
+    "Capping retries at 3 attempts with jitter matches the documented constraint",
+  );
+  // The revision's own claim of what it addresses, never a verdict.
+  await expect(compare.locator("[data-revision-steps] li")).toHaveText(
+    t("en", "Run.revision.step", { id: "prop-2", supersedes: "prop-1", items: "item-1, item-2" }),
+  );
+  await expectNoLive(page, "en");
+});
+
 test("a live-declared run offers no verbatim log link and is never named Live", async ({ page }) => {
   await mockApi(page, { extraRuns: [liveR01Run()] });
   await page.emulateMedia({ reducedMotion: "reduce" });

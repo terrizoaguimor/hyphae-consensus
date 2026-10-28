@@ -868,6 +868,26 @@
       "count": "Número de registros em relação ao do recibo ({count}).",
       "countNoReceipt": "O recibo não foi lido, então o número de registros não é comparado.",
       "limits": "Uma cadeia que confere mostra que estes bytes são coerentes entre si e com as cópias comparadas acima. A cadeia não é assinada: um log reescrito e com os hashes recalculados por inteiro também conferiria, a menos que um resumo obtido antes (um manifesto num commit com tag, um recibo guardado antes) diga o contrário; e ela não diz nada sobre se os registros são verdadeiros."
+    },
+    "revision": {
+      "heading": "Afirmações de {original} e {revised}, lado a lado",
+      "intro": "Comparadas afirmação por afirmação a partir dos registros das propostas, pelos ids de afirmação que os registros trazem; um id reutilizado para outra afirmação aparece como alterado.",
+      "english": "As afirmações são a saída original do modelo (em inglês).",
+      "caption": "As afirmações da proposta original e da revisada",
+      "claim": "Afirmação",
+      "originalColumn": "Original ({id})",
+      "revisedColumn": "Revisada ({id})",
+      "change": "Mudança",
+      "none": "nenhuma",
+      "kinds": {
+        "unchanged": "inalterada",
+        "changed": "alterada",
+        "added": "adicionada",
+        "removed": "removida"
+      },
+      "refs": "evidências citadas: {before} antes, {after} depois",
+      "step": "A revisão {id} substituiu {supersedes} e diz tratar de {items} (uma afirmação dela, não um veredito).",
+      "stepNoItems": "A revisão {id} substituiu {supersedes} e não nomeia nenhum item de que trate."
     }
   },
   "Showcase": {

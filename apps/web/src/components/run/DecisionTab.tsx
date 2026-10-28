@@ -30,6 +30,7 @@ import { supersededProposal } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { Explanation } from "./Explanation";
+import { RevisionComparison } from "./RevisionComparison";
 import { RecommendationLine } from "./StageTab";
 import type { RunData } from "./useRunData";
 
@@ -190,6 +191,9 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
                     <p>{revised.summary}</p>
                   </div>
                 </div>
+                {current === null ? null : (
+                  <RevisionComparison original={revised.original} revised={current} detail={detail} />
+                )}
               </div>
             )}
             <Explanation recommendation={recommendation} detail={detail} />

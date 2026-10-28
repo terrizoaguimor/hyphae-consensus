@@ -868,6 +868,26 @@
       "count": "Record count against the receipt’s ({count}).",
       "countNoReceipt": "The receipt has not been read, so the record count is not compared.",
       "limits": "A chain that checks out shows that these bytes are consistent with each other and with the copies compared above. The chain is unsigned: a log rewritten and re-hashed as a whole would check out too, unless a digest obtained earlier (a manifest in a tagged commit, a receipt saved before) says otherwise; and it says nothing about whether the records are true."
+    },
+    "revision": {
+      "heading": "Claims of {original} and {revised}, side by side",
+      "intro": "Compared claim by claim from the proposal records, by the claim ids the records carry; an id reused for another statement reads as changed.",
+      "english": "The statements are the original model output (English).",
+      "caption": "The claims of the original and the revised proposal",
+      "claim": "Claim",
+      "originalColumn": "Original ({id})",
+      "revisedColumn": "Revised ({id})",
+      "change": "Change",
+      "none": "none",
+      "kinds": {
+        "unchanged": "unchanged",
+        "changed": "changed",
+        "added": "added",
+        "removed": "dropped"
+      },
+      "refs": "cited evidence: {before} before, {after} after",
+      "step": "Revision {id} replaced {supersedes} and says it addresses {items} (its own claim, not a verdict).",
+      "stepNoItems": "Revision {id} replaced {supersedes} and names no item it addresses."
     }
   },
   "Showcase": {

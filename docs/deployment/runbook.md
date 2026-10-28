@@ -751,7 +751,7 @@ definition it was checked against. The choices:
 - `Restart=on-failure`, `RestartSec=5s`: restart on a non-zero exit or a signal, "the
   recommended choice for long-running services"; `systemctl stop` never triggers it
   `[SD-2]`. Startup recovery then closes runs left mid-deliberation as failed,
-  stage `interrupted` (`server.rs` `print_recovery`; `docs/threat-model.md` threat 6).
+  stage `interrupted` (`server.rs` `print_recovery`; `docs/threat-model.md` v2, T37 and T43).
 - Sandbox: `NoNewPrivileges=yes`; `ProtectSystem=strict` (the whole hierarchy read-only
   except the API file systems) with `ReadWritePaths=/var/lib/consensus/runs
   /var/lib/consensus/ledger /run/consensus` (the ledger tree holds the per-phase

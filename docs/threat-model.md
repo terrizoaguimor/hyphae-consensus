@@ -1,7 +1,8 @@
 # Threat model — Hyphae Consensus (v2)
 
-Date: 2026-10-28 · Version 2 · Describes the code at `e915b6d` (branch
-`feat/public-portal`) · Supersedes v1 (2026-10-26/27, which described `72e422a`)
+Date: 2026-10-28 · Version 2 · Describes the code at `25c7867` (branch
+`feat/public-portal`: `e915b6d` plus the review fixes of `25c7867` and the template
+fix of `0c473a6`, see the verification note) · Supersedes v1 (2026-10-26/27, which described `72e422a`)
 
 Companions: ADR-0005 (per-run logs, asynchronous runs, live SSE), ADR-0006 (public
 API v1, sessions, listener split), ADR-0007 (public live mode on the owner's key),
@@ -48,13 +49,17 @@ are `socket_mode_requires_explicit_origins_and_hosts` and
 `a_symlinked_artifact_pointing_outside_the_directory_is_refused` returned early (the
 account has no symlink privilege; the test then counts as passed) and
 `a_symlink_loop_under_the_directory_is_refused_not_followed` used a directory junction.
-The last recorded Linux run is the checklist's G8 PASS at `2f0efe0` (Ubuntu 24.04, 569
-passed, unix-only tests included); no Linux run of `e915b6d` is recorded. The web unit
+Linux parity (`scripts/linux-gates.sh`, Ubuntu 24.04) passed on the tree of `25c7867`:
+7 of 7 gates, 603 passed / 0 failed / 2 ignored, unix-only tests included. Tests added
+by `25c7867` (named below where they apply) passed in both runs. The web unit
 and end-to-end suites (`apps/web`, Docker-only toolchain), `cargo deny`, `pnpm audit` and
 the two sealed-snapshot tooling self-tests were not run for this document; where their
-results are cited, they are the results the lanes recorded in their commit messages. The
-code of `561c25e` (live hardening) and `e915b6d` had not been through an independent
-review when this was written; one was under way. No deployed system exists, so
+results are cited, they are the results the lanes recorded in their commit messages. An
+independent review of the live-hardening code (`561c25e`, `e915b6d`) then found one high
+issue and six lows: `25c7867` fixes the high (the ledger tool and the metered operator
+console refused the deployed `public.env`, T30) and five lows, documents the sixth
+(section 5, item 10) and leaves its medium, the web client's generated types, to the web
+lane (section 5, item 14). No deployed system exists, so
 everything that depends on the edge, the tunnel or the server is marked pending.
 
 ## 1. System and trust boundaries
@@ -384,7 +389,9 @@ on both served captures, which must be `Valid` as `memory` proofs at
 `semantic_reexecution` against that anchor with the `proof_digest` and `result_digest`
 of the capture-time report (`SnapshotMemoryClient::from_snapshot`, `verify_capture`).
 With live mode on the unix socket both pins are required, or `serve-public` does not
-start (`server.rs::require_snapshot_pins`, since `e915b6d`); a development TCP bind may
+start (`server.rs::require_snapshot_pins`, since `e915b6d`; the real binary is tested by
+`with_live_mode_enabled_on_the_socket_serve_public_requires_both_pins`, unix-only, since
+`25c7867`); a development TCP bind may
 run unpinned, and the startup line says which pins are set. *After boot*:
 `SnapshotMemoryClient::check_artifacts` re-hashes `manifest.json` and the four files of
 each served capture against the digests boot accepted; every admission runs it in full
@@ -952,7 +959,10 @@ content. Since `b120317` a code can start at most `CONSENSUS_LIVE_JUDGE_CODE_DAI
 refusal (`429 live_budget_judge_daily`), whichever client presents it; since `8f3f4d6`
 `deploy/scripts/judge-codes.sh` makes codes of 140 random bits (28 symbols of a 32-symbol
 alphabet), prints them once and writes only their digests (`root:consensus 0640`, no
-overwrite without `--force`). Tests: `verifies_hashed_codes_and_refuses_everything_else`,
+overwrite without `--force`); since `25c7867` the server matches a code as typed, then
+in capitals, so a printed code typed in lowercase is the same code (one id, one daily
+count). Tests: `verifies_hashed_codes_and_refuses_everything_else`,
+`a_printed_code_typed_in_lowercase_is_the_same_code`,
 `a_known_code_has_one_id_however_it_is_presented`, `malformed_lines_are_reported_by_number_only`,
 `judge_codes_load_as_digests_and_malformed_lines_are_never_echoed`,
 `a_known_judge_code_takes_the_judge_lane_and_an_unknown_one_the_public_lane`,
@@ -984,8 +994,10 @@ admission has recorded the trip: only `consensus-api ledger reset --by <operator
 kill-switch file is present, nothing recorded without a trip), run from a shell on the
 server (`deploy/scripts/ledger.sh` runs it under the public unit's own sandbox, without
 credentials; `deploy/scripts/kill-switch.sh` sets, shows and removes the file). The
-subcommand reads the server's live configuration with the live switch, the Turnstile
-secret file and the judge-codes file hidden (`live/config.rs::LedgerEnv`), and refuses a
+subcommand reads the server's live configuration with the live switch, the judge-codes
+file and every Turnstile setting hidden (`live/config.rs::LedgerEnv`; until `25c7867` the
+Turnstile hostname passed through, and with the deployed `public.env`, which sets it, the
+load refused itself as an inconsistent Turnstile configuration), and refuses a
 missing ledger directory instead of creating one. Tests:
 `kill_switch_file_refuses_everything_until_an_operator_reset`, `completion_over_max_trips_and_the_trip_survives_reopen`,
 `a_charge_above_the_attempt_draw_trips`, `provider_key_refusals_trip_and_other_no_retry_statuses_charge_zero`,
@@ -1447,7 +1459,7 @@ anywhere in the tree.
 | DOC-7 | Uncertainties not carried to the human | closed | `Recommendation.unresolved_uncertainties`; `the_recommendation_carries_the_final_proposals_uncertainties`; ADR-0002 note |
 | DOC-8 | Seeded fact 5 misdescribes the test | closed (correction notes; fixture comments) | `4cb7529`, `e4ef201` |
 | DOC-9 | `head_hash` documented as the chain head | closed (the docs in `e4ef201`; the code comments and the schema description in `40b6d06`) | `receipt.rs`, `event_log.rs::head_hash`, `schemas/run-receipt.schema.json` |
-| DOC-10 | Stale statements across ADRs, docs, env template | closed for the docs and scripts and the missing `.env.example` entries (`e4ef201`, `4cb7529`); open for `ports.rs` lines 4–5, which still promise an async M2 adapter, and for `.env.example`, which still documents `CONSENSUS_BIND` and `CONSENSUS_EVENT_LOG`, read by no code | `crates/consensus-runtime/src/ports.rs`, `.env.example` |
+| DOC-10 | Stale statements across ADRs, docs, env template | closed for the docs and scripts and the missing `.env.example` entries (`e4ef201`, `4cb7529`); and, after `e915b6d`, for `.env.example` (`0c473a6`: the dead `CONSENSUS_BIND` and `CONSENSUS_EVENT_LOG` replaced by the operator server's variables) and `ports.rs` (its module doc no longer promises an async M2 adapter) | `crates/consensus-runtime/src/ports.rs`, `.env.example` |
 | DOC-11 | Historical briefs carry superseded instructions | closed | `docs/reviews/README.md` (banners, errata) |
 | DOC-12 | Personal email in history; "mario" in demo defaults | accepted (history kept; neutral identities have no work item) | `main.rs`, `scenarios.rs` |
 | DOC-13 | Promised submission artifacts missing | open (the video and the submission checklist; the deployment runbook now exists but was not part of this finding) | — |
@@ -1499,7 +1511,10 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
     per-client and per-code daily counts; three public runs a day are shared behind one
     IPv4 NAT, and many prefixes evade them; the hourly cap (6) and the single public slot
     are shared by everyone; the eight Siteverify permits can be held by a bogus-token
-    flood (T27, T28).
+    flood (T27, T28). A request abandoned after its daily count was taken and before its
+    run started (a client disconnect, the request timeout) keeps the count, so that client
+    has one run fewer that day; the money is not affected (the dropped reservation is
+    released).
 11. **Operator runs count against the public day.** The operator lane shares the daily
     cap and the lifetime public share with the public lane, without pacing (T32); a
     `serve-operator` without `CONSENSUS_LIVE_LEDGER_DIR` meters nothing.
@@ -1539,12 +1554,12 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
     (the full-disk append test is Windows-only); `kill-switch.sh`, `ledger.sh`,
     `judge-codes.sh` and the other deploy scripts have no automated test; `cargo deny
     check` and `pnpm audit` not re-run at `e915b6d`; the web suites and the snapshot
-    tooling self-tests not run for this document; no Linux run of `e915b6d` (G8 passed at
-    `2f0efe0`) and the fresh-clone run still owed; the CI workflow has not run on GitHub;
+    tooling self-tests not run for this document; Linux parity passed on the tree of `25c7867` (G8);
+    the fresh-clone run is still owed; the CI workflow has not run on GitHub;
     no gitleaks or push protection.
-19. **Code-lane leftovers from the audit:** `ports.rs` still promises an async M2 adapter
-    (DOC-10 b); `.env.example` still documents `CONSENSUS_BIND` and `CONSENSUS_EVENT_LOG`,
-    which no code reads; the demo identity "mario" stays (DOC-12, accepted).
+19. **Code-lane leftovers from the audit:** the demo identity "mario" stays (DOC-12,
+    accepted); the stale `ports.rs` promise of an async M2 adapter and the dead
+    `.env.example` entries were corrected after `e915b6d` (DOC-10).
 20. **The deployment exists as templates only** (`docs/deployment/runbook.md`,
     `deploy/systemd`, `deploy/tmpfiles.d`, `deploy/cloudflared/config.yml.example`,
     `deploy/etc/consensus`, `deploy/scripts`): nothing is deployed, the edge is not

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Ports to untrusted participants.
 //!
-//! The runtime is synchronous in M1; M2 introduces the async Meta Model
-//! API adapter behind these same contracts. Implementations must enforce
-//! their own timeouts and return structured errors — the orchestrator
+//! The runtime is synchronous: the Meta and Hyphae adapters of
+//! `consensus-api` implement these contracts with blocking I/O, on the
+//! servers' blocking pool. Implementations must enforce their own
+//! timeouts and return structured errors — the orchestrator
 //! fails the run safely on any `Err` and never guesses.
 
 use crate::contract::OpenItem;

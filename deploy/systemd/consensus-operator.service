@@ -27,12 +27,11 @@ EnvironmentFile=/etc/consensus/operator.env
 # credentials directory /run/credentials/consensus-operator.service/, and
 # meters every model=meta run on the live ledger of public.env
 # (CONSENSUS_LIVE_LEDGER_DIR, gate G3), whose configuration it reads without
-# any credential: serve-operator never reads the Turnstile secret loaded
-# below. The bearer token travels the same way as the key: root:root 0600 on
+# any credential: serve-operator never reads the Turnstile secret, so this
+# unit loads none. The bearer token travels the same way as the key: root:root 0600 on
 # disk, readable by the service user only while the console runs, never by
 # any other account (operator.env points CONSENSUS_OPERATOR_TOKEN_FILE at it).
 LoadCredential=meta.key:/etc/consensus/credentials/meta.key
-LoadCredential=turnstile.secret:/etc/consensus/credentials/turnstile.secret
 LoadCredential=operator.token:/etc/consensus/credentials/operator.token
 
 ExecStart=/usr/local/bin/consensus-api serve-operator

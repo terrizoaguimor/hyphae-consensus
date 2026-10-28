@@ -243,10 +243,11 @@ pub struct MetaConfig {
     /// one duplicate generation that no invocation records (a successful
     /// retry shows as `attempts` = 2 with the answered call's usage only; a
     /// failed one surfaces only in the failure reason, "2 attempt(s)
-    /// made"). ADR-0007's ledger design (lane S-b2, not yet in this tree)
-    /// charges a post-send transport failure at the attempt's full worst
-    /// case against the run's reservation; until it lands, nothing accounts
-    /// for the duplicate. Timeouts, 504 and non-retryable 4xx are never
+    /// made"). The live ledger (ADR-0007, `live/budget.rs`) charges a
+    /// post-send transport failure at the attempt's full worst case against
+    /// the run's reservation, for public live runs and metered operator
+    /// runs; an unmetered run (no ledger configured) accounts for nothing
+    /// of the duplicate. Timeouts, 504 and non-retryable 4xx are never
     /// retried, whatever this is set to.
     pub retry_transport_once: bool,
     /// `max_completion_tokens` sent with every call.

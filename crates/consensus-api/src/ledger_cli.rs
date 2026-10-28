@@ -2,9 +2,11 @@
 //! `consensus-api ledger <status | reset | release>`: the operator's hands
 //! on the live-mode USD ledger (ADR-0007), from a shell on the server.
 //!
-//!   consensus-api ledger status
-//!   consensus-api ledger reset --by <operator>
-//!   consensus-api ledger release <reservation-id> --by <operator>
+//! ```text
+//! consensus-api ledger status
+//! consensus-api ledger reset --by <operator>
+//! consensus-api ledger release <reservation-id> --by <operator>
+//! ```
 //!
 //! It opens the ledger the public server writes, configured from the
 //! server's own environment (`CONSENSUS_LIVE_LEDGER_DIR`, the kill-switch

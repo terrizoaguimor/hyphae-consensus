@@ -25,7 +25,7 @@ use consensus_api::api::error::ErrorCode;
 use consensus_api::limits::ClientKey;
 use consensus_api::live::budget::{Lane, LedgerClock};
 use consensus_api::live::config::{defaults as live_defaults, vars};
-use consensus_api::live::gate::refusal_message;
+use consensus_api::live::gate::{refusal_message, SITEVERIFY_MAX_IN_FLIGHT};
 use consensus_api::live::money::Usd;
 use consensus_api::live::snapshot_factory::SnapshotFactory;
 use consensus_api::runs::RunKind;
@@ -1108,6 +1108,94 @@ async fn requests_waiting_on_siteverify_never_hold_the_live_slot() {
         .await;
     assert_eq!(h.ledger_records("reservation").len(), 1);
     assert_eq!(held.tokens().len(), 4);
+}
+
+// The test below holds exactly this many calls at Cloudflare.
+const _: () = assert!(SITEVERIFY_MAX_IN_FLIGHT == 8);
+
+/// Siteverify calls in flight are bounded: with SITEVERIFY_MAX_IN_FLIGHT of
+/// them held at Cloudflare, the next request is refused at once with
+/// `503 turnstile_unavailable` and a Retry-After, and its token never
+/// reaches Siteverify (a genuine token stays usable); once the held calls
+/// have answered, the same token verifies and the run is admitted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn siteverify_calls_in_flight_are_bounded_and_a_refused_token_is_not_spent() {
+    let held = HeldSiteverify::new();
+    let meta = serve(one_run(Duration::ZERO));
+    let h = live_server(
+        LiveOptions {
+            siteverify: Some(held.clone()),
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    let mut bogus = Vec::new();
+    for i in 0..SITEVERIFY_MAX_IN_FLIGHT {
+        let ip = format!("2001:db8:{:x}::1", 0x100 + i);
+        let (status, cookie) = h.server.new_session_from_header(&ip).await;
+        assert_eq!(status, StatusCode::CREATED);
+        bogus.push(
+            Req::post("/api/v1/live-runs")
+                .cookie(&cookie.unwrap())
+                .header("cf-connecting-ip", &ip)
+                .header(
+                    "cf-turnstile-response",
+                    &format!("{HELD_TOKEN_PREFIX}bogus-{i}"),
+                )
+                .json(&live_body(true, None)),
+        );
+    }
+    let visitor_cookie = h.session().await;
+    let [b0, b1, b2, b3, b4, b5, b6, b7]: [Req; 8] =
+        bogus.try_into().unwrap_or_else(|_| unreachable!());
+    let held_requests = async {
+        tokio::join!(
+            h.server.json(b0),
+            h.server.json(b1),
+            h.server.json(b2),
+            h.server.json(b3),
+            h.server.json(b4),
+            h.server.json(b5),
+            h.server.json(b6),
+            h.server.json(b7)
+        )
+    };
+    let visitor = async {
+        for _ in 0..500 {
+            if held.held() == SITEVERIFY_MAX_IN_FLIGHT {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let in_flight = held.held();
+        let refused = h
+            .server
+            .json(submit(&visitor_cookie, &live_body(true, None), Some(TOKEN)))
+            .await;
+        let tokens_seen = held.tokens();
+        held.release();
+        (in_flight, refused, tokens_seen)
+    };
+    let (_bogus_outcomes, (in_flight, (status, body, headers), tokens_seen)) =
+        tokio::join!(held_requests, visitor);
+    assert_eq!(in_flight, SITEVERIFY_MAX_IN_FLIGHT, "every slot was taken");
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["code"], "turnstile_unavailable", "{body}");
+    assert!(headers.get(header::RETRY_AFTER).is_some(), "{headers:?}");
+    assert!(
+        !tokens_seen.iter().any(|t| t == TOKEN),
+        "the refused token never reached Siteverify: {tokens_seen:?}"
+    );
+    assert!(h.ledger_records("reservation").is_empty());
+    // The same token, presented again once the calls have answered.
+    let (status, created, _) = h
+        .server
+        .json(submit(&visitor_cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    h.server
+        .wait_resting(&visitor_cookie, &run_id_of(&created))
+        .await;
 }
 
 /// With the slot busy, a request is answered for Turnstile first: a token

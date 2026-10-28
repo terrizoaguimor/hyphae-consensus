@@ -518,10 +518,10 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_PUBLIC_MODE` | `true` | refuses `CONSENSUS_META_DEBUG_DIR` and development-only behaviour (`config.rs`) |
 | `CONSENSUS_META_API_KEY_FILE` | `/run/credentials/consensus-public.service/meta.key` | parallel lane; the path systemd gives a `LoadCredential=meta.key:...` for this unit (`/run/credentials/UNITNAME`, `[SD-1]`) |
 | `CONSENSUS_HYPHAE_BIN` | `/opt/hyphae/bin/hyphae` | section 3.2; an absolute path, which it must be with `CONSENSUS_HYPHAE_BIN_SHA256` set (a relative path or a bare name then stops startup naming it) |
-| `CONSENSUS_HYPHAE_BIN_SHA256` | the extracted binary's sha256, 64 hex (section 3.2) | optional to the code, set in production; commented out in the template until the capture exists (section 3.3); must equal the manifest's `hyphae.binary_sha256`; at boot another file is `verifier_binary_mismatch` and a snapshot of another build `capture_binary_mismatch`, either leaving live mode unavailable (section 8.6); with live mode enabled a malformed value stops startup naming it |
+| `CONSENSUS_HYPHAE_BIN_SHA256` | the extracted binary's sha256, 64 hex (section 3.2) | required with live mode enabled on the unix socket (missing, startup stops naming it; a development TCP bind may leave it unset); commented out in the template until the capture exists (section 3.3); must equal the manifest's `hyphae.binary_sha256`; at boot another file is `verifier_binary_mismatch` and a snapshot of another build `capture_binary_mismatch`, either leaving live mode unavailable (section 8.6); with live mode enabled a malformed value stops startup naming it |
 | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` | the snapshot's anchor, 64 hex | mandatory for every non-simulated mode (ADR-0008 decision 5); commented out in the template until the capture exists (section 3.3); with live mode enabled a missing or malformed value stops startup naming it |
 | `CONSENSUS_SNAPSHOT_DIR` | `/var/lib/consensus/snapshots/<snapshot-id>` | commented out in the template until the capture exists; read only with `CONSENSUS_LIVE_ENABLED=true` (with live mode off a set value earns one `[snapshot]` notice and nothing is loaded); unset with live mode on stops startup; a snapshot that does not boot leaves the portal up with live mode unavailable (section 8.6); `CONSENSUS_SNAPSHOT_VERIFIER_DIR` stays unset (native verifier, same paths) |
-| `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` | the published sha256 of the snapshot's `manifest.json`, 64 hex (section 3.3) | optional to the code, set in production; commented out in the template until the capture exists; a manifest with another digest does not load (`manifest_pin_mismatch`, live mode unavailable, section 8.6); with live mode enabled a malformed value stops startup naming it |
+| `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` | the published sha256 of the snapshot's `manifest.json`, 64 hex (section 3.3) | required with live mode enabled on the unix socket (missing, startup stops naming it; a development TCP bind may leave it unset); commented out in the template until the capture exists; a manifest with another digest does not load (`manifest_pin_mismatch`, live mode unavailable, section 8.6); with live mode enabled a malformed value stops startup naming it |
 | `CONSENSUS_LIVE_ENABLED` | `false` until section 8.7, then `true` | `live/config.rs` |
 | `CONSENSUS_LIVE_LEDGER_DIR` | `/var/lib/consensus/ledger/staging` during staging; `/var/lib/consensus/ledger/public` from go-live | required when enabled; one directory per phase, so production starts at zero (section 4.5) |
 | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | `/etc/consensus/judge-codes.sha256`, set only once the file has at least one digest | an empty digest file is a configuration error (`live/judge.rs`) |
@@ -801,9 +801,10 @@ line and restart the service; never fall back to adding cloudflared to `consensu
 ### 5.2 `consensus-operator.service` (on demand, never enabled)
 
 Same sandbox and `EnvironmentFile=` chain (`public.env`, then `operator.env`: "the
-later setting will override the earlier setting" `[SD-1]`), its own three
-`LoadCredential=` lines (`meta.key`, `turnstile.secret` and `operator.token`, so
-`/run/credentials/consensus-operator.service/` holds all three while it runs),
+later setting will override the earlier setting" `[SD-1]`), its own two
+`LoadCredential=` lines (`meta.key` and `operator.token`, so
+`/run/credentials/consensus-operator.service/` holds both while it runs; no Turnstile
+secret: `serve-operator` reads the live configuration credential-free),
 `ReadWritePaths=` without the socket directory (the console has no socket),
 `ExecStart=/usr/local/bin/consensus-api serve-operator`, no `Restart=` and **no
 `[Install]` section**: enabling consists solely of creating the symlinks `[Install]`
@@ -1742,7 +1743,7 @@ or the code (the `grep` above); the visitor sees `429 live_client_quota` with
 | `KillMode=mixed`, `KillSignal=SIGTERM` | systemd.kill(5) `[SD-3]` | `mixed`: SIGTERM to the main process, SIGKILL to the remaining control group after the timeout; `KillSignal=` defaults to SIGTERM |
 | `User=`, `Group=`, `SupplementaryGroups=`, `UMask=` | systemd.exec(5) `[SD-1]` | user/group of the processes; supplementary groups extend the database's; `UMask=` defaults to 0022 |
 | `EnvironmentFile=` | systemd.exec(5) | newline-separated `VAR=value`, read shortly before execution, later files override earlier ones |
-| `LoadCredential=ID:PATH` (`meta.key`, `turnstile.secret`; plus `operator.token` in the operator unit) | systemd.exec(5) | copied read-only, accessible to the unit's user only, `$CREDENTIALS_DIRECTORY`, `/run/credentials/UNITNAME` for system services, 1 MB total |
+| `LoadCredential=ID:PATH` (`meta.key` and `turnstile.secret` in the public unit; `meta.key` and `operator.token` in the operator unit) | systemd.exec(5) | copied read-only, accessible to the unit's user only, `$CREDENTIALS_DIRECTORY`, `/run/credentials/UNITNAME` for system services, 1 MB total |
 | *(not used)* `RuntimeDirectory=` — replaced by `/etc/tmpfiles.d/consensus.conf` (`d /run/consensus 2750 consensus consensus-sock - -`) and `ReadWritePaths=/run/consensus` | systemd.exec(5); tmpfiles.d(5), systemd-tmpfiles(8) `[SD-8]` | `RuntimeDirectory=` owns the directory `User=`/`Group=` and re-applies that ownership to an existing directory, which would put the socket in the group `consensus`; a `d` line creates the directory at boot with the given mode and ownership, setgid included (the page's own examples use `1777`) |
 | `NoNewPrivileges=`, `ProtectSystem=strict`, `ReadWritePaths=`, `ProtectHome=`, `PrivateTmp=`, `PrivateDevices=` | systemd.exec(5) | as quoted in section 5.1 |
 | `ProtectKernelTunables=`, `ProtectKernelModules=`, `ProtectKernelLogs=`, `ProtectControlGroups=`, `ProtectClock=`, `ProtectHostname=`, `ProtectProc=invisible` | systemd.exec(5) | kernel tunables read-only; module loading denied; kernel log inaccessible; cgroup fs read-only; clock writes denied; UTS namespace; other users' processes hidden from `/proc` (effective with `User=`) |

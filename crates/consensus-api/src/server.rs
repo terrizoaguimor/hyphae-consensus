@@ -532,6 +532,38 @@ pub fn build_live_gate(
     Ok(Arc::new(gate))
 }
 
+/// With live mode enabled on the unix socket (the deployment path), the
+/// sealed snapshot's manifest and the verifier binary must both be pinned
+/// ([`crate::config::MANIFEST_SHA256_VAR`],
+/// [`crate::config::HYPHAE_BIN_SHA256_VAR`]): production never serves an
+/// unpinned snapshot, and a missing pin is a configuration error naming
+/// the variable. A development TCP bind may leave them unset (a
+/// containerised verifier is a wrapper, not the pinned binary); its
+/// startup line says what is not pinned.
+pub fn require_snapshot_pins(
+    listener: &PublicListener,
+    get: impl Fn(&str) -> Option<String>,
+) -> Result<(), String> {
+    if !matches!(listener, PublicListener::UnixSocket(_)) {
+        return Ok(());
+    }
+    let missing: Vec<&str> = [
+        crate::config::MANIFEST_SHA256_VAR,
+        crate::config::HYPHAE_BIN_SHA256_VAR,
+    ]
+    .into_iter()
+    .filter(|name| get(name).is_none_or(|value| value.trim().is_empty()))
+    .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "public live mode on the unix socket requires {}: production serves only a pinned snapshot and a pinned verifier (runbook 3.3 and 4.1); a development server on CONSENSUS_PUBLIC_BIND may leave them unset",
+            missing.join(" and ")
+        ))
+    }
+}
+
 /// `serve-public` over the sealed snapshot named by `CONSENSUS_SNAPSHOT_DIR`
 /// ([`SnapshotFactory::live_evidence_from_env`]), loaded only with live
 /// mode enabled; see [`serve_public_with`].
@@ -550,9 +582,11 @@ pub async fn serve_public() -> Result<(), Box<dyn std::error::Error>> {
 ///   missing, placeholder or broken snapshot never stops a portal that does
 ///   not use it;
 /// - live mode enabled: a configuration error of the loader (a snapshot or
-///   anchor variable missing or unusable) and an unset
-///   `CONSENSUS_SNAPSHOT_DIR` ([`build_live_gate`]) stop startup naming the
-///   variable; a snapshot that does not boot does not: the portal serves
+///   anchor variable missing or unusable), an unset
+///   `CONSENSUS_SNAPSHOT_DIR` ([`build_live_gate`]) and, on the unix
+///   socket, a missing manifest or verifier pin ([`require_snapshot_pins`])
+///   stop startup naming the variable; a snapshot that does not boot does
+///   not: the portal serves
 ///   and live mode is unavailable until the snapshot is fixed and the
 ///   server restarted (the code is logged; `/ready` reports
 ///   `live.evidence_ok: false`).
@@ -571,6 +605,7 @@ where
     // What the startup lines say about the evidence of an enabled live mode.
     let mut evidence_status = None;
     let live_gate = if live.enabled {
+        require_snapshot_pins(&cfg.listener, |name| std::env::var(name).ok())?;
         let enabled = live.clone();
         let (gate, status) = tokio::task::spawn_blocking(move || {
             let meta = public_meta_config()?;
@@ -781,4 +816,42 @@ pub async fn serve_operator() -> Result<(), Box<dyn std::error::Error>> {
 /// Kept for `cargo run -p consensus-api -- serve`: the operator console.
 pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     serve_operator().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    #[test]
+    fn live_mode_on_the_socket_requires_both_snapshot_pins() {
+        let socket = PublicListener::UnixSocket(PathBuf::from("/run/consensus/public.sock"));
+        let tcp = PublicListener::Tcp("127.0.0.1:8788".parse().unwrap());
+        let digest = "a".repeat(64);
+        let vars = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<BTreeMap<String, String>>()
+        };
+        let manifest = crate::config::MANIFEST_SHA256_VAR;
+        let binary = crate::config::HYPHAE_BIN_SHA256_VAR;
+        let both = vars(&[(manifest, &digest), (binary, &digest)]);
+        assert!(require_snapshot_pins(&socket, |n| both.get(n).cloned()).is_ok());
+        for (present, missing) in [
+            (vars(&[(binary, &digest)]), vec![manifest]),
+            (vars(&[(manifest, &digest)]), vec![binary]),
+            (vars(&[(manifest, "  "), (binary, &digest)]), vec![manifest]),
+            (vars(&[]), vec![manifest, binary]),
+        ] {
+            let err = require_snapshot_pins(&socket, |n| present.get(n).cloned()).unwrap_err();
+            for name in &missing {
+                assert!(err.contains(name), "{err}");
+            }
+        }
+        // A development TCP bind may run unpinned.
+        let none = vars(&[]);
+        assert!(require_snapshot_pins(&tcp, |n| none.get(n).cloned()).is_ok());
+    }
 }

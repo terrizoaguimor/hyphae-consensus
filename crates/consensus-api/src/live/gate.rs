@@ -77,7 +77,9 @@
 //! runs on the blocking pool with owned data; the gate's futures never
 //! block an async worker. Requests in phase one therefore wait on
 //! Siteverify concurrently, each on a blocking-pool thread: the slot does
-//! not bound them, the per-client run rate and the edge rate limit do.
+//! not bound them; at most [`SITEVERIFY_MAX_IN_FLIGHT`] calls are in flight
+//! at once (past that `503 turnstile_unavailable`, the token not sent), and
+//! the per-client run rate and the edge rate limit bound who gets there.
 //!
 //! **Siteverify's idempotency key.** Cloudflare re-validates a token under
 //! the same `idempotency_key` for its whole validity window, and that
@@ -164,6 +166,14 @@ pub const RELEASE_BACKOFF: [Duration; 3] = [
 /// past it the least recently counted key is forgotten first (and could be
 /// admitted again that day).
 pub const CLIENT_QUOTA_TABLE_MAX: usize = 10_000;
+
+/// Siteverify calls in flight at once. Phase one no longer waits behind
+/// the live slot, so without this bound every request carrying a token,
+/// a bogus one included, could hold a blocking-pool thread for up to
+/// [`super::turnstile::SITEVERIFY_TIMEOUT`]; past it a request is refused
+/// at once with `503 turnstile_unavailable` and a short Retry-After, before
+/// Siteverify sees its token (so a genuine token stays usable).
+pub const SITEVERIFY_MAX_IN_FLIGHT: usize = 8;
 
 // ---------------------------------------------------------------------
 // The deliberation factory (the seam for the sealed snapshot client)
@@ -650,6 +660,8 @@ struct Inner {
     run_limits: RunLimits,
     factory: Arc<dyn DeliberationFactory>,
     quotas: Quotas,
+    /// [`SITEVERIFY_MAX_IN_FLIGHT`] permits, one per Siteverify call.
+    siteverify_in_flight: tokio::sync::Semaphore,
 }
 
 /// The production [`crate::api::LiveGate`]; see the module doc.
@@ -682,6 +694,7 @@ impl LiveGate {
                 meta: parts.meta,
                 run_limits: parts.run_limits,
                 factory: parts.factory,
+                siteverify_in_flight: tokio::sync::Semaphore::new(SITEVERIFY_MAX_IN_FLIGHT),
             }),
         }
     }
@@ -780,6 +793,18 @@ impl Inner {
                 ErrorCode::TurnstileRequired,
                 refusal_message(ErrorCode::TurnstileRequired),
             ));
+        };
+        // At most SITEVERIFY_MAX_IN_FLIGHT calls wait on Cloudflare at once;
+        // past that the token is not sent, so a genuine one stays usable.
+        let Ok(_in_flight) = self.siteverify_in_flight.try_acquire() else {
+            eprintln!(
+                "[live-gate] refused a live run: {SITEVERIFY_MAX_IN_FLIGHT} Siteverify calls are already in flight"
+            );
+            return Err(ApiError::new(
+                ErrorCode::TurnstileUnavailable,
+                refusal_message(ErrorCode::TurnstileUnavailable),
+            )
+            .with_retry_after(2));
         };
         let idempotency_key = uuid::Uuid::new_v4().to_string();
         if let Err(e) = self.siteverify.verify(token, None, &idempotency_key) {

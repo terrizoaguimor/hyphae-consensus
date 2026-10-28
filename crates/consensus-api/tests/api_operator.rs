@@ -699,6 +699,11 @@ fn serve_operator_opens_an_existing_live_ledger_with_the_server_caps_and_no_cred
         vars::JUDGE_CODES_FILE,
         scratch.path().join("absent-codes").display().to_string(),
     );
+    // public.env's other Turnstile settings, as deployed: the hostname is
+    // required by serve-public and must not trip the credential-free load.
+    env.insert(vars::TURNSTILE_HOSTNAME, "portal.example".into());
+    env.insert(vars::TURNSTILE_ACTION_LIVE, "live-run".into());
+    env.insert(vars::TURNSTILE_ACTION_SESSION, "session".into());
     env.insert(vars::DAILY_USD, "5.00".into());
     let ledger = operator_ledger(&env).unwrap().expect("the server's ledger");
     assert_eq!(ledger.dir(), dir.as_path());

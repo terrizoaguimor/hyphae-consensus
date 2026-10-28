@@ -44,8 +44,10 @@ and the account holder pays any overage.
 
 4. **Admission.** Turnstile verified server-side (success, action and hostname checked,
    fail closed on outage); an 18+ attestation; per-client windows keyed by IPv4 /32 or
-   IPv6 /64 in bounded tables; live concurrency 1 per client and 1–2 globally; a judge
-   lane behind invite codes (stored as digests) with its own slot and budget slice.
+   IPv6 /64 in bounded tables; live concurrency 1–2 globally (as implemented: one global
+   live slot, a daily quota of public runs per client key instead of a per-client
+   concurrency limit, see Implementation); a judge lane behind invite codes (stored as
+   digests) with its own slot and budget slice.
 
 5. **A USD ledger that reserves the worst case.** Because Meta has no hard cap, the
    server keeps an append-only, fsynced daily ledger behind an exclusive file lock shared
@@ -99,7 +101,9 @@ and the account holder pays any overage.
      Requests still waiting on Siteverify (up to its 10 s timeout) hold no slot, so bogus
      tokens sent from many prefixes no longer keep it from a visitor who solved a
      challenge. They wait concurrently on the blocking pool instead, bounded by the
-     per-client run rate and the edge rate-limit rule.
+     per-client run rate, the edge rate-limit rule and a global cap of 8 calls in flight
+     (`SITEVERIFY_MAX_IN_FLIGHT`: past it `503 turnstile_unavailable` with `Retry-After`,
+     before the token is sent, so a genuine token stays usable).
   3. *Phase two* (`VerifiedLiveRequest::admit`, with the slot held): the lane's daily
      quota (below), the ledger reservation (`429` with `Retry-After` when the ledger
      gives a hint, `503` otherwise; stable codes `live_budget_*`, `live_concurrency`,
@@ -127,9 +131,13 @@ and the account holder pays any overage.
   refusal never consumes it. Over the quota: `429 live_client_quota`,
   `Retry-After` until 00:00 UTC, a fixed sentence without figures. The judge lane is
   exempt. The table is process-local: a restart of `serve-public` forgets every count.
+  Residual: a request abandoned after its count was taken and before the run started (a
+  client disconnect, the request timeout) keeps the count, so that client has one run
+  fewer that day; the money is not affected (the dropped reservation is released).
 - Judge codes: `deploy/scripts/judge-codes.sh` generates them on the server (140 random
   bits each from `/dev/urandom`, 28 symbols of `0-9 A-Z` without `I L O U` in seven
-  hyphenated groups of four, entered exactly as printed), prints them once for the
+  hyphenated groups of four, entered as printed, lowercase accepted: the server matches
+  the trimmed code as typed or in capitals), prints them once for the
   submission's testing instructions, and writes only their SHA-256 digests,
   `root:consensus 0640`, refusing to overwrite an existing digests file without
   `--force`. Each code admits at most `CONSENSUS_LIVE_JUDGE_CODE_DAILY` (default 5)

@@ -141,6 +141,14 @@ impl JudgeCodes {
         if code.is_empty() || code.len() > MAX_CODE_LEN {
             return None;
         }
+        // The code as typed, then in capitals: deploy/scripts/judge-codes.sh
+        // prints capitals, and the same code typed in lowercase is the same
+        // code (its id, and so its daily count, is the capitals' digest).
+        self.lookup_exact(code)
+            .or_else(|| self.lookup_exact(&code.to_ascii_uppercase()))
+    }
+
+    fn lookup_exact(&self, code: &str) -> Option<JudgeCodeId> {
         let presented: [u8; 32] = Sha256::digest(code.as_bytes()).into();
         let mut any_match = 0u8;
         for stored in &self.digests {
@@ -206,6 +214,24 @@ mod tests {
         assert_eq!(codes.lookup(""), None);
         assert_eq!(JudgeCodes::none().lookup("alpha-7231"), None);
         assert_eq!(format!("{alpha:?}"), "JudgeCodeId(<redacted>)");
+    }
+
+    #[test]
+    fn a_printed_code_typed_in_lowercase_is_the_same_code() {
+        // judge-codes.sh prints capitals; a judge may type them in lowercase.
+        let printed = "7K3Q-M9XA-2BRT";
+        let codes = JudgeCodes::parse(&JudgeCodes::digest_hex(printed)).unwrap();
+        let id = codes.lookup(printed).expect("the printed code");
+        assert_eq!(
+            codes.lookup("7k3q-m9xa-2brt"),
+            Some(id),
+            "one id, one daily count"
+        );
+        assert_eq!(codes.lookup("7k3Q-M9xa-2BRT"), Some(id));
+        assert_eq!(codes.lookup("7K3Q-M9XA-2BRU"), None);
+        // A code stored in lowercase (written by hand) is still found as typed.
+        let manual = JudgeCodes::parse(&JudgeCodes::digest_hex("alpha-7231")).unwrap();
+        assert!(manual.verify("alpha-7231"));
     }
 
     #[test]

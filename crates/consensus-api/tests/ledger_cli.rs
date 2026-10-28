@@ -296,6 +296,11 @@ fn no_credential_is_read_and_the_server_caps_apply() {
         vars::JUDGE_CODES_FILE,
         tmp.path().join("absent-judge-codes").display().to_string(),
     );
+    // The rest of the deployed public.env's Turnstile settings: without the
+    // hidden secret file, a hostname alone would read as inconsistent.
+    env.insert(vars::TURNSTILE_HOSTNAME, "portal.example".into());
+    env.insert(vars::TURNSTILE_ACTION_LIVE, "live-run".into());
+    env.insert(vars::TURNSTILE_ACTION_SESSION, "session".into());
     env.insert(vars::DAILY_USD, "5.00".into());
     assert!(
         LiveConfig::load(Exposure::Public, &env).is_err(),

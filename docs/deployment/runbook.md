@@ -546,10 +546,11 @@ be reached before judging ends (open question). Never set `CONSENSUS_META_API_KE
 `MODEL_API_KEY`, `META_API_KEY`, `HYPHAE_NATIVE_API_KEY_FILE`, `HYPHAE_NATIVE_ENDPOINT`
 or `HYPHAE_BASE_URL` on this server.
 
-`operator.env` points `CONSENSUS_OPERATOR_TOKEN_FILE`, `CONSENSUS_META_API_KEY_FILE`
-and `CONSENSUS_TURNSTILE_SECRET_FILE` at `/run/credentials/consensus-operator.service/...`,
-that unit's own credentials directory (the token is a `LoadCredential=` like the
-other two, section 4.2). `CONSENSUS_OPERATOR_BIND` keeps its default `127.0.0.1:8787`
+`operator.env` points `CONSENSUS_OPERATOR_TOKEN_FILE` and `CONSENSUS_META_API_KEY_FILE`
+at `/run/credentials/consensus-operator.service/...`, that unit's own credentials
+directory (the token is a `LoadCredential=` like the key, section 4.2); the operator unit
+loads no Turnstile secret, since `serve-operator` reads the live configuration
+credential-free. `CONSENSUS_OPERATOR_BIND` keeps its default `127.0.0.1:8787`
 (`public_config.rs`; a non-loopback address is refused), and `CONSENSUS_LIVE_LEDGER_DIR`
 is inherited from `public.env`, never overridden: `serve-operator` opens that ledger with
 the same caps as `consensus-public` and meters every console `model=meta` run on it, on
@@ -1070,7 +1071,11 @@ the edge").
       refuses a token older than 300 s (`live/turnstile.rs`). Siteverify is
       `POST https://challenges.cloudflare.com/turnstile/v0/siteverify` with `secret`,
       `response`, optional `remoteip` and `idempotency_key`; "Each token can only be
-      validated once" `[CF-21]` (the egress rule of section 2.4 covers it).
+      validated once" `[CF-21]` (the egress rule of section 2.4 covers it). At most 8
+      Siteverify calls are in flight at once, for all clients together
+      (`SITEVERIFY_MAX_IN_FLIGHT`, `live/gate.rs`); past that a live-run request is
+      answered `503 turnstile_unavailable` with `Retry-After: 2` and its token is not
+      sent, so the visitor can retry with it.
 
 ### 7.7 Features that must stay OFF for `<hostname>` (gate G6: edge HTML byte-equal to origin)
 

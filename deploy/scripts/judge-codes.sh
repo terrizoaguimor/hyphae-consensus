@@ -12,8 +12,9 @@
 # never written to disk, never passed as an argument to another program and
 # never logged by this script.
 #
-# A judge enters a code exactly as printed, hyphens included: the server
-# hashes what it receives (trimmed) and compares it with these digests.
+# A judge enters a code as printed, hyphens included (lowercase is accepted
+# too): the server hashes what it receives (trimmed), then its capitals, and
+# compares them with these digests.
 #
 #   sudo deploy/scripts/judge-codes.sh [--count N] [--out FILE] [--force]
 #

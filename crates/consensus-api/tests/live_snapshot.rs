@@ -2058,3 +2058,45 @@ fn with_live_mode_enabled_serve_public_boots_pinned_and_refuses_an_unusable_pin(
     }
     assert_eq!(fx.calls().len(), 2, "nothing was verified for them");
 }
+
+/// On the unix socket (the deployment path) live mode needs both pins:
+/// without either one `serve-public` stops before it listens, naming the
+/// missing variable; with both it serves (require_snapshot_pins). The TCP
+/// tests above run unpinned or pinned at will.
+#[cfg(unix)]
+#[test]
+fn with_live_mode_enabled_on_the_socket_serve_public_requires_both_pins() {
+    let scratch = TempRoot::new("serve-public-socket-pins");
+    let mut socket: Vec<(&'static str, String)> = server_vars(&scratch)
+        .into_iter()
+        .filter(|(name, _)| *name != "CONSENSUS_PUBLIC_BIND")
+        .collect();
+    socket.push((
+        "CONSENSUS_PUBLIC_SOCKET",
+        scratch.join("public.sock").display().to_string(),
+    ));
+    socket.push((
+        "CONSENSUS_ALLOWED_ORIGINS",
+        "https://demo.example.org".into(),
+    ));
+    socket.push(("CONSENSUS_ALLOWED_HOSTS", "demo.example.org".into()));
+    let live = [socket, live_on_vars(&scratch)].concat();
+    let fx = Fixture::new("serve-public-socket-pins");
+    for missing in [
+        "CONSENSUS_SNAPSHOT_MANIFEST_SHA256",
+        "CONSENSUS_HYPHAE_BIN_SHA256",
+    ] {
+        let vars: Vec<(&'static str, String)> = [live.clone(), fx.vars()]
+            .concat()
+            .into_iter()
+            .filter(|(name, _)| *name != missing)
+            .collect();
+        let s = serve_public(&scratch, &vars);
+        assert!(!s.listening, "{missing}: {s:?}");
+        assert_eq!(s.exit_code, Some(1), "{missing}: {s:?}");
+        assert!(s.all().contains(missing), "{missing}: {s:?}");
+    }
+    assert_eq!(fx.calls().len(), 0, "nothing was verified without the pins");
+    let s = serve_public(&scratch, &[live, fx.vars()].concat());
+    assert!(s.listening, "{s:?}");
+}

@@ -175,15 +175,23 @@ impl EnvSource for BTreeMap<&'static str, String> {
     }
 }
 
-/// The server's environment without what the ledger never needs: the
-/// live-mode switch (so nothing else becomes required) and the two files
-/// that hold secrets ([`LiveConfig::load_credential_free`]).
+/// The server's environment without what the ledger never needs
+/// ([`LiveConfig::load_credential_free`]): the live-mode switch (so nothing
+/// else becomes required), the judge-codes file, and every Turnstile
+/// setting: the secret file holds a secret, and the hostname or actions
+/// without it would read as an inconsistent Turnstile configuration (the
+/// server's own public.env sets the hostname).
 pub struct LedgerEnv<'a>(pub &'a dyn EnvSource);
 
 impl EnvSource for LedgerEnv<'_> {
     fn get(&self, name: &'static str) -> Result<Option<String>, ConfigError> {
         match name {
-            vars::LIVE_ENABLED | vars::TURNSTILE_SECRET_FILE | vars::JUDGE_CODES_FILE => Ok(None),
+            vars::LIVE_ENABLED
+            | vars::JUDGE_CODES_FILE
+            | vars::TURNSTILE_SECRET_FILE
+            | vars::TURNSTILE_HOSTNAME
+            | vars::TURNSTILE_ACTION_LIVE
+            | vars::TURNSTILE_ACTION_SESSION => Ok(None),
             _ => self.0.get(name),
         }
     }

@@ -25,6 +25,10 @@
 //! - [`gate`]: the admission itself ([`gate::LiveGate`]), the evidence
 //!   factory seam for the sealed snapshot ([`gate::DeliberationFactory`])
 //!   and the reservation's lifetime ([`gate::MeteredDeliberation`]).
+//! - [`snapshot_factory`]: the production evidence factory
+//!   ([`snapshot_factory::SnapshotFactory`]): the sealed snapshot client
+//!   (ADR-0008) boot-verified from `CONSENSUS_SNAPSHOT_DIR`, a copy per run
+//!   with a fresh verifier.
 //!
 //! How the pieces are wired (implemented; see each item's code):
 //! - Check order per ABUSE-9 ([`gate::LiveGate`]): the route's
@@ -103,4 +107,5 @@ pub mod geo;
 pub mod judge;
 pub mod money;
 pub mod presets;
+pub mod snapshot_factory;
 pub mod turnstile;

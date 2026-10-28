@@ -958,9 +958,7 @@ pub fn capabilities_of(state: &AppState, live: Option<LiveCapabilitiesV1>) -> Ca
     }
 }
 
-pub async fn capabilities(
-    State(state): State<AppState>,
-) -> Result<Json<CapabilitiesV1>, ApiError> {
+pub async fn capabilities(State(state): State<AppState>) -> Result<Json<CapabilitiesV1>, ApiError> {
     let live = live_capabilities(&state).await?;
     Ok(Json(capabilities_of(&state, live)))
 }

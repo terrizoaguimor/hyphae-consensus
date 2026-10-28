@@ -61,8 +61,7 @@ use super::presets::{PresetId as LivePresetId, PRESETS};
 use super::turnstile::Siteverify;
 use crate::api::error::{ApiError, ErrorCode};
 use crate::api::types::{
-    EvidenceProvenance, LiveCapabilitiesV1, LiveReadyV1, ModelProvenance, PresetV1,
-    PublicBudgetV1,
+    EvidenceProvenance, LiveCapabilitiesV1, LiveReadyV1, ModelProvenance, PresetV1, PublicBudgetV1,
 };
 use crate::api::{geo_message, AdmitFuture, LiveAdmissionRequest, LiveGrant};
 use crate::config::MetaConfig;
@@ -905,7 +904,10 @@ mod tests {
         let started = std::time::Instant::now();
         let outcome = holder.release(&[Duration::from_millis(50)], "test");
         assert_eq!(outcome, ReleaseOutcome::Failed);
-        assert!(started.elapsed() >= Duration::from_millis(450), "two attempts");
+        assert!(
+            started.elapsed() >= Duration::from_millis(450),
+            "two attempts"
+        );
         assert!(!holder.is_held(), "the handle is gone; the slot is free");
         lock.unlock().unwrap();
         // The ledger still counts the worst case until an operator

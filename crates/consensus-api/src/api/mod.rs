@@ -143,11 +143,6 @@ pub struct LiveAdmissionRequest {
     /// A judge-lane invite code, trimmed and bounded by the route; the
     /// gate hashes it and never stores or logs it.
     pub judge_code: Option<String>,
-    /// The request's validated `Idempotency-Key`, when it carried one.
-    /// Passed through to Siteverify so a retried submit with the same key
-    /// may present the same token; the route's own idempotency lookup
-    /// runs before the gate is asked.
-    pub idempotency_key: Option<String>,
     /// The raw `CF-IPCountry` value, only when this listener trusts its
     /// proxy headers; `None` otherwise (a development bind), which the
     /// live surface treats as an unknown country.
@@ -182,8 +177,12 @@ pub type AdmitFuture<'a> = Pin<Box<dyn Future<Output = Result<LiveGrant, ApiErro
 ///
 /// 1. the body is validated (bounds of `judge_code`); a repeated
 ///    `Idempotency-Key` is answered from the stored creation, and one
-///    reused with another body is `409`, before anything else, so one
-///    solved Turnstile challenge can never start a second, different run;
+///    reused with another body is `409`, before anything else, so a
+///    retried submit whose first attempt succeeded costs nothing more. The
+///    key itself never reaches the gate: Siteverify is called with a fresh
+///    UUID per request, which is what keeps one solved Turnstile challenge
+///    to one run (the route's replay is owner-scoped and recorded only
+///    after the start, so it could not);
 /// 2. the request is admitted like every creation (session, rates, the
 ///    visitor-run ring, not shutting down);
 /// 3. a live deliberation slot is reserved ([`RunManager::reserve`]):

@@ -115,7 +115,12 @@ impl DeliberationFactory for ScriptedEvidenceFactory {
 /// What the scripted Siteverify answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SiteverifyMode {
+    /// Every token passes, however often it is presented.
     Pass,
+    /// Cloudflare's real rule: a token passes once, or again only under
+    /// the idempotency key of its first validation; any other repeat is
+    /// `timeout-or-duplicate`.
+    SingleUse,
     Fail,
     Outage,
 }
@@ -124,10 +129,24 @@ pub enum SiteverifyMode {
 pub fn scripted_siteverify(
     mode: Arc<Mutex<SiteverifyMode>>,
 ) -> (Arc<dyn Siteverify>, Arc<FakeSiteverify>) {
-    let fake = Arc::new(FakeSiteverify::new(move |_, _| {
+    let fake = Arc::new(FakeSiteverify::new(move |call, earlier| {
         match *mode.lock().unwrap() {
             SiteverifyMode::Pass => {
                 Ok(passing_answer(TURNSTILE_HOST, TURNSTILE_ACTION, Utc::now()))
+            }
+            SiteverifyMode::SingleUse => {
+                let spent_under_another_key = earlier
+                    .iter()
+                    .any(|c| c.token == call.token && c.idempotency_key != call.idempotency_key);
+                if spent_under_another_key {
+                    Ok(SiteverifyResponse {
+                        success: false,
+                        error_codes: vec!["timeout-or-duplicate".into()],
+                        ..SiteverifyResponse::default()
+                    })
+                } else {
+                    Ok(passing_answer(TURNSTILE_HOST, TURNSTILE_ACTION, Utc::now()))
+                }
             }
             SiteverifyMode::Fail => Ok(SiteverifyResponse {
                 success: false,
@@ -244,6 +263,9 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
             max_run_tokens: config.budget.run_token_cap,
         },
         factory: factory.clone(),
+        // Every `/capabilities` and `/ready` reads the ledger's files (when
+        // the lock is free), so a test sees what it wrote to them at once.
+        snapshot_max_age: Duration::ZERO,
         config: config.clone(),
     }));
     let mut env: Vec<(&str, &str)> = vec![("CONSENSUS_LIVE_CONCURRENCY", "1")];
@@ -310,6 +332,20 @@ impl LiveHarness {
     /// The kill-switch file the ledger watches.
     pub fn kill_switch(&self) -> PathBuf {
         self.ledger_dir.join("kill-switch")
+    }
+
+    /// Appends a line no record parser accepts to today's day file, as a
+    /// damaged disk or a foreign writer would: every later read of the
+    /// ledger fails with `Corrupt`.
+    pub fn corrupt_ledger(&self) {
+        let day = Utc::now().format("%Y-%m-%d");
+        let path = self.ledger_dir.join(format!("{day}.jsonl"));
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
+        std::io::Write::write_all(&mut file, b"not a ledger record\n").unwrap();
     }
 
     /// A session for the harness visitor (the listener trusts the proxy

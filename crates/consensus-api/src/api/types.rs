@@ -968,7 +968,8 @@ pub struct PublicBudgetV1 {
     pub daily_available_now: String,
     pub lifetime_remaining: String,
     /// True when the ledger refuses every admission until an operator
-    /// resets it.
+    /// resets it, or when the operator's kill-switch file exists (reported
+    /// at once, before the next admission records the trip).
     pub tripped: bool,
     /// `kill_switch`, `lifetime_cap`, `output_bound`, `charge_bound`,
     /// `provider_refused_key` or `inconsistent`, when tripped.
@@ -980,7 +981,11 @@ pub struct PublicBudgetV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LiveCapabilitiesV1 {
     pub presets: Vec<PresetV1>,
-    pub budget: PublicBudgetV1,
+    /// The visitor-safe budget. Absent when the ledger could not be read:
+    /// no run can be admitted until it can (`/ready` then reports
+    /// `live.ledger_ok: false`), and no figure is invented in its place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<PublicBudgetV1>,
     /// Always true: a Turnstile token must accompany every live run.
     pub requires_turnstile: bool,
     /// Always true: `attest_adult` must be true on every live run.

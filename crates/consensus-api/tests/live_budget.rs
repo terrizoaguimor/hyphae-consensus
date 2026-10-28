@@ -1037,7 +1037,9 @@ fn the_reservation_is_a_hard_ceiling() {
         Refusal::ReservationExhausted { remaining, needed } => {
             assert_eq!(remaining, usd("0.259520"));
             assert_eq!(needed, usd(ATTEMPT_EST));
-            assert_eq!(refusal.code(), "live_run_budget");
+            // A draw-time refusal: the run fails with the adapter's
+            // `budget_refused`; as an admission code it is the generic one.
+            assert_eq!(refusal.code(), "live_unavailable");
         }
         other => panic!("{other:?}"),
     }
@@ -1254,15 +1256,19 @@ fn snapshot_and_refusals_expose_stable_codes_and_string_money() {
         .code(),
     ]
     .to_vec();
+    // The wire strings of the API's ErrorCode (gate::refusal_code): one set
+    // of codes for the UI, a tripped ledger never reading as "live mode
+    // off" (`live_disabled` is the route's code for a server without a
+    // gate).
     assert_eq!(
         codes,
         vec![
-            "live_disabled",
+            "live_tripped",
             "live_budget_daily",
             "live_budget_lifetime",
-            "live_budget_judge",
-            "live_rate_hourly",
-            "live_busy"
+            "live_budget_judge_slice",
+            "live_hourly_admissions",
+            "live_concurrency"
         ]
     );
     assert_eq!(Refusal::LifetimeBudget.retry_after(), None);

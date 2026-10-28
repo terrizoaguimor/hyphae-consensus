@@ -4,7 +4,11 @@
 //! lane, the ledger's refusals and, end to end against the fake Chat
 //! Completions server, a metered live run: one reservation, one draw and
 //! one settlement per HTTP attempt, a release, the budget published by
-//! `/capabilities`, and the key appearing nowhere.
+//! `/capabilities`, and the key appearing nowhere. Then one solved
+//! Turnstile challenge admitting one run however the token is replayed
+//! (another session, concurrent duplicates), and what the operator sees
+//! before anyone submits: the kill switch at once, no budget at all for a
+//! ledger that cannot be read.
 
 mod common;
 mod support;
@@ -16,6 +20,7 @@ use common::live::{
 };
 use common::{body_text, public_server, read_sse, Req, COUNTRY_HEADER};
 use consensus_api::live::config::vars;
+use consensus_api::live::money::Usd;
 use consensus_api::server::{build_live_gate, BuildOptions};
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -322,11 +327,19 @@ async fn admission_refuses_in_order_and_charges_nothing() {
         .await;
     assert_eq!(status, StatusCode::ACCEPTED, "{created}");
     let calls = h.siteverify.calls();
-    assert_eq!(
-        calls.last().unwrap().idempotency_key,
-        "submit-live-1",
-        "the request's own key is the Siteverify key"
+    // Siteverify never sees the request's key: Cloudflare's idempotency is
+    // global, so the header would let one token start several runs. Every
+    // call gets its own UUID instead.
+    let siteverify_key = &calls.last().unwrap().idempotency_key;
+    assert_ne!(siteverify_key, "submit-live-1");
+    assert!(
+        uuid::Uuid::parse_str(siteverify_key).is_ok(),
+        "a fresh UUID per verification: {siteverify_key}"
     );
+    let mut keys: Vec<&str> = calls.iter().map(|c| c.idempotency_key.as_str()).collect();
+    keys.sort_unstable();
+    keys.dedup();
+    assert_eq!(keys.len(), calls.len(), "no key is ever reused: {calls:?}");
     // A retry with the same key is answered from the stored run: Siteverify
     // is not asked again and nothing more is reserved.
     let (status, again, _) = h
@@ -844,12 +857,8 @@ async fn a_connection_dropped_after_the_request_draws_twice_and_settles_both() {
     assert_eq!(settlements[0]["outcome"]["kind"], "unknown");
     assert_eq!(settlements[0]["detail"], "transport error after send");
     // 1024 + body bytes at $4/M plus 12,000 × $20/M: at least the output.
-    let est: f64 = settlements[0]["charged_usd"]
-        .as_str()
-        .unwrap()
-        .parse()
-        .unwrap();
-    assert!(est > 0.24, "{est}");
+    let est = Usd::parse(settlements[0]["charged_usd"].as_str().unwrap()).unwrap();
+    assert!(est > Usd::parse("0.24").unwrap(), "{est}");
     for s in &settlements[1..] {
         assert_eq!(s["outcome"]["kind"], "usage", "{s}");
         assert_eq!(s["charged_usd"], "0.001400");
@@ -860,6 +869,246 @@ async fn a_connection_dropped_after_the_request_draws_twice_and_settles_both() {
     assert!(detail["model_invocations"][0].get("attempts").is_none());
     let snapshot = h.ledger.snapshot().unwrap();
     assert_eq!(snapshot.unsettled_reservations, 0);
+}
+
+// ---------------------------------------------------------------------
+// One solved challenge, one run
+// ---------------------------------------------------------------------
+
+/// Cloudflare re-validates a token under the idempotency key of its first
+/// validation, for every caller. Forwarding the request's own
+/// `Idempotency-Key` to Siteverify therefore let a second session replay a
+/// solved challenge (the route's replay is owner-scoped and recorded only
+/// after the start): two reservations and two runs on one token. The gate
+/// mints a fresh UUID per verification instead, and the token is spent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_token_replayed_from_another_session_starts_no_second_run() {
+    let meta = serve(one_run(Duration::ZERO));
+    let h = live_server(LiveOptions::default(), meta_config(&meta.base_url));
+    h.set_siteverify(SiteverifyMode::SingleUse);
+    let alice = h.session().await;
+    let (status, created, _) = h
+        .server
+        .json(
+            submit(&alice, &live_body(true, None), Some(TOKEN))
+                .header("idempotency-key", "shared-key-1"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = run_id_of(&created);
+    h.server.wait_resting(&alice, &run_id).await;
+    h.server.wait_released(&run_id).await;
+
+    // Another visitor (another session, another address) presents Alice's
+    // key and token. The route knows nothing of her key under this owner;
+    // the gate asks Siteverify under a UUID of its own; the token is spent.
+    let other_ip = "203.0.113.9";
+    let (status, cookie) = h.server.new_session_from_header(other_ip).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let mallory = cookie.expect("session cookie");
+    let (status, body, _) = h
+        .server
+        .json(
+            Req::post("/api/v1/live-runs")
+                .cookie(&mallory)
+                .header("cf-connecting-ip", other_ip)
+                .header("cf-turnstile-response", TOKEN)
+                .header("idempotency-key", "shared-key-1")
+                .json(&live_body(true, None)),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["code"], "turnstile_failed");
+    let calls = h.siteverify.calls();
+    assert_eq!(
+        calls.len(),
+        2,
+        "only Siteverify knows a token is spent, so it is asked: {calls:?}"
+    );
+    assert_ne!(calls[0].idempotency_key, calls[1].idempotency_key);
+    for call in &calls {
+        assert_ne!(call.idempotency_key, "shared-key-1", "{call:?}");
+        assert!(
+            uuid::Uuid::parse_str(&call.idempotency_key).is_ok(),
+            "{call:?}"
+        );
+    }
+    assert_eq!(
+        h.ledger_records("reservation").len(),
+        1,
+        "one solved challenge, one reservation"
+    );
+    let (_, list, _) = h
+        .server
+        .json(
+            Req::get("/api/v1/runs")
+                .cookie(&mallory)
+                .header("cf-connecting-ip", other_ip),
+        )
+        .await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 0, "{list}");
+
+    // Alice's own retry is still answered from her stored creation: neither
+    // Siteverify nor the ledger is asked again.
+    let (status, again, _) = h
+        .server
+        .json(
+            submit(&alice, &live_body(true, None), Some(TOKEN))
+                .header("idempotency-key", "shared-key-1"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["run"]["run_id"], created["run"]["run_id"]);
+    assert_eq!(h.siteverify.calls().len(), 2);
+    assert_eq!(h.ledger_records("reservation").len(), 1);
+    assert_eq!(meta.hits(), 3, "one run's calls");
+}
+
+/// Three identical submits at once from one session (same key, same
+/// token). The route's replay has nothing stored yet for any of them, so
+/// all three reach the gate; each asks Siteverify under its own UUID and
+/// the token passes exactly once. With the header forwarded, all three
+/// shared one key and all three were admitted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_duplicates_of_one_submit_start_one_run() {
+    let meta = serve(one_run(Duration::from_millis(300)));
+    let h = live_server(
+        LiveOptions {
+            // Three live slots: nothing but Turnstile may tell them apart.
+            server_env: vec![("CONSENSUS_LIVE_CONCURRENCY", "3".into())],
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    h.set_siteverify(SiteverifyMode::SingleUse);
+    let cookie = h.session().await;
+    let duplicate =
+        || submit(&cookie, &live_body(true, None), Some(TOKEN)).header("idempotency-key", "dup-1");
+    let (a, b, c) = tokio::join!(
+        h.server.json(duplicate()),
+        h.server.json(duplicate()),
+        h.server.json(duplicate())
+    );
+    let mut outcomes = vec![a, b, c];
+    outcomes.sort_by_key(|(status, _, _)| status.as_u16());
+    let statuses: Vec<u16> = outcomes.iter().map(|(s, _, _)| s.as_u16()).collect();
+    assert_eq!(statuses, vec![202, 403, 403], "{outcomes:?}");
+    for (_, body, _) in &outcomes[1..] {
+        assert_eq!(body["code"], "turnstile_failed", "{body}");
+    }
+    let calls = h.siteverify.calls();
+    assert_eq!(calls.len(), 3, "{calls:?}");
+    let mut keys: Vec<&str> = calls.iter().map(|c| c.idempotency_key.as_str()).collect();
+    keys.sort_unstable();
+    keys.dedup();
+    assert_eq!(keys.len(), 3, "three distinct keys: {calls:?}");
+    assert!(
+        keys.iter().all(|k| *k != "dup-1"),
+        "never the header's: {calls:?}"
+    );
+    let run_id = run_id_of(&outcomes[0].1);
+    h.server.wait_resting(&cookie, &run_id).await;
+    assert_eq!(h.ledger_records("reservation").len(), 1);
+    let (_, list, _) = h
+        .server
+        .json(visitor(Req::get("/api/v1/runs"), &cookie))
+        .await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 1, "{list}");
+    assert_eq!(meta.hits(), 3, "one run's calls");
+}
+
+// ---------------------------------------------------------------------
+// What the operator sees before anyone submits
+// ---------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_kill_switch_is_reported_before_any_admission_trips_the_ledger() {
+    let meta = serve(one_run(Duration::ZERO));
+    let h = live_server(LiveOptions::default(), meta_config(&meta.base_url));
+    let (_, ready, _) = h.server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(ready["ready"], true, "{ready}");
+    assert_eq!(ready["live"]["tripped"], false);
+
+    // The operator flips the switch during an incident and watches /ready:
+    // it says paused at once, although no visitor has tripped the ledger.
+    std::fs::write(h.kill_switch(), b"stop\n").unwrap();
+    let (status, ready, _) = h.server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(status, StatusCode::OK, "{ready}");
+    assert_eq!(ready["ready"], false, "{ready}");
+    assert_eq!(ready["live"]["ledger_ok"], true);
+    assert_eq!(ready["live"]["tripped"], true);
+    assert_eq!(ready["live"]["trip_code"], "kill_switch");
+    let (_, caps, _) = h.server.json(Req::get("/api/v1/capabilities")).await;
+    assert_eq!(caps["live"]["budget"]["tripped"], true, "{caps}");
+    assert_eq!(caps["live"]["budget"]["trip_code"], "kill_switch");
+    assert!(
+        h.ledger_records("trip").is_empty(),
+        "the routes read the file; the ledger records the trip at the next admission"
+    );
+
+    // Switched back before anyone came: nothing was recorded, live mode
+    // simply resumes.
+    std::fs::remove_file(h.kill_switch()).unwrap();
+    let (_, ready, _) = h.server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(ready["ready"], true, "{ready}");
+    assert_eq!(ready["live"]["tripped"], false);
+    let (_, caps, _) = h.server.json(Req::get("/api/v1/capabilities")).await;
+    assert_eq!(caps["live"]["budget"]["tripped"], false, "{caps}");
+
+    // Once an admission has recorded the trip, removing the file no longer
+    // helps: that takes the operator's reset.
+    std::fs::write(h.kill_switch(), b"stop\n").unwrap();
+    let cookie = h.session().await;
+    let (status, body, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["code"], "live_tripped");
+    assert_eq!(h.ledger_records("trip").len(), 1);
+    std::fs::remove_file(h.kill_switch()).unwrap();
+    let (_, ready, _) = h.server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(ready["ready"], false, "{ready}");
+    assert_eq!(ready["live"]["tripped"], true);
+    assert_eq!(ready["live"]["trip_code"], "kill_switch");
+    assert_eq!(meta.hits(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unreadable_ledger_publishes_no_budget_and_admits_nobody() {
+    let meta = serve(one_run(Duration::ZERO));
+    let h = live_server(LiveOptions::default(), meta_config(&meta.base_url));
+    let (_, caps, _) = h.server.json(Req::get("/api/v1/capabilities")).await;
+    assert_eq!(caps["live"]["budget"]["daily_remaining"], "10.000000");
+
+    h.corrupt_ledger();
+    // No figure is invented: the budget is absent, not a zero that would
+    // read as a spent day.
+    let (status, caps, _) = h.server.json(Req::get("/api/v1/capabilities")).await;
+    assert_eq!(status, StatusCode::OK, "{caps}");
+    assert_eq!(caps["live_enabled"], true);
+    assert!(caps["live"].get("budget").is_none(), "{caps}");
+    assert_eq!(caps["live"]["presets"].as_array().unwrap().len(), 5);
+    let (status, ready, _) = h.server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(status, StatusCode::OK, "{ready}");
+    assert_eq!(ready["ready"], false, "{ready}");
+    assert_eq!(ready["live"]["ledger_ok"], false);
+    assert_eq!(ready["live"]["tripped"], false);
+    // An admission fails closed with the generic code, says nothing about
+    // files, and reserves nothing.
+    let cookie = h.session().await;
+    let (status, body, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["code"], "live_unavailable");
+    let text = body.to_string().to_ascii_lowercase();
+    for leak in ["corrupt", ".jsonl", "byte", "ledger record"] {
+        assert!(!text.contains(leak), "{text}");
+    }
+    assert!(!h.ledger_text().contains("\"type\":\"reservation\""));
+    assert_eq!(meta.hits(), 0);
 }
 
 // ---------------------------------------------------------------------
@@ -894,7 +1143,8 @@ fn startup_refuses_live_mode_until_the_snapshot_client_is_wired() {
     let gate = build_live_gate(&live, meta, Some(factory)).expect("gate builds");
     let caps = gate.capabilities().expect("live capabilities");
     assert_eq!(caps.presets.len(), 5);
-    assert_eq!(caps.budget.lifetime_remaining, "60.000000");
+    let budget = caps.budget.expect("a readable ledger publishes its budget");
+    assert_eq!(budget.lifetime_remaining, "60.000000");
     let ready = gate.readiness().expect("live readiness");
     assert!(ready.ledger_ok && ready.evidence_ok && !ready.tripped);
 }

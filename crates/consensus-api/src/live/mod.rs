@@ -33,23 +33,26 @@
 //!   and territory acknowledgment, Turnstile, the lane, then
 //!   [`budget::Ledger::reserve`], and only then the model client and
 //!   `create_task`. Nothing is spent before the reservation exists.
-//! - The idempotency lookup is also what makes the Turnstile pass-through
-//!   safe: the `idempotency_key` given to [`turnstile::Siteverify::verify`]
-//!   is exactly the request's validated `Idempotency-Key` (a fresh UUID
-//!   when the request sent none), and Cloudflare accepts the same token
-//!   again under the same key. The route answers a repeated key from the
-//!   stored creation without calling `verify` or `reserve`, and refuses a
-//!   repeated key with another body (`409`) before Siteverify is asked;
-//!   otherwise one solved challenge could start a second, different run.
+//! - The `idempotency_key` given to [`turnstile::Siteverify::verify`] is a
+//!   fresh UUID on every call, never the request's `Idempotency-Key`:
+//!   Cloudflare's idempotency is global and immediate, the route's replay
+//!   is owner-scoped and recorded only after the start, so forwarding the
+//!   header would let one solved challenge start a run per session or
+//!   several at once. A token is single-use at Siteverify; a retry whose
+//!   first attempt succeeded is answered by the route from the stored
+//!   creation (no `verify`, no `reserve`), one whose first attempt died
+//!   after Siteverify solves a new challenge.
 //! - The [`budget::Reservation`] lives in a [`gate::ReservationHolder`]
 //!   shared by the run's deliberation and its refund closure, and is
-//!   released exactly once: when `deliberate` returns (three bounded
-//!   retries, since [`budget::Ledger::release`] keeps the handle and its
-//!   slot on `Err`), when the deliberation is dropped (once; the manager
-//!   catches a panic and drops it afterwards), or when the start failed.
-//!   A release that still fails is logged with its id; the reservation
-//!   then keeps counting at its worst case until an operator reconciles it
-//!   with [`budget::Ledger::release_by_id`] (operator console only).
+//!   released exactly once, always with three bounded retries (since
+//!   [`budget::Ledger::release`] keeps the handle and its slot on `Err`):
+//!   when `deliberate` returns, when the deliberation is dropped (the
+//!   manager catches a panic and drops it afterwards; a task creation that
+//!   fails drops it inside the start task), or by the route's refund for a
+//!   start refused before the start task. A release that still fails is
+//!   logged with its id; the reservation then keeps counting at its worst
+//!   case until an operator reconciles it with
+//!   [`budget::Ledger::release_by_id`] (operator console only).
 //! - The Meta adapter gets [`budget::Ledger::meter`]
 //!   ([`crate::meta::MetaModelClient::with_meter`]): one draw before every
 //!   HTTP attempt, one settlement after it, a 2xx settled with
@@ -61,12 +64,17 @@
 //! - `/capabilities` reads the ledger with
 //!   [`budget::Ledger::snapshot_cached`] (five seconds of `max_age`, off
 //!   the async workers) and publishes [`budget::Snapshot::public`] without
-//!   the judge figures. [`budget::Ledger::snapshot`] waits for the file
-//!   lock and may write a trip record: operator-only. No response carries
-//!   a [`budget::Snapshot`] wholesale or a [`budget::Refusal`]'s or
+//!   the judge figures; when the ledger cannot be read the budget is
+//!   absent (and `/ready` says `ledger_ok: false`), never a made-up
+//!   figure. The kill-switch file is reported as a trip by both routes as
+//!   soon as it exists (a metadata read), before the next admission
+//!   records it. [`budget::Ledger::snapshot`] waits for the file lock and
+//!   may write a trip record: operator-only. No response carries a
+//!   [`budget::Snapshot`] wholesale or a [`budget::Refusal`]'s or
 //!   [`budget::LedgerError`]'s `Display` text (upstream statuses, amounts,
 //!   paths): the wire gets the fixed codes of
-//!   [`crate::api::error::ErrorCode`] ([`gate::refusal_code`]) and
+//!   [`crate::api::error::ErrorCode`] ([`gate::refusal_code`], the same
+//!   strings as [`budget::Refusal::code`]) and
 //!   [`budget::TripReason::as_str`], with fixed sentences.
 //! - [`budget::BudgetConfig::max_concurrent`] slots are per process, and
 //!   the run manager's live semaphore bounds the deliberations; a

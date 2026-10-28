@@ -188,7 +188,15 @@
       "description": "The live section of `/capabilities`, present when live mode is wired.",
       "properties": {
         "budget": {
-          "$ref": "#/definitions/PublicBudgetV1"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PublicBudgetV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The visitor-safe budget. Absent when the ledger could not be read: no run can be admitted until it can (`/ready` then reports `live.ledger_ok: false`), and no figure is invented in its place."
         },
         "presets": {
           "items": {
@@ -206,7 +214,6 @@
         }
       },
       "required": [
-        "budget",
         "presets",
         "requires_adult_attestation",
         "requires_turnstile"
@@ -312,7 +319,7 @@
           ]
         },
         "tripped": {
-          "description": "True when the ledger refuses every admission until an operator resets it.",
+          "description": "True when the ledger refuses every admission until an operator resets it, or when the operator's kill-switch file exists (reported at once, before the next admission records the trip).",
           "type": "boolean"
         }
       },

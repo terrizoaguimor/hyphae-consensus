@@ -38,7 +38,7 @@ use crate::config::{MetaConfig, META_KEY_FILE_VARIABLE, META_KEY_VARIABLES};
 use crate::limits::{ClientKeyPolicy, StreamCaps};
 use crate::live::budget::Ledger;
 use crate::live::config::{vars as live_vars, LiveConfig};
-use crate::live::gate::{DeliberationFactory, GateParts, SNAPSHOT_DIR_VAR};
+use crate::live::gate::{DeliberationFactory, GateParts, SNAPSHOT_DIR_VAR, SNAPSHOT_MAX_AGE};
 use crate::live::geo::GeoPolicy;
 use crate::live::turnstile::{Siteverify, TurnstileVerifier};
 use crate::public_config::{
@@ -493,6 +493,7 @@ pub fn build_live_gate(
             max_run_tokens: live.budget.run_token_cap,
         },
         factory,
+        snapshot_max_age: SNAPSHOT_MAX_AGE,
         config: live.clone(),
     });
     Ok(Arc::new(gate))

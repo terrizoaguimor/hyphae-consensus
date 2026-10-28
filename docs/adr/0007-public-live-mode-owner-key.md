@@ -86,21 +86,30 @@ and the account holder pays any overage.
   judge code or the public lane, silently), then the ledger reservation (`429` with
   `Retry-After` when the ledger gives a hint, `503` otherwise; stable codes
   `live_budget_*`, `live_concurrency`, `live_hourly_admissions`, `live_tripped`,
-  `live_unavailable`; fixed sentences, never the ledger's text). The Siteverify
-  `idempotency_key` is the request's own `Idempotency-Key`, whose lookup runs first.
+  `live_unavailable`; fixed sentences, never the ledger's text). Siteverify gets a fresh
+  UUID as `idempotency_key` on every call, never the request's `Idempotency-Key`:
+  Cloudflare's idempotency is global and immediate while the route's replay is
+  owner-scoped and recorded only after the start, so forwarding the header let one
+  solved challenge start a run per session (or several at once). A retry whose first
+  attempt succeeded is answered from the route's stored creation before the gate; one
+  whose first attempt died after Siteverify needs a new challenge.
 - Every Meta HTTP attempt of a public run is drawn on the run's reservation and settled
   once (`MetaModelClient::with_meter`); a refused draw fails the run at its stage with
-  `budget_refused`. The reservation is released when the run ends, when its
-  deliberation is dropped (a caught panic), or when the start fails; a release that
-  fails is logged with its id for `release_by_id`. `safety_identifier` is the session's
-  pseudonym (`visitor:<16 hex>`), not an HMAC; `max_completion_tokens` is the live bound.
+  `budget_refused`. The reservation is released, with bounded retries in every case,
+  when the run ends, when its deliberation is dropped (a caught panic, a start whose
+  task creation failed), or by the route's refund for a start refused earlier; a
+  release that still fails is logged with its id for `release_by_id`.
+  `safety_identifier` is the session's pseudonym (`visitor:<16 hex>`), not an HMAC;
+  `max_completion_tokens` is the live bound.
 - The portal-wide block (duty 7) is a middleware on every public route reading
   `CF-IPCountry` from a listener behind cloudflared: a listed country is `451
   geo_blocked_portal`, a missing header `451 geo_unknown`; the live surface also refuses
   South Korea and any unknown country (`451 geo_blocked_live`), which includes a
   development bind that trusts no proxy header. `/capabilities` publishes the presets,
-  the public budget projection and the requirements (never the judge lane); `/ready`
-  is false while the ledger is tripped or the evidence source is not ok.
+  the public budget projection and the requirements (never the judge lane; no budget
+  at all when the ledger cannot be read); `/ready` is false while the ledger is
+  tripped, unreadable, or the evidence source is not ok. Both report the kill-switch
+  file as a trip the moment it exists, before the next admission records it.
 - The server key may come from a file (`CONSENSUS_META_API_KEY_FILE`, systemd
   `LoadCredential`), ahead of every key variable.
 - Follow-ups: the operator console's own live runs (`model=meta` on `serve-operator`)

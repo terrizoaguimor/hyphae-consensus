@@ -372,8 +372,8 @@ fn turnstile_token(headers: &HeaderMap) -> Option<String> {
 /// then the start; a start failure after the grant calls the grant's
 /// refund. The gate sees the preset, the client key, the session
 /// pseudonym, the Turnstile token, the attestation, the (trimmed) judge
-/// code, the validated `Idempotency-Key` and, from a listener behind
-/// cloudflared, the `CF-IPCountry` value: nothing else of the request.
+/// code and, from a listener behind cloudflared, the `CF-IPCountry`
+/// value: nothing else of the request, the `Idempotency-Key` included.
 pub async fn create_live_run(
     State(state): State<AppState>,
     client: Client,
@@ -390,8 +390,9 @@ pub async fn create_live_run(
     req.validate().map_err(ApiError::invalid)?;
     let key = creation_key(&headers)?;
     let body_hash = body_sha256(&req);
-    // Before Siteverify is ever asked: a repeated key answers from the
-    // stored run, a reused one is refused (see the gate contract).
+    // A repeated key answers from the stored run and a reused one is
+    // refused before anything is reserved or verified: a retry whose
+    // first attempt succeeded costs nothing (see the gate contract).
     if let Some(replayed) = replayed_creation(&state, &identity, key.as_deref(), &body_hash).await?
     {
         return Ok(replayed);
@@ -411,7 +412,6 @@ pub async fn create_live_run(
             turnstile_token: turnstile_token(&headers),
             attest_adult: req.attest_adult,
             judge_code: req.judge_code_trimmed(),
-            idempotency_key: key.clone(),
             country: trusted_country(&state, &headers),
         })
         .await?;

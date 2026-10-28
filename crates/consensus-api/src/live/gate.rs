@@ -16,9 +16,9 @@
 //!    turnstile_unavailable`, anything else `403 turnstile_failed`, the
 //!    one public code for every refusal. `remoteip` is not sent (the
 //!    client key is a /32 or /64 prefix, not an address); the
-//!    `idempotency_key` is the request's own `Idempotency-Key` when it had
-//!    one, else a fresh UUID, so only a genuine retry can present the same
-//!    token twice (the route's lookup runs first);
+//!    `idempotency_key` is a fresh UUID for every call, never the
+//!    request's `Idempotency-Key`, so a token is single-use at Siteverify
+//!    and one solved challenge admits at most one run (the note below);
 //! 5. the lane: a judge code the digest file knows enters
 //!    [`Lane::Judge`]; anything else is the public lane, never an error,
 //!    and nothing in the response says whether codes exist;
@@ -41,19 +41,40 @@
 //! runs on the blocking pool with owned data; the gate's future never
 //! blocks an async worker.
 //!
+//! **Siteverify's idempotency key.** Cloudflare re-validates a token under
+//! the same `idempotency_key` for its whole validity window, and that
+//! idempotency is global and immediate, while the route's own
+//! `Idempotency-Key` replay is scoped to the owner and recorded only after
+//! the run has started. Forwarding the request's header would therefore
+//! let one solved challenge start a run per session, or several at once
+//! from one session. The gate never reuses a key: every verification gets
+//! a fresh UUID v4, so Siteverify refuses a second presentation of the
+//! same token (`timeout-or-duplicate`) and a run always costs its visitor
+//! one solved challenge. A retry whose first attempt succeeded is still
+//! answered by the route from the stored creation before the gate is
+//! asked; one whose first attempt died after Siteverify needs a new,
+//! usually invisible, challenge.
+//!
 //! **Reservation lifetime.** One [`ReservationHolder`] per admitted run,
 //! shared by the wrapped deliberation and the refund closure, releases the
-//! reservation exactly once: when `deliberate` returns (with bounded
-//! retries, 100/300/900 ms), when the deliberation is dropped without
-//! having done so (a panic caught by the run manager, a grant never
-//! started: one attempt), or when the route reports a start failure (on a
-//! blocking task, with retries). A release that still fails is logged with
-//! the reservation id; the ledger keeps counting it at its worst case until
-//! an operator reconciles it with [`Ledger::release_by_id`]. The Turnstile
-//! token spent on a failed start cannot be refunded: the visitor solves a
-//! new challenge.
+//! reservation exactly once, always with the bounded retries of
+//! [`RELEASE_BACKOFF`] (100/300/900 ms): when `deliberate` returns; when
+//! the deliberation is dropped without having done so (a panic caught by
+//! the run manager, a task creation that failed inside the start task, a
+//! grant whose caller went away); or when the route reports a start that
+//! was refused before the deliberation reached the start task (the server
+//! draining), on a blocking task. The deliberation's `Drop` is the release
+//! of a failed start in practice; the grant's refund closure then finds
+//! the reservation released and is the fallback for the other refusals.
+//! Every known drop happens on a blocking thread; should one happen on an
+//! async worker, the release runs under `block_in_place`, so the worker's
+//! other tasks are not stalled by the ledger's lock wait. A release that
+//! still fails is logged with the reservation id; the ledger keeps
+//! counting it at its worst case until an operator reconciles it with
+//! [`Ledger::release_by_id`]. The Turnstile token spent on a failed start
+//! cannot be refunded: the visitor solves a new challenge.
 
-use super::budget::{Lane, Ledger, Refusal, Reservation, ReservationId, Snapshot};
+use super::budget::{Lane, Ledger, Refusal, Reservation, ReservationId, Snapshot, TripReason};
 use super::config::LiveConfig;
 use super::geo::{GeoDecision, GeoPolicy, Surface as GeoSurface};
 use super::judge::JudgeCodes;
@@ -356,11 +377,35 @@ impl Deliberation for MeteredDeliberation {
 
 impl Drop for MeteredDeliberation {
     fn drop(&mut self) {
-        // One attempt, catching nothing and panicking never: a run whose
-        // deliberation panicked (the manager catches it and drops this
-        // afterwards) or a grant that was never started still ends with
-        // its reservation released or logged as unreleased with its id.
-        self.holder.release(&[], "the deliberation was dropped");
+        // Catching nothing and panicking never: a run whose deliberation
+        // panicked (the manager catches it and drops this afterwards), a
+        // task creation that failed inside the start task, or a grant that
+        // was never started still ends with its reservation released (with
+        // the usual retries) or logged as unreleased with its id. Nothing
+        // to do when `deliberate` already released it.
+        if !self.holder.is_held() {
+            return;
+        }
+        blocking_section(|| {
+            self.holder
+                .release(&RELEASE_BACKOFF, "the deliberation was dropped")
+        });
+    }
+}
+
+/// Runs the blocking `f` where it will not stall other tasks: on an async
+/// worker of a multi-thread runtime it is wrapped in
+/// [`tokio::task::block_in_place`] (the worker hands its tasks to another
+/// thread first); on a blocking-pool thread, a current-thread runtime or
+/// outside any runtime it simply runs. The ledger's lock wait and fsyncs
+/// are what `f` does.
+fn blocking_section<R>(f: impl FnOnce() -> R) -> R {
+    use tokio::runtime::{Handle, RuntimeFlavor};
+    match Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(f)
+        }
+        _ => f(),
     }
 }
 
@@ -387,11 +432,21 @@ pub struct GateParts {
     /// `CONSENSUS_LIVE_RUN_TOKEN_CAP`).
     pub run_limits: RunLimits,
     pub factory: Arc<dyn DeliberationFactory>,
+    /// How old the ledger view behind `/capabilities` and `/ready` may be:
+    /// [`SNAPSHOT_MAX_AGE`] in production; a test lowers it to read the
+    /// files on every call.
+    pub snapshot_max_age: Duration,
 }
 
 struct Inner {
     max_completion_tokens: u64,
     ledger: Ledger,
+    /// The kill-switch file of the configuration (`None` when the ledger
+    /// has none): its presence is reported by `/ready` and
+    /// `/capabilities` as soon as it exists, before the next admission
+    /// records the trip.
+    kill_switch_file: Option<std::path::PathBuf>,
+    snapshot_max_age: Duration,
     siteverify: Arc<dyn Siteverify>,
     geo: GeoPolicy,
     judge_codes: JudgeCodes,
@@ -420,6 +475,8 @@ impl LiveGate {
         Self {
             inner: Arc::new(Inner {
                 max_completion_tokens: parts.config.budget.max_completion_tokens,
+                kill_switch_file: parts.config.budget.kill_switch_file.clone(),
+                snapshot_max_age: parts.snapshot_max_age,
                 ledger: parts.ledger,
                 siteverify: parts.siteverify,
                 geo: parts.geo,
@@ -472,19 +529,16 @@ impl Inner {
             ));
         }
 
-        // (d) Turnstile, fail closed. The request's own idempotency key
-        // lets a genuine retry present the same token; without one the
-        // key is fresh and the token is single-use.
+        // (d) Turnstile, fail closed. A fresh key for every verification:
+        // the token is single-use at Siteverify, whatever the request's
+        // own Idempotency-Key was (see the module doc).
         let Some(token) = request.turnstile_token.as_deref() else {
             return Err(ApiError::new(
                 ErrorCode::TurnstileRequired,
                 refusal_message(ErrorCode::TurnstileRequired),
             ));
         };
-        let idempotency_key = request
-            .idempotency_key
-            .clone()
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let idempotency_key = uuid::Uuid::new_v4().to_string();
         if let Err(e) = self.siteverify.verify(token, None, &idempotency_key) {
             // The variant is for the operator; the token is never logged.
             eprintln!("[live-gate] turnstile refused a live run: {e}");
@@ -561,7 +615,11 @@ impl Inner {
             input,
             deliberation: Box::new(deliberation),
             on_start_failed: Some(Box::new(move || {
-                // Off the async worker: the ledger does file I/O. The
+                // Off the async worker: the ledger does file I/O. A start
+                // whose task creation failed has already released the
+                // reservation when the start task dropped the deliberation
+                // (this then finds nothing to do); a start refused before
+                // that, the server draining, is released here. The
                 // Turnstile token was spent at Siteverify and cannot be
                 // given back; the visitor solves a new challenge.
                 let release = move || {
@@ -578,40 +636,49 @@ impl Inner {
     }
 
     /// The visitor-safe budget for `/capabilities`: the public projection
-    /// of a cached snapshot. When the ledger cannot be read, nothing can
-    /// be reserved, so the published remaining amounts are zero (and
-    /// `/ready` says not ready); the error goes to the operator log.
-    fn public_budget(&self) -> PublicBudgetV1 {
-        match self.ledger.snapshot_cached(SNAPSHOT_MAX_AGE) {
-            Ok(snapshot) => {
-                let public = snapshot.public();
-                PublicBudgetV1 {
-                    daily_remaining: public.daily_remaining.to_fixed(),
-                    daily_available_now: public.daily_available_now.to_fixed(),
-                    lifetime_remaining: public.lifetime_remaining.to_fixed(),
-                    tripped: public.tripped,
-                    trip_code: public.trip_code.map(|c| c.as_str().to_string()),
-                }
-            }
-            Err(e) => {
-                eprintln!("[live-gate] the ledger could not be read for /capabilities: {e}");
-                let zero = super::money::Usd::ZERO.to_fixed();
-                PublicBudgetV1 {
-                    daily_remaining: zero.clone(),
-                    daily_available_now: zero.clone(),
-                    lifetime_remaining: zero,
-                    tripped: false,
-                    trip_code: None,
-                }
-            }
-        }
+    /// of a cached snapshot, with the kill switch overlaid
+    /// ([`Inner::trip_state`]). `None` when the ledger cannot be read:
+    /// nothing can be reserved then, `/ready` says `ledger_ok: false`, and
+    /// the error goes to the operator log; no figure is invented.
+    fn public_budget(&self) -> Option<PublicBudgetV1> {
+        let snapshot = self.snapshot("/capabilities")?;
+        let (tripped, trip_code) = self.trip_state(&snapshot);
+        let public = snapshot.public();
+        Some(PublicBudgetV1 {
+            daily_remaining: public.daily_remaining.to_fixed(),
+            daily_available_now: public.daily_available_now.to_fixed(),
+            lifetime_remaining: public.lifetime_remaining.to_fixed(),
+            tripped,
+            trip_code,
+        })
     }
 
-    fn snapshot(&self) -> Option<Snapshot> {
-        match self.ledger.snapshot_cached(SNAPSHOT_MAX_AGE) {
+    /// Whether live mode is paused, and why: the ledger's recorded trip,
+    /// or the kill-switch file when it exists and no trip is recorded yet.
+    /// The file is the operator's order and takes effect at the next
+    /// admission ([`Ledger::reserve`] trips on it); reporting it here
+    /// makes `/ready` and `/capabilities` say so at once instead of
+    /// staying green until a visitor submits. A read of the file's
+    /// metadata only: these routes never write to the ledger.
+    fn trip_state(&self, snapshot: &Snapshot) -> (bool, Option<String>) {
+        if snapshot.tripped {
+            return (true, snapshot.trip_code.map(|c| c.as_str().to_string()));
+        }
+        let switched_off = self
+            .kill_switch_file
+            .as_deref()
+            .is_some_and(|path| path.exists());
+        if switched_off {
+            return (true, Some(TripReason::KillSwitch.as_str().to_string()));
+        }
+        (false, None)
+    }
+
+    fn snapshot(&self, route: &str) -> Option<Snapshot> {
+        match self.ledger.snapshot_cached(self.snapshot_max_age) {
             Ok(snapshot) => Some(snapshot),
             Err(e) => {
-                eprintln!("[live-gate] the ledger could not be read for /ready: {e}");
+                eprintln!("[live-gate] the ledger could not be read for {route}: {e}");
                 None
             }
         }
@@ -650,13 +717,16 @@ impl crate::api::LiveGate for LiveGate {
 
     fn readiness(&self) -> Option<LiveReadyV1> {
         let evidence_ok = self.inner.factory.status().ok;
-        Some(match self.inner.snapshot() {
-            Some(snapshot) => LiveReadyV1 {
-                ledger_ok: true,
-                tripped: snapshot.tripped,
-                trip_code: snapshot.trip_code.map(|c| c.as_str().to_string()),
-                evidence_ok,
-            },
+        Some(match self.inner.snapshot("/ready") {
+            Some(snapshot) => {
+                let (tripped, trip_code) = self.inner.trip_state(&snapshot);
+                LiveReadyV1 {
+                    ledger_ok: true,
+                    tripped,
+                    trip_code,
+                    evidence_ok,
+                }
+            }
             None => LiveReadyV1 {
                 ledger_ok: false,
                 tripped: false,
@@ -765,6 +835,13 @@ mod tests {
             }
             // The body is the fixed sentence, never the refusal's text.
             assert_eq!(error.message, refusal_message(code), "{refusal}");
+            // One set of public codes: the ledger's own `Refusal::code` is
+            // the wire string of the ErrorCode answered here.
+            assert_eq!(
+                serde_json::to_value(code).unwrap(),
+                refusal.code(),
+                "{refusal}"
+            );
             let json = serde_json::to_string(&error).unwrap();
             for leak in ["path", "http", "402", "res-x", "9000", "0.01"] {
                 assert!(!json.contains(leak), "{refusal}: {json}");
@@ -885,6 +962,62 @@ mod tests {
             })
             .count();
         assert_eq!(releases, 1, "released exactly once");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_dropped_deliberation_retries_its_release_until_the_ledger_is_free() {
+        let (dir, ledger) = temp_ledger("drop-retry");
+        let reservation = ledger.reserve(Lane::Public).unwrap();
+        let holder = Arc::new(ReservationHolder::new(ledger.clone(), reservation));
+        let deliberation = MeteredDeliberation::new(Box::new(Inert), holder.clone());
+        // Another writer holds the lock past the first two attempts (the
+        // lock wait is 200 ms, the retries wait 100 and 300 ms), then lets
+        // go: a start that failed or a caught panic must not leave the
+        // reservation counting because of one transient failure.
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(dir.join(crate::live::budget::LOCK_FILE))
+            .unwrap();
+        lock.try_lock().unwrap();
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(650));
+            lock.unlock().unwrap();
+        });
+        let started = std::time::Instant::now();
+        drop(deliberation);
+        let elapsed = started.elapsed();
+        writer.join().unwrap();
+        assert!(!holder.is_held());
+        assert!(
+            elapsed >= Duration::from_millis(650),
+            "the release waited for the ledger: {elapsed:?}"
+        );
+        let snap = ledger.snapshot().unwrap();
+        assert_eq!(snap.unsettled_reservations, 0, "released after retrying");
+        assert_eq!(snap.active_public, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_deliberation_dropped_on_an_async_worker_still_releases() {
+        let (dir, ledger) = temp_ledger("drop-worker");
+        let reservation = ledger.reserve(Lane::Public).unwrap();
+        let holder = Arc::new(ReservationHolder::new(ledger.clone(), reservation));
+        let deliberation = MeteredDeliberation::new(Box::new(Inert), holder.clone());
+        // What a start refused while the server drains does: the request,
+        // deliberation included, is dropped on the worker polling the
+        // route. The release runs under `block_in_place` there.
+        tokio::spawn(async move {
+            drop(deliberation);
+        })
+        .await
+        .unwrap();
+        assert!(!holder.is_held());
+        let snap = ledger.snapshot().unwrap();
+        assert_eq!(snap.unsettled_reservations, 0);
+        assert_eq!(snap.active_public, 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

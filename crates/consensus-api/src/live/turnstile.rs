@@ -16,16 +16,15 @@
 //! (see [`super::config`]), so a local test configuration cannot reach
 //! production by mistake.
 //!
-//! `idempotency_key` is passed through to Siteverify, which lets a client
-//! retry the same create request with the same token (Cloudflare accepts a
-//! repeated token only with the same key, within its validity window). It
-//! must be exactly the create request's owner-scoped idempotency key, and
-//! because Cloudflare then passes the same token again under that key, the
-//! server's own idempotency lookup has to run **before** Siteverify: a
-//! repeated key returns the stored response without calling `verify` or
-//! reserving budget, and a repeated key with a different body or preset is
-//! refused (409/422) before Siteverify is asked. Otherwise one solved
-//! challenge could start a second, different live run.
+//! `idempotency_key` is Cloudflare's optional UUID under which the same
+//! token may be validated again within its validity window; without a
+//! repeated key a token is single-use (`timeout-or-duplicate`). That
+//! idempotency is global and immediate, so a caller must never derive the
+//! key from anything a client controls: the live gate passes a fresh UUID
+//! v4 on every call, and one solved challenge admits at most one run. A
+//! client's retry is the server's business, not Siteverify's: the create
+//! route answers a repeated `Idempotency-Key` from its stored creation
+//! before this module is asked (see `crate::live::gate`).
 //!
 //! The HTTP transport is `reqwest::blocking`; an async server must call it
 //! from a blocking task.
@@ -225,11 +224,9 @@ impl TurnstileError {
 
 /// The full check: transport plus the acceptance rules in the module docs.
 ///
-/// `idempotency_key` is the create request's owner-scoped idempotency key,
-/// verbatim. Cloudflare accepts the same `token` again under the same key,
-/// so the caller's idempotency lookup must precede this call: a repeated
-/// key answers from the stored response (no `verify`, no reservation) and
-/// a repeated key with a different body or preset is refused first.
+/// `idempotency_key` goes to Cloudflare verbatim, which accepts the same
+/// `token` again under the same key; the caller mints a fresh UUID per
+/// call (never a client-supplied value) so that a token stays single-use.
 pub trait Siteverify: Send + Sync {
     fn verify(
         &self,

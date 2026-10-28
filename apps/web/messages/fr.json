@@ -254,7 +254,8 @@
       "playback": "Rejeu",
       "explorer": "Explorateur",
       "decision": "Décision",
-      "evidence": "Éléments probants"
+      "evidence": "Éléments probants",
+      "proofs": "Inspecteur de preuves"
     },
     "header": {
       "state": "État",
@@ -580,6 +581,59 @@
         "recordedAcceptedUnnamed": "Vérifiée au moment de l’exécution, le {date}, par un vérificateur que l’enregistrement ne nomme pas ; les artefacts sont conservés en privé par l’opérateur (les témoins contiennent le magasin complet) : le public peut donc vérifier à nouveau la chaîne d’événements, pas ces preuves.",
         "recordedRejectedUnnamed": "Vérifiée au moment de l’exécution, le {date}, par un vérificateur que l’enregistrement ne nomme pas et qui n’a pas accepté la preuve ; les artefacts sont conservés en privé par l’opérateur (les témoins contiennent le magasin complet) : le public peut donc vérifier à nouveau la chaîne d’événements, pas ces preuves.",
         "notVerified": "Aucune preuve n’a été vérifiée pour cet enregistrement : intégrité {status}."
+      },
+      "heading": "Inspecteur de preuves",
+      "count": "{count, plural, =0 {Aucun enregistrement de vérification} one {# enregistrement de vérification} many {# d’enregistrements de vérification} other {# enregistrements de vérification}}",
+      "intro": "Une entrée par enregistrement de vérification de cette exécution : ce qui a été vérifié, en mots simples, et les champs techniques de l’enregistrement. L’intégrité n’est pas la vérité : une preuve acceptée ne dit rien de la vérité, de la pertinence ou de l’exhaustivité d’un enregistrement.",
+      "partial": "La copie de cette exécution sur le serveur n’a pas pu être lue : seuls les enregistrements de vérification livrés par le flux sont listés.",
+      "none": "Cette exécution n’a aucun enregistrement de vérification.",
+      "limitsHeading": "Ce que le reçu dit que les preuves établissent",
+      "limits": {
+        "valid": "Une preuve marquée valide signifie que le vérificateur de Hyphae a réexécuté la requête que la preuve a scellée contre son témoin et l’a acceptée à l’ancre qui lui était donnée (l’ancre fixée partout où une ancre est configurée, toujours pour l’instantané public).",
+        "covers": "Elle couvre le résultat complet de cette requête (pour l’instantané scellé, la liste complète des enregistrements qu’il a capturés), pas l’affirmation qui a mené à la récupération, et le texte d’un enregistrement n’est pas comparé octet par octet avec la preuve.",
+        "simulated": "Une preuve simulée ne vérifie rien.",
+        "notEstablished": "Les preuves n’établissent pas que le contenu est vrai, pertinent ou complet, ni qu’un modèle a raisonné à partir de lui."
+      },
+      "limitsUntranslated": "Les limites de ce reçu diffèrent du texte que cette version traduit : elles ne sont donc affichées que telles que le serveur les a écrites, ci-dessous.",
+      "limitsVerbatim": "Tel que le reçu l’énonce (en anglais) :",
+      "receiptLoading": "Lecture du reçu…",
+      "receiptFailed": "Le reçu n’a pas pu être lu : la lecture en mots simples de chaque preuve, rédigée à partir de lui, n’est donc pas affichée.",
+      "receiptReload": "Relire le reçu",
+      "title": "{id}, tour {round}",
+      "plainHeading": "En mots simples",
+      "technicalHeading": "Champs techniques",
+      "plainNeedsReceipt": "La lecture en mots simples apparaît une fois le reçu lu.",
+      "plainUntranslated": "Les limites du reçu sont affichées ci-dessus telles qu’elles ont été écrites ; aucune lecture traduite n’en est donnée.",
+      "plain": {
+        "unnamedVerifier": "un vérificateur que l’enregistrement ne nomme pas",
+        "simulated": "Rien de cryptographique n’a été vérifié : le vérificateur scénarisé a enregistré le résultat « {status} ». Une preuve simulée ne vérifie rien.",
+        "generationFailed": "Rien n’a été vérifié : aucune preuve n’a pu être générée en amont pour cet enregistrement, il n’y avait donc aucune preuve à vérifier.",
+        "accepted": "Ce qui a été vérifié : {verifier} a réexécuté la requête que la preuve de cet enregistrement a scellée contre son témoin et l’a acceptée à l’ancre {anchor}, le {date}.",
+        "acceptedNoAnchor": "Ce qui a été vérifié : {verifier} a réexécuté la requête que la preuve de cet enregistrement a scellée contre son témoin et l’a acceptée à l’ancre qui lui était donnée, le {date}.",
+        "covers": "La preuve couvre le résultat complet de cette requête, pas l’affirmation qui a mené à la récupération, et le texte de l’enregistrement n’est pas comparé octet par octet avec la preuve.",
+        "coversSnapshot": "La preuve couvre le résultat complet de cette requête (pour l’instantané scellé, la liste complète des enregistrements qu’il a capturés), pas l’affirmation qui a mené à la récupération, et le texte de l’enregistrement n’est pas comparé octet par octet avec la preuve.",
+        "notEstablished": "Elle n’établit pas que le contenu de l’enregistrement est vrai, pertinent ou complet, ni qu’un modèle a raisonné à partir de lui.",
+        "rejected": "{verifier} n’a pas accepté la preuve que nomme cet enregistrement, le {date} : intégrité invalide. La vue publique de cet enregistrement ne contient pas la sortie du vérificateur.",
+        "rejectedUnnamed": "Un vérificateur que l’enregistrement ne nomme pas n’a pas accepté sa preuve, le {date} : intégrité invalide. La vue publique de cet enregistrement ne contient pas la sortie du vérificateur.",
+        "notVerified": "Aucune preuve n’a été vérifiée pour cet enregistrement (intégrité {status}) : rien de son intégrité n’a donc été vérifié."
+      },
+      "fields": {
+        "verifier": "Vérificateur",
+        "checkedAt": "Vérifié le",
+        "verifiedAnchor": "Ancre vérifiée",
+        "proofRef": "Preuve",
+        "reportStatus": "État du rapport",
+        "reportKind": "Type de rapport",
+        "reportScope": "Portée du rapport",
+        "anchorDigest": "Empreinte de l’ancre",
+        "proofDigest": "Empreinte de la preuve",
+        "resultDigest": "Empreinte du résultat",
+        "round": "Tour",
+        "sequence": "Enregistrement du journal",
+        "verifierKind": "Type de vérificateur",
+        "scripted": "doublure scénarisée (SIMULÉ)",
+        "notScripted": "pas la doublure scénarisée",
+        "notRecorded": "non enregistré"
       }
     }
   },

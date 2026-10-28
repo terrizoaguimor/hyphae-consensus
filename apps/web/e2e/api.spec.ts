@@ -682,6 +682,102 @@ test("record text keeps its English original note in another locale (pt-BR)", as
   await expectNoLive(page, "pt-BR");
 });
 
+test("the Proof inspector says a simulated proof checked nothing, worded from the receipt", async ({ page }) => {
+  const mock = await mockApi(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  // Nothing reads the receipt before a tab that shows it is opened.
+  expect(mock.calls.filter((c) => c.path.endsWith("/receipt"))).toEqual([]);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
+  await expect(page.locator("[data-proof-sequence]")).toHaveCount(4);
+  await expect(page.locator("[data-limits-translated] li")).toHaveText([
+    t("en", "Run.proofs.limits.valid"),
+    t("en", "Run.proofs.limits.covers"),
+    t("en", "Run.proofs.limits.simulated"),
+    t("en", "Run.proofs.limits.notEstablished"),
+  ]);
+  const receipt = fixture<{ proof_limitations: string }>("receipt-v2-retry.json");
+  await expect(page.locator("[data-proof-limitations]")).toHaveText(receipt.proof_limitations);
+  const first = page.locator("[data-proof-sequence='7']");
+  await expect(first.locator("[data-proof-plain='simulated']")).toHaveText(
+    t("en", "Run.proofs.plain.simulated", { status: t("en", "Provenance.proof.valid") }),
+  );
+  await expect(first.locator("[data-proof-field='verifier'] code")).toHaveText("fake-verifier");
+  await expect(first.locator("[data-proof-field='verifierKind']")).toContainText(t("en", "Run.proofs.fields.scripted"));
+  await expect(page.locator("[data-proof-simulated='true']")).toHaveCount(4);
+  await expect(page.locator("[data-proof-simulated='false']")).toHaveCount(0);
+  await expectNoLive(page, "en");
+  expect(mock.calls.filter((c) => c.path.endsWith("/receipt"))).toHaveLength(1);
+});
+
+test("the Proof inspector reads a real verifier's proof in plain words and technical fields", async ({ page }) => {
+  const detail = sealedSnapshotDetail();
+  const provenance = (detail.summary as { provenance: Record<string, unknown> }).provenance;
+  await mockApi(page, { detail, frames: framesWith(provenance, "replay") });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
+  const card = page.locator("[data-proof-sequence='7']");
+  const accepted = card.locator("[data-plain-line='accepted']");
+  await expect(accepted).toContainText(
+    "What was checked: hyphae proof verify re-executed the request this record’s proof sealed against its witness and accepted it at anchor d91ac10d17ce",
+  );
+  await expect(card.locator("[data-plain-line='covers']")).toHaveText(t("en", "Run.proofs.plain.coversSnapshot"));
+  await expect(card.locator("[data-plain-line='notEstablished']")).toHaveText(
+    t("en", "Run.proofs.plain.notEstablished"),
+  );
+  const field = (name: string) => card.locator(`[data-proof-field='${name}'] dd`);
+  await expect(field("verifier")).toHaveText("hyphae proof verify");
+  await expect(field("anchor")).toHaveText(SNAPSHOT_ANCHOR.slice(0, 12));
+  await expect(field("reportKind")).toHaveText("memory");
+  await expect(field("reportScope")).toHaveText("semantic_reexecution");
+  await expect(field("proofDigest")).toHaveText("ab".repeat(6));
+  await expect(field("resultDigest")).toHaveText("cd".repeat(6));
+  await expect(field("round")).toHaveText("1");
+  await expect(card.locator("[data-proof-simulated='false'][data-proof-status='valid']")).toHaveCount(1);
+  await expectNoLive(page, "en");
+});
+
+test("a receipt that cannot be read is said with a retry, and the plain reading waits for it", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page, {
+    receiptFailures: { count: 1, answer: { status: 500, body: { code: "internal", message: "internal error" } } },
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
+  const limits = page.locator("[data-proof-limits='error']");
+  await expect(limits.locator("[data-error-code='internal']")).toContainText(t("en", "Api.errors.internal"));
+  await expect(page.locator("[data-proof-plain='waiting']").first()).toHaveText(
+    t("en", "Run.proofs.plainNeedsReceipt"),
+  );
+  await expect(page.getByText(t("en", "Run.proofs.receiptLoading"))).toHaveCount(0);
+  await limits.getByRole("button", { name: t("en", "Api.retry") }).click();
+  await expect(page.locator("[data-limits-translated]")).toBeVisible();
+  await expect(page.locator("[data-proof-plain='simulated']")).toHaveCount(4);
+  takeProblem(pageProblems, `HTTP 500: /api/v1/runs/${RUN_ID}/receipt`);
+});
+
+test("a receipt with other limitations is shown as written, never paraphrased", async ({ page }) => {
+  const receipt = { ...fixture<Record<string, unknown>>("receipt-v2-retry.json"), proof_limitations: "Proofs here mean something else." };
+  await mockApi(page, { receipt });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
+  await expect(page.locator("[data-limits-untranslated]")).toHaveText(t("en", "Run.proofs.limitsUntranslated"));
+  await expect(page.locator("[data-limits-translated]")).toHaveCount(0);
+  await expect(page.locator("[data-proof-limitations]")).toHaveText("Proofs here mean something else.");
+  await expect(page.locator("[data-proof-plain='waiting']").first()).toHaveText(
+    t("en", "Run.proofs.plainUntranslated"),
+  );
+});
+
 test("the scope change sits under the recommendation it qualifies", async ({ page }) => {
   await mockApi(page, { detail: awaitingDecisionDetail() });
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -961,12 +1057,15 @@ for (const locale of locales) {
       await page.getByRole("tab", { name: t(locale, "Run.tabs.evidence") }).click();
       await expect(page.locator("[data-evidence-id]").first()).toBeVisible();
       scans.push(await scan(page, `${locale} ${theme} /run evidence`));
+      await page.getByRole("tab", { name: t(locale, "Run.tabs.proofs") }).click();
+      await expect(page.locator("[data-limits-translated]")).toBeVisible();
+      scans.push(await scan(page, `${locale} ${theme} /run proofs`));
       await page.getByRole("tab", { name: t(locale, "Run.tabs.decision") }).click();
       await expect(page.locator("[data-decision-form]")).toBeVisible();
       scans.push(await scan(page, `${locale} ${theme} /run decision`));
 
       await writeScans(`api-${locale}-${theme}`, scans);
-      expect(scans).toHaveLength(6);
+      expect(scans).toHaveLength(7);
       expect(blocking(scans)).toEqual([]);
     });
   }

@@ -1796,4 +1796,19 @@
     align-items: center;
     gap: var(--spacing-2);
   }
+
+  .hc-proof-plain {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .hc-proof-plain > p {
+    margin: 0;
+  }
+
+  /* A long value (a full hash) takes the whole row of a key-value grid. */
+  .hc-kv-wide {
+    grid-column: 1 / -1;
+  }
 }

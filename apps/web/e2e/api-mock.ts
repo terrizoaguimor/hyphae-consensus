@@ -68,6 +68,10 @@ export type ApiMockOptions = {
   detailFailures?: { count: number; answer: Answer };
   /** The first N GET /runs/{id}/events answer this error (default none). */
   streamFailures?: { count: number; answer: Answer };
+  /** What GET /runs/{id}/receipt answers; default the retry fixture's receipt. */
+  receipt?: Json;
+  /** The first N GET /runs/{id}/receipt answer this error (default none). */
+  receiptFailures?: { count: number; answer: Answer };
   runs?: Json[];
   decision?: Answer;
 };
@@ -342,6 +346,7 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
     session: options.session ?? true,
     detailFailures: options.detailFailures?.count ?? 0,
     streamFailures: options.streamFailures?.count ?? 0,
+    receiptFailures: options.receiptFailures?.count ?? 0,
     liveRuns: [...(options.liveRuns ?? [])],
   };
   const capabilities: Json = {
@@ -462,7 +467,11 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
       });
     }
     if (run !== undefined && method === "GET" && suffix === "/receipt") {
-      return route.fulfill(json(200, fixture("receipt-v2-retry.json")));
+      if (state.receiptFailures > 0 && options.receiptFailures !== undefined) {
+        state.receiptFailures -= 1;
+        return route.fulfill(answer(options.receiptFailures.answer));
+      }
+      return route.fulfill(json(200, options.receipt ?? fixture("receipt-v2-retry.json")));
     }
     if (run !== undefined && method === "POST" && suffix === "/decision") {
       if (options.decision !== undefined) {

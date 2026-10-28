@@ -254,7 +254,8 @@
       "playback": "Reproducción",
       "explorer": "Explorador",
       "decision": "Decisión",
-      "evidence": "Evidencia"
+      "evidence": "Evidencia",
+      "proofs": "Inspector de pruebas"
     },
     "header": {
       "state": "Estado",
@@ -580,6 +581,59 @@
         "recordedAcceptedUnnamed": "Verificada en el momento de la ejecución, el {date}, por un verificador que el registro no nombra; los artefactos los guarda en privado el operador (los testigos contienen el almacén completo), así que el público puede volver a verificar la cadena de eventos, no estas pruebas.",
         "recordedRejectedUnnamed": "Comprobada en el momento de la ejecución, el {date}, por un verificador que el registro no nombra y que no aceptó la prueba; los artefactos los guarda en privado el operador (los testigos contienen el almacén completo), así que el público puede volver a verificar la cadena de eventos, no estas pruebas.",
         "notVerified": "No se verificó ninguna prueba de este registro: integridad {status}."
+      },
+      "heading": "Inspector de pruebas",
+      "count": "{count, plural, =0 {Ningún registro de verificación} one {# registro de verificación} many {# de registros de verificación} other {# registros de verificación}}",
+      "intro": "Una entrada por cada registro de verificación de esta ejecución: qué se comprobó, en palabras sencillas, y los campos técnicos del registro. La integridad no es la verdad: una prueba aceptada no dice nada sobre si un registro es verdadero, relevante o completo.",
+      "partial": "No se pudo leer la copia de esta ejecución en el servidor: solo se listan los registros de verificación que entregó la transmisión.",
+      "none": "Esta ejecución no tiene ningún registro de verificación.",
+      "limitsHeading": "Qué dice el recibo que establecen las pruebas",
+      "limits": {
+        "valid": "Una prueba marcada como válida significa que el verificador de Hyphae volvió a ejecutar la solicitud que la prueba selló contra su testigo y la aceptó en el anclaje que se le dio (el anclaje fijado allí donde hay uno configurado, siempre en la instantánea pública).",
+        "covers": "Cubre el resultado completo de esa solicitud (en la instantánea sellada, la lista completa de registros que capturó), no la afirmación que llevó a la recuperación, y el texto de un registro no se compara byte a byte con la prueba.",
+        "simulated": "Una prueba simulada no comprueba nada.",
+        "notEstablished": "Las pruebas no establecen que el contenido sea verdadero, relevante o completo, ni que un modelo haya razonado a partir de él."
+      },
+      "limitsUntranslated": "Las limitaciones de este recibo difieren del texto que traduce esta compilación, así que solo se muestran tal como las escribió el servidor, abajo.",
+      "limitsVerbatim": "Tal como lo indica el recibo (en inglés):",
+      "receiptLoading": "Leyendo el recibo…",
+      "receiptFailed": "No se pudo leer el recibo, así que no se muestra la lectura en palabras sencillas de cada prueba, que se redacta a partir de él.",
+      "receiptReload": "Leer de nuevo el recibo",
+      "title": "{id}, ronda {round}",
+      "plainHeading": "En palabras sencillas",
+      "technicalHeading": "Campos técnicos",
+      "plainNeedsReceipt": "La lectura en palabras sencillas aparece cuando se lee el recibo.",
+      "plainUntranslated": "Las limitaciones del recibo se muestran arriba tal como se escribieron; no se da ninguna lectura traducida de ellas.",
+      "plain": {
+        "unnamedVerifier": "un verificador que el registro no nombra",
+        "simulated": "No se comprobó nada criptográfico: el verificador con guion registró el resultado «{status}». Una prueba simulada no comprueba nada.",
+        "generationFailed": "No se comprobó nada: no se pudo generar ninguna prueba aguas arriba para este registro, así que no había prueba que verificar.",
+        "accepted": "Qué se comprobó: {verifier} volvió a ejecutar la solicitud que selló la prueba de este registro contra su testigo y la aceptó en el anclaje {anchor}, el {date}.",
+        "acceptedNoAnchor": "Qué se comprobó: {verifier} volvió a ejecutar la solicitud que selló la prueba de este registro contra su testigo y la aceptó en el anclaje que se le dio, el {date}.",
+        "covers": "La prueba cubre el resultado completo de esa solicitud, no la afirmación que llevó a la recuperación, y el texto del registro no se compara byte a byte con la prueba.",
+        "coversSnapshot": "La prueba cubre el resultado completo de esa solicitud (en la instantánea sellada, la lista completa de registros que capturó), no la afirmación que llevó a la recuperación, y el texto del registro no se compara byte a byte con la prueba.",
+        "notEstablished": "No establece que el contenido del registro sea verdadero, relevante o completo, ni que un modelo haya razonado a partir de él.",
+        "rejected": "{verifier} no aceptó la prueba que nombra este registro, el {date}: integridad inválida. La vista pública de este registro no incluye la salida del verificador.",
+        "rejectedUnnamed": "Un verificador que el registro no nombra no aceptó su prueba, el {date}: integridad inválida. La vista pública de este registro no incluye la salida del verificador.",
+        "notVerified": "No se verificó ninguna prueba de este registro (integridad {status}), así que no se comprobó nada de su integridad."
+      },
+      "fields": {
+        "verifier": "Verificador",
+        "checkedAt": "Comprobado el",
+        "verifiedAnchor": "Anclaje verificado",
+        "proofRef": "Prueba",
+        "reportStatus": "Estado del informe",
+        "reportKind": "Tipo de informe",
+        "reportScope": "Alcance del informe",
+        "anchorDigest": "Resumen del anclaje",
+        "proofDigest": "Resumen de la prueba",
+        "resultDigest": "Resumen del resultado",
+        "round": "Ronda",
+        "sequence": "Registro del log",
+        "verifierKind": "Tipo de verificador",
+        "scripted": "doble con guion (SIMULADO)",
+        "notScripted": "no es el doble con guion",
+        "notRecorded": "no registrado"
       }
     }
   },

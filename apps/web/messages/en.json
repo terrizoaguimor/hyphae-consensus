@@ -254,7 +254,8 @@
       "playback": "Playback",
       "explorer": "Explorer",
       "decision": "Decision",
-      "evidence": "Evidence"
+      "evidence": "Evidence",
+      "proofs": "Proof inspector"
     },
     "header": {
       "state": "State",
@@ -580,6 +581,59 @@
         "recordedAcceptedUnnamed": "Verified at run time on {date} by a verifier the record does not name; the artifacts are held privately by the operator (witnesses contain the full store), so the public can re-verify the event chain, not these proofs.",
         "recordedRejectedUnnamed": "Checked at run time on {date} by a verifier the record does not name, which did not accept the proof; the artifacts are held privately by the operator (witnesses contain the full store), so the public can re-verify the event chain, not these proofs.",
         "notVerified": "No proof was verified for this record: integrity {status}."
+      },
+      "heading": "Proof inspector",
+      "count": "{count, plural, =0 {No verification record} one {# verification record} other {# verification records}}",
+      "intro": "One entry per verification record of this run: what was checked, in plain words, and the record’s technical fields. Integrity is not truth: an accepted proof says nothing about whether a record is true, relevant or complete.",
+      "partial": "The server’s copy of this run could not be read: only the verification records the stream delivered are listed.",
+      "none": "This run has no verification record.",
+      "limitsHeading": "What the receipt says proofs establish",
+      "limits": {
+        "valid": "A proof marked valid means that Hyphae’s verifier re-executed the request the proof sealed against its witness and accepted it at the anchor it was given (the pinned anchor wherever one is configured, always for the public snapshot).",
+        "covers": "It covers that request’s whole result (for the sealed snapshot, the complete record list it captured), not the claim that led to the retrieval, and a record’s text is not byte-compared with the proof.",
+        "simulated": "A simulated proof checks nothing.",
+        "notEstablished": "Proofs do not establish that the content is true, relevant or complete, or that a model reasoned from it."
+      },
+      "limitsUntranslated": "This receipt’s limitations differ from the text this build translates, so they are shown only as the server wrote them, below.",
+      "limitsVerbatim": "As the receipt states it (English):",
+      "receiptLoading": "Reading the receipt…",
+      "receiptFailed": "The receipt could not be read, so the plain-language reading of each proof, which is worded from it, is not shown.",
+      "receiptReload": "Read the receipt again",
+      "title": "{id}, round {round}",
+      "plainHeading": "In plain words",
+      "technicalHeading": "Technical fields",
+      "plainNeedsReceipt": "The plain-language reading appears once the receipt is read.",
+      "plainUntranslated": "The receipt’s limitations are shown above as written; no translated reading is given for them.",
+      "plain": {
+        "unnamedVerifier": "a verifier the record does not name",
+        "simulated": "Nothing cryptographic was checked: the scripted verifier recorded the outcome “{status}”. A simulated proof checks nothing.",
+        "generationFailed": "Nothing was checked: no proof could be generated upstream for this record, so there was no proof to verify.",
+        "accepted": "What was checked: {verifier} re-executed the request this record’s proof sealed against its witness and accepted it at anchor {anchor}, on {date}.",
+        "acceptedNoAnchor": "What was checked: {verifier} re-executed the request this record’s proof sealed against its witness and accepted it at the anchor it was given, on {date}.",
+        "covers": "The proof covers that request’s whole result, not the claim that led to the retrieval, and the record’s text is not byte-compared with the proof.",
+        "coversSnapshot": "The proof covers that request’s whole result (for the sealed snapshot, the complete record list it captured), not the claim that led to the retrieval, and the record’s text is not byte-compared with the proof.",
+        "notEstablished": "It does not establish that the record’s content is true, relevant or complete, or that a model reasoned from it.",
+        "rejected": "{verifier} did not accept the proof this record names, on {date}: integrity invalid. The public view of this record does not carry the verifier’s output.",
+        "rejectedUnnamed": "A verifier the record does not name did not accept its proof, on {date}: integrity invalid. The public view of this record does not carry the verifier’s output.",
+        "notVerified": "No proof was verified for this record (integrity {status}), so nothing about its integrity was checked."
+      },
+      "fields": {
+        "verifier": "Verifier",
+        "checkedAt": "Checked at",
+        "verifiedAnchor": "Verified anchor",
+        "proofRef": "Proof",
+        "reportStatus": "Report status",
+        "reportKind": "Report kind",
+        "reportScope": "Report scope",
+        "anchorDigest": "Anchor digest",
+        "proofDigest": "Proof digest",
+        "resultDigest": "Result digest",
+        "round": "Round",
+        "sequence": "Log record",
+        "verifierKind": "Verifier type",
+        "scripted": "scripted double (SIMULATED)",
+        "notScripted": "not the scripted double",
+        "notRecorded": "not recorded"
       }
     }
   },

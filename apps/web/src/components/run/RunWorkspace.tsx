@@ -31,15 +31,20 @@ import { DecisionTab } from "./DecisionTab";
 import { EvidenceTab } from "./EvidenceTab";
 import { ExplorerTab } from "./ExplorerTab";
 import { FailureSentence } from "./FailureSentence";
+import { ProofsTab } from "./ProofsTab";
 import { StageTab } from "./StageTab";
 import { tabId, Tabs } from "./Tabs";
+import { useReceipt } from "./useReceipt";
 import { useRunData } from "./useRunData";
 
 type RunWorkspaceProps = {
   locale: Locale;
 };
 
-type TabKey = "stage" | "explorer" | "evidence" | "decision";
+type TabKey = "stage" | "explorer" | "evidence" | "proofs" | "decision";
+
+/** Tabs that show the receipt. */
+const RECEIPT_TABS: ReadonlySet<TabKey> = new Set<TabKey>(["proofs"]);
 
 export function RunWorkspace({ locale }: RunWorkspaceProps) {
   const t = useTranslations("Run");
@@ -75,8 +80,16 @@ function RunView({ locale, runId }: RunViewProps) {
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const format = useFormatter();
   const data = useRunData(runId);
+  const receipt = useReceipt(runId, "this_server");
   const [tab, setTab] = useState<TabKey>("stage");
   const { detail, detailError, summary, frames, reloadDetail } = data;
+  // The receipt is read when a tab that shows it is first opened.
+  const selectTab = (next: TabKey) => {
+    setTab(next);
+    if (RECEIPT_TABS.has(next)) {
+      receipt.ensure();
+    }
+  };
 
   if (summary === null) {
     if (detailError !== null) {
@@ -190,12 +203,13 @@ function RunView({ locale, runId }: RunViewProps) {
       <Tabs<TabKey>
         label={t("tabs.label")}
         value={tab}
-        onChange={setTab}
+        onChange={selectTab}
         panelId="run-tabpanel"
         items={[
           { value: "stage", label: stageLabel },
           { value: "explorer", label: t("tabs.explorer") },
           { value: "evidence", label: t("tabs.evidence") },
+          { value: "proofs", label: t("tabs.proofs") },
           { value: "decision", label: t("tabs.decision") },
         ]}
       />
@@ -213,6 +227,15 @@ function RunView({ locale, runId }: RunViewProps) {
         ) : null}
         {tab === "evidence" ? (
           <EvidenceTab detail={detail} frames={frames} detailError={detailError} summary={summary} />
+        ) : null}
+        {tab === "proofs" ? (
+          <ProofsTab
+            detail={detail}
+            frames={frames}
+            detailError={detailError}
+            summary={summary}
+            receipt={receipt}
+          />
         ) : null}
         {tab === "decision" ? <DecisionTab runId={runId} data={data} /> : null}
       </div>

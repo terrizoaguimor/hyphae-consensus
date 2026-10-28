@@ -254,7 +254,8 @@
       "playback": "Reprodução",
       "explorer": "Explorador",
       "decision": "Decisão",
-      "evidence": "Evidências"
+      "evidence": "Evidências",
+      "proofs": "Inspetor de provas"
     },
     "header": {
       "state": "Estado",
@@ -580,6 +581,59 @@
         "recordedAcceptedUnnamed": "Verificada no momento da execução, em {date}, por um verificador que o registro não nomeia; os artefatos ficam guardados em privado com o operador (as testemunhas contêm o armazenamento completo), então o público pode verificar de novo a cadeia de eventos, não estas provas.",
         "recordedRejectedUnnamed": "Verificada no momento da execução, em {date}, por um verificador que o registro não nomeia e que não aceitou a prova; os artefatos ficam guardados em privado com o operador (as testemunhas contêm o armazenamento completo), então o público pode verificar de novo a cadeia de eventos, não estas provas.",
         "notVerified": "Nenhuma prova foi verificada para este registro: integridade {status}."
+      },
+      "heading": "Inspetor de provas",
+      "count": "{count, plural, =0 {Nenhum registro de verificação} one {# registro de verificação} many {# de registros de verificação} other {# registros de verificação}}",
+      "intro": "Uma entrada para cada registro de verificação desta execução: o que foi verificado, em palavras simples, e os campos técnicos do registro. Integridade não é verdade: uma prova aceita não diz nada sobre se um registro é verdadeiro, relevante ou completo.",
+      "partial": "Não foi possível ler a cópia desta execução no servidor: só estão listados os registros de verificação que a transmissão entregou.",
+      "none": "Esta execução não tem nenhum registro de verificação.",
+      "limitsHeading": "O que o recibo diz que as provas estabelecem",
+      "limits": {
+        "valid": "Uma prova marcada como válida significa que o verificador do Hyphae executou de novo a solicitação que a prova selou contra a sua testemunha e a aceitou na âncora que recebeu (a âncora fixada onde houver uma configurada, sempre no snapshot público).",
+        "covers": "Ela cobre o resultado completo dessa solicitação (no snapshot selado, a lista completa de registros que ele capturou), não a afirmação que levou à recuperação, e o texto de um registro não é comparado byte a byte com a prova.",
+        "simulated": "Uma prova simulada não verifica nada.",
+        "notEstablished": "As provas não estabelecem que o conteúdo seja verdadeiro, relevante ou completo, nem que um modelo tenha raciocinado a partir dele."
+      },
+      "limitsUntranslated": "As limitações deste recibo diferem do texto que esta versão traduz, então são mostradas apenas como o servidor as escreveu, abaixo.",
+      "limitsVerbatim": "Como o recibo o declara (em inglês):",
+      "receiptLoading": "Lendo o recibo…",
+      "receiptFailed": "Não foi possível ler o recibo, então a leitura em palavras simples de cada prova, que é redigida a partir dele, não é mostrada.",
+      "receiptReload": "Ler o recibo de novo",
+      "title": "{id}, rodada {round}",
+      "plainHeading": "Em palavras simples",
+      "technicalHeading": "Campos técnicos",
+      "plainNeedsReceipt": "A leitura em palavras simples aparece quando o recibo é lido.",
+      "plainUntranslated": "As limitações do recibo são mostradas acima como foram escritas; nenhuma leitura traduzida é dada para elas.",
+      "plain": {
+        "unnamedVerifier": "um verificador que o registro não nomeia",
+        "simulated": "Nada criptográfico foi verificado: o verificador roteirizado registrou o resultado “{status}”. Uma prova simulada não verifica nada.",
+        "generationFailed": "Nada foi verificado: nenhuma prova pôde ser gerada na origem para este registro, então não havia prova a verificar.",
+        "accepted": "O que foi verificado: {verifier} executou de novo a solicitação que a prova deste registro selou contra a sua testemunha e a aceitou na âncora {anchor}, em {date}.",
+        "acceptedNoAnchor": "O que foi verificado: {verifier} executou de novo a solicitação que a prova deste registro selou contra a sua testemunha e a aceitou na âncora que recebeu, em {date}.",
+        "covers": "A prova cobre o resultado completo dessa solicitação, não a afirmação que levou à recuperação, e o texto do registro não é comparado byte a byte com a prova.",
+        "coversSnapshot": "A prova cobre o resultado completo dessa solicitação (no snapshot selado, a lista completa de registros que ele capturou), não a afirmação que levou à recuperação, e o texto do registro não é comparado byte a byte com a prova.",
+        "notEstablished": "Ela não estabelece que o conteúdo do registro seja verdadeiro, relevante ou completo, nem que um modelo tenha raciocinado a partir dele.",
+        "rejected": "{verifier} não aceitou a prova que este registro nomeia, em {date}: integridade inválida. A visão pública deste registro não traz a saída do verificador.",
+        "rejectedUnnamed": "Um verificador que o registro não nomeia não aceitou a prova dele, em {date}: integridade inválida. A visão pública deste registro não traz a saída do verificador.",
+        "notVerified": "Nenhuma prova foi verificada para este registro (integridade {status}), então nada sobre a integridade dele foi verificado."
+      },
+      "fields": {
+        "verifier": "Verificador",
+        "checkedAt": "Verificado em",
+        "verifiedAnchor": "Âncora verificada",
+        "proofRef": "Prova",
+        "reportStatus": "Estado do relatório",
+        "reportKind": "Tipo de relatório",
+        "reportScope": "Escopo do relatório",
+        "anchorDigest": "Resumo da âncora",
+        "proofDigest": "Resumo da prova",
+        "resultDigest": "Resumo do resultado",
+        "round": "Rodada",
+        "sequence": "Registro do log",
+        "verifierKind": "Tipo de verificador",
+        "scripted": "dublê roteirizado (SIMULADO)",
+        "notScripted": "não é o dublê roteirizado",
+        "notRecorded": "não registrado"
       }
     }
   },

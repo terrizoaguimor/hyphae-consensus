@@ -391,6 +391,11 @@ by the anchor and binary digest published out of band (ADR-0008), and by the com
   boot check failed, the mode as disabled with a stable reason code (digest mismatch, verifier
   rejection, verifier error, anchor mismatch, manifest invalid). It never reports paths, witness
   contents or container details (G9: no witness or container path in any public response).
+- **Wiring.** `SnapshotFactory` (`crates/consensus-api/src/live/snapshot_factory.rs`) is the
+  public live gate's evidence factory: `serve-public` boots the client from
+  `CONSENSUS_SNAPSHOT_DIR` through `SnapshotFactory::from_env` before it listens, hands each
+  admitted run a copy of the client with a fresh verifier, and reports the client's status as
+  `/ready`'s `evidence_ok`.
 
 ## 8. Privacy
 

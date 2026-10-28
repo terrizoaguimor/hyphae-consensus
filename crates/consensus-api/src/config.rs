@@ -717,8 +717,10 @@ pub const HYPHAE_BIN_SHA256_VAR: &str = "CONSENSUS_HYPHAE_BIN_SHA256";
 /// directory (ADR-0008, [`crate::snapshot`]). Present only when
 /// `CONSENSUS_SNAPSHOT_DIR` is set; then the pinned anchor is mandatory,
 /// since a snapshot is never served against an anchor it reported itself.
-/// The two digest pins are optional (production sets both): without them
-/// the manifest and the verifier binary are whatever the directory and
+/// The two digest pins are optional here; `serve-public` requires both
+/// with live mode enabled on the unix socket
+/// ([`crate::server::require_snapshot_pins`]). Without them the manifest
+/// and the verifier binary are whatever the directory and
 /// `CONSENSUS_HYPHAE_BIN` hold, and the startup line says so.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotConfig {

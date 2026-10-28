@@ -252,8 +252,8 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    followed when the binary is hashed, as `exec` follows it),
    `CONSENSUS_HYPHAE_BIN_SHA256=<sha256sum of the installed binary, equal to manifest.hyphae.binary_sha256>`,
    `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` as today; `CONSENSUS_SNAPSHOT_VERIFIER_DIR` unset (the
-   native binary sees the same path). Both pins are optional to the code and set in production
-   (section 7, "Pins"). No daemon, no credentials, no writer path on the server
+   native binary sees the same path). Both pins are required on the server's unix socket with
+   live mode enabled (section 7, "Pins"). No daemon, no credentials, no writer path on the server
    (release checklist G9). If Python 3 is on the server, `python3 -I scripts/snapshot_manifest.py
    check /var/lib/consensus/snapshots/<id> --reverify /opt/hyphae/bin/hyphae` is the
    deployment review step (no `--verifier-dir`: the native binary sees the directory itself).
@@ -476,10 +476,13 @@ byte served is then bound to the published value.
   `proof_digest` and `result_digest` are the ones boot accepted for the record's `proof_ref`
   (`BootBoundVerifier`): every proof of a session shares the anchor, so the verifier alone
   would accept the isolation capture's pair copied over the list capture's.
-- **Pins.** Two optional variables, 64 hex digits each (case and surrounding whitespace are
+- **Pins.** Two variables, 64 hex digits each (case and surrounding whitespace are
   normalized; anything else is a configuration error naming the variable, and live-enabled
-  startup stops on it as on a malformed anchor). Production sets both, to the values published
-  with the snapshot (section 3, step 8).
+  startup stops on it as on a malformed anchor). With live mode enabled on the unix socket
+  (the deployment) both are required: a missing one stops `serve-public` naming it
+  (`server::require_snapshot_pins`); a development TCP bind may leave them unset, and its
+  startup line says what is not pinned. Production sets both to the values published with the
+  snapshot (section 3, step 8).
   `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` pins the SHA-256 of `manifest.json`: a manifest with
   another digest is refused at load, before it is parsed (`manifest_pin_mismatch`), after the
   `SHA256SUMS` check as before (a manifest altered with the listing left alone is still

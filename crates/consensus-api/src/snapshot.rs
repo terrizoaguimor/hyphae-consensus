@@ -45,8 +45,8 @@
 //! with `retrieval: sealed_snapshot`, the snapshot id and capture time, the
 //! list capture's id as `proof_ref`, the proof's SHA-256, and the proof's
 //! real request (`list(project, query "", limit 64)`) as `proof_request`,
-//! so a receipt says "proof covers: complete record list of <project> at
-//! anchor <prefix>", never "recall of <claim>". The recall carries the
+//! so a receipt says "proof covers: complete record list of `<project>` at
+//! anchor `<prefix>`", never "recall of `<claim>`". The recall carries the
 //! proof itself, so the orchestrator records `RecallProven` with the
 //! capture's full id list. A recall of the isolation project returns no
 //! records and the empty capture's proof (`RecallProven` with `empty:

@@ -299,39 +299,22 @@ the ledger, not the journal, is the record of spend.
 
 ### 3.1 The `consensus-api` binary, built reproducibly
 
-`scripts/linux-gates.sh` runs fmt, clippy, the tests and the evaluation inside
-`ubuntu:24.04` (glibc 2.39, the deployment target) with toolchain `1.99.1` pinned
-by `rust-toolchain.toml`, the repository mounted read-only and the toolchain,
-registry and target directory in named Docker volumes. The release binary is built in
-the same image, with the same volumes and `cargo build --release --locked`, so the
-gates and the artifact come from one toolchain. **Copy the `--volume` lines from the
-script at the commit you deploy**: at `b62adc0` they are `hc-linux-cargo`,
-`hc-linux-rustup` and `hc-linux-target` (shown below); since `bfb0125` on
-`feat/public-portal` the build-output volume is per checkout path
-(`hc-linux-target-<first 12 hex of sha256 of the checkout path>`), so a build that
-names the old volume would not reuse the gates' build. On the owner machine, from the
-repository root at the commit to deploy:
+`scripts/linux-gates.sh` runs fmt, clippy, the workspace and demo-crate tests, the
+evaluation and the snapshot tooling self-tests inside `ubuntu:24.04` pinned by digest
+(glibc 2.39, the deployment target), with toolchain `1.99.1` pinned by
+`rust-toolchain.toml`, the repository mounted read-only and the toolchain, registry
+and target directory in named Docker volumes (the target volume is per checkout path).
+It exits non-zero when any gate fails. With `--release` it then builds the release
+binary in the same container and volumes (`cargo build --release --locked -p
+consensus-api`), so the gates and the artifact come from one toolchain; it refuses a
+checkout with uncommitted changes, so the recorded commit is the one built. cargo-deny
+is not part of it (it needs the advisory database): run `cargo deny check` on the host
+too. On the owner machine, from the repository root at the commit to deploy:
 
 ```sh
-sh scripts/linux-gates.sh          # all four gates must pass first
-repo=$(pwd -W 2>/dev/null || pwd); export MSYS_NO_PATHCONV=1
-docker run --rm --volume "$repo:/src:ro" \
-  --volume hc-linux-cargo:/cargo --volume hc-linux-rustup:/rustup --volume hc-linux-target:/target \
-  --env CARGO_HOME=/cargo --env RUSTUP_HOME=/rustup --env CARGO_TARGET_DIR=/target \
-  --env DEBIAN_FRONTEND=noninteractive \
-  --env PATH=/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  --workdir /src ubuntu:24.04 bash -c '
-    set -e
-    apt-get update -qq >/dev/null
-    apt-get install -y -qq --no-install-recommends build-essential pkg-config ca-certificates >/dev/null
-    cargo --version
-    cargo build --release --locked -p consensus-api
-    sha256sum /target/release/consensus-api'
-mkdir -p dist
-docker run --rm --volume hc-linux-target:/target:ro --volume "$repo/dist:/out" ubuntu:24.04 \
-  cp /target/release/consensus-api /out/consensus-api
-sha256sum dist/consensus-api | tee dist/consensus-api.sha256   # must equal the digest printed above
-git rev-parse HEAD > dist/consensus-api.commit
+sh scripts/linux-gates.sh --release    # every gate must PASS; then dist/ holds the build
+cat dist/consensus-api.sha256 dist/consensus-api.commit   # the digest (checked after the copy) and the commit
+cargo deny check
 ```
 
 Copy and check on the server (the digest travels separately from the file):

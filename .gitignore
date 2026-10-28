@@ -53,3 +53,6 @@ coverage/
 
 # Separate build directory for gate runs while target/ is held open by a running server.
 /target-gates/
+
+# Release binaries built by scripts/linux-gates.sh --release (copied to the server, never committed).
+/dist/

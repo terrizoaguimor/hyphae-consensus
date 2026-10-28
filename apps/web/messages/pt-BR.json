@@ -95,6 +95,7 @@
       "live_budget_judge_slice": "O orçamento da via de códigos de convite acabou.",
       "live_concurrency": "Todas as vagas do modo ao vivo estão ocupadas; tente de novo em breve.",
       "live_hourly_admissions": "O limite por hora de execuções ao vivo foi atingido; o servidor diz quando tentar de novo.",
+      "live_client_quota": "Esta rede já iniciou a sua parte das execuções ao vivo de hoje; ela se renova no próximo dia UTC, e o servidor diz quando tentar de novo.",
       "live_tripped": "O modo ao vivo está pausado até que o operador o restabeleça.",
       "live_unavailable": "O modo ao vivo está indisponível agora; nada foi cobrado.",
       "turnstile_required": "O modo ao vivo precisa que você conclua primeiro a verificação humana (Cloudflare Turnstile).",

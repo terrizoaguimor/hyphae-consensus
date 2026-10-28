@@ -95,6 +95,7 @@
       "live_budget_judge_slice": "The invite-code lane’s budget is used up.",
       "live_concurrency": "Every live slot is busy; try again shortly.",
       "live_hourly_admissions": "The hourly limit on live runs was reached; the server says when to try again.",
+      "live_client_quota": "This network has started its share of live runs for today; it renews on the next UTC day, and the server says when to try again.",
       "live_tripped": "Live mode is paused until the operator resets it.",
       "live_unavailable": "Live mode is unavailable right now; nothing was charged.",
       "turnstile_required": "Live mode needs the human check (Cloudflare Turnstile) to be completed first.",

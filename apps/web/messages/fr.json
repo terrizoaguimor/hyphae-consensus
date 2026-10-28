@@ -95,6 +95,7 @@
       "live_budget_judge_slice": "Le budget de la voie des codes d’invitation est épuisé.",
       "live_concurrency": "Toutes les places du mode en direct sont occupées ; réessayez bientôt.",
       "live_hourly_admissions": "La limite horaire d’exécutions en direct est atteinte ; le serveur indique quand réessayer.",
+      "live_client_quota": "Ce réseau a déjà lancé sa part d’exécutions en direct pour aujourd’hui ; elle se renouvelle au prochain jour UTC, et le serveur indique quand réessayer.",
       "live_tripped": "Le mode en direct est en pause jusqu’à ce que l’opérateur le réarme.",
       "live_unavailable": "Le mode en direct est indisponible pour le moment ; rien n’a été facturé.",
       "turnstile_required": "Le mode en direct exige d’abord la vérification humaine (Cloudflare Turnstile).",

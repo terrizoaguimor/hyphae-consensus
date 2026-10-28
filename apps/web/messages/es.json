@@ -95,6 +95,7 @@
       "live_budget_judge_slice": "El presupuesto del carril de códigos de invitación se agotó.",
       "live_concurrency": "Todas las plazas del modo en vivo están ocupadas; reintenta en breve.",
       "live_hourly_admissions": "Se alcanzó el límite por hora de ejecuciones en vivo; el servidor indica cuándo reintentar.",
+      "live_client_quota": "Esta red ya inició su parte de las ejecuciones en vivo de hoy; se renueva el próximo día UTC, y el servidor indica cuándo reintentar.",
       "live_tripped": "El modo en vivo está en pausa hasta que el operador lo restablezca.",
       "live_unavailable": "El modo en vivo no está disponible en este momento; no se cobró nada.",
       "turnstile_required": "El modo en vivo necesita que primero completes la verificación humana (Cloudflare Turnstile).",

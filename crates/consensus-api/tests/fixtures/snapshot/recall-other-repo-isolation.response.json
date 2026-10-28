@@ -1,0 +1,18 @@
+{
+  "expired_filtered": 0,
+  "memories": [],
+  "proof": {
+    "scope": "memory-snapshot-v1",
+    "proof_path": "/snapshot-home/.local/state/hyphae/proofs/recall-01a17bf3-879a-7833-94a4-000000000002.proof",
+    "witness_path": "/snapshot-home/.local/state/hyphae/proofs/recall-01a17bf3-879a-7833-94a4-000000000002.witness",
+    "proof_blake3": "e5f60718e5f60718e5f60718e5f60718e5f60718e5f60718e5f60718e5f60718",
+    "anchor_hex": "4e1f0c9a7b3d5e2f8a6c4b0d9e7f1a3c5b8d2e4f6a0c1b3d5e7f9a2c4e6b8d0f"
+  },
+  "retrieval_mode": "lexical",
+  "semantic_status": "disabled",
+  "snapshot": {
+    "visible_csn": 14,
+    "root_digest": "0d1e2f3a0d1e2f3a0d1e2f3a0d1e2f3a0d1e2f3a0d1e2f3a0d1e2f3a0d1e2f3a",
+    "logical_time_micros": 1793264645000000
+  }
+}

@@ -37,6 +37,7 @@ pub mod runs;
 pub mod server;
 pub mod session;
 pub mod showcase;
+pub mod snapshot;
 pub mod static_files;
 pub mod stream;
 pub mod verify_cli;

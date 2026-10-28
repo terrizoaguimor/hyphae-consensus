@@ -1,0 +1,15 @@
+{
+  "anchor_digest": "4e1f0c9a7b3d5e2f8a6c4b0d9e7f1a3c5b8d2e4f6a0c1b3d5e7f9a2c4e6b8d0f",
+  "directory_count": 5,
+  "evidence_digest": "086b8215c145dd4802491d3be49276ef1a2a8a37418297e34b12c748893cab9b",
+  "file_count": 5,
+  "kind": "memory",
+  "proof_digest": "7b7b7b7b1c1c1c1c7b7b7b7b1c1c1c1c7b7b7b7b1c1c1c1c7b7b7b7b1c1c1c1c",
+  "request_digest": "2d2d2d2d9e9e9e9e2d2d2d2d9e9e9e9e2d2d2d2d9e9e9e9e2d2d2d2d9e9e9e9e",
+  "result_digest": "4f4f4f4f8a8a8a8a4f4f4f4f8a8a8a8a4f4f4f4f8a8a8a8a4f4f4f4f8a8a8a8a",
+  "scope": "semantic_reexecution",
+  "semantic_reexecution_performed": true,
+  "status": "verified",
+  "total_file_bytes": 3261022,
+  "witness_digest": "216a0a01061de84f59d9d5543b1415ed510c7e549e62d99c8ed97d68f7b7a799"
+}

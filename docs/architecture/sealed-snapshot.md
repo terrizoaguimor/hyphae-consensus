@@ -189,6 +189,17 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    them, hence `--verifier-dir`. A report the verifier does not reproduce means the proof or
    witness in hand is not the pair verified at capture time.
 
+   `build` also copies the capture-time digests of each response and verifier report from
+   `captures.index` into the manifest (`response_sha256`, `verify_sha256`, section 4): the
+   runtime never reads `captures.index`, so these are what bind the record texts at runtime.
+
+   **The manifest digest.** Once `check` passes after the last `build`, `manifest.json` is
+   final: record its SHA-256 (`sha256sum snapshots/<id>/manifest.json` in Git Bash, or
+   `(Get-FileHash snapshots\<id>\manifest.json -Algorithm SHA256).Hash` in PowerShell, whose
+   uppercase hex the runtime accepts). It equals the `manifest.json` line of `SHA256SUMS`, it is
+   the value of `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` on the server (step 7), and it is published
+   with the anchor and the binary digest (step 8). Any later `build` or edit changes it.
+
    `--expect-ids` is optional but recommended: save the list below as `research-ids.txt` (a
    scratch file, not committed). It holds the 7 memory ids every recorded `demo-repo` run
    retrieved; ids are derived from project + layer + text, so identical texts must reproduce
@@ -220,19 +231,31 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    $env:CONSENSUS_SNAPSHOT_VERIFIER_DIR = "/hyphae-home/snapshots/<id>"
    $env:CONSENSUS_HYPHAE_BIN = (Resolve-Path scripts\hyphae-docker.cmd).Path
    $env:CONSENSUS_HYPHAE_EXPECTED_ANCHOR = (Get-Content snapshots\<id>\manifest.json | ConvertFrom-Json).anchor_hex
+   $env:CONSENSUS_SNAPSHOT_MANIFEST_SHA256 = (Get-FileHash snapshots\<id>\manifest.json -Algorithm SHA256).Hash
    ```
 
-7. **Server (Linux).** Copy the whole directory with `scp -r snapshots/<id>
-   <server>:/var/lib/hyphae-consensus/snapshots/`, owned by the service user, directory `0700`,
-   files `0600`: the witnesses are private. Install the native Linux `hyphae` 4.0.0 whose
+   The manifest pin is optional here and harmless to set. `CONSENSUS_HYPHAE_BIN_SHA256` stays
+   unset on the dev machine: the wrapper is not the Hyphae binary (its digest is a script's),
+   and the startup line then says `verifier binary not pinned`.
+
+7. **Server (Linux).** Copy the whole directory to `/var/lib/consensus/snapshots/<id>`
+   (runbook 3.3: `scp -r` to `/tmp`, `sha256sum -c SHA256SUMS`, then moved into place), owned by
+   the service user, the tree closed to everyone else: the witnesses are private. Install the
+   native Linux `hyphae` 4.0.0 whose
    `sha256sum` equals `manifest.hyphae.binary_sha256` (the tarball digest is matched against the
-   GitHub release asset; the binary digest is what the manifest records). Configuration:
-   `CONSENSUS_SNAPSHOT_DIR=/var/lib/hyphae-consensus/snapshots/<id>`,
-   `CONSENSUS_HYPHAE_EXPECTED_ANCHOR=<manifest.anchor_hex>`, `CONSENSUS_HYPHAE_BIN=/usr/local/bin/hyphae`,
+   GitHub release asset; the binary digest is what the manifest records). Configuration
+   (runbook 3.2, 3.3 and 4.1 give the server's paths):
+   `CONSENSUS_SNAPSHOT_DIR=/var/lib/consensus/snapshots/<id>`,
+   `CONSENSUS_HYPHAE_EXPECTED_ANCHOR=<manifest.anchor_hex>`,
+   `CONSENSUS_SNAPSHOT_MANIFEST_SHA256=<the manifest digest of step 5>`,
+   `CONSENSUS_HYPHAE_BIN=/opt/hyphae/bin/hyphae` (an absolute path; the symbolic link is
+   followed when the binary is hashed, as `exec` follows it),
+   `CONSENSUS_HYPHAE_BIN_SHA256=<sha256sum of the installed binary, equal to manifest.hyphae.binary_sha256>`,
    `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` as today; `CONSENSUS_SNAPSHOT_VERIFIER_DIR` unset (the
-   native binary sees the same path). No daemon, no credentials, no writer path on the server
+   native binary sees the same path). Both pins are optional to the code and set in production
+   (section 7, "Pins"). No daemon, no credentials, no writer path on the server
    (release checklist G9). If Python 3 is on the server, `python3 -I scripts/snapshot_manifest.py
-   check /var/lib/hyphae-consensus/snapshots/<id> --reverify /usr/local/bin/hyphae` is the
+   check /var/lib/consensus/snapshots/<id> --reverify /opt/hyphae/bin/hyphae` is the
    deployment review step (no `--verifier-dir`: the native binary sees the directory itself).
 
 8. **What gets committed.** `git add snapshots/<id>`: the `.proof` and `.witness` files are
@@ -241,9 +264,14 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    `hyphae-version.txt`, `hyphae-binary.sha256`) may be committed. Confirm with `git status
    --short snapshots/` and `git check-ignore -v snapshots/<id>/captures/*.proof`. The committed
    subset must pass `python -I scripts/snapshot_manifest.py check snapshots/<id> --public-only`.
-   The anchor and the binary digest are additionally published out of band (README, submitted
-   tag) as ADR-0008 decides. The public live mode is pinned to the **snapshot's** anchor, which
-   is a new value: it is not the demo store's `d91ac10d…` anchor of the recorded batteries.
+   Git stores and checks out `snapshots/` byte for byte (`.gitattributes`: `-text`, as for
+   `research/`): with `core.autocrlf=true` a checkout would otherwise rewrite the line endings
+   of `manifest.json`, `SHA256SUMS` and the responses and break every digest above.
+   The anchor, the manifest digest (step 5) and the binary digest are additionally published
+   out of band: the README and the release tag carry all three, as ADR-0008 decides, and they
+   are the values the server pins (step 7). The public live mode is pinned to the
+   **snapshot's** anchor, which is a new value: it is not the demo store's `d91ac10d…` anchor of
+   the recorded batteries.
 
 ## 4. Artifact layout and manifest (contract between the lanes)
 
@@ -281,6 +309,7 @@ the envelope and every reader (the manifest builder, the runtime) takes the resu
     {"id": "list-demo-repo", "operation": "list", "arguments": {"project": "demo-repo", "query": "", "limit": 64, "prove": true},
      "response_file": "captures/list-demo-repo.response.json", "proof_file": "captures/list-demo-repo.proof", "witness_file": "captures/list-demo-repo.witness", "verify_file": "captures/list-demo-repo.verify.json",
      "proof_blake3": "<hex from the response>", "proof_sha256": "<64 hex>", "witness_sha256": "<64 hex>",
+     "response_sha256": "<64 hex>", "verify_sha256": "<64 hex>",              // the response and the verifier report, as captures.index recorded them
      "memory_ids": ["<decimal id>", "..."],                                   // exactly the ids in the response, in response order
      "verification": {"verified_at": "<RFC 3339 UTC>", "status": "verified", "kind": "memory", "scope": "semantic_reexecution", "anchor_hex": "<64 hex>"}},
     {"id": "recall-other-repo-isolation", "operation": "recall", "arguments": {"project": "other-repo", "query": "Fix payment client timeouts", "limit": 8, "prove": true}, ... same fields ..., "memory_ids": []}
@@ -296,12 +325,21 @@ copied to the server with `scp`; in git, `.proof` and `.witness` files are alrea
 
 Key order inside each capture is as shown (`id`, `operation`, `arguments`, `response_file`,
 `proof_file`, `witness_file`, `verify_file`, `proof_blake3`, `proof_sha256`, `witness_sha256`,
-`memory_ids`, `verification`); `arguments` has exactly `project`, `query`, `limit`, `prove`;
-`verification` has exactly `verified_at`, `status`, `kind`, `scope`, `anchor_hex`. The manifest
-is written only by `scripts/snapshot_manifest.py build` (`json.dump`, indent 2, ASCII, trailing
-newline); `check` enforces the schema, the patterns, the key order, the two required captures,
-`memory_ids` equal to the response ids, `store` equal to the list response's `snapshot`, one
-anchor everywhere, and recomputes every digest.
+`response_sha256`, `verify_sha256`, `memory_ids`, `verification`); `arguments` has exactly
+`project`, `query`, `limit`, `prove`; `verification` has exactly `verified_at`, `status`,
+`kind`, `scope`, `anchor_hex`. The manifest is written only by `scripts/snapshot_manifest.py
+build` (`json.dump`, indent 2, ASCII, trailing newline); `check` enforces the schema, the
+patterns, the key order, the two required captures, `memory_ids` equal to the response ids,
+`store` equal to the list response's `snapshot`, one anchor everywhere, and recomputes every
+digest.
+
+The four file digests of a capture are all required (a manifest without `response_sha256` or
+`verify_sha256` is refused by `check` and by the runtime, `manifest_invalid`; no manifest
+exists without them). `response_sha256` and `verify_sha256` are the digests the session
+recorded in `captures.index` (section 5), copied by `build`, which refuses a file that differs
+from them. They are the binding of the record texts: the runtime reads neither
+`captures.index` nor `capture.log`, and checks each response and report against these
+digests, on the very bytes it then parses, before parsing it (section 7).
 
 ## 5. Session files written in the container (input of the manifest builder)
 
@@ -320,6 +358,8 @@ files the response names; the verifier report as `proof verify` printed it), als
 was started (both required: the manifest's `verification.verified_at` is this value, never a
 substitute). The builder trusts none of it: every value is compared with the response file and
 the verifier report, every file's sha256 must equal the recorded one, and a mismatch aborts.
+The four recorded digests then become the manifest's `response_sha256`, `proof_sha256`,
+`witness_sha256` and `verify_sha256` (section 4), which is how they reach the runtime.
 
 `session.json`: `{"schema":"hyphae-consensus-capture-session-v1","snapshot_id","project",
 "captured_at" (session start),"finished_at","anchor_hex","record_count","hyphae_version",
@@ -346,7 +386,9 @@ and what the capture script and `snapshot_manifest.py` require before an artifac
 
 What this proves: the records in the capture are the records of that store at that anchor; the
 proof and witness bytes have not changed since capture (digests in the manifest and in
-`SHA256SUMS`); the empty `other-repo` recall is a proven absence at the same anchor.
+`SHA256SUMS`), nor have the response files the record texts are read from or the verifier
+reports (their digests in the manifest, below); the empty `other-repo` recall is a proven
+absence at the same anchor.
 
 What this does not prove: that the records are true (they are operator-seeded synthetic demo
 facts); that a model read or used them; that the text handed to a model is byte-identical to the
@@ -368,15 +410,33 @@ The bindings, and who checks them:
 | Binding | Established by | Checked by |
 |---|---|---|
 | response ↔ proof and witness copies | the session: the copies are made from the paths the response names, compared with `cmp`, and the sha256 of the response, the proof copy and the witness copy is recorded at once in `captures.index` and `capture.log` | `build` and `check`: every file's sha256 must equal the recorded one (a swapped pair, a swapped report or an altered file is refused even though it would verify); the two required captures must carry different proofs (`proof_sha256`, `proof_blake3`, and the report's `proof_digest`/`request_digest`/`result_digest` when present) |
+| every capture file (response, proof, witness, report) ↔ manifest | `build`: `response_sha256`, `proof_sha256`, `witness_sha256`, `verify_sha256`, equal to the recorded digests | `check`, and the runtime at load on the very bytes it parses (`digest_mismatch`), then again for the two served captures at every status read and admission (section 7); the runtime never reads `captures.index`, so for the record texts this is the binding |
+| manifest ↔ published digest | the owner: the manifest digest published in the README and the release tag (section 3, steps 5 and 8) | the runtime at load, before parsing the manifest, when `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` is set (`manifest_pin_mismatch`); unpinned, nothing |
+| verifier binary ↔ capture build | the session: `hyphae.binary_sha256` (the sha256 of the binary that produced and verified the captures); the owner publishes it | the runtime at boot, when `CONSENSUS_HYPHAE_BIN_SHA256` is set: the file `CONSENSUS_HYPHAE_BIN` names must hash to the pin (`verifier_binary_mismatch`) and the pin must be the manifest's (`capture_binary_mismatch`); unpinned, nothing |
 | proof and witness ↔ verifier report | `hyphae proof verify` at capture time; the report's `proof_digest`, `witness_digest`, `request_digest`, `result_digest` are deterministic functions of the two files | `check --reverify` (the fresh report must equal the captured one field by field) and the runtime's boot check (section 7) |
 | proof ↔ anchor | the proof itself; `anchor_digest` in the report | the verifier, every time |
 | `proof_blake3` ↔ proof bytes | Hyphae's response | nobody here: no BLAKE3 implementation is available (section 2); the value is carried as an opaque identifier and compared only with the response it came from |
 
-What stays beyond offline checking: a rewrite of the whole directory that keeps every file
-consistent with every other, `captures.index` included, can only be caught by the shape checks
-(the list capture holds exactly 7 `demo-repo` records, the isolation recall is empty, one anchor),
-by the anchor and binary digest published out of band (ADR-0008), and by the committed
-`manifest.json`/`SHA256SUMS` in git history.
+What stays beyond offline checking: without the manifest pin, a rewrite of the whole directory
+that keeps every file consistent with every other (`manifest.json` and `SHA256SUMS` included)
+loads, and can only be caught by the shape checks (the list capture holds exactly 7 `demo-repo`
+records, the isolation recall is empty, one anchor) and by a manual comparison with the
+digests published out of band and the committed `manifest.json`/`SHA256SUMS` in git history.
+With `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` set to the published digest, the runtime refuses it
+at load (`manifest_pin_mismatch`): the manifest holds the digest of every capture file, so every
+byte served is then bound to the published value.
+
+**What each check catches, and what it does not.**
+
+| Check (when) | Catches | Does not catch |
+|---|---|---|
+| `SHA256SUMS` (load) | a file altered, added or removed with the listing left as it was | anything regenerated together with the listing (it lives in the directory) |
+| the manifest's four file digests (load; the two served captures again at every status read and admission) | a proof, witness, record text or verifier report altered with `SHA256SUMS` regenerated, a file swapped between captures, a byte changed after boot | a rewrite of `manifest.json` to match, unless the manifest is pinned |
+| `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` (load, before parsing) | any other manifest, so any other byte of any capture file: a snapshot that is not the published one | a wrong value pinned (it binds to whatever is pinned: a manifest pinned to its own rewrite loads); a manifest changed after boot is caught by the re-check above, not by the pin |
+| pinned anchor `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` (boot, every run) | artifacts of another store | another capture of the same session (every proof shares the anchor) |
+| boot verification and `BootBoundVerifier` (boot, every run) | a proof or witness that does not verify, or that is not the capture-time pair; a served pair swapped after boot | a lying verifier: the verifier is trusted, hence the binary pin |
+| `CONSENSUS_HYPHAE_BIN_SHA256` (boot, before any verifier run) | a replaced binary or a wrapper (one that prints the capture-time reports included: it never runs), and a snapshot captured with another Hyphae build | a binary replaced after boot (hashed once, until the next start), the time between the hash and each run, a wrong value pinned, the dev machine's container wrapper (not pinnable: unset there) |
+| none | | whether the texts are byte-identical to what the proofs seal (HY-1: not byte-compared); the capture session, its script and the published digests are trusted, so a text that was wrong when captured is served as captured |
 
 ## 7. Runtime behaviour (lane B implements; this is the documented contract)
 
@@ -395,9 +455,15 @@ by the anchor and binary digest published out of band (ADR-0008), and by the com
   "recall of <claim>". A proof is attached to a record only if that record is in the proof's
   captured result (tested).
 - **Boot check.** At start, with public live mode enabled (with it disabled the snapshot is not
-  read at all), the runtime reads `manifest.json`, requires `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` to
-  be set and equal to `manifest.anchor_hex`, checks the digests, requires the manifest's project
-  to be the presets' `demo-repo` (`project_mismatch`), and runs `hyphae proof verify` on both
+  read at all), the runtime checks `SHA256SUMS`, reads `manifest.json` (refusing it before
+  parsing when its SHA-256 is not the pinned `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`,
+  `manifest_pin_mismatch`), checks every capture file against the manifest's digests before
+  parsing a response or a report (`digest_mismatch`: an edited record text is refused here),
+  requires the manifest's project to be the presets' `demo-repo` (`project_mismatch`), checks
+  the pinned verifier binary ("Pins" below: `verifier_binary_mismatch`,
+  `capture_binary_mismatch`), requires `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` (mandatory) to equal
+  `manifest.anchor_hex` (`pinned_anchor_mismatch`), all before any verifier run, and runs
+  `hyphae proof verify` on both
   required captures with the verifier's own view of the directory
   (`CONSENSUS_SNAPSHOT_VERIFIER_DIR` when set, else `CONSENSUS_SNAPSHOT_DIR`), requiring the same
   report fields as section 6 and the `proof_digest` and `result_digest` of the captured
@@ -410,6 +476,24 @@ by the anchor and binary digest published out of band (ADR-0008), and by the com
   `proof_digest` and `result_digest` are the ones boot accepted for the record's `proof_ref`
   (`BootBoundVerifier`): every proof of a session shares the anchor, so the verifier alone
   would accept the isolation capture's pair copied over the list capture's.
+- **Pins.** Two optional variables, 64 hex digits each (case and surrounding whitespace are
+  normalized; anything else is a configuration error naming the variable, and live-enabled
+  startup stops on it as on a malformed anchor). Production sets both, to the values published
+  with the snapshot (section 3, step 8).
+  `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` pins the SHA-256 of `manifest.json`: a manifest with
+  another digest is refused at load, before it is parsed (`manifest_pin_mismatch`), after the
+  `SHA256SUMS` check as before (a manifest altered with the listing left alone is still
+  `checksums_mismatch`). `CONSENSUS_HYPHAE_BIN_SHA256` pins the verifier binary: with it,
+  `CONSENSUS_HYPHAE_BIN` must be an absolute path (configuration error otherwise: a name looked
+  up on `PATH` could run another file than the one hashed); at boot, before any verifier run,
+  that file (symbolic links followed, as `exec` follows them; a regular file of at most 1 GiB)
+  must hash to the pin (`verifier_binary_mismatch`: missing, unreadable, not a regular file, or
+  another build or a wrapper, which then never runs), and the pin must be the manifest's
+  `hyphae.binary_sha256` (`capture_binary_mismatch`: the snapshot was captured with another
+  Hyphae build). Each of these refusals makes live mode unavailable like the other boot
+  failures. The binary is hashed at boot only: one replaced while the server runs is not
+  detected until the next start. Unset, nothing is compared, and the startup line says so
+  (`manifest not pinned`, `verifier binary not pinned`).
 - **Configuration.** `CONSENSUS_SNAPSHOT_DIR` = path of the snapshot directory (`manifest.json`
   inside); `CONSENSUS_SNAPSHOT_VERIFIER_DIR` (optional) = the same directory as the verifier
   binary sees it (Windows dev machine: the container path, because `CONSENSUS_HYPHAE_BIN` is
@@ -419,28 +503,37 @@ by the anchor and binary digest published out of band (ADR-0008), and by the com
   live mode enabled without `CONSENSUS_SNAPSHOT_DIR` (`SnapshotConfig::try_from_env` /
   `from_vars` are the only readers; none folds that error into "snapshot mode not configured");
   with live mode disabled none of these is read (a set `CONSENSUS_SNAPSHOT_DIR` earns one
-  `[snapshot]` notice); `CONSENSUS_HYPHAE_BIN` and `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` as today
+  `[snapshot]` notice); `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` and `CONSENSUS_HYPHAE_BIN_SHA256`
+  as in "Pins" above; `CONSENSUS_HYPHAE_BIN` (an absolute path when its digest is pinned) and
+  `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` as today
   (`crates/consensus-api/src/config.rs`, `hyphae.rs`). The directory is read without following
   symbolic links (a link anywhere under it, or a directory nested deeper than `captures/`, is
   refused with `symlink_refused` / `layout_too_deep`).
 - **Status: `/health` versus `/ready` and the log.** `/api/v1/health` stays static facts
   (version, schema, policy, contract digest, executor). The evidence state lives in three
   places. The server log carries the startup line of a snapshot that booted (snapshot id,
-  project, record count, anchor prefix, capture and verification times) or, for one that did
+  project, record count, anchor prefix, `manifest sha256 pinned <12 hex>…` or `manifest not
+  pinned (CONSENSUS_SNAPSHOT_MANIFEST_SHA256 unset)`, `verifier binary sha256 pinned <12 hex>…`
+  or `verifier binary not pinned (CONSENSUS_HYPHAE_BIN_SHA256 unset)`, capture and verification
+  times; digest prefixes only, no path) or, for one that did
   not, `[snapshot] live evidence unavailable: <code>` (`snapshot_dir_missing`,
-  `checksums_mismatch`, `digest_mismatch`, `pinned_anchor_mismatch`, `boot_verification_failed`,
+  `checksums_mismatch`, `digest_mismatch`, `manifest_pin_mismatch`, `pinned_anchor_mismatch`,
+  `verifier_binary_mismatch`, `capture_binary_mismatch`, `boot_verification_failed`,
   `project_mismatch`, ...), and the same line, or `[snapshot] live evidence ok again`, on every
   later change between ok and not ok. `/api/v1/ready` carries the boolean: `ready: false` with
   `live.evidence_ok: false` while the evidence is not ok. `/api/v1/capabilities` then reports
   `live_enabled: false` without a live section, so the web app shows live mode as disabled; live
   admissions are `503 live_unavailable`, while guided mode, the showcase and the static site keep
-  serving. After boot the status re-hashes `manifest.json` and the served captures' proof and
-  witness files against the digests the boot check accepted
-  (`SnapshotMemoryClient::check_artifacts`), at most once per two seconds (`READY_CACHE_TTL`) for
-  the routes and in full at every admission, so a file deleted, truncated or replaced after boot
-  makes live mode unavailable at once (`file_unreadable`, `digest_mismatch`, `file_too_large`,
-  `symlink_refused`) and restoring it makes it ok again. No public response carries the code, a
-  filesystem path, witness contents or container details (G9: no witness or container path in
+  serving. After boot the status re-hashes `manifest.json` and every file of the two served
+  captures (response, proof, witness, capture-time report) against the digests the boot check
+  accepted (`SnapshotMemoryClient::check_artifacts`), at most once per two seconds
+  (`READY_CACHE_TTL`) for the routes and in full at every admission, so a file deleted,
+  truncated or replaced after boot (an edited record text included) makes live mode unavailable
+  at once (`file_unreadable`, `digest_mismatch`, `file_too_large`, `symlink_refused`) and
+  restoring it makes it ok again. The records themselves are served from memory as boot read
+  them. The verifier binary is not part of this re-check (see "Pins"). No public response
+  carries the code, a filesystem path, witness contents or container details (G9: no witness
+  or container path in
   any public response); the snapshot errors name files relative to the snapshot directory, and
   only the error of the strict entry point `SnapshotFactory::from_env`, which `serve-public`
   does not use, quotes the verifier's own message, which may name the paths it was given.

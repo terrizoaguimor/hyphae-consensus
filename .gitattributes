@@ -6,6 +6,10 @@
 # conversion may ever touch it.
 /research/** -text
 
+# Sealed snapshots (ADR-0008) likewise: manifest.json and SHA256SUMS pin the
+# sha256 of every file, and the published manifest digest pins manifest.json.
+/snapshots/** -text
+
 # The generated API contract is compared byte for byte by a test: keep LF.
 /contracts/** text eol=lf
 

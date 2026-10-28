@@ -2,8 +2,10 @@
 
 Date: 2026-10-27 · Status: accepted; `SnapshotMemoryClient` implemented and wired into the
 public live mode as its evidence factory (`SnapshotFactory`, `CONSENSUS_SNAPSHOT_DIR`;
-integrated 2026-10-28 with the fixes of its review, see "Wiring" below); the capture session
-(plan item B11, 2026-10-29) pending · Scope: the public portal's live mode
+integrated 2026-10-28 with the fixes of its review, see "Wiring" below); the record texts, the
+manifest and the verifier binary bound before the capture (2026-10-28, review R6, see
+"Binding" below); the capture session (plan item B11, 2026-10-29) pending · Scope: the public
+portal's live mode
 
 ## Context
 
@@ -44,8 +46,10 @@ the recorded batteries cannot sit behind a public server:
    evidence; `hyphae proof verify` on every capture requiring `kind = memory`,
    `scope = semantic_reexecution` and one shared anchor; `manifest.json` and `SHA256SUMS`;
    then the store's credentials are destroyed and the store is never served again. The
-   anchor and the Hyphae binary's sha256 (matched against the GitHub release asset) are
-   published out of band in the README and the submitted tag. No Hyphae code is modified.
+   anchor, the sha256 of the snapshot's `manifest.json` and the Hyphae binary's sha256
+   (matched against the GitHub release asset) are published out of band in the README and
+   the release (submitted) tag, and the production server pins all three ("Binding" below).
+   No Hyphae code is modified.
 
 3. **Witnesses are never published.** Not of the demo, lab or archived stores (their
    contents are described above), and not of the public snapshot either (owner decision:
@@ -128,12 +132,14 @@ factory; `server.rs` `serve_public_with` decides when it is built.
   is never loaded or verified, and a set `CONSENSUS_SNAPSHOT_DIR` earns one notice. With
   live mode enabled, `SnapshotFactory::live_evidence_from_env` runs before the server
   listens: an unset directory or an unusable snapshot setting stops startup naming the
-  variable; a snapshot that does not load, verify, bind its pinned anchor or serve the
-  presets' project (`snapshot_dir_missing`, `checksums_mismatch`, `digest_mismatch`,
-  `pinned_anchor_mismatch`, `boot_verification_failed`, `project_mismatch`, ...) becomes
-  `UnavailableEvidence`, which reports its code and builds nothing (decision 1); a snapshot
-  that boots prints one line (id, project, record count, anchor prefix, verification time,
-  no path).
+  variable; a snapshot that does not load, verify, bind its pinned anchor, match its digest
+  pins or serve the presets' project (`snapshot_dir_missing`, `checksums_mismatch`,
+  `digest_mismatch`, `manifest_pin_mismatch`, `pinned_anchor_mismatch`,
+  `verifier_binary_mismatch`, `capture_binary_mismatch`, `boot_verification_failed`,
+  `project_mismatch`, ...) becomes `UnavailableEvidence`, which reports its code and builds
+  nothing (decision 1); a snapshot that boots prints one line (id, project, record count,
+  anchor prefix, whether the manifest and the verifier binary are pinned with a digest prefix,
+  verification time, no path).
 - **Admissions and runs.** The gate refuses before Turnstile while the factory's status is
   not ok. Every admission then re-hashes the served files in full
   (`SnapshotMemoryClient::check_artifacts`) and refuses a changed snapshot before any model
@@ -150,3 +156,44 @@ factory; `server.rs` `serve_public_with` decides when it is built.
   decision 4 in the receipt and the web app (not in this lane), and the behaviour of the
   real `hyphae proof verify` on the 2026-10-29 snapshot (every verifier result in the
   tests comes from a fake binary).
+
+## Binding (2026-10-28, review R6)
+
+The review found that the record texts were bound to the proofs only by `SHA256SUMS`, a file
+in the same directory (the manifest held no digest of the responses), and that nothing at
+runtime pinned `manifest.json` or the verifier binary: a record text edited with `SHA256SUMS`
+regenerated passed load and boot, and a replaced `CONSENSUS_HYPHAE_BIN`, or a wrapper that
+prints the capture-time `.verify.json`, passed boot and every run. The proofs cannot help:
+they do not bind the text (HY-1). Before the capture publishes its digests:
+
+- **The manifest binds every capture file.** Each capture entry carries `response_sha256` and
+  `verify_sha256` next to `proof_sha256` and `witness_sha256` (required; written by
+  `snapshot_manifest.py build` from the digests the session recorded in `captures.index` the
+  moment each file was written, checked by `check`). The runtime checks all four against the
+  very bytes it then parses, before parsing a response or a report (`digest_mismatch`), and
+  re-checks the two served captures' four files, with `manifest.json`, at every status read and
+  admission.
+- **The manifest pin.** `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` (optional, 64 hex; production sets
+  it to the published digest): the loader refuses a `manifest.json` with another SHA-256
+  before parsing it (`manifest_pin_mismatch`). With it, every byte served is bound to the
+  published value, whatever was regenerated in the directory.
+- **The verifier binary pin.** `CONSENSUS_HYPHAE_BIN_SHA256` (optional, 64 hex; production sets
+  it to the published binary digest): `CONSENSUS_HYPHAE_BIN` must then be an absolute path; at
+  boot, before any verifier run, that file must hash to the pin (`verifier_binary_mismatch`:
+  a replaced binary or wrapper never runs) and the pin must be the manifest's
+  `hyphae.binary_sha256` (`capture_binary_mismatch`: the snapshot was captured with another
+  Hyphae build).
+- Each of these refusals makes live mode unavailable with its code (decision 1), the portal
+  up; an unusable pin value is a configuration error naming the variable, so live-enabled
+  startup stops; the startup line says whether each pin is set (digest prefix only).
+
+Residual risk: without the pins nothing at runtime binds the directory or the
+binary (a consistent rewrite of `manifest.json` and `SHA256SUMS` loads, and the startup line
+says `not pinned`); a pin is only as good as the value pinned, so the published digests in the
+README and the release tag are the trust root, and comparing them with the server's
+configuration is a manual step; the binary is hashed at boot only, so one replaced while the
+server runs (or between the hash and a run) is not detected until the next start; the dev
+machine's container wrapper cannot be pinned; the verifier build the pins name, the capture
+session and its script are trusted, and the texts are still not byte-compared with what the
+proofs seal (HY-1). `docs/architecture/sealed-snapshot.md` section 6 lists what each check
+catches and what it does not.

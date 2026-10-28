@@ -43,6 +43,8 @@ export const clientNamespaces = [
   "Runs",
   "Run",
   "Provenance",
+  // The research showcase and the Overview's figures read from it.
+  "Showcase",
 ] as const;
 
 export function pickClientMessages(

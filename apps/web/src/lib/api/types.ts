@@ -4,7 +4,7 @@
 // JSON Schemas of contracts/api-v1 (`pnpm api:types`); tests/api-types.test.ts
 // regenerates it in memory and fails on drift (`pnpm api:check`).
 //
-// contract-sha256: cc890dc030ba418fb15872cb11789c43565b172e7c2131b98122d0861c2b2dbc
+// contract-sha256: 465f4117d8a12365ed06bc594f5972f19160d3016b085bcb5836e75786ad760e
 // schemas (28): ApiError, CancelResponseV1, CapabilitiesV1, ConsensusFrameV1, CreateGuidedRunRequest, CreateLiveRunRequest, CreateOperatorRunRequest, DecisionRequest, DecisionResponseV1, EventV1, EventsQuery, HealthV1, ListRunsQuery, PolicyTrace, ProvenanceV1, ReadyV1, ResyncV1, RunCreatedV1, RunDetailV1, RunListV1, RunReceiptV2, RunSummaryV1, ScenariosV1, SessionV1, ShowcaseEntryV1, ShowcaseV1, SseFrameV1, StreamEndV1
 
 /**
@@ -12,7 +12,7 @@
  * (contracts/api-v1/contract-sha256.txt); GET /api/v1/health reports the
  * server's as `contract_sha256`.
  */
-export const CONTRACT_SHA256 = "cc890dc030ba418fb15872cb11789c43565b172e7c2131b98122d0861c2b2dbc";
+export const CONTRACT_SHA256 = "465f4117d8a12365ed06bc594f5972f19160d3016b085bcb5836e75786ad760e";
 
 /** The schema files of the contract, one per request, response or frame type. */
 export const CONTRACT_SCHEMAS = [
@@ -353,6 +353,7 @@ export type ErrorCode =
   | "live_budget_judge_slice"
   | "live_concurrency"
   | "live_hourly_admissions"
+  | "live_client_quota"
   | "live_tripped"
   | "live_unavailable"
   | "turnstile_required"
@@ -587,6 +588,11 @@ export type HealthV1 = {
   status: string;
   version: string;
 };
+
+/**
+ * Why the run index could not be verified, as `/ready` publishes it: the kind of failure, never the store's own text.
+ */
+export type IndexErrorCodeV1 = "index_tampered" | "index_locked" | "index_io" | "index_unreadable";
 
 /** Cryptographic integrity axis only. */
 export type IntegrityStatus =
@@ -1120,7 +1126,14 @@ export type RunState = "created" | "proposed" | "evidence_review" | "evaluated" 
 
 /** The run store as `/ready` reports it. */
 export type RunStoreStatusV1 = {
+  /**
+   * Operator surface only: the store's own error text, which can name files by path. The server logs it once per change.
+   */
   index_error?: string | null;
+  /**
+   * Why the run index could not be verified at the last check, on both surfaces; absent while it verifies.
+   */
+  index_error_code?: IndexErrorCodeV1 | null;
   index_head?: string | null;
   index_seq?: number | null;
   index_tail_repaired: boolean;

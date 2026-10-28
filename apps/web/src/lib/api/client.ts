@@ -387,6 +387,50 @@ export function createApiClient(options: ApiClientOptions = {}) {
     showcaseReceipt: (runId: string): Promise<RunReceiptV2> =>
       request(`/showcase/${encodeURIComponent(runId)}/receipt`, receiptSchema),
 
+    /**
+     * The bytes of a verbatim file, as served: an archive file at
+     * `/research/<path>` or a run's `events.ndjson`. Nothing is parsed or
+     * re-encoded, so a digest of the result is a digest of what the server
+     * sent. A failure is an ApiError like every other request's.
+     */
+    bytes: async (url: string): Promise<Uint8Array> => {
+      let response: Response;
+      try {
+        response = await fetchImpl(url, {
+          method: "GET",
+          headers: { Accept: "*/*" },
+          credentials: "same-origin",
+        });
+      } catch (cause) {
+        throw new ApiError({
+          code: "unreachable",
+          message: cause instanceof Error ? cause.message : "fetch failed",
+          status: 0,
+          path: url,
+        });
+      }
+      if (!response.ok) {
+        const text = await response.text();
+        let json: unknown;
+        try {
+          json = text === "" ? undefined : JSON.parse(text);
+        } catch {
+          json = undefined;
+        }
+        const body = apiErrorBodySchema.safeParse(json);
+        throw new ApiError({
+          code: body.success ? body.data.code : "unexpected_status",
+          message: body.success ? body.data.message : `HTTP ${response.status} without a contract error body`,
+          status: response.status,
+          path: url,
+          retryAfterSecs:
+            (body.success ? body.data.retry_after_secs : null) ??
+            parseRetryAfter(response.headers.get("Retry-After")),
+        });
+      }
+      return new Uint8Array(await response.arrayBuffer());
+    },
+
     /** The verbatim event log (404 `ndjson_unavailable` for live-declared public runs). */
     ndjsonUrl: (runId: string): string => `${base}${runPath(runId, "/events.ndjson")}`,
 
@@ -397,7 +441,23 @@ export function createApiClient(options: ApiClientOptions = {}) {
       }`,
 
     receiptUrl: (runId: string): string => `${base}${runPath(runId, "/receipt")}`,
+
+    /** The receipt of a recorded run of the research archive. */
+    showcaseReceiptUrl: (runId: string): string =>
+      `${base}/showcase/${encodeURIComponent(runId)}/receipt`,
+
+    /**
+     * A file of the research archive, served at `/research/<path>` (beside
+     * the API, not under it) with its pinned SHA-256 as the ETag. `path` is
+     * the archive path a showcase entry or the manifest names.
+     */
+    researchUrl: (path: string): string => researchUrl(path),
   };
+}
+
+/** `/research/<path>`, each segment encoded. */
+export function researchUrl(path: string): string {
+  return `/research/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 // DELETE /session has no contract body; whatever comes back is accepted.

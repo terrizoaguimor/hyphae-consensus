@@ -147,7 +147,7 @@
         },
         "labels": {
           "heading": "Execuções simuladas e gravadas são identificadas",
-          "body": "As execuções guiadas usam papéis roteirizados e evidências simuladas, e têm o rótulo SIMULADO; uma prova simulada nunca é mostrada como real. As execuções arquivadas mantêm os rótulos com que foram gravadas: uma execução roteirizada continua SIMULADO, e uma execução com modelo ao vivo e provas simuladas diz isso ao lado de META AO VIVO. Na vitrine elas são exibidas como GRAVADO, nunca como AO VIVO."
+          "body": "As execuções guiadas usam papéis roteirizados e evidências simuladas, e têm o rótulo SIMULADO; uma prova simulada nunca é mostrada como real. As execuções arquivadas mantêm os rótulos com que foram gravadas: uma execução roteirizada continua SIMULADO, e uma execução com modelo ao vivo e provas simuladas diz isso ao lado de MODELO META. Na vitrine elas são exibidas como GRAVADO, nunca como AO VIVO."
         },
         "showcase": {
           "heading": "O que a vitrine permite conferir de novo",

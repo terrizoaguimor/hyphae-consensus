@@ -14,12 +14,18 @@
 // mock cannot drift from the contract: its one preset is the live R01
 // fixture's task, its budget amounts are test values in the ledger's format.
 
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import type { Page, Request } from "@playwright/test";
 
-import { capabilitiesSchema } from "../src/lib/api/schemas";
+import { capabilitiesSchema, receiptSchema, runDetailSchema, showcaseSchema } from "../src/lib/api/schemas";
 import type { LiveCapabilitiesV1, PresetV1, PublicBudgetV1 } from "../src/lib/api/types";
+import { recordHash } from "../src/lib/chain/verify";
 
 import { fixture } from "./contract";
+import { logSegment, researchBytes, researchDir } from "./research";
 
 type Json = Record<string, unknown>;
 
@@ -68,8 +74,22 @@ export type ApiMockOptions = {
   detailFailures?: { count: number; answer: Answer };
   /** The first N GET /runs/{id}/events answer this error (default none). */
   streamFailures?: { count: number; answer: Answer };
+  /** What GET /runs/{id}/receipt answers; default the retry fixture's receipt. */
+  receipt?: Json;
+  /** The first N GET /runs/{id}/receipt answer this error (default none). */
+  receiptFailures?: { count: number; answer: Answer };
   runs?: Json[];
   decision?: Answer;
+  /** The entries GET /showcase lists (ShowcaseEntryV1); default none (an empty archive). */
+  showcase?: Json[];
+  /** The first N GET /showcase answer this error (default none). */
+  showcaseFailures?: { count: number; answer: Answer };
+  /** Recorded runs GET /showcase/{id} and /showcase/{id}/receipt answer (recordedRun). */
+  recordedRuns?: Array<{ detail: Json; receipt: Json }>;
+  /** Archive files served at /research/<path> instead of the archive's own bytes. */
+  research?: Record<string, Buffer>;
+  /** What GET /runs/{id}/events.ndjson serves, by run id; default 404 ndjson_unavailable. */
+  ndjson?: Record<string, Buffer>;
 };
 
 export const RUN_ID = "run-00000000-0000-4000-8000-000000000001";
@@ -106,6 +126,261 @@ export function liveModelDetail(flags: string[] = []): Json {
   provenance.evidence = "hyphae_snapshot";
   provenance.flags = flags;
   provenance.meta_request_ids = ["chatcmpl-fixture-1"];
+  return detail;
+}
+
+/**
+ * The live-model run with every invocation a recorded Meta call (test
+ * values in the record format: request ids, latencies, token counts and a
+ * finish reason), as the public surface shows them: no output bound, no
+ * attempt count, no schema or prompt digests. Built from the retry fixture.
+ */
+export function metaCallsDetail(): Json {
+  const detail = liveModelDetail();
+  const invocations: Json[] = [];
+  for (const event of detail.events as Json[]) {
+    const payload = event.payload as Json;
+    if (payload.invocation !== undefined && payload.invocation !== null) {
+      const n = invocations.length + 1;
+      const invocation: Json = {
+        provider: "meta",
+        model: "muse-wonder-1.0",
+        request_id: `chatcmpl-fixture-${n}`,
+        latency_ms: 1000 * n,
+        input_tokens: 100 * n,
+        output_tokens: 10 * n,
+        finish_reason: "stop",
+        scripted: false,
+      };
+      payload.invocation = invocation;
+      invocations.push(invocation);
+    }
+  }
+  detail.model_invocations = invocations;
+  const provenance = (detail.summary as Json).provenance as Json;
+  provenance.meta_request_ids = invocations.map((i) => i.request_id);
+  return detail;
+}
+
+/** The receipt's note on a multi-run log (crates/consensus-runtime/src/receipts.rs CHAIN_NOTE_LOG). */
+const CHAIN_NOTE_LOG =
+  "This run is one segment of a multi-run log: its records are linked to records of other runs, so verifying its chain needs the whole log file, from genesis. head_hash is the hash of this run's last event, not the head of the file; it commits to every earlier record in the file, not to records written after it.";
+
+/** The receipt's note on unchained records (receipts.rs CHAIN_NOTE_UNCHAINED). */
+const CHAIN_NOTE_UNCHAINED =
+  "Pre-1.1 records carry no hash chain: nothing in this run is tamper-evident, and there is no head_hash.";
+
+/** The demo store's anchor the 2026-10-27 batteries verified against (research/README.md). */
+export const DEMO_ANCHOR = "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168";
+
+export type RecordedOptions = {
+  /** The guided fixture the run's records are derived from. */
+  base: "retry" | "invalid_proof";
+  /** Every record reports a proof error and every proof is invalid (the 2026-10-26 battery's shape). */
+  generationFailed?: boolean;
+};
+
+/**
+ * A recorded run of the archive as GET /showcase/{id} and its receipt would
+ * answer, for a showcase entry: the records of a guided fixture (the
+ * variants convention: no server logic is re-implemented here) under the
+ * entry's run id, title, provenance and schema version, at rest, every
+ * verification a real verifier's (or, with `generationFailed`, every record
+ * reporting a proof error and every proof invalid, as the 2026-10-26
+ * battery's records read), and the chain of the run's real segment in its
+ * archived log (scope, first and last sequence, head).
+ */
+export function recordedRun(entry: Json, options: RecordedOptions): { detail: Json; receipt: Json } {
+  const runId = String(entry.run_id);
+  const base = options.base === "retry" ? awaitingDecisionDetail() : clone(fixture<Json>("run-detail-invalid_proof.json"));
+  const baseId = String((base.summary as Json).run_id);
+  const detail = JSON.parse(JSON.stringify(base).split(baseId).join(runId)) as Json;
+  const unchained = entry.head_hash === null || entry.head_hash === undefined;
+  const schema = String(entry.schema_version);
+  const segment = logSegment(String(entry.file), runId);
+  const verifier = options.generationFailed === true ? "recall(prove) upstream" : "hyphae proof verify";
+  const recordVerification = (verification: Json) => {
+    verification.simulated = false;
+    verification.verifier = verifier;
+    verification.verified_anchor = DEMO_ANCHOR;
+    delete verification.round;
+    delete verification.detail;
+    if (options.generationFailed === true) {
+      verification.integrity_status = "invalid";
+    }
+  };
+  for (const event of detail.events as Json[]) {
+    event.schema_version = schema;
+    if (unchained) {
+      event.hash = "";
+      event.prev_hash = "";
+    }
+    const payload = event.payload as Json;
+    if (payload.type === "evidence_retrieved") {
+      const evidence = payload.evidence as Json;
+      delete evidence.retrieval;
+      evidence.anchor = DEMO_ANCHOR;
+      evidence.proof_error_reported = options.generationFailed === true;
+    }
+    if (payload.type === "evidence_verified") {
+      recordVerification(payload.verification as Json);
+    }
+  }
+  for (const round of detail.rounds as Json[]) {
+    for (const verification of round.verifications as Json[]) {
+      recordVerification(verification);
+    }
+  }
+  // A live-model run's calls carry the archive's own Meta request ids, in
+  // order (latency and token counts are test values); a scripted run keeps
+  // the fixture's scripted doubles.
+  const provenance = entry.provenance as Json;
+  const requestIds = (provenance.meta_request_ids as string[] | undefined) ?? [];
+  if (provenance.model === "live_meta" && requestIds.length > 0) {
+    const invocations: Json[] = [];
+    for (const event of detail.events as Json[]) {
+      const payload = event.payload as Json;
+      if (payload.invocation !== undefined && payload.invocation !== null) {
+        const n = invocations.length;
+        const invocation: Json = {
+          provider: "meta",
+          model: "muse-wonder-1.0",
+          request_id: requestIds[n % requestIds.length],
+          latency_ms: 20000 + 100 * n,
+          input_tokens: 200 + n,
+          output_tokens: 2800 + n,
+          scripted: false,
+        };
+        payload.invocation = invocation;
+        invocations.push(invocation);
+      }
+    }
+    detail.model_invocations = invocations;
+  }
+  const summary = detail.summary as Json;
+  summary.provenance = entry.provenance;
+  summary.title = entry.title;
+  summary.active = false;
+  (detail.task as Json).title = entry.title;
+  (detail.task as Json).schema_version = schema;
+  delete (detail.task as Json).mode;
+  detail.chain = {
+    scope: unchained ? "unchained" : segment.first === 1 ? "run" : "log",
+    first_sequence: segment.first,
+    last_sequence: segment.last,
+    head_hash: segment.head,
+  };
+  const receipt = JSON.parse(
+    JSON.stringify(fixture<Json>(`receipt-v2-${options.base}.json`)).split(baseId).join(runId),
+  ) as Json;
+  receipt.run_schema_version = schema;
+  receipt.event_count = segment.count;
+  receipt.final_state = summary.state;
+  receipt.authorization = { state: summary.authorization };
+  receipt.chain = {
+    scope: (detail.chain as Json).scope,
+    first_sequence: segment.first,
+    last_sequence: segment.last,
+    head_hash: segment.head,
+    note: unchained ? CHAIN_NOTE_UNCHAINED : CHAIN_NOTE_LOG,
+  };
+  for (const { verification } of receipt.verifications as Array<{ verification: Json }>) {
+    verification.verifier = verifier;
+    delete verification.detail;
+    if (options.generationFailed === true) {
+      verification.integrity_status = "invalid";
+    }
+  }
+  // The receipt lists the same calls (ModelInvocation: no `scripted` field).
+  receipt.model_invocations = (detail.model_invocations as Json[]).map((invocation) => {
+    const call = { ...invocation };
+    delete call.scripted;
+    return call;
+  });
+  return { detail, receipt };
+}
+
+/**
+ * A run of this server with a verbatim log: its events written as JSON lines
+ * and chained with the textual recipe of event_log.rs (SHA-256 of prev_hash
+ * followed by the line with its hash blanked, src/lib/chain/verify.ts, here
+ * through Node's WebCrypto), and the detail's hashes and chain and the
+ * receipt's head and record count set to match. The bytes are test bytes:
+ * the guided fixtures carry public views of their records, display copies
+ * whose own hashes cannot be recomputed.
+ */
+export async function chainedRun(source: Json): Promise<{ detail: Json; receipt: Json; ndjson: Buffer }> {
+  const detail = clone(source);
+  const events = detail.events as Json[];
+  const lines: string[] = [];
+  let prev = "genesis";
+  for (const event of events) {
+    event.prev_hash = prev;
+    event.hash = "";
+    const hash = await recordHash(prev, JSON.stringify(event));
+    if (hash === null) {
+      throw new Error("no hash field in the record");
+    }
+    event.hash = hash;
+    lines.push(JSON.stringify(event));
+    prev = hash;
+  }
+  const first = (events[0]?.sequence as number | undefined) ?? 0;
+  const last = (events.at(-1)?.sequence as number | undefined) ?? 0;
+  detail.chain = { scope: "run", first_sequence: first, last_sequence: last, head_hash: prev };
+  const receipt = clone(fixture<Json>("receipt-v2-retry.json"));
+  receipt.event_count = events.length;
+  receipt.chain = { ...(receipt.chain as Json), first_sequence: first, last_sequence: last, head_hash: prev };
+  return { detail, receipt, ndjson: Buffer.from(`${lines.join("\n")}\n`) };
+}
+
+/** Test values of a sealed-snapshot capture (ADR-0008), in the record format. */
+export const SNAPSHOT_ANCHOR = "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168";
+
+/**
+ * The live-model run with sealed-snapshot evidence: every retrieved record
+ * carries the snapshot's id, capture time and the proof's own request (the
+ * complete record list of demo-repo), and every verification is a real
+ * verifier's (not simulated), with its report. Built from the retry fixture.
+ */
+export function sealedSnapshotDetail(): Json {
+  const detail = liveModelDetail();
+  for (const event of detail.events as Json[]) {
+    const payload = event.payload as Json;
+    if (payload.type === "evidence_retrieved") {
+      const evidence = payload.evidence as Json;
+      evidence.retrieval = "sealed_snapshot";
+      evidence.anchor = SNAPSHOT_ANCHOR;
+      evidence.snapshot_id = "snapshot-fixture-1";
+      evidence.captured_at = "2026-10-26T08:00:00Z";
+      evidence.proof_ref = "list-demo-repo";
+      evidence.proof_request = { operation: "list", project: "demo-repo", limit: 64 };
+    }
+    if (payload.type === "evidence_verified") {
+      const verification = payload.verification as Json;
+      verification.simulated = false;
+      verification.verifier = "hyphae proof verify";
+      verification.verified_anchor = SNAPSHOT_ANCHOR;
+      verification.proof_ref = "list-demo-repo";
+      verification.report = {
+        status: "verified",
+        scope: "semantic_reexecution",
+        kind: "memory",
+        anchor_digest: SNAPSHOT_ANCHOR,
+        proof_digest: "ab".repeat(32),
+        result_digest: "cd".repeat(32),
+      };
+      // A real verifier's raw output stays on the operator surface.
+      delete verification.detail;
+    }
+  }
+  for (const round of detail.rounds as Json[]) {
+    round.verifications = (detail.events as Json[])
+      .map((e) => e.payload as Json)
+      .filter((p) => p.type === "evidence_verified")
+      .map((p) => p.verification as Json)
+      .filter((v) => v.round === round.round);
+  }
   return detail;
 }
 
@@ -209,6 +484,45 @@ export function failedDetail(code: string | null, message: string): { detail: Js
   return { detail, frames: [...frames, { frame: "stream_end", reason: "terminal", state: "failed", last_sequence: 5 }] };
 }
 
+/** A run served under its own id: its events replayed as frames, then stream_end. */
+export function storedRun(detail: Json): MockRun {
+  const summary = detail.summary as Json;
+  const frames: Json[] = (detail.events as Json[]).map((event) => ({
+    frame: "consensus",
+    event,
+    delivery: "replay",
+    summary,
+  }));
+  const last = (detail.events as Json[]).at(-1);
+  frames.push({
+    frame: "stream_end",
+    reason: summary.state === "awaiting_human_approval" ? "awaiting_human_approval" : "terminal",
+    state: summary.state,
+    last_sequence: last?.sequence ?? 0,
+  });
+  return { detail, frames };
+}
+
+/**
+ * The retry run as a run recorded before protocol 1.3 would read: every
+ * record of schema 1.2 and the two objections of round 1 never judged again
+ * (no later evaluation listed or resolved them). Built from the fixture.
+ */
+export function beforeCarryForwardDetail(): Json {
+  const detail = clone(fixture<Json>("run-detail-retry.json"));
+  for (const event of detail.events as Json[]) {
+    event.schema_version = "1.2";
+  }
+  (detail.task as Json).schema_version = "1.2";
+  (detail.recommendation as Json).protocol = "policy 1.2";
+  detail.challenge_items = (detail.challenge_items as Json[]).map((item) => ({
+    ...item,
+    status: "never_rejudged",
+    resolution_reason: null,
+  }));
+  return detail;
+}
+
 /** The live R01 run just created (declared Meta, nothing recorded but the task). */
 export function liveR01Run(): MockRun {
   const detail = clone(fixture<Json>("run-detail-live-R01-reference.json"));
@@ -292,6 +606,8 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
     session: options.session ?? true,
     detailFailures: options.detailFailures?.count ?? 0,
     streamFailures: options.streamFailures?.count ?? 0,
+    receiptFailures: options.receiptFailures?.count ?? 0,
+    showcaseFailures: options.showcaseFailures?.count ?? 0,
     liveRuns: [...(options.liveRuns ?? [])],
   };
   const capabilities: Json = {
@@ -315,6 +631,29 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
     runsById.set(String((run.detail.summary as Json).run_id), run);
   }
   const decidedDetail = options.decidedDetail ?? fixture<Json>("run-detail-retry.json");
+  // The showcase, validated with the client's own mirrors like the capabilities.
+  const researchFile = (file: string): Buffer | null => {
+    const override = options.research?.[file];
+    if (override !== undefined) {
+      return override;
+    }
+    const full = path.join(researchDir(), ...file.split("/"));
+    return existsSync(full) && !file.split("/").includes("..") ? researchBytes(file) : null;
+  };
+  // The digest GET /showcase publishes is the archive manifest's own, so a
+  // test that replaces the served manifest makes them differ.
+  const showcase = {
+    entries: options.showcase ?? [],
+    manifest_file: "MANIFEST.json",
+    manifest_sha256: createHash("sha256").update(researchBytes("MANIFEST.json")).digest("hex"),
+  };
+  showcaseSchema.parse(showcase);
+  const recordedById = new Map<string, { detail: Json; receipt: Json }>();
+  for (const recorded of options.recordedRuns ?? []) {
+    runDetailSchema.parse(recorded.detail);
+    receiptSchema.parse(recorded.receipt);
+    recordedById.set(String((recorded.detail.summary as Json).run_id), recorded);
+  }
   const runs = options.runs ?? [fixture<Json>("run-summary-retry.json")];
 
   const json = (status: number, body: unknown, headers: Record<string, string> = {}) => ({
@@ -385,6 +724,21 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
         ),
       );
     }
+    if (method === "GET" && path === "/api/v1/showcase") {
+      if (state.showcaseFailures > 0 && options.showcaseFailures !== undefined) {
+        state.showcaseFailures -= 1;
+        return route.fulfill(answer(options.showcaseFailures.answer));
+      }
+      return route.fulfill(json(200, showcase));
+    }
+    const recordedMatch = /^\/api\/v1\/showcase\/(run-[0-9a-f-]+)(\/receipt)?$/.exec(path);
+    if (method === "GET" && recordedMatch !== null) {
+      const recorded = recordedById.get(recordedMatch[1] ?? "");
+      if (recorded === undefined) {
+        return route.fulfill(error(404, "not_found", "not found"));
+      }
+      return route.fulfill(json(200, recordedMatch[2] === undefined ? recorded.detail : recorded.receipt));
+    }
     if (method === "GET" && path === "/api/v1/runs") {
       return route.fulfill(json(200, { runs, next_cursor: null }));
     }
@@ -411,8 +765,26 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
         body: sseBody(run.frames ?? []),
       });
     }
+    if (run !== undefined && method === "GET" && suffix === "/events.ndjson") {
+      const ndjson = options.ndjson?.[match?.[1] ?? ""];
+      if (ndjson === undefined) {
+        return route.fulfill(
+          error(404, "ndjson_unavailable", "the verbatim event log of a live run is not published on the public surface"),
+        );
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/x-ndjson",
+        headers: { "cache-control": "no-store" },
+        body: ndjson,
+      });
+    }
     if (run !== undefined && method === "GET" && suffix === "/receipt") {
-      return route.fulfill(json(200, fixture("receipt-v2-retry.json")));
+      if (state.receiptFailures > 0 && options.receiptFailures !== undefined) {
+        state.receiptFailures -= 1;
+        return route.fulfill(answer(options.receiptFailures.answer));
+      }
+      return route.fulfill(json(200, options.receipt ?? fixture("receipt-v2-retry.json")));
     }
     if (run !== undefined && method === "POST" && suffix === "/decision") {
       if (options.decision !== undefined) {
@@ -426,6 +798,28 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
       return route.fulfill(json(202, { run_id: match?.[1], cancelling: true }));
     }
     return route.fulfill(error(404, "not_found", "not found"));
+  });
+
+  // The research archive beside the API: /research/<path>, the archive's own
+  // bytes (or a test's replacement), with the pinned digest as the ETag.
+  await page.route("**/research/**", async (route, request) => {
+    record(request);
+    const file = decodeURIComponent(new URL(request.url()).pathname.slice("/research/".length));
+    const bytes = researchFile(file);
+    if (bytes === null) {
+      return route.fulfill(error(404, "not_found", "not found"));
+    }
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    return route.fulfill({
+      status: 200,
+      contentType: file.endsWith(".jsonl")
+        ? "application/x-ndjson"
+        : file.endsWith(".json")
+          ? "application/json"
+          : "text/plain; charset=utf-8",
+      headers: { etag: `"${sha256}"`, "x-content-sha256": `sha256=${sha256}` },
+      body: bytes,
+    });
   });
 
   return { calls, runId: RUN_ID };

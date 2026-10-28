@@ -147,7 +147,7 @@
         },
         "labels": {
           "heading": "Les exécutions simulées et enregistrées sont signalées",
-          "body": "Les exécutions guidées utilisent des rôles scénarisés et des éléments probants simulés, et portent l’étiquette SIMULÉ ; une preuve simulée n’est jamais présentée comme réelle. Les exécutions archivées conservent les étiquettes avec lesquelles elles ont été enregistrées : une exécution scénarisée reste SIMULÉ, et une exécution avec un modèle en direct et des preuves simulées le dit à côté de META EN DIRECT. Dans la vitrine, elles sont présentées comme ENREGISTRÉ, jamais comme EN DIRECT."
+          "body": "Les exécutions guidées utilisent des rôles scénarisés et des éléments probants simulés, et portent l’étiquette SIMULÉ ; une preuve simulée n’est jamais présentée comme réelle. Les exécutions archivées conservent les étiquettes avec lesquelles elles ont été enregistrées : une exécution scénarisée reste SIMULÉ, et une exécution avec un modèle en direct et des preuves simulées le dit à côté de MODÈLE META. Dans la vitrine, elles sont présentées comme ENREGISTRÉ, jamais comme EN DIRECT."
         },
         "showcase": {
           "heading": "Ce que la vitrine vous permet de revérifier",

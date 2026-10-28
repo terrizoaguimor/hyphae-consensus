@@ -1689,4 +1689,205 @@
   .hc-preset-text {
     white-space: normal;
   }
+
+  /* Run workspace, lane W2: Evidence, Proof inspector, Audit trail, Meta API
+     panel, the explanations and the revision view. Statuses are text first;
+     color only repeats them, and proof cyan stays reserved. */
+
+  .hc-evidence-tab,
+  .hc-proofs-tab,
+  .hc-audit-tab,
+  .hc-meta-tab {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-5);
+  }
+
+  .hc-evidence-tab > p,
+  .hc-proofs-tab > p,
+  .hc-audit-tab > p,
+  .hc-meta-tab > p {
+    margin: 0;
+  }
+
+  .hc-evidence-list,
+  .hc-proof-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .hc-evidence,
+  .hc-proof-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
+    min-width: 0;
+    padding: var(--spacing-5);
+    border: 1px solid var(--color-border-emphasized);
+    border-radius: var(--radius-container);
+    background-color: var(--color-background-card);
+  }
+
+  .hc-evidence > p,
+  .hc-proof-card > p {
+    margin: 0;
+  }
+
+  .hc-evidence-title {
+    margin: 0;
+    font-size: var(--text-heading-4-size);
+    line-height: var(--text-heading-4-leading);
+    overflow-wrap: anywhere;
+  }
+
+  .hc-evidence-subheading {
+    margin: var(--spacing-2) 0 0;
+    font-size: var(--text-label-size);
+    line-height: var(--text-label-leading);
+    letter-spacing: 0.02em;
+    color: var(--color-text-secondary);
+  }
+
+  .hc-kv--compact {
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: var(--spacing-2) var(--spacing-4);
+  }
+
+  /* Text from the run (a retrieved record, a model's output): plain text in
+     a quoted block, marked lang="en". */
+  .hc-untrusted {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-1);
+    margin: 0;
+  }
+
+  .hc-untrusted-text {
+    margin: 0;
+    padding: var(--spacing-3) var(--spacing-4);
+    border-inline-start: 3px solid var(--color-border-emphasized);
+    border-radius: var(--radius-element);
+    background-color: var(--color-background-muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .hc-rounds {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .hc-round-label {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .hc-verification {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-2);
+  }
+
+  .hc-proof-plain {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .hc-proof-plain > p {
+    margin: 0;
+  }
+
+  /* Why the policy recommends what it did (Decision tab). */
+  .hc-explanation {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .hc-explanation p,
+  .hc-explanation > [data-explanation-plain] {
+    margin: 0;
+  }
+
+  .hc-explanation > [data-explanation-plain],
+  .hc-explanation [data-explanation-technical] {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  /* The revision view: the original and the revised claims, side by side. */
+  .hc-revision {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .hc-revision > p {
+    margin: 0;
+  }
+
+  /* The chain checked in this browser: the verdict, then each comparison. */
+  .hc-chain-verdict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-2);
+    margin: 0;
+    font-weight: 600;
+  }
+
+  [data-chain-results] > li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-2);
+    overflow-wrap: anywhere;
+  }
+
+  /* A wide table scrolls inside its own focusable region. */
+  .hc-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    border-radius: var(--radius-element);
+  }
+
+  .hc-table-scroll:focus-visible {
+    outline: var(--focus-outline-width) var(--focus-outline-style)
+      var(--focus-outline-color);
+    outline-offset: var(--focus-outline-offset);
+  }
+
+  .hc-invocations td,
+  .hc-invocations th {
+    white-space: nowrap;
+  }
+
+  /* A command to copy: wrapped, never a scrolling box. */
+  .hc-cli {
+    margin: 0;
+    padding: var(--spacing-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-element);
+    font-size: var(--text-code-size);
+    line-height: var(--text-code-leading);
+    background-color: var(--color-background-muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* A long value (a full hash) takes the whole row of a key-value grid. */
+  .hc-kv-wide {
+    grid-column: 1 / -1;
+  }
 }

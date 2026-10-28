@@ -418,15 +418,29 @@ function EvaluationBody({ evaluation }: { evaluation: Evaluation }) {
   );
 }
 
-/** A proof's status: a simulated one is the SIMULATED token with its scripted outcome as text, never a green valid. */
-export function ProofStatus({ verification }: { verification: VerificationV1 }) {
+/**
+ * A proof's status: a simulated one is the SIMULATED token with its scripted
+ * outcome as text, never a green valid. `withId` (default true) puts the
+ * evidence id first; a view that already names the record leaves it out.
+ */
+export function ProofStatus({
+  verification,
+  withId = true,
+}: {
+  verification: VerificationV1;
+  withId?: boolean;
+}) {
   const t = useTranslations("Run.stage");
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const token = proofToken(verification.integrity_status, verification.simulated);
   const status = tProvenance(token.key);
   return (
     <span className="hc-proof" data-proof-simulated={verification.simulated} data-proof-status={verification.integrity_status}>
-      <code className="hc-code">{verification.evidence_id}</code>{" "}
+      {withId ? (
+        <>
+          <code className="hc-code">{verification.evidence_id}</code>{" "}
+        </>
+      ) : null}
       <Badge
         variant={token.variant}
         label={

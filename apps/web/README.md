@@ -8,7 +8,11 @@ manifest, Node container) and E2 (shell, navigation, onboarding, settings,
 legal and trust pages, in-app docs), with a Playwright and axe harness, plus
 the first API lane (W1): the generated contract types, the same-origin API
 client, the SSE run stream, runtime connectivity, and the New deliberation,
-My runs and run workspace views. The export is served by the Rust server
+My runs and run workspace views; and the second (W2): the run workspace's
+Evidence, Proof inspector, Audit trail and Meta API tabs, the plain and
+technical explanations of the policy trace, the revision view, the chain
+checked in the browser, the research showcase with the run workspace in
+RECORDED mode, and the Overview's figures. The export is served by the Rust server
 itself (`consensus-api serve-public`), so every API call is relative
 (`/api/v1/…`); whether the API is there is found out at runtime
 (`GET /api/v1/health`, once per page load), and a view that needs it shows the
@@ -22,11 +26,11 @@ the language-neutral root page `/` and the 404 page:
 
 | Page | Path | Content |
 |---|---|---|
-| Overview | `/` | What the system does, the main call to action (until the health probe answers, and when the API is unreachable: "How guided examples will work", linking to the Modes article; once the API answered it opens New deliberation and reads "Run a guided example" only when `capabilities.guided_enabled` says so, with the server's schema, policy and contract versions from the health answer, and a note when the server's contract is not the one this build was generated from), the tour invitation, how a deliberation works, the provenance legend; impact metrics are a not-connected placeholder |
+| Overview | `/` | What the system does, the main call to action (until the health probe answers, and when the API is unreachable: "How guided examples will work", linking to the Modes article; once the API answered it opens New deliberation and reads "Run a guided example" only when `capabilities.guided_enabled` says so, with the server's schema, policy and contract versions from the health answer, and a note when the server's contract is not the one this build was generated from), the tour invitation, how a deliberation works, the provenance legend; the impact figures, counted in the browser from `GET /showcase` (runs and records, runs by outcome in columns of their evidence axis, by battery with schema and policy rules, by model axis and authorization, the recorded Meta request ids, the runs before the hash chain), the not-connected placeholder without the API |
 | New deliberation | `new/` | Guided examples from `GET /scenarios` (the count the server lists, title, description, expected outcome as a neutral chip, SIMULATED model and evidence badges, a Run button: `ensureSession`, `POST /runs` with a fresh `Idempotency-Key`, then the run page) and the live presets from `capabilities.live` (`LiveCapabilitiesV1`: each preset with the badges of its own recorded model and evidence axes, the public budget in US dollars, the 18+ and territory attestation linking to the Terms, an optional invite code under a disclosure, the Turnstile widget, `POST /live-runs`; see "Live form" below), or the fixed "Live mode is not enabled on this server" state linking to the showcase; every API error shows its code's sentence and the Retry-After wait |
 | My runs | `runs/` | The session's runs from `GET /runs` (title, state, outcome with its evidence axis, the failure sentence of a failed run, provenance badges, never a LIVE label: a live-model run reads META MODEL with its recorded date, created and updated, "access ends" and "deleted after" from the capabilities limits), the empty state, no list and no count without a session |
-| Run workspace | `run/?id=<run_id>` | Client-rendered from the query string: header (title, state, outcome with evidence axis and, for a revision, which proposal it is for, records, revision round, run id, the failure sentence of a failed run, provenance axes with the latest frame's delivery, flags), the error of a failed detail request with a retry, tabs Live (only while the run deliberates and its latest frame is LIVE; Playback otherwise), Explorer and Decision; see "Run workspace" below |
-| Research showcase | `showcase/` | Not-connected placeholder (recorded runs, RECORDED label, dated corrections, MANIFEST) |
+| Run workspace | `run/?id=<run_id>` | Client-rendered from the query string: header (title, state, outcome with evidence axis and, for a revision, which proposal it is for, records, revision round, run id, the failure sentence of a failed run, provenance axes with the latest frame's delivery, flags), the error of a failed detail request with a retry, tabs Live (only while the run deliberates and its latest frame is LIVE; Playback otherwise), Explorer, Evidence, Proof inspector, Audit trail, Meta API and Decision; `run/?id=<run_id>&source=showcase` opens a recorded run of the archive in RECORDED mode; see "Run workspace" below |
+| Research showcase | `showcase/` | The archive from `GET /showcase`, by battery: each run RECORDED with its outcome next to its evidence axis, its schema (1.0: pre-1.1, unchained), authorization and records, opening in the run workspace in RECORDED mode; each battery's log with the SHA-256 the manifest pins, for download; `MANIFEST.json` hashed in the browser, its notes (the archive's own, English) shown only when it matches the published digest; the not-connected placeholder without the API |
 | Docs | `docs/` | Index of 7 articles, tour launcher, explanation level |
 | Docs articles | `docs/<slug>/` | `what-is`, `three-roles`, `not-voting`, `verified-evidence`, `abstain-contested`, `human-authorization`, `modes`: summary, sections, technical details, previous/next |
 | Settings | `settings/` | Theme, language, motion, explanation level, remove saved settings |
@@ -151,8 +155,72 @@ turns the pacing off. Server timestamps are shown untouched.
   (`ndjsonPublishable`, the server's rule: a live-declared run answers `404
   ndjson_unavailable`, said in a sentence instead); cancel for a run still
   deliberating.
-- Not here: Evidence, Proof inspector, Audit trail and Meta API panel
-  (another lane; no stubs are rendered).
+- **Evidence** (`EvidenceTab`, lane W2): every record the run retrieved
+  (`src/lib/run/evidence.ts`, from `mergeEvents`): kind, project, retrieval
+  mode, snapshot id and capture time when present, what its proof covers
+  (from the proof's own request, never the claim's query: "Proof covers:
+  complete record list of <project> at anchor <prefix>." for the sealed
+  snapshot, the sealed request for a live recall, a sentence for a pre-1.3
+  record that names none, "no proof" when its generation failed upstream),
+  its text as untrusted English content (`UntrustedText`: plain text,
+  `lang="en"`, a note that it is data, and in another locale that it is the
+  English original), and its verifications by round (integrity through
+  `proofToken`, factual and relevance translated, never a positive tone for
+  "irrelevant"); failed retrievals with their code's sentence.
+- **Proof inspector** (`ProofsTab`): per verification, the technical fields
+  (verifier, checked_at, verified anchor, proof ref, the report's status,
+  kind, scope and digests, round, log record, whether the verifier is the
+  scripted double) and a plain reading worded from the receipt's
+  `proof_limitations` (`src/lib/run/receipt.ts` pins the text the server
+  writes; a receipt with any other text is shown as written, untranslated):
+  a simulated proof checked nothing cryptographic, a proof whose generation
+  failed upstream was never checked, a recorded run's proofs were verified at
+  run time by the named verifier and their artifacts stay with the operator.
+- **Audit trail** (`AuditTab`): the chain (scope in words, first and last
+  sequence, head; each record's link as the views carry it), the receipt
+  (authorization, deliberation summary with the earlier-round objections
+  never re-judged, model calls, verifications by round and status, protocol,
+  proof limitations, the receipt as JSON), the verbatim log where it is
+  published (a guided run's `events.ndjson`; a recorded run's research file
+  with its pinned SHA-256) with the receipt download, the exact check
+  `consensus-api verify <log.jsonl> --run <id> --receipt <receipt.json>`, and
+  the chain checked in the browser (`ChainCheck`, `src/lib/chain/verify.ts`:
+  every record's SHA-256 recomputed with WebCrypto exactly as `event_log.rs`
+  does, the raw line with its top-level hash blanked textually, never
+  re-serialized; every link followed; the run's segment compared with the
+  pinned digest, the receipt's head and count and the detail's chain; pass,
+  or the first failing record). Every redacted view (the links, the receipt
+  JSON, the Explorer's public event) says it is a display copy, not the
+  hashed bytes.
+- **Meta API** (`MetaTab`): one row per recorded model invocation
+  (`src/lib/run/invocations.ts`, from the events that carry them, so each
+  row has its role): provider and model, recorded request id, latency,
+  input, output and reasoning tokens, output bound, finish reason, attempts,
+  schema name and hash prefix, prompt hash prefix; a scripted double reads
+  "scripted double, no model call" with nothing that passes for a call;
+  totals from the rows, over real calls only. The contract publishes no
+  prices: no cost is shown.
+- **Explanations** (`Explanation`, in the Decision tab): the policy trace in
+  plain words (`src/lib/run/explain.ts`: the deciding rule with its kind, the
+  trace's counts, one sentence per failed check) and the technical view
+  (rule and rule order, every failed check with its ids, the counts by field,
+  the rationale code, the server's English rationale), expanded at the
+  "technical" explanation level; what the records add is said apart from it
+  (SIMULATED proof statuses; before protocol 1.3, the final round only and
+  "earlier-round objections never re-judged: N").
+- **Revision view** (`RevisionComparison`, next to the scope line): the
+  original and the revised proposal claim by claim
+  (`src/lib/run/revision.ts`), and each revision's addressed items, said as
+  its own claim, not a verdict.
+- **RECORDED mode** (`?source=showcase`, `useRecordedRun`): a run of the
+  research archive read once from `GET /showcase/{id}` with its showcase
+  entry and the manifest's note, and its receipt from `/showcase/{id}/receipt`;
+  no stream and no stage, Decision first and read-only, never presented as
+  running; the header says it is recorded and carries what the archive data
+  supports: schema 1.0 reads "pre-1.1, unchained", and a run blocked because
+  every invalid proof's record reports an upstream proof error reads as a
+  failure to produce proofs, not an alteration, next to the manifest's own
+  note on its log (for the 2026-10-26 battery: a deployment misconfiguration).
 
 Honesty rules the views follow (release gate G7; `src/lib/provenance.ts`,
 each with a unit test): LIVE only when a frame's delivery is `live`, the
@@ -160,8 +228,10 @@ model axis is `live_meta` and no flag is raised (`provenance_inconsistent`,
 `unchained` and `mode_undeclared` are shown and never render as LIVE; a
 live-delivered record of a scripted run reads STREAMING); every label with a
 LIVE word (the LIVE delivery badge, the LIVE META model badge, "Meta model ·
-live", the Live tab) goes through `isLive`, so a replayed frame, a list
-entry, a preset or a flagged run reads META MODEL (a warning with a blocking
+live", the Live tab) goes through `isLive`, and no evidence or source label
+carries the LIVE word (the evidence of a live Hyphae recall reads HYPHAE
+RECALL), so a replayed frame, a list entry, a preset, a recorded run or a
+flagged run reads META MODEL (a warning with a blocking
 flag) with "Meta model · recorded <date>" next to REPLAY, in every locale
 (`tests/provenance.test.ts` checks each locale's LIVE word); a scripted
 provider reads "scripted double, no model call"; simulated evidence is named
@@ -230,8 +300,12 @@ exists; none of it is to be duplicated.
   `detailFailures`, `streamFailures`, `liveEnabled`/`live*`, `capabilities`,
   `health`), with variants derived from the fixtures (`awaitingDecisionDetail`,
   `liveModelDetail`, `framesWith`, `inProgressLiveRun`, `failedDetail`,
-  `liveR01Run`); the showcase routes (`/showcase`, `/showcase/{id}`,
-  `/research/*`) are not mocked yet. Use `expectNoLive(page, locale)` for
+  `liveR01Run`); the showcase routes are mocked too (`showcase`,
+  `recordedRuns`, `research`, `showcaseFailures`; `recordedRun()` derives a
+  recorded run from a guided fixture with its real segment's chain, and
+  `e2e/research.ts` builds entries from the archive's manifest and logs), and
+  so is a guided run's verbatim log (`ndjson`, `chainedRun()`). The shared
+  assertions are in `e2e/helpers.ts`. Use `expectNoLive(page, locale)` for
   every view that must not read LIVE, `takeProblem` for each API error a
   test provokes, `reducedMotion: "reduce"` to skip pacing, and add the new
   tabs to the axe scans (`writeScans`, `blocking`).
@@ -311,8 +385,10 @@ seals reproduces against its pinned anchor, not yet that the displayed text is
 the sealed text (audit finding HY-1), and never that a record is true,
 relevant or complete or that a model used it; unbuilt features are described
 in the future tense; LIVE META is never shown alone but next to its evidence
-label (SEALED SNAPSHOT, or SIMULATED for the archived hybrid runs of a live
-model with simulated proofs); runs recorded under protocol 1.2 read only the
+label (SEALED SNAPSHOT), and the archived hybrid runs of a live model with
+simulated proofs read META MODEL next to SIMULATED, never LIVE META (the
+Limitations page and the Modes article say so since 2026-10-28, pending the
+owner's sign-off); runs recorded under protocol 1.2 read only the
 final round and the 2026-10-27 multi-agent (AI) audit found two fail-open
 paths (MA-1, RT-1), while protocol 1.3 rejects inexact ids and carries every
 open objection and contradiction forward and has not yet been re-validated
@@ -341,9 +417,11 @@ sh apps/web/scripts/playwright-docker.sh             # e2e + axe against out/
 ```
 
 `scripts/in-docker.sh` runs `docker run --rm` on `node:24-bookworm-slim`
-pinned by digest (Node 24.22.1), mounts `apps/web` at `/app` and the
+pinned by digest (Node 24.22.1), mounts `apps/web` at `/app`, the
 repository's `contracts/` (the API contract the type generator and the tests
-read) read-only at `/contracts`, passes no `-e` variables, no home directory
+read) read-only at `/contracts` and `research/` (the archive the chain
+verifier's tests read, public data) read-only at `/research`, passes no `-e`
+variables, no home directory
 and no TTY, enables corepack, switches off Next.js telemetry inside the
 container, and runs the given command. Two parts of the `/app` mount are
 read-only, so code running in the container can never rewrite what the host
@@ -360,8 +438,10 @@ written by a command of this project.
 `mcr.microsoft.com/playwright:v1.64.1-noble`, pinned by digest
 (`sha256:47b510dd…b8ea`, Node 24.22.1, the browsers of Playwright 1.64.1, the
 same release as the pinned `@playwright/test`). Same isolation as
-`in-docker.sh` (the contract is mounted read-only at `/contracts` too: the
-API specs serve its fixtures as the mocked `/api/v1`), plus `--network
+`in-docker.sh` (the contract and the research archive are mounted
+read-only at `/contracts` and `/research` too: the API specs serve the
+contract's fixtures as the mocked `/api/v1` and the archive's real bytes as
+the mocked `/research`), plus `--network
 none`: the tests serve `out/` on the container's own loopback, so nothing a
 page loads can come from anywhere else. The real server cannot be reached
 from that container, so the API is always mocked with `page.route()`
@@ -398,7 +478,7 @@ Notes:
 | `pnpm install --frozen-lockfile` | Install exactly what `pnpm-lock.yaml` records |
 | `pnpm typecheck` | `next typegen`, then `tsc --noEmit` (strict) |
 | `pnpm lint` | ESLint (`eslint-config-next` core-web-vitals + TypeScript), zero warnings allowed |
-| `pnpm test` | Vitest: locale parity, ICU and rich-text tags of every catalog, =0 branches of every plural, site map, preferences, theme contrast, theme script, CSP manifest, static server, i18n helpers, the generated contract types (drift and hash), the zod mirrors over every contract fixture (per-fixture expectations, the live section), a sentence for every `ErrorCode` read from the generated union, the API client (judge code trimming), the SSE stream, the pacer, the honesty predicates (no LIVE word unless `isLive`, in every locale), the live form's rules, the Turnstile widget, the run view helpers and the failure sentences |
+| `pnpm test` | Vitest: locale parity, ICU and rich-text tags of every catalog, =0 branches of every plural, site map, preferences, theme contrast, theme script, CSP manifest, static server, i18n helpers, the generated contract types (drift and hash), the zod mirrors over every contract fixture (per-fixture expectations, the live section), a sentence for every `ErrorCode` read from the generated union, the API client (judge code trimming), the SSE stream, the pacer, the honesty predicates (no LIVE word unless `isLive`, in every locale), the live form's rules, the Turnstile widget, the run view helpers and the failure sentences; lane W2: the evidence records and proof readings, the receipt's pinned limitations and the check command, the invocation rows and totals, the explanations rendered in four locales (exactly the trace's counts and kind), the revision comparison, the showcase figures and manifest notes, no LIVE word on an evidence or source label, and the chain verifier over the real archive at `/research` (every pinned digest, all eight logs, F03's head, a flipped byte failing at its sequence) |
 | `pnpm build` | Static export to `out/`, then `node scripts/csp-manifest.mjs` |
 | `pnpm theme:build` | Compile `src/theme/hyphaeMissionTheme.ts` with `astryx theme build` |
 | `pnpm theme:check` | Fail if the committed theme outputs drift from the source |
@@ -628,11 +708,14 @@ to their browser's preference, and sends visitors without JavaScript to
   focus returns to the opener (or to the `<h1>` when the opener is gone). The
   tour keeps focus on its primary button and announces each step in a polite
   live region.
-- axe (2026-10-28, Chromium 1.64.1 build): 158 scans (17 pages × 4 locales ×
-  2 themes, the tour and the drawer in each locale and theme, the 404 page in
-  both themes, and 4 phone layouts): **0 violations of any impact**, 6,400
-  rule passes, 43,509 element checks passed. `color-contrast` stays
-  "incomplete" on every scan:
+- axe (2026-10-28, full suite, Chromium 1.64.1 build): 300 scans (17 pages ×
+  4 locales × 2 themes, the tour and the drawer in each locale and theme, the
+  404 page in both themes, and 4 phone layouts; connected to the mocked API,
+  /new, /runs and the run workspace's seven tabs × 4 locales × 2 themes, and
+  the open live form, a failed run and a failed detail in both themes; the
+  Overview's figures, /showcase and a recorded run's six tabs × 4 locales ×
+  2 themes): **0 violations of any impact**, 13,250 rule passes, 141,919
+  element checks passed. `color-contrast` stays "incomplete" on every scan:
   axe cannot compute contrast over the body gradient and the translucent
   glass (the wordmark, the Menu button, the footer line); the solid
   surfaces are covered by `tests/contrast.test.ts`.
@@ -675,7 +758,8 @@ same-origin request or request to another origin.
 | `onboarding.spec.ts` | Offered but never opened by itself; Skip, Escape and backdrop close it and are remembered; all six steps with Back and Finish; strict focus trap and inert page; reopening from Docs; translated in every locale |
 | `motion.spec.ts` | OS reduced motion and the in-app setting remove movement and keep a short fade; "Match system" follows the OS live; the drawer; reduced transparency makes the glass solid (Chromium, through the DevTools protocol) |
 | `a11y.spec.ts` | axe on every page in both themes and all locales, the overlays, the 404 page in both themes, and phone layouts |
-| `api.spec.ts` | Over the mocked `/api/v1` (`e2e/api-mock.ts`, the contract fixtures; the live section in the contract's shape, validated with the client's zod mirror): New deliberation -> run -> frames -> decision -> receipt link (with the `Idempotency-Key` and the `expected` block checked); a replayed finished run never reads LIVE and is named Playback; no LIVE word on a replayed, flagged or listed live-model run in the four locales, and LIVE for a live-model run in progress; a `provenance_inconsistent` run never reads LIVE even on live-delivered frames; pacing only for scripted runs, and off with the in-app Reduced setting; the header's labels; the live section's disabled state, the closed form (no site key, tripped or unreadable ledger) and the open form's request (trimmed invite code, a live refusal's sentence); an error's sentence and Retry-After; a failed detail request with its retry; a failed stream with the stored records and a reconnect; a failed run explained from its code; the scope line of a revision; no verbatim-log link for a live-declared run; My runs with and without a session; the Explorer (filter, translated statuses, SIMULATED proofs, =0 count); the run page without an id; the runtime NotConnected state against the static server; the Overview's button (and a server on another contract); the four locales; axe on `/new`, `/runs` and the three tabs of `/run` in every locale and theme, and on the open live form, a failed run and a failed detail |
+| `api.spec.ts` | Over the mocked `/api/v1` (`e2e/api-mock.ts`, the contract fixtures; the live section in the contract's shape, validated with the client's zod mirror): New deliberation -> run -> frames -> decision -> receipt link (with the `Idempotency-Key` and the `expected` block checked); a replayed finished run never reads LIVE and is named Playback; no LIVE word on a replayed, flagged or listed live-model run in the four locales, and LIVE for a live-model run in progress; a `provenance_inconsistent` run never reads LIVE even on live-delivered frames; pacing only for scripted runs, and off with the in-app Reduced setting; the header's labels; the live section's disabled state, the closed form (no site key, tripped or unreadable ledger) and the open form's request (trimmed invite code, a live refusal's sentence); an error's sentence and Retry-After; a failed detail request with its retry; a failed stream with the stored records and a reconnect; a failed run explained from its code; the scope line of a revision; no verbatim-log link for a live-declared run; My runs with and without a session; the Explorer (filter, translated statuses, SIMULATED proofs, =0 count); the run page without an id; the runtime NotConnected state against the static server; the Overview's button (and a server on another contract); the four locales; axe on `/new`, `/runs` and the three tabs of `/run` in every locale and theme, and on the open live form, a failed run and a failed detail; lane W2: the Evidence tab (simulated and sealed-snapshot coverage, the English original note), the Proof inspector (simulated and real proofs, a failed receipt, a receipt with other limitations), the Audit trail (chain, receipt, log, check command; a live-declared run), a guided run's log checked in the browser (pass, then a changed record failing at its sequence), the Meta API panel (scripted doubles, recorded Meta calls and totals), the explanations (plain, technical, before protocol 1.3, three locales), the revision view, and axe on all seven tabs |
+| `showcase.spec.ts` | Over the mocked `/showcase` and `/research` (entries from the archive's manifest and logs, the server's F03 entry): the list (RECORDED, by battery, outcomes next to their evidence, the manifest checked, the archive's note), a recorded run in RECORDED mode (no stream, read-only Decision, archive receipt and log, recorded proofs, the check command), its archived log checked in the browser (pass against the pinned digest and the receipt's head; a flipped byte failing at its record), a run blocked by proof-generation failures, a schema-1.0 run, a run the listing does not name, a failed listing, a forged manifest, no LIVE in four locales, the Overview's figures recounted from the same entries, and axe on the figures, the list and every recorded tab in four locales and both themes |
 
 The page fixture (`e2e/fixtures.ts`) fails a test on any console error, page
 error, CSP violation, request to another origin or same-origin response of
@@ -713,10 +797,16 @@ the axe scans.
   so the suite sees the closed form, and the open form only through a
   mocked server that requires no token.
 - The live attestation wording (age and territory) and the Limitations
-  text are legal drafts awaiting the owner's sign-off; the Limitations
-  page still says an archived live-model run is labelled "next to LIVE
-  META", while the views now read META MODEL for anything not delivered
-  live.
+  text are legal drafts awaiting the owner's sign-off; the Limitations page
+  now says an archived live-model run is labelled next to META MODEL, as the
+  views read it (2026-10-28, pending that sign-off).
+- Lane W2: the public surface publishes no output bound, attempt count or
+  schema and prompt digests of a model call (operator only), so the Meta API
+  panel says they are not published; the contract publishes no prices, so no
+  cost is shown; showcase entries carry no dates, so the Overview's figures
+  name runs, batteries, schema versions and policy rules but no dates; and
+  the in-browser chain check reads a line with invalid UTF-8 as a failure
+  where the runtime's lossy decoding would fail it at the hash instead.
 - Script weight: `/en/` loads 13 async scripts, 797,215 bytes raw (230,921
   gzip at level 9), plus a 112,594-byte `noModule` polyfill that modern
   browsers skip. The whole export is 460 files, 7,132,989 bytes (each page

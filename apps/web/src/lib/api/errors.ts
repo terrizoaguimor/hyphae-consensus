@@ -49,6 +49,7 @@ const SERVER_CODES = {
   live_budget_judge_slice: true,
   live_concurrency: true,
   live_hourly_admissions: true,
+  live_client_quota: true,
   live_tripped: true,
   live_unavailable: true,
   turnstile_required: true,

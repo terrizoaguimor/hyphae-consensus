@@ -189,7 +189,7 @@
         },
         "technical": {
           "axes": "Las etiquetas provendrán de los datos registrados, nunca de la solicitud: el modelo (con guion o Meta en vivo), la evidencia (simulada, instantánea sellada o Hyphae en vivo), el origen (este servidor o el archivo de investigación) y la entrega de cada evento (en vivo o reproducción).",
-          "live-label": "META EN VIVO solo se mostrará para eventos entregados en vivo desde el modelo de Meta en vivo, y siempre junto a la etiqueta de la evidencia: INSTANTÁNEA SELLADA en el modo público en vivo, SIMULADO en las ejecuciones archivadas de un modelo en vivo con pruebas simuladas (C03, S01 a S03).",
+          "live-label": "META EN VIVO solo se mostrará para eventos entregados en vivo desde el modelo de Meta en vivo, y siempre junto a la etiqueta de la evidencia (INSTANTÁNEA SELLADA en el modo público en vivo). Las ejecuciones archivadas de un modelo de Meta con pruebas simuladas (C03, S01 a S03) llevan MODELO META junto a SIMULADO, nunca META EN VIVO.",
           "language": "Las tareas predefinidas y la conversación con el modelo se mantienen en inglés, para que las afirmaciones coincidan con los registros de evidencia en inglés. Las vistas traducidas marcan el texto del modelo como salida original en inglés."
         }
       }

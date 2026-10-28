@@ -12,8 +12,11 @@
 // recorded decision carries the server's notice; the receipt is linked, and
 // the verbatim log only when the public surface publishes it
 // (src/lib/provenance.ts ndjsonPublishable; a live run's answers 404
-// ndjson_unavailable). A run still deliberating can be cancelled. A failed
-// detail request is said as such, never shown as loading.
+// ndjson_unavailable), or for a recorded run of the research archive the
+// archived log file it is a segment of (the workspace passes the links). A
+// recorded run is read-only: its source is the archive, so the form never
+// opens. A run still deliberating can be cancelled. A failed detail request
+// is said as such, never shown as loading.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
@@ -22,17 +25,34 @@ import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { api, ApiError, isApiError, newIdempotencyKey } from "@/lib/api/client";
-import type { DecisionResponseV1, DecisionV1 } from "@/lib/api/types";
-import { ndjsonPublishable } from "@/lib/provenance";
+import type { DecisionResponseV1, DecisionV1, RunDetailV1 } from "@/lib/api/types";
 import { supersededProposal } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { Explanation } from "./Explanation";
+import { RevisionComparison } from "./RevisionComparison";
 import { RecommendationLine } from "./StageTab";
 import type { RunData } from "./useRunData";
 
+/** Where the receipt and the verbatim log are, for this run's source. */
+export type DecisionLinks = {
+  receipt: string;
+  /**
+   * The verbatim log, when the public surface publishes it (`name` is the
+   * file name to save it under, `archive` for a recorded run's research
+   * file); null when it is not published.
+   */
+  log: { href: string; name: string | null; archive: boolean } | null;
+  /** A recorded run whose archive entry (its log file) is not known yet or at all. */
+  logPending?: boolean;
+};
+
 type DecisionTabProps = {
   runId: string;
-  data: RunData;
+  data: Pick<RunData, "detail" | "detailError" | "summary">;
+  links: DecisionLinks;
+  /** Replaces the workspace's detail after a decision (a run of this server only). */
+  onDetail?: (detail: RunDetailV1) => void;
 };
 
 const OVERRIDE_KINDS = new Set(["blocked", "abstained"]);
@@ -48,11 +68,11 @@ function toApiError(error: unknown, path: string): ApiError {
       });
 }
 
-export function DecisionTab({ runId, data }: DecisionTabProps) {
+export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) {
   const t = useTranslations("Run.decision");
   const tRun = useTranslations("Run");
   const format = useFormatter();
-  const { detail, detailError, summary, setDetail } = data;
+  const { detail, detailError, summary } = data;
   const [approvedChoice, setApprovedChoice] = useState<boolean | null>(null);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -84,7 +104,6 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
     original !== null && current !== null
       ? { id: current.id, summary: current.summary, original }
       : null;
-  const publishesLog = ndjsonPublishable(detail.summary.provenance);
   const recorded: DecisionV1 | null = result?.decision ?? detail.decision ?? null;
   const awaiting =
     detail.summary.state === "awaiting_human_approval" &&
@@ -116,7 +135,7 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
       setResult(response);
       const refreshed = await api.getRun(runId).catch(() => null);
       if (refreshed !== null) {
-        setDetail(refreshed);
+        onDetail?.(refreshed);
       }
     } catch (cause) {
       const apiError = toApiError(cause, `/runs/${runId}/decision`);
@@ -124,7 +143,7 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
       if (apiError.code === "decision_conflict") {
         const refreshed = await api.getRun(runId).catch(() => null);
         if (refreshed !== null) {
-          setDetail(refreshed);
+          onDetail?.(refreshed);
         }
       }
     } finally {
@@ -174,8 +193,12 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
                     <p>{revised.summary}</p>
                   </div>
                 </div>
+                {current === null ? null : (
+                  <RevisionComparison original={revised.original} revised={current} detail={detail} />
+                )}
               </div>
             )}
+            <Explanation recommendation={recommendation} detail={detail} />
             <h4>{t("rationale")}</h4>
             <p>{recommendation.rationale}</p>
             <p className="hc-supporting">
@@ -285,24 +308,31 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
           </form>
         ) : (
           <p className="hc-supporting" data-decision-unavailable>
-            {t("notAwaiting")}
+            {detail.summary.provenance.source === "research_archive"
+              ? t("recordedReadOnly")
+              : t("notAwaiting")}
           </p>
         )}
         {error === null ? null : <ApiErrorNotice error={error} />}
         <ul className="hc-related" role="list">
           <li>
-            <a href={api.receiptUrl(runId)} className="hc-link" data-receipt-link>
+            <a href={links.receipt} className="hc-link" data-receipt-link>
               {t("receipt")}
             </a>
           </li>
           <li>
-            {publishesLog ? (
-              <a href={api.ndjsonUrl(runId)} className="hc-link" data-ndjson-link>
-                {t("ndjson")}
+            {links.log !== null ? (
+              <a
+                href={links.log.href}
+                download={links.log.name ?? undefined}
+                className="hc-link"
+                data-ndjson-link
+              >
+                {links.log.archive ? t("archiveLog", { name: links.log.name ?? "" }) : t("ndjson")}
               </a>
             ) : (
               <span className="hc-supporting" data-ndjson-unavailable>
-                {t("ndjsonUnavailable")}
+                {links.logPending === true ? t("archiveLogPending") : t("ndjsonUnavailable")}
               </span>
             )}
           </li>

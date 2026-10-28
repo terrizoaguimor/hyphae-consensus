@@ -402,6 +402,37 @@ fn the_judge_daily_cap_defaults_to_the_slice_and_stays_within_it() {
 }
 
 #[test]
+fn the_daily_quotas_default_to_three_per_client_and_five_per_judge_code() {
+    let cfg = load(Exposure::Public, &Env::new()).unwrap();
+    assert_eq!(cfg.client_daily, 3);
+    assert_eq!(cfg.judge_code_daily, 5);
+    let cfg = load(
+        Exposure::Public,
+        &env(&[(vars::CLIENT_DAILY, " 1 "), (vars::JUDGE_CODE_DAILY, "12")]),
+    )
+    .unwrap();
+    assert_eq!((cfg.client_daily, cfg.judge_code_daily), (1, 12));
+    for (var, value) in [
+        (vars::CLIENT_DAILY, "0"),
+        (vars::CLIENT_DAILY, "three"),
+        (vars::CLIENT_DAILY, "-1"),
+        (vars::CLIENT_DAILY, ""),
+        (vars::JUDGE_CODE_DAILY, "0"),
+        (vars::JUDGE_CODE_DAILY, "5.5"),
+    ] {
+        let err = load(Exposure::Public, &env(&[(var, value)]))
+            .err()
+            .unwrap_or_else(|| panic!("{var}={value:?} must be refused"));
+        assert!(err.vars().contains(&var), "{var}={value:?}: {err}");
+        assert!(err.to_string().contains(var), "{err}");
+    }
+    // The ledger's other users read them through the credential-free load.
+    let cfg = LiveConfig::load_credential_free(&env(&[(vars::CLIENT_DAILY, "2")])).unwrap();
+    assert_eq!(cfg.client_daily, 2);
+    assert!(!cfg.enabled);
+}
+
+#[test]
 fn geo_lists_and_booleans_accept_the_documented_forms() {
     let cfg = load(
         Exposure::Public,

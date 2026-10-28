@@ -14,6 +14,14 @@
 //! compared), so timing reveals neither which digest matched nor how far
 //! a comparison got. Revocation is editing the file and restarting, or the
 //! ledger's kill switch for everything at once.
+//!
+//! The digests are unsalted SHA-256, so a code must be long and random:
+//! `deploy/scripts/judge-codes.sh` makes them from 140 random bits (28
+//! symbols of a 32-symbol alphabet of digits and capital letters), far
+//! beyond an offline guess should the file leak. The live gate also bounds what one code can start per UTC
+//! day (`CONSENSUS_LIVE_JUDGE_CODE_DAILY`, [`JudgeCodes::lookup`] is what
+//! it counts by), so a leaked code drains the judge slice no faster than
+//! that.
 
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -121,9 +129,17 @@ impl JudgeCodes {
     /// in the number of digests and their bytes; an over-long code is
     /// refused without hashing.
     pub fn verify(&self, code: &str) -> bool {
+        self.lookup(code).is_some()
+    }
+
+    /// The code's id when it hashes to one of the stored digests (the same
+    /// constant-time comparison as [`verify`](Self::verify)): what the live
+    /// gate counts a code's daily admissions by. Two equal lines in the file
+    /// are one code.
+    pub fn lookup(&self, code: &str) -> Option<JudgeCodeId> {
         let code = code.trim();
         if code.is_empty() || code.len() > MAX_CODE_LEN {
-            return false;
+            return None;
         }
         let presented: [u8; 32] = Sha256::digest(code.as_bytes()).into();
         let mut any_match = 0u8;
@@ -135,7 +151,18 @@ impl JudgeCodes {
             // diff == 0 exactly when every byte matched.
             any_match |= u8::from(diff == 0);
         }
-        any_match == 1
+        (any_match == 1).then_some(JudgeCodeId(presented))
+    }
+}
+
+/// A judge code as the gate counts it: the digest the file stores for it.
+/// Never printed, like the code itself.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct JudgeCodeId([u8; 32]);
+
+impl std::fmt::Debug for JudgeCodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("JudgeCodeId(<redacted>)")
     }
 }
 
@@ -160,6 +187,25 @@ mod tests {
         // The digest itself is not a code.
         assert!(!codes.verify(&JudgeCodes::digest_hex("alpha-7231")));
         assert!(!JudgeCodes::none().verify("alpha-7231"));
+    }
+
+    #[test]
+    fn a_known_code_has_one_id_however_it_is_presented() {
+        let file = format!(
+            "{}\n{}\n{}\n",
+            JudgeCodes::digest_hex("alpha-7231"),
+            JudgeCodes::digest_hex("bravo-9900"),
+            JudgeCodes::digest_hex("alpha-7231")
+        );
+        let codes = JudgeCodes::parse(&file).unwrap();
+        let alpha = codes.lookup("alpha-7231").expect("a known code");
+        assert_eq!(codes.lookup("  alpha-7231\n"), Some(alpha), "trimmed");
+        let bravo = codes.lookup("bravo-9900").expect("a known code");
+        assert_ne!(alpha, bravo, "each code is counted on its own");
+        assert_eq!(codes.lookup("alpha-7232"), None);
+        assert_eq!(codes.lookup(""), None);
+        assert_eq!(JudgeCodes::none().lookup("alpha-7231"), None);
+        assert_eq!(format!("{alpha:?}"), "JudgeCodeId(<redacted>)");
     }
 
     #[test]

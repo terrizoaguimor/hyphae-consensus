@@ -5,7 +5,10 @@ Date: 2026-10-27 · Status: accepted; admission library (lane S-b2) and public w
 client (ADR-0008) plugged in as the evidence factory (`SnapshotFactory`, configured by
 `CONSENSUS_SNAPSHOT_DIR`); `serve-public` refuses to start with live mode enabled and no
 snapshot configured, and keeps the portal up with live mode unavailable when a configured
-snapshot does not boot · Scope: the public portal
+snapshot does not boot; since 2026-10-28 Turnstile is verified before the live slot is
+taken, the public lane has a per-client daily quota and each judge code a daily limit, and
+the operator console's `model=meta` runs are metered on the same ledger (the
+"Implementation" section) · Scope: the public portal
 
 ## Context
 
@@ -80,23 +83,85 @@ and the account holder pays any overage.
 ## Implementation (2026-10-27)
 
 - `POST /api/v1/live-runs` takes `{preset_id, attest_adult, judge_code?}` plus the
-  Turnstile token in `cf-turnstile-response`; the gate
-  (`crates/consensus-api/src/live/gate.rs`) checks, in order and stopping at the first
-  refusal: preset (`404 preset_unknown`), geography on the live surface (`451`), the
-  attestation (`422 attestation_required`), the evidence source (`503 live_unavailable`
-  while the sealed snapshot is not ok, before Turnstile, so the refused visitor spends no
-  token), Turnstile fail-closed (`403 turnstile_required|turnstile_failed`, `503
-  turnstile_unavailable`), the lane (a hashed
-  judge code or the public lane, silently), then the ledger reservation (`429` with
-  `Retry-After` when the ledger gives a hint, `503` otherwise; stable codes
-  `live_budget_*`, `live_concurrency`, `live_hourly_admissions`, `live_tripped`,
-  `live_unavailable`; fixed sentences, never the ledger's text). Siteverify gets a fresh
-  UUID as `idempotency_key` on every call, never the request's `Idempotency-Key`:
-  Cloudflare's idempotency is global and immediate while the route's replay is
-  owner-scoped and recorded only after the start, so forwarding the header let one
-  solved challenge start a run per session (or several at once). A retry whose first
+  Turnstile token in `cf-turnstile-response`. After the route's own steps (body bounds,
+  the `Idempotency-Key` lookup, the session, the run rate and the visitor-run ring) the
+  gate (`crates/consensus-api/src/live/gate.rs`) admits in two phases with the route's
+  one live deliberation slot taken between them, stopping at the first refusal and
+  spending nothing before the ledger has reserved the run's worst case:
+  1. *Phase one* (`LiveGate::verify`, before the slot; it holds and charges nothing):
+     preset (`404 preset_unknown`), geography on the live surface (`451`), the
+     attestation (`422 attestation_required`), the evidence source (`503
+     live_unavailable` while the sealed snapshot is not ok, before Turnstile, so the
+     refused visitor spends no token), Turnstile fail-closed (`403
+     turnstile_required|turnstile_failed`, `503 turnstile_unavailable`), then the lane
+     (a hashed judge code or the public lane, silently).
+  2. *The slot* (`RunManager::reserve`): `429 too_many_runs` or `503 shutting_down`.
+     Requests still waiting on Siteverify (up to its 10 s timeout) hold no slot, so bogus
+     tokens sent from many prefixes no longer keep it from a visitor who solved a
+     challenge. They wait concurrently on the blocking pool instead, bounded by the
+     per-client run rate and the edge rate-limit rule.
+  3. *Phase two* (`VerifiedLiveRequest::admit`, with the slot held): the lane's daily
+     quota (below), the ledger reservation (`429` with `Retry-After` when the ledger
+     gives a hint, `503` otherwise; stable codes `live_budget_*`, `live_concurrency`,
+     `live_hourly_admissions`, `live_tripped`, `live_unavailable`; fixed sentences,
+     never the ledger's text), the metered model client and the deliberation.
+
+  A token Siteverify accepted in phase one is consumed even when the slot or phase two
+  then refuses: Siteverify accepts a token once, and the web client resets its widget
+  after every submit, so the refused visitor solves a new (usually invisible) challenge.
+  Siteverify gets a fresh UUID as `idempotency_key` on every call, never the request's
+  `Idempotency-Key`: Cloudflare's idempotency is global and immediate while the route's
+  replay is owner-scoped and recorded only after the start, so forwarding the header let
+  one solved challenge start a run per session (or several at once). A retry whose first
   attempt succeeded is answered from the route's stored creation before the gate; one
   whose first attempt died after Siteverify needs a new challenge.
+- Per-client daily quota (fairness): at most `CONSENSUS_LIVE_CLIENT_DAILY` (default 3)
+  public-lane admissions per client key (IPv4 /32, IPv6 /64, the rate tables' key) per
+  UTC day of the ledger's clock, in a bounded LRU table (`limits::DailyCounts`,
+  `gate::CLIENT_QUOTA_TABLE_MAX` = 10,000 keys; a key enters it only through a counted
+  admission, which the ledger's hourly cap bounds to 144 a day with the defaults; past
+  the bound the least recently counted key is forgotten first). The count goes with the
+  reservation: it is taken just before the ledger is asked (so concurrent requests of one
+  client cannot overshoot the quota) and given back when the ledger refuses, when the run
+  cannot be built and when its start fails, so only a granted, started run keeps it and a
+  refusal never consumes it. Over the quota: `429 live_client_quota`,
+  `Retry-After` until 00:00 UTC, a fixed sentence without figures. The judge lane is
+  exempt. The table is process-local: a restart of `serve-public` forgets every count.
+- Judge codes: `deploy/scripts/judge-codes.sh` generates them on the server (140 random
+  bits each from `/dev/urandom`, 28 symbols of `0-9 A-Z` without `I L O U` in seven
+  hyphenated groups of four, entered exactly as printed), prints them once for the
+  submission's testing instructions, and writes only their SHA-256 digests,
+  `root:consensus 0640`, refusing to overwrite an existing digests file without
+  `--force`. Each code admits at most `CONSENSUS_LIVE_JUDGE_CODE_DAILY` (default 5)
+  judge-lane runs per UTC day (process-local, one table entry per code at most); a code
+  over its limit is refused with the judge lane's own daily refusal (`429
+  live_budget_judge_daily`), so its holder learns nothing new from it. Revocation is
+  deleting the code's digest line and restarting `serve-public` (the file is read at
+  startup only), or the kill switch for every lane at once. What remains: the lane is
+  observable (its refusal codes and sentences differ from the public lane's, it has its
+  own hourly window and slot, and `/capabilities`' `daily_remaining` leaves judge
+  reservations out), so a prober who solves one Turnstile challenge per guess can tell
+  whether a code is valid, which is why codes must be long and random; the digests are
+  unsalted SHA-256; and a leaked code drains the judge slice and the judge daily cap at
+  up to its per-code limit a day until it is revoked.
+- Operator metering: `serve-operator` holds the Meta key too. With
+  `CONSENSUS_LIVE_LEDGER_DIR` set (on the server the operator unit loads `public.env`
+  before `operator.env`) it opens that ledger with `serve-public`'s caps
+  (`server::operator_ledger`: the configuration read credential-free, with the live
+  switch, the Turnstile secret file and the judge-codes file hidden from
+  `LiveConfig::load`, as the `ledger` subcommand reads it; an absent directory stops
+  startup instead of starting a fresh ledger), and every console `model=meta` run takes
+  the live slot, reserves its worst case on the operator lane (the daily and lifetime
+  caps, no pacing; it spends from the day the public lane shares), draws and settles
+  every HTTP attempt and releases the reservation when it ends, through the public gate's
+  own `MeteredReservation` and `MeteredDeliberation`. A ledger refusal answers with its
+  stable code and fixed sentence; a run whose `CONSENSUS_META_MAX_COMPLETION_TOKENS`
+  exceeds the ledger's `CONSENSUS_LIVE_MAX_COMPLETION_TOKENS` is refused (`400
+  model_not_configured`) before anything is reserved. The kill switch and every trip
+  therefore stop operator runs too. Without the variable (a development machine running
+  the recorded batteries) operator runs are unmetered, and `serve-operator` prints one
+  line saying so (`Operator model=meta runs: UNMETERED ...`; on the server: `... metered
+  on the live ledger at <dir> ...`).
 - Every Meta HTTP attempt of a public run is drawn on the run's reservation and settled
   once (`MetaModelClient::with_meter`); a refused draw fails the run at its stage with
   `budget_refused`. The reservation is released, with bounded retries in every case,
@@ -139,10 +204,7 @@ and the account holder pays any overage.
   under it, so the former default refused every snapshot-backed run at its first
   evaluation after two paid calls. A run's worst case is then (70,000 + 16,000 + 32,000) ×
   $20/M = $2.36, inside the $2.50 the day offers at 00:00 UTC (25% burst).
-- Follow-ups: the operator console's own live runs (`model=meta` on `serve-operator`)
-  do not go through the ledger yet, so their spend is not counted against the caps; the
-  per-client live limit (one per /64) is not enforced beyond the global slots; the
-  public snapshot itself is to be captured on 2026-10-29.
+- Follow-ups: the public snapshot itself is to be captured on 2026-10-29.
 
 ## Consequences
 

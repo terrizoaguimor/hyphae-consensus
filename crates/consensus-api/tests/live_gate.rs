@@ -14,16 +14,24 @@ mod common;
 mod support;
 
 use axum::http::{header, StatusCode};
+use chrono::{DateTime, Utc};
 use common::live::{
-    live_config, live_server, FactoryMode, LiveOptions, ScriptedEvidenceFactory, SiteverifyMode,
-    JUDGE_CODE, LIVE_MAX_COMPLETION_TOKENS, VISITOR_IP,
+    live_config, live_server, FactoryMode, HeldSiteverify, LiveHarness, LiveOptions,
+    ScriptedEvidenceFactory, SiteverifyMode, HELD_TOKEN_PREFIX, JUDGE_CODE,
+    LIVE_MAX_COMPLETION_TOKENS, SECOND_JUDGE_CODE, VISITOR_IP,
 };
 use common::{body_text, public_server, read_sse, Req, COUNTRY_HEADER};
-use consensus_api::live::config::vars;
+use consensus_api::api::error::ErrorCode;
+use consensus_api::limits::ClientKey;
+use consensus_api::live::budget::{Lane, LedgerClock};
+use consensus_api::live::config::{defaults as live_defaults, vars};
+use consensus_api::live::gate::refusal_message;
 use consensus_api::live::money::Usd;
 use consensus_api::live::snapshot_factory::SnapshotFactory;
+use consensus_api::runs::RunKind;
 use consensus_api::server::{build_live_gate, BuildOptions};
 use serde_json::{json, Value};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use support::{config as meta_config, envelope, serve, Reply, TEST_KEY};
 
@@ -1017,6 +1025,418 @@ async fn concurrent_duplicates_of_one_submit_start_one_run() {
         .await;
     assert_eq!(list["runs"].as_array().unwrap().len(), 1, "{list}");
     assert_eq!(meta.hits(), 3, "one run's calls");
+}
+
+// ---------------------------------------------------------------------
+// Turnstile before the live slot
+// ---------------------------------------------------------------------
+
+/// Bogus tokens sent from many prefixes kept the one live slot busy while
+/// Siteverify answered them, because the slot was taken first: a visitor
+/// who solved a challenge meanwhile was refused `429 too_many_runs`. The
+/// gate now verifies before the slot is taken: three requests waiting in
+/// Siteverify hold nothing, and a valid one is admitted while they wait.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn requests_waiting_on_siteverify_never_hold_the_live_slot() {
+    let held = HeldSiteverify::new();
+    let meta = serve(one_run(Duration::ZERO));
+    let h = live_server(
+        LiveOptions {
+            siteverify: Some(held.clone()),
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    // One live slot (the harness's CONSENSUS_LIVE_CONCURRENCY=1) and a
+    // 300 ms admission wait. Three bogus submitters on three prefixes.
+    let mut bogus = Vec::new();
+    for (i, ip) in ["198.51.100.1", "198.51.100.2", "2001:db8:7::1"]
+        .iter()
+        .enumerate()
+    {
+        let (status, cookie) = h.server.new_session_from_header(ip).await;
+        assert_eq!(status, StatusCode::CREATED);
+        bogus.push(
+            Req::post("/api/v1/live-runs")
+                .cookie(&cookie.unwrap())
+                .header("cf-connecting-ip", ip)
+                .header(
+                    "cf-turnstile-response",
+                    &format!("{HELD_TOKEN_PREFIX}bogus-{i}"),
+                )
+                .json(&live_body(true, None)),
+        );
+    }
+    let visitor_cookie = h.session().await;
+    let [b0, b1, b2]: [Req; 3] = bogus.try_into().unwrap_or_else(|_| unreachable!());
+    let held_requests =
+        async { tokio::join!(h.server.json(b0), h.server.json(b1), h.server.json(b2)) };
+    let valid_request = async {
+        for _ in 0..500 {
+            if held.held() == 3 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let in_siteverify = held.held();
+        let outcome = h
+            .server
+            .json(submit(&visitor_cookie, &live_body(true, None), Some(TOKEN)))
+            .await;
+        // Siteverify answers the bogus ones now: refused.
+        let still_held = held.held();
+        held.release();
+        (in_siteverify, still_held, outcome)
+    };
+    let (bogus_outcomes, (in_siteverify, still_held, (status, created, _))) =
+        tokio::join!(held_requests, valid_request);
+    assert_eq!(
+        in_siteverify, 3,
+        "every bogus request was inside Siteverify at once"
+    );
+    assert_eq!(
+        still_held, 3,
+        "and still there while the valid one was admitted"
+    );
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    for (status, body, _) in [&bogus_outcomes.0, &bogus_outcomes.1, &bogus_outcomes.2] {
+        assert_eq!(*status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(body["code"], "turnstile_failed", "{body}");
+    }
+    h.server
+        .wait_resting(&visitor_cookie, &run_id_of(&created))
+        .await;
+    assert_eq!(h.ledger_records("reservation").len(), 1);
+    assert_eq!(held.tokens().len(), 4);
+}
+
+/// With the slot busy, a request is answered for Turnstile first: a token
+/// Siteverify refuses is `403 turnstile_failed`, slot or no slot; a token it
+/// accepts meets the slot and is `429 too_many_runs` with nothing reserved,
+/// and stays spent (Siteverify accepts a token once), so its retry needs a
+/// new challenge.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_live_slot_refuses_only_after_turnstile_passed_and_the_token_stays_spent() {
+    let meta = serve(one_run(Duration::ZERO));
+    let h = live_server(LiveOptions::default(), meta_config(&meta.base_url));
+    let cookie = h.session().await;
+    let slot = h.server.state.manager.reserve(RunKind::Live).await.unwrap();
+
+    h.set_siteverify(SiteverifyMode::Fail);
+    let (status, body, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some("tok-refused")))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["code"], "turnstile_failed");
+    assert_eq!(h.siteverify.calls().len(), 1);
+
+    h.set_siteverify(SiteverifyMode::SingleUse);
+    let (status, body, headers) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "too_many_runs");
+    assert!(headers.get(header::RETRY_AFTER).is_some());
+    assert_eq!(
+        h.siteverify.calls().len(),
+        2,
+        "Turnstile was asked before the slot"
+    );
+    assert!(
+        h.ledger_records("reservation").is_empty(),
+        "nothing charged"
+    );
+    drop(slot);
+
+    let (status, body, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "the token is spent: {body}");
+    assert_eq!(body["code"], "turnstile_failed");
+    let (status, created, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some("tok-live-2")))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    h.server.wait_resting(&cookie, &run_id_of(&created)).await;
+    assert_eq!(h.ledger_records("reservation").len(), 1);
+}
+
+// ---------------------------------------------------------------------
+// The daily quotas: per client key, per judge code
+// ---------------------------------------------------------------------
+
+/// A ledger clock the test sets: the day the quotas count in.
+#[derive(Clone)]
+struct TestClock(Arc<Mutex<DateTime<Utc>>>);
+
+impl TestClock {
+    fn at(iso: &str) -> Self {
+        Self(Arc::new(Mutex::new(parse_time(iso))))
+    }
+
+    fn set(&self, iso: &str) {
+        *self.0.lock().unwrap() = parse_time(iso);
+    }
+
+    fn clock(&self) -> LedgerClock {
+        let shared = self.0.clone();
+        Arc::new(move || *shared.lock().unwrap())
+    }
+}
+
+fn parse_time(iso: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(iso)
+        .unwrap()
+        .with_timezone(&Utc)
+}
+
+fn client_key(ip: &str) -> ClientKey {
+    ClientKey::from_ip(ip.parse().unwrap())
+}
+
+/// One run after the other, each brought to rest before the next.
+async fn admit_and_finish(h: &LiveHarness, cookie: &str, req: Req) -> Value {
+    let (status, created, _) = h.server.json(req).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = run_id_of(&created);
+    h.server.wait_resting(cookie, &run_id).await;
+    h.server.wait_released(&run_id).await;
+    created
+}
+
+/// R9: at most `CONSENSUS_LIVE_CLIENT_DAILY` (default 3) public-lane
+/// admissions per client key per UTC day, counted when the reservation is
+/// granted and never for a refusal; `429 live_client_quota` until 00:00
+/// UTC; the judge lane exempt; another client unaffected; a new day starts
+/// again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_client_starts_its_daily_share_of_public_runs_and_no_more() {
+    let mut replies = Vec::new();
+    for _ in 0..6 {
+        replies.extend(one_run(Duration::ZERO));
+    }
+    let meta = serve(replies);
+    let clock = TestClock::at("2026-10-28T21:00:00Z");
+    let h = live_server(
+        LiveOptions {
+            // The production default, over the harness's out-of-the-way 100.
+            live_env: vec![(vars::CLIENT_DAILY, live_defaults::CLIENT_DAILY.into())],
+            // Seven creations from one client inside a minute.
+            server_env: vec![("CONSENSUS_RATE_RUNS_PER_MIN", "60".into())],
+            ledger_clock: Some(clock.clock()),
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    let visitor_key = client_key(VISITOR_IP);
+    let cookie = h.session().await;
+
+    // A ledger refusal counts nothing: the day spent by four reservations
+    // held outside the gate, the visitor is refused by the ledger.
+    let held: Vec<_> = (0..4)
+        .map(|_| h.ledger.reserve(Lane::Public).unwrap())
+        .collect();
+    let (status, body, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "live_budget_daily");
+    assert_eq!(h.gate.client_admissions_today(visitor_key), 0);
+    for r in held {
+        h.ledger.release(&r).unwrap();
+    }
+
+    // Three admissions, then the quota.
+    for _ in 0..3 {
+        admit_and_finish(
+            &h,
+            &cookie,
+            submit(&cookie, &live_body(true, None), Some(TOKEN)),
+        )
+        .await;
+    }
+    assert_eq!(h.gate.client_admissions_today(visitor_key), 3);
+    let reserved = h.ledger_records("reservation").len();
+    let (status, body, headers) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "live_client_quota");
+    assert_eq!(
+        body["message"],
+        refusal_message(ErrorCode::LiveClientQuota),
+        "a fixed sentence"
+    );
+    assert!(
+        !body["message"]
+            .as_str()
+            .unwrap()
+            .contains(|c: char| c.is_ascii_digit()),
+        "no figures: {body}"
+    );
+    // Until 00:00 UTC: three hours from 21:00.
+    assert_eq!(body["retry_after_secs"], 10_800);
+    assert_eq!(headers[header::RETRY_AFTER], "10800");
+    assert_eq!(
+        h.ledger_records("reservation").len(),
+        reserved,
+        "the refusal reserved nothing"
+    );
+    assert_eq!(h.gate.client_admissions_today(visitor_key), 3);
+
+    // The judge lane is exempt, and another client has its own share.
+    admit_and_finish(
+        &h,
+        &cookie,
+        submit(&cookie, &live_body(true, Some(JUDGE_CODE)), Some(TOKEN)),
+    )
+    .await;
+    let other_ip = "198.51.100.40";
+    let (_, other) = h.server.new_session_from_header(other_ip).await;
+    let other = other.unwrap();
+    admit_and_finish(
+        &h,
+        &other,
+        Req::post("/api/v1/live-runs")
+            .cookie(&other)
+            .header("cf-connecting-ip", other_ip)
+            .header("cf-turnstile-response", TOKEN)
+            .json(&live_body(true, None)),
+    )
+    .await;
+    assert_eq!(h.gate.client_admissions_today(client_key(other_ip)), 1);
+
+    // The next UTC day starts again.
+    clock.set("2026-10-29T00:00:01Z");
+    admit_and_finish(
+        &h,
+        &cookie,
+        submit(&cookie, &live_body(true, None), Some(TOKEN)),
+    )
+    .await;
+    assert_eq!(h.gate.client_admissions_today(visitor_key), 1);
+    let lanes: Vec<Value> = h
+        .ledger_records("reservation")
+        .iter()
+        .map(|r| r["lane"].clone())
+        .collect();
+    assert_eq!(
+        lanes.iter().filter(|l| *l == "public").count(),
+        4 + 3 + 1 + 1
+    );
+    assert_eq!(lanes.iter().filter(|l| *l == "judge").count(), 1);
+}
+
+/// A start that fails after the grant gives its count back, like its
+/// reservation: with a quota of one, the second request is not refused by
+/// the quota.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_start_gives_its_client_count_back() {
+    let meta = serve(one_run(Duration::ZERO));
+    let h = live_server(
+        LiveOptions {
+            factory: FactoryMode::FailingStart,
+            live_env: vec![(vars::CLIENT_DAILY, "1".into())],
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    let cookie = h.session().await;
+    for attempt in 1..=2 {
+        let (status, body, _) = h
+            .server
+            .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+            .await;
+        assert_eq!(
+            status,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "attempt {attempt}: {body}"
+        );
+        h.wait_releases(attempt).await;
+        assert_eq!(h.gate.client_admissions_today(client_key(VISITOR_IP)), 0);
+    }
+    assert_eq!(h.ledger_records("reservation").len(), 2);
+}
+
+/// R8: at most `CONSENSUS_LIVE_JUDGE_CODE_DAILY` judge-lane admissions per
+/// code per UTC day. A code over its limit is refused with the judge lane's
+/// own daily refusal (no new code, so its holder learns nothing new),
+/// whichever client presents it; another code has its own count; the next
+/// day starts again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_judge_code_starts_its_daily_limit_and_is_then_refused_like_the_judge_day() {
+    let mut replies = Vec::new();
+    for _ in 0..4 {
+        replies.extend(one_run(Duration::ZERO));
+    }
+    let meta = serve(replies);
+    let clock = TestClock::at("2026-10-28T22:30:00Z");
+    let h = live_server(
+        LiveOptions {
+            live_env: vec![(vars::JUDGE_CODE_DAILY, "2".into())],
+            ledger_clock: Some(clock.clock()),
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    let cookie = h.session().await;
+    let judge = || submit(&cookie, &live_body(true, Some(JUDGE_CODE)), Some(TOKEN));
+    admit_and_finish(&h, &cookie, judge()).await;
+    admit_and_finish(&h, &cookie, judge()).await;
+    let (status, body, headers) = h.server.json(judge()).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "live_budget_judge_daily");
+    assert_eq!(
+        body["message"],
+        refusal_message(ErrorCode::LiveBudgetJudgeDaily)
+    );
+    // Until 00:00 UTC, as the judge lane's daily refusal says.
+    assert_eq!(body["retry_after_secs"], 5_400);
+    assert_eq!(headers[header::RETRY_AFTER], "5400");
+    // The same code from another client: per code, not per client.
+    let other_ip = "198.51.100.41";
+    let (_, other) = h.server.new_session_from_header(other_ip).await;
+    let other = other.unwrap();
+    let (status, body, _) = h
+        .server
+        .json(
+            Req::post("/api/v1/live-runs")
+                .cookie(&other)
+                .header("cf-connecting-ip", other_ip)
+                .header("cf-turnstile-response", TOKEN)
+                .json(&live_body(true, Some(JUDGE_CODE))),
+        )
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "live_budget_judge_daily");
+    // Another code has its own count.
+    admit_and_finish(
+        &h,
+        &cookie,
+        submit(
+            &cookie,
+            &live_body(true, Some(SECOND_JUDGE_CODE)),
+            Some(TOKEN),
+        ),
+    )
+    .await;
+    let judge_runs = |h: &LiveHarness| {
+        h.ledger_records("reservation")
+            .iter()
+            .filter(|r| r["lane"] == "judge")
+            .count()
+    };
+    assert_eq!(judge_runs(&h), 3, "the refusals reserved nothing");
+    // The next UTC day starts again.
+    clock.set("2026-10-29T00:00:01Z");
+    admit_and_finish(&h, &cookie, judge()).await;
+    assert_eq!(judge_runs(&h), 4);
 }
 
 // ---------------------------------------------------------------------

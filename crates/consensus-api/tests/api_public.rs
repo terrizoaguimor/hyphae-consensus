@@ -1306,7 +1306,7 @@ async fn public_ndjson_is_published_only_for_scripted_chains() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails() {
+async fn the_gate_verifies_before_the_slot_charges_after_it_and_refunds_a_failed_start() {
     let gate = TestGate::new(GateMode::Refuse);
     let server = public_server(
         &[("CONSENSUS_LIVE_CONCURRENCY", "1")],
@@ -1335,6 +1335,7 @@ async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails
     let (status, body, _) = server.json(submit(Some("tok-1"))).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     assert_eq!(body["code"], "too_many_runs");
+    assert_eq!(gate.verified(), 1);
     assert_eq!(gate.admitted(), 1);
     let (preset, pseudonym, token) = gate.last_request().unwrap();
     assert_eq!(preset, "retry-cap-3");
@@ -1344,15 +1345,18 @@ async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails
     let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
     assert_eq!(list["runs"].as_array().unwrap().len(), 0);
 
-    // The slot comes before the gate: with the one live slot taken, the
-    // request is refused without the gate being asked (nothing charged).
+    // The gate's first phase comes before the slot, its second after: with
+    // the one live slot taken, the request is verified (Turnstile is asked
+    // and its token spent), then refused for the slot, and the second
+    // phase, the one that charges, is never asked.
     gate.set_mode(GateMode::Grant);
     let reservation = server.state.manager.reserve(RunKind::Live).await.unwrap();
     assert_eq!(reservation.kind(), RunKind::Live);
     let (status, body, _) = server.json(submit(None)).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
     assert_eq!(body["code"], "too_many_runs");
-    assert_eq!(gate.admitted(), 1, "the gate was not asked");
+    assert_eq!(gate.verified(), 2, "verified before the slot");
+    assert_eq!(gate.admitted(), 1, "nothing charged: refused for the slot");
     drop(reservation);
 
     // Granted, but the start fails: the grant is refunded and no run is
@@ -1360,6 +1364,7 @@ async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails
     gate.set_mode(GateMode::GrantFailingStart);
     let (status, body, _) = server.json(submit(None)).await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert_eq!(gate.verified(), 3);
     assert_eq!(gate.admitted(), 2);
     assert_eq!(gate.refunded(), 1);
     let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
@@ -1401,6 +1406,7 @@ async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails
     let run_id = created["run"]["run_id"].as_str().unwrap().to_string();
     let detail = server.wait_resting(&cookie, &run_id).await;
     assert_eq!(detail["summary"]["recommendation"], "supported");
+    assert_eq!(gate.verified(), 4);
     assert_eq!(gate.admitted(), 3);
     assert_eq!(gate.refunded(), 1, "a started run is never refunded");
     let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
@@ -1755,6 +1761,100 @@ async fn a_retried_creation_with_the_same_key_returns_the_same_run() {
     assert_eq!(server.state.creation_keys.len(), 2);
 }
 
+/// Three identical guided submits at once from one session, with one
+/// `Idempotency-Key`, while the only guided slot is taken: the first claims
+/// the key and waits for the slot, the other two wait for the first and
+/// answer with its run. With the key recorded only after the start, all
+/// three queued for the slot and each started a run (R12, UI-1/TC-8).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_duplicates_of_one_guided_submit_start_one_run() {
+    let server = public_server(
+        &[("CONSENSUS_GUIDED_CONCURRENCY", "1")],
+        BuildOptions {
+            admission_wait: Duration::from_secs(5),
+            ..BuildOptions::default()
+        },
+    );
+    let cookie = server.new_session().await;
+    let slot = server.state.manager.reserve(RunKind::Guided).await.unwrap();
+    let duplicate = || {
+        Req::post("/api/v1/runs")
+            .cookie(&cookie)
+            .header("idempotency-key", "dup-guided-1")
+            .json(&json!({"scenario": "retry"}))
+    };
+    let release = async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        drop(slot);
+    };
+    let (a, b, c, ()) = tokio::join!(
+        server.json(duplicate()),
+        server.json(duplicate()),
+        server.json(duplicate()),
+        release
+    );
+    let outcomes = [a, b, c];
+    for (status, body, _) in &outcomes {
+        assert_eq!(*status, StatusCode::ACCEPTED, "{outcomes:?}: {body}");
+    }
+    let ids: std::collections::BTreeSet<&str> = outcomes
+        .iter()
+        .map(|(_, body, _)| body["run"]["run_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 1, "one run for the three: {outcomes:?}");
+    let run_id = ids.into_iter().next().unwrap().to_string();
+    server.wait_resting(&cookie, &run_id).await;
+    let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 1, "{list}");
+    let created = server
+        .state
+        .manager
+        .store()
+        .index_records()
+        .unwrap()
+        .iter()
+        .filter(|r| r.kind == IndexKind::Created)
+        .count();
+    assert_eq!(created, 1, "one run was ever created");
+    assert_eq!(server.state.creation_keys.len(), 1);
+}
+
+/// A creation refused before its start gives its key back: the same key
+/// then creates, and a retry answers with that run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_guided_creation_frees_its_key() {
+    let server = public_server(
+        &[("CONSENSUS_GUIDED_CONCURRENCY", "1")],
+        BuildOptions {
+            admission_wait: Duration::from_millis(100),
+            ..BuildOptions::default()
+        },
+    );
+    let cookie = server.new_session().await;
+    let submit = || {
+        Req::post("/api/v1/runs")
+            .cookie(&cookie)
+            .header("idempotency-key", "refused-first")
+            .json(&json!({"scenario": "abstain"}))
+    };
+    let slot = server.state.manager.reserve(RunKind::Guided).await.unwrap();
+    let (status, body, _) = server.json(submit()).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "too_many_runs");
+    assert!(
+        server.state.creation_keys.is_empty(),
+        "the claim was given up"
+    );
+    drop(slot);
+    let (status, first, _) = server.json(submit()).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{first}");
+    let (status, again, _) = server.json(submit()).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["run"]["run_id"], first["run"]["run_id"]);
+    let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 1, "{list}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_damaged_stored_run_is_reported_never_served_as_if_whole() {
     let server = public_server(&[], BuildOptions::default());
@@ -1826,4 +1926,42 @@ async fn a_damaged_stored_run_is_reported_never_served_as_if_whole() {
         .starts_with("application/json"));
     assert_eq!(server.state.stream_caps.open_streams(), 0);
     assert_eq!(server.state.rates.sse.len(), streams_before + 1);
+}
+
+// ---------------------------------------------------------------------
+// Readiness: the index error's code, never the store's text
+// ---------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ready_names_an_index_failure_by_its_code_and_publishes_no_store_text() {
+    let server = public_server(&[], BuildOptions::default());
+    let (_, ready, _) = server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(ready["ready"], true, "{ready}");
+    assert!(ready["run_store"].get("index_error_code").is_none());
+    // A run, so the index has records; then wait out the readiness cache.
+    let cookie = server.new_session().await;
+    let (status, created) = server.create_guided(&cookie, "retry").await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = created["run"]["run_id"].as_str().unwrap().to_string();
+    server.wait_resting(&cookie, &run_id).await;
+    server.wait_released(&run_id).await;
+    tokio::time::sleep(consensus_api::api::READY_CACHE_TTL + Duration::from_millis(100)).await;
+
+    server.tamper_index();
+    let (status, ready, _) = server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(status, StatusCode::OK, "{ready}");
+    assert_eq!(ready["ready"], false, "{ready}");
+    let store = &ready["run_store"];
+    assert_eq!(store["ok"], false, "{store}");
+    assert_eq!(store["index_tampered"], true, "{store}");
+    assert_eq!(store["index_error_code"], "index_tampered", "{store}");
+    assert!(store.get("index_error").is_none(), "{store}");
+    // Nothing of the store's text: not its directory in any spelling, not
+    // the index file, not the verifier's words.
+    let text = ready.to_string();
+    let mut leaks = server.store_dir_spellings();
+    leaks.extend(["index.jsonl".to_string(), "fails verification".to_string()]);
+    for leak in &leaks {
+        assert!(!text.contains(leak.as_str()), "{leak}: {text}");
+    }
 }

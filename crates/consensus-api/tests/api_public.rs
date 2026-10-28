@@ -734,9 +734,16 @@ async fn blocked_runs_need_an_override_note_and_every_scenario_reaches_its_outco
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_guided_runs_stay_isolated_and_ordered() {
+    // Four of the six starts wait for one of the two slots. This test is
+    // about isolation and order, not admission timing (the Busy answer has
+    // its own test), so the wait is generous: under a loaded machine the
+    // default 2 s expired and a start was refused (seen 2026-10-28).
     let server = Arc::new(public_server(
         &[("CONSENSUS_GUIDED_CONCURRENCY", "2")],
-        BuildOptions::default(),
+        BuildOptions {
+            admission_wait: Duration::from_secs(30),
+            ..BuildOptions::default()
+        },
     ));
     let cookie = server.new_session().await;
     let scenarios = [

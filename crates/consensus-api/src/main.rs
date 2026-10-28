@@ -4,6 +4,7 @@
 //!   cargo run -p consensus-api -- serve-public     # public API + static export (unix socket, or CONSENSUS_PUBLIC_BIND)
 //!   cargo run -p consensus-api -- serve-operator   # operator console (loopback, bearer token); `serve` is an alias
 //!   cargo run -p consensus-api -- verify <log.jsonl> [--run <id>] [--receipt <receipt.json>]
+//!   cargo run -p consensus-api -- ledger status    # operator: the live-mode USD ledger (also `reset --by <who>`, `release <id> --by <who>`)
 //!   cargo run -p consensus-api                     # scripted demo to AwaitingHumanApproval
 //!   cargo run -p consensus-api -- --approve        # also record human approval
 //!   cargo run -p consensus-api -- --reject         # also record human rejection
@@ -27,6 +28,14 @@ fn main() {
         Some("serve-operator") | Some("serve") => serve(consensus_api::server::serve_operator()),
         Some("verify") => {
             let code = consensus_api::verify_cli::run(&args[2..], &mut std::io::stdout());
+            std::process::exit(code);
+        }
+        Some("ledger") => {
+            let code = consensus_api::ledger_cli::run(
+                &args[2..],
+                &mut std::io::stdout(),
+                &mut std::io::stderr(),
+            );
             std::process::exit(code);
         }
         _ => {

@@ -51,13 +51,15 @@ binary); and the public live-mode wiring behind `AppState::live_gate` (until it 
 and `server.rs` there refuses to start public live mode without the snapshot client).
 Build the deployed binary from a commit that has them.
 
-One fact shapes sections 4.5, 8.7 and 8.8: **the binary has no ledger reset.**
-`Ledger::reset` exists in `crates/consensus-api/src/live/budget.rs` ("Operator-only:
-clears a trip") but nothing in `serve-public`, `serve-operator` or any subcommand calls
-it (`grep -rn '\.reset(' crates/consensus-api/src` finds no caller outside the module's
-tests). A trip is persistent across restarts (`budget.rs`, "Trips"), so the ledger the
-kill-switch rehearsal of gate G11 trips is finished for good. This runbook therefore
-uses one ledger directory per phase and never reuses a tripped one.
+One fact shapes sections 4.4, 4.5, 8.8 and 9.3: **a trip lasts until an operator
+resets it.** A trip is persistent across restarts (`budget.rs`, "Trips"), and neither
+listener can clear one. The only caller of `Ledger::reset` is the operator's subcommand
+`consensus-api ledger reset --by <operator>` (`crates/consensus-api/src/ledger_cli.rs`,
+which also has `ledger status` and `ledger release <reservation-id> --by <operator>`),
+run on the server through `deploy/scripts/ledger.sh` so it opens the ledger with the
+unit's own user, environment and sandbox. This runbook still uses one ledger directory
+per phase, for the accounts: staging live runs spend real money that must not count
+against the production lifetime cap, so production starts on an empty ledger.
 
 ---
 
@@ -135,7 +137,7 @@ layout is listed here so it can be audited by hand.
 | `/etc/tmpfiles.d/consensus.conf` | `root:root 0644` | creates `/run/consensus` at boot (`deploy/tmpfiles.d/consensus.conf`) `[SD-8]` |
 | `/var/lib/consensus/runs` | `consensus:consensus 0750` | the per-run store (writable) |
 | `/var/lib/consensus/ledger/{staging,public}` | `consensus:consensus 0750` | one ledger directory per phase (section 4.5); writable |
-| `/var/lib/consensus/ledger-archive/` | `root:root 0700` | retired (tripped) ledgers, read-only to the services and invisible to `consensus` |
+| `/var/lib/consensus/ledger-archive/` | `root:root 0700` | retired ledgers (staging after the rehearsal, a suspect one after an incident), read-only to the services and invisible to `consensus` |
 | `/var/lib/consensus/{research,web}` | `consensus:consensus 0750`, files `0640` | read-only for the services (`ProtectSystem=strict`, section 5) |
 | `/var/lib/consensus/snapshots/` | `consensus:consensus 0700`, files `0640` | the sealed snapshot with its private witnesses: only the service user enters the tree; read-only for the services |
 | `/run/consensus/` | `consensus:consensus-sock 2750` (tmpfiles.d, setgid) | `public.sock`, `consensus:consensus-sock 0660`: the group is inherited from the setgid directory `[UB-5]`, the mode is set by the server (`server.rs`, `serve_unix`) |
@@ -512,7 +514,7 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` | the snapshot's anchor, 64 hex | mandatory for every non-simulated mode (ADR-0008 decision 5) |
 | `CONSENSUS_SNAPSHOT_DIR` | `/var/lib/consensus/snapshots/<snapshot-id>` | parallel lane; `CONSENSUS_SNAPSHOT_VERIFIER_DIR` stays unset (native verifier, same paths) |
 | `CONSENSUS_LIVE_ENABLED` | `false` until section 8.7, then `true` | `live/config.rs` |
-| `CONSENSUS_LIVE_LEDGER_DIR` | `/var/lib/consensus/ledger/staging` during staging; `/var/lib/consensus/ledger/public` from go-live | required when enabled; one directory per phase because a trip has no reset (section 4.5) |
+| `CONSENSUS_LIVE_LEDGER_DIR` | `/var/lib/consensus/ledger/staging` during staging; `/var/lib/consensus/ledger/public` from go-live | required when enabled; one directory per phase, so production starts at zero (section 4.5) |
 | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | `/etc/consensus/judge-codes.sha256`, set only once the file has at least one digest | an empty digest file is a configuration error (`live/judge.rs`) |
 | `CONSENSUS_TURNSTILE_SECRET_FILE` | `/run/credentials/consensus-public.service/turnstile.secret` | required when enabled |
 | `CONSENSUS_TURNSTILE_HOSTNAME` | `staging.<hostname>` during staging, `<hostname>` from go-live | one bare hostname; Siteverify's `hostname` must equal it (`live/turnstile.rs`) |
@@ -610,33 +612,38 @@ Then uncomment `CONSENSUS_LIVE_JUDGE_CODES_FILE` in `public.env`. Revocation is
 editing the file and restarting, or the kill switch for everything at once
 (`live/judge.rs`).
 
-### 4.4 The kill-switch file, and the absence of a reset
+### 4.4 The kill-switch file and the reset
 
 Path: `CONSENSUS_LIVE_KILL_SWITCH_FILE`, default `<ledger dir>/kill-switch`
 (`live/config.rs`), so `/var/lib/consensus/ledger/staging/kill-switch` during staging
 and `/var/lib/consensus/ledger/public/kill-switch` from go-live. Its presence trips
 the ledger at the next admission or snapshot (`budget.rs` `check_kill_switch`); the
 trip is written to the day file and to `lifetime.json`, is restored at every reopen,
-and a file still present trips again (`live/budget.rs`, "Trips"). `budget.rs` says
-"only an explicit operator `Ledger::reset` clears it", and that function has **no
-caller** in the binary (see the introduction): there is no command, route or console
-button that clears a trip. Removing the file therefore never re-opens live mode; the
-only remedy is the ledger change of section 4.5. Section 9.3 and
-`deploy/scripts/kill-switch.sh` operate the file and say so in their output.
+and a file still present trips again (`live/budget.rs`, "Trips"). Removing the file
+therefore never re-opens live mode: the trip lasts until
+`sudo ~/consensus/deploy/scripts/ledger.sh reset --by <operator>` clears it
+(`ledger_cli.rs`). The reset refuses while the kill-switch file is present (the next
+admission would trip again), records nothing when there is no trip, and is written to
+the day file as `reset {by, at}`; the running server reads it at its next admission
+(`/ready` and `/capabilities` within their cache age), so no restart is needed. Write
+the reason for the stop up before resetting (section
+9.3). `deploy/scripts/kill-switch.sh` operates the file, `deploy/scripts/ledger.sh` the
+trip; both say so in their output.
 
-### 4.5 Ledger lifecycle: one directory per phase, never reused after a trip
+### 4.5 Ledger lifecycle: one directory per phase
 
-Gate G11 requires the kill switch "exercised on staging" (release checklist), and the
-exercise trips the ledger for good. The ledger is a directory
+Gate G11 requires the kill switch "exercised on staging" (release checklist), and
+staging live runs spend real money on the dedicated key. The ledger is a directory
 (`CONSENSUS_LIVE_LEDGER_DIR`: day files, `lifetime.json`, `ledger.lock`; `Ledger::open`
 creates a missing directory, `budget.rs`), so the phases get separate directories under
-the single writable path `/var/lib/consensus/ledger`:
+the single writable path `/var/lib/consensus/ledger`, and the production lifetime cap
+counts from zero at go-live:
 
 | Phase | `CONSENSUS_LIVE_LEDGER_DIR` | Fate |
 |---|---|---|
-| staging (sections 8.1–8.6, 8.8) | `/var/lib/consensus/ledger/staging` | tripped by the rehearsal; exported, then moved to `/var/lib/consensus/ledger-archive/` |
-| production (from 8.7) | `/var/lib/consensus/ledger/public` | must be empty at go-live (no `lifetime.json`); exported at teardown |
-| incident (9.6) | a new `/var/lib/consensus/ledger/public-<n>` | only after the incident is written up; the tripped one is archived the same way |
+| staging (sections 8.1–8.6, 8.8) | `/var/lib/consensus/ledger/staging` | tripped and reset by the rehearsal (8.8); exported, then moved to `/var/lib/consensus/ledger-archive/` before go-live |
+| production (from 8.7) | `/var/lib/consensus/ledger/public` | must be empty at go-live (no `lifetime.json`); a trip is reset after its write-up (9.3); exported at teardown |
+| incident (9.6) | the same `ledger/public` after a reset, or a new `/var/lib/consensus/ledger/public-<n>` only when the ledger itself is suspect (an `inconsistent` report, a file touched by hand) | the suspect one is archived the same way |
 
 Rules that follow from the code:
 
@@ -645,10 +652,10 @@ Rules that follow from the code:
    `lifetime_spent_usd` from its `lifetime.json` before archiving it
    (`kill-switch.sh status` prints it) and carry the figure into the owner's accounting.
 2. **The production ledger starts at zero**, so its $60 lifetime cap counts from
-   go-live. If the owner's $60 is the key's total budget rather than the public phase's,
-   set `CONSENSUS_LIVE_LIFETIME_USD` to `60.00` minus the staging spend before go-live
-   (`live/config.rs` still requires the judge slice to fit; open question 6).
-3. **Never edit or delete `lifetime.json` or a day file to clear a trip.** The summary
+   go-live: the $60 is the public phase's budget, staging is paid from the rest of the
+   credit (open question 6, answered by the plan).
+3. **Never edit or delete `lifetime.json` or a day file to clear a trip**
+   (`ledger.sh reset` is the way). The summary
    is derived from the day files and re-derived at open; a summary trip the day files
    do not show is restored anyway and reported as an inconsistency (`budget.rs`
    `apply_summary`). An archived ledger is the evidence of what was spent and why it
@@ -1358,8 +1365,8 @@ binding), and a failed check disables live mode with the reason in `/health`.
 2. `public.env`: `CONSENSUS_LIVE_LEDGER_DIR=/var/lib/consensus/ledger/public` (empty:
    no `lifetime.json` yet), `CONSENSUS_TURNSTILE_HOSTNAME=<hostname>`,
    `CONSENSUS_LIVE_ENABLED=true` (if live mode launches with the portal),
-   `CONSENSUS_LIVE_JUDGE_CODES_FILE` set, `CONSENSUS_LIVE_LIFETIME_USD` per open
-   question 6; the real key in `meta.key`; `sudo systemctl restart consensus-public`
+   `CONSENSUS_LIVE_JUDGE_CODES_FILE` set, `CONSENSUS_LIVE_LIFETIME_USD=60.00` (open
+   question 6); the real key in `meta.key`; `sudo systemctl restart consensus-public`
    and read `journalctl -u consensus-public -n 30` for a clean start, the boot
    verification line of 8.6 included.
 3. Owner machine: `cloudflared tunnel route dns consensus-public <hostname>`.
@@ -1374,7 +1381,8 @@ binding), and a failed check disables live mode with the reason in `/health`.
 ### 8.8 Gate G11: shutdown, recovery, kill switch, export (staging rehearsal)
 
 Run this **last** in the staging phase, on the staging ledger: the kill-switch step
-trips that ledger for good (section 4.4) and section 4.5 retires it before go-live.
+trips that ledger, the reset step clears the trip (section 4.4), and section 4.5
+retires the ledger before go-live anyway.
 Live mode must be on (`CONSENSUS_LIVE_ENABLED=true` on staging, with a binary that
 has the live wiring) for the kill-switch step to mean anything: before the wiring,
 `POST /api/v1/live-runs` answers `503 live_disabled` whether or not a ledger is tripped,
@@ -1401,12 +1409,19 @@ curl -sS -o /dev/null -w '%{http_code}\n' -b "$A" "${ACCESS[@]}" -X POST -H "Ori
      --data '{"scenario":"retry"}' "https://$H/api/v1/runs"                       # owner machine: 202, guided runs unaffected
 sudo ~/consensus/deploy/scripts/kill-switch.sh status                             # server: tripped: true, trip_code: kill_switch, lifetime_spent_usd
 sudo ~/consensus/deploy/scripts/export-ledger.sh                                  # server: today's day file of the staging ledger holds the trip record
-sudo ~/consensus/deploy/scripts/kill-switch.sh off                                # server: removes the file; the staging ledger stays tripped (no reset exists)
+sudo ~/consensus/deploy/scripts/kill-switch.sh off                                # server: removes the file; the staging ledger stays tripped
+sudo ~/consensus/deploy/scripts/ledger.sh status | grep -E '"tripped"|"trip_code"'   # server: still "tripped": true, "trip_code": "kill_switch"
+# 4. reset: refused while the file is present, then clears the trip without a restart
+sudo ~/consensus/deploy/scripts/kill-switch.sh on && sudo ~/consensus/deploy/scripts/ledger.sh reset --by <owner>; echo "exit $?"   # server: exit 2, "the kill-switch file ... is present"
+sudo ~/consensus/deploy/scripts/kill-switch.sh off --yes
+sudo ~/consensus/deploy/scripts/ledger.sh reset --by <owner>                         # server: "reset": true, "cleared": {"trip_code": "kill_switch", ...}, "snapshot": {"tripped": false, ...}
+curl -sS -b "$A" "${ACCESS[@]}" "https://$H/api/v1/ready"                         # owner machine: live.tripped false within the cache age
 ```
 
 Then retire the staging ledger exactly as section 4.5 shows (export, stop, move to
 `ledger-archive/`, point `public.env` at `ledger/public`) and continue with 8.7. The
-written result for G11 names the archived directory and its `lifetime_spent_usd`.
+written result for G11 names the archived directory, its `lifetime_spent_usd` and the
+`reset` record of step 4.
 
 Retention (bounded guided-run storage) shows as `[retention] purged N expired run(s)`
 in the journal every 10 minutes when something expired (`server.rs` `run_server`).
@@ -1472,24 +1487,38 @@ debit the same ledger (gate G3). Until the console exposes the ledger snapshot, 
 files above are the record: one JSONL per UTC day plus `lifetime.json`
 (`live/budget.rs`).
 
-### 9.3 Kill switch
+### 9.3 Kill switch, reset and reconciliation
 
 ```sh
 sudo ~/consensus/deploy/scripts/kill-switch.sh on        # creates <ledger dir>/kill-switch (root:consensus 0640) in the active ledger of public.env
 sudo ~/consensus/deploy/scripts/kill-switch.sh status
 sudo ~/consensus/deploy/scripts/kill-switch.sh off       # asks; removes the file only: the ledger stays tripped
+sudo ~/consensus/deploy/scripts/ledger.sh status         # JSON: the operator snapshot (trip reason included) and every open reservation
+sudo ~/consensus/deploy/scripts/ledger.sh reset --by <operator>                     # clears a trip; refused while the kill-switch file exists
+sudo ~/consensus/deploy/scripts/ledger.sh release <reservation-id> --by <operator>  # ends a reservation a crash left open
 ```
 
-Semantics (`live/budget.rs`): the file's presence trips the ledger at the next
-admission; a tripped ledger refuses every reservation and every draw, so in-flight
-runs stop at their next model call; the trip is persistent, survives restarts, and a
-file still present re-trips it. **Nothing in the binary clears a trip** (section 4.4):
-`off` only removes the file, and re-opening live mode means a new ledger directory
-with the tripped one archived (section 4.5), after the reason for the stop is written
-up. Guided runs and the showcase are unaffected. The ledger also trips on its own on
-401/402/403 from Meta, on an overrun of a bound, and at the lifetime cap; those trips
-end the same way. While live mode is disabled no ledger is open, so a file created
-then takes effect at the first admission after live mode is enabled.
+Semantics (`live/budget.rs`, `ledger_cli.rs`): the file's presence trips the ledger at
+the next admission; a tripped ledger refuses every reservation and every draw, so
+in-flight runs stop at their next model call; the trip is persistent, survives
+restarts, and a file still present re-trips it. **Only an operator reset clears a
+trip** (section 4.4): `off` only removes the file; `ledger.sh reset` re-opens live mode
+on the same ledger once the reason for the stop is written up. Guided runs and the
+showcase are unaffected. The ledger also trips on its own on 401/402/403 from Meta, on
+an overrun of a bound, and at the lifetime cap; reset those the same way once the cause
+is fixed (a replaced key, a corrected bound). A lifetime-cap trip re-opens nothing: at
+the cap every reservation is refused anyway. While live mode is disabled no ledger is
+open, so a file created then takes effect at the first admission after live mode is
+enabled.
+
+Reconciliation after a crash: a run killed mid-call leaves its reservation open,
+counting against the caps at its worst case (`ledger.sh status` lists it under
+`open_reservations`, with what it drew so far); restart recovery closes the run as
+failed but does not release the reservation. Once the run is closed and the provider
+dashboard shows what it really spent, `ledger.sh release <id> --by <operator>` ends
+the reservation at the spend the ledger recorded (settled charges plus unsettled
+draws, never refunded). Never release the reservation of a run still in progress: its
+next Meta call is refused.
 
 ### 9.4 Rotating the operator token
 
@@ -1530,9 +1559,10 @@ exposure is enough; the ledger is append-only.
 Suspected key exposure, unexpected spend, or a compromised host:
 
 1. `sudo ~/consensus/deploy/scripts/kill-switch.sh on` — spending stops at the next
-   admission; in-flight runs stop at their next call. This ends the current ledger
-   (section 4.4); live mode re-opens, if at all, on a new `ledger/public-<n>` after the
-   write-up, with the tripped ledger archived (section 4.5).
+   admission; in-flight runs stop at their next call. The trip holds until an operator
+   reset (section 4.4); live mode re-opens, if at all, after the write-up: with
+   `ledger.sh reset` on the same ledger, or on a new `ledger/public-<n>` when the ledger
+   itself is suspect, the old one archived (section 4.5).
 2. Revoke the dedicated key at dev.meta.ai (release checklist, owner step 5). The ledger
    also trips by itself on the first 401/403 the revoked key receives.
 3. If the host is suspect: `sudo systemctl stop consensus-public.service cloudflared.service`
@@ -1697,18 +1727,20 @@ templates and scripts under `deploy/`.
 5. **Staging after go-live.** `staging.<hostname>` keeps serving the same socket behind
    Access; remove its ingress rule and DNS record when staging is no longer needed, or at
    teardown.
-6. **Lifetime cap after staging.** The production ledger starts at zero (section 4.5),
-   so with the default `CONSENSUS_LIVE_LIFETIME_USD=60.00` the key can spend $60 after
-   go-live plus whatever staging spent. If the $60 is the key's total, set the production
-   lifetime cap to `60.00` minus the staging ledger's `lifetime_spent_usd` (the judge
-   slice of $15 must still fit, `live/config.rs`). Decide before step 2 of 8.7.
+6. **Lifetime cap after staging.** Answered by the approved plan ("Budget (owner
+   decision)"): the $60 is the public live mode's budget, judge lane included; the
+   validation battery, staging and the video come out of the rest of the $150 credit. The
+   production ledger therefore keeps `CONSENSUS_LIVE_LIFETIME_USD=60.00` from zero, and
+   the staging ledger's `lifetime_spent_usd` goes into the owner's accounting
+   (section 4.5, rule 1).
 7. **Origin probes over SSH.** `verify-edge.sh --ssh` runs `sudo -n curl` on the server.
    Either the owner's SSH user may run `sudo` without a password (the usual cloud-image
    default), or the user joins `consensus-sock` for the duration of the checks and the
    script runs with `--no-sudo`. The second widens the socket group by one trusted
    account; the first widens nothing. Pick one and note it in the G6 evidence.
-8. **A ledger reset in the binary.** Everything in 4.4, 4.5 and 8.8 follows from the
-   missing caller of `Ledger::reset`. An operator-console route that calls it (loopback,
-   bearer token, written to the day file as `reset {by, at}`) would make the per-phase
-   ledgers unnecessary; this runbook does not assume it. If a parallel lane adds it,
-   section 4.5 becomes "export, reset, continue" and the archive step disappears.
+8. **A ledger reset in the binary.** Done: `consensus-api ledger status | reset --by |
+   release <id> --by` (`crates/consensus-api/src/ledger_cli.rs`), run through
+   `deploy/scripts/ledger.sh`; sections 4.4, 4.5, 8.8, 9.3 and 9.6 use it. It is a
+   subcommand that needs a shell on the server, not an operator-console route, so it
+   adds nothing to either listener. The per-phase ledgers stay, for the accounts
+   (section 4.5).

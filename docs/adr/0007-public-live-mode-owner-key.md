@@ -98,7 +98,10 @@ and the account holder pays any overage.
   `budget_refused`. The reservation is released, with bounded retries in every case,
   when the run ends, when its deliberation is dropped (a caught panic, a start whose
   task creation failed), or by the route's refund for a start refused earlier; a
-  release that still fails is logged with its id for `release_by_id`.
+  release that still fails is logged with its id for `release_by_id`. The operator
+  calls that, and clears a trip (`Ledger::reset`), with the `consensus-api ledger`
+  subcommand (`ledger_cli.rs`: `status`, `reset --by`, `release <id> --by`) from a shell
+  on the server; neither listener exposes either.
   `safety_identifier` is the session's pseudonym (`visitor:<16 hex>`), not an HMAC;
   `max_completion_tokens` is the live bound.
 - The portal-wide block (duty 7) is a middleware on every public route reading

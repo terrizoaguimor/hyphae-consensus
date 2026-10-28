@@ -110,8 +110,8 @@ install -d -o consensus -g consensus -m 0750 /var/lib/consensus
 for d in runs ledger research web; do
   install -d -o consensus -g consensus -m 0750 "/var/lib/consensus/$d"
 done
-# One ledger directory per phase (runbook 4.5): the kill-switch rehearsal
-# trips the staging ledger for good (no reset exists in the binary); go-live
+# One ledger directory per phase (runbook 4.5): staging spend is accounted
+# apart and the kill-switch rehearsal trips the staging ledger; go-live
 # switches CONSENSUS_LIVE_LEDGER_DIR to the empty production ledger.
 for d in ledger/staging ledger/public; do
   install -d -o consensus -g consensus -m 0750 "/var/lib/consensus/$d"

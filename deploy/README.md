@@ -26,7 +26,8 @@ ledger runs on the server.
 | `scripts/sse-heartbeat-test.sh` | SSE heartbeat and resume test through the tunnel | owner machine | 8.5 |
 | `scripts/canary-scan.sh` | gate G4: environments, files, journal (server); public responses (`--responses-only`, owner machine) | both | 8.3 |
 | `scripts/sandbox-probe.sh` | gate G9: `hyphae proof verify` inside the unit's own sandbox via `systemd-run` | server | 8.6 |
-| `scripts/kill-switch.sh` | live-mode kill switch on / off / status (no reset exists: runbook 4.5) | server | 9.3 |
+| `scripts/kill-switch.sh` | live-mode kill switch on / off / status (removing the file clears no trip) | server | 9.3 |
+| `scripts/ledger.sh` | the operator's `consensus-api ledger` subcommand (status, reset a trip, release a reservation a crash left open) as the unit runs it | server | 4.4, 8.8, 9.3 |
 | `scripts/export-ledger.sh` | checksummed export of a ledger directory (and optionally the runs) | server | 4.5, 9.5, 9.7 |
 
 Conventions: every script is bash with `set -euo pipefail`; destructive steps

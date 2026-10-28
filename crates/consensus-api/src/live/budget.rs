@@ -409,6 +409,15 @@ impl ReservationId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// An id an operator typed (`consensus-api ledger release <id>`): a
+    /// UUID in any of its spellings, normalized to the lowercase hyphenated
+    /// form the ledger writes; anything else is `None`.
+    pub fn parse(text: &str) -> Option<Self> {
+        uuid::Uuid::parse_str(text.trim())
+            .ok()
+            .map(|id| ReservationId(id.to_string()))
+    }
 }
 
 impl fmt::Display for ReservationId {
@@ -813,6 +822,23 @@ pub struct Settlement {
 pub struct Released {
     /// What the run cost for sure: settled charges plus unsettled draws.
     pub spent: Usd,
+}
+
+/// A reservation not yet released ([`Ledger::open_reservations`]):
+/// operator-only, like the ledger's other reconciliation views.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OpenReservation {
+    pub id: ReservationId,
+    pub lane: Lane,
+    /// When it was reserved (RFC 3339, UTC).
+    pub reserved_at: String,
+    /// What the caps hold for it until it is released.
+    pub worst_case: Usd,
+    /// Settled charges plus the estimates of attempts not yet settled.
+    pub spent: Usd,
+    /// HTTP attempts drawn on it, and how many of those are unsettled.
+    pub attempts: u32,
+    pub unsettled_attempts: u32,
 }
 
 /// Per-attempt metering the Meta adapter calls around each HTTP attempt:
@@ -2015,6 +2041,36 @@ impl Ledger {
     /// listener.
     pub fn release_by_id(&self, id: &ReservationId, by: &str) -> Result<Released, LedgerError> {
         self.release_record(id, Some(by.to_string()))
+    }
+
+    /// Operator-only: every reservation not yet released, oldest first,
+    /// after waiting for the file lock and reading what other handles
+    /// appended. A run in progress holds one; a crash leaves its
+    /// reservation here, counting at its worst case, until
+    /// [`release_by_id`](Self::release_by_id). Never reachable from the
+    /// public listener.
+    pub fn open_reservations(&self) -> Result<Vec<OpenReservation>, LedgerError> {
+        self.locked(|_, st| {
+            let mut open: Vec<(DateTime<Utc>, OpenReservation)> = st
+                .reservations
+                .iter()
+                .filter(|(_, res)| !res.released)
+                .map(|(id, res)| {
+                    let view = OpenReservation {
+                        id: id.clone(),
+                        lane: res.lane,
+                        reserved_at: rfc3339(res.at),
+                        worst_case: res.worst_case,
+                        spent: res.spent(),
+                        attempts: res.attempts,
+                        unsettled_attempts: u32::try_from(res.open.len()).unwrap_or(u32::MAX),
+                    };
+                    (res.at, view)
+                })
+                .collect();
+            open.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
+            Ok::<_, LedgerError>(open.into_iter().map(|(_, view)| view).collect())
+        })
     }
 
     fn release_record(

@@ -422,10 +422,10 @@ async fn ledger_refusals_answer_with_their_codes_and_the_kill_switch_trips() {
     let meta = serve(one_run(Duration::ZERO));
     let h = live_server(LiveOptions::default(), meta_config(&meta.base_url));
     let cookie = h.session().await;
-    // Five $1.80 reservations spend the $10 day; the visitor's would be
-    // the sixth.
+    // Four $2.28 reservations ($9.12) spend the $10 day; the visitor's
+    // would be the fifth.
     let mut held = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..4 {
         held.push(
             h.ledger
                 .reserve(consensus_api::live::budget::Lane::Public)
@@ -442,15 +442,15 @@ async fn ledger_refusals_answer_with_their_codes_and_the_kill_switch_trips() {
     assert!(body["retry_after_secs"].as_u64().unwrap() >= 1);
     let text = body.to_string();
     assert!(
-        !text.contains("1.88") && !text.contains('$'),
+        !text.contains("1.88") && !text.contains("2.28") && !text.contains('$'),
         "no amounts: {text}"
     );
-    assert_eq!(h.ledger_records("reservation").len(), 5, "nothing written");
+    assert_eq!(h.ledger_records("reservation").len(), 4, "nothing written");
     let (_, caps, _) = h.server.json(Req::get("/api/v1/capabilities")).await;
-    // With the harness's 12k output bound a run's worst case is
-    // (70,000 + 12,000 + 8,000) × $20/M = $1.80: five leave $1.00, which
-    // holds no sixth.
-    assert_eq!(caps["live"]["budget"]["daily_remaining"], "1.000000");
+    // With the harness's 12k output bound and the default 32k input cap a
+    // run's worst case is (70,000 + 12,000 + 32,000) × $20/M = $2.28: four
+    // leave $0.88, which holds no fifth.
+    assert_eq!(caps["live"]["budget"]["daily_remaining"], "0.880000");
     assert_eq!(caps["live"]["budget"]["tripped"], false);
     for r in held {
         h.ledger.release(&r).unwrap();
@@ -603,8 +603,9 @@ async fn a_live_run_is_metered_streamed_and_published_without_the_key() {
     let reservations = h.ledger_records("reservation");
     assert_eq!(reservations.len(), 1);
     assert_eq!(reservations[0]["lane"], "public");
-    // (70,000 + 12,000 + 8,000) tokens × $20/M with the 12k output bound.
-    assert_eq!(reservations[0]["worst_case_usd"], "1.800000");
+    // (70,000 + 12,000 + 32,000) tokens × $20/M with the 12k output bound
+    // and the default input cap.
+    assert_eq!(reservations[0]["worst_case_usd"], "2.280000");
     assert_eq!(releases[0]["reservation"], reservations[0]["id"]);
     let draws = h.ledger_records("draw");
     assert_eq!(draws.len(), 3);

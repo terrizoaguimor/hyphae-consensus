@@ -76,10 +76,11 @@ fn defaults_are_the_owner_decisions() {
     assert_eq!(b.burst_fraction.parts_per_million(), 250_000);
     assert_eq!(b.run_token_cap, 70_000);
     assert_eq!(b.max_completion_tokens, 16_000);
-    assert_eq!(b.input_cap_tokens, 8_000);
+    assert_eq!(b.input_cap_tokens, 32_000);
     assert_eq!(b.price_input_per_m, Usd::parse("4.00").unwrap());
     assert_eq!(b.price_output_per_m, Usd::parse("20.00").unwrap());
-    assert_eq!(b.run_worst_case(), Usd::parse("1.88").unwrap());
+    // (70,000 + 16,000 + 32,000) tokens × $20/M.
+    assert_eq!(b.run_worst_case(), Usd::parse("2.36").unwrap());
     assert!(
         b.kill_switch_file.is_none(),
         "no ledger dir, no default kill switch"
@@ -257,10 +258,11 @@ fn cross_checks_hold_the_caps_together() {
     // A run must fit the daily cap, or nothing could ever be admitted.
     let err = load(Exposure::Public, &env(&[(vars::DAILY_USD, "1.00")])).unwrap_err();
     assert!(err.vars().contains(&vars::DAILY_USD));
-    assert!(err.to_string().contains("1.88"), "{err}");
+    assert!(err.to_string().contains("2.36"), "{err}");
 
     // ...and the public share of the lifetime cap: $60 − $58.50 = $1.50
-    // would leave a public lane that refuses its first request forever.
+    // would leave a public lane that refuses its first request forever
+    // (and so would $60 − $57.65 = $2.35, a cent short of the $2.36 run).
     let err = load(Exposure::Public, &env(&[(vars::JUDGE_USD, "58.50")])).unwrap_err();
     match &err {
         ConfigError::Inconsistent {
@@ -274,7 +276,10 @@ fn cross_checks_hold_the_caps_together() {
         }
         other => panic!("{other}"),
     }
-    assert!(load(Exposure::Public, &env(&[(vars::JUDGE_USD, "58.00")])).is_ok());
+    let err = load(Exposure::Public, &env(&[(vars::JUDGE_USD, "57.65")])).unwrap_err();
+    assert!(err.to_string().contains("public share"), "{err}");
+    // Exactly one run's worst case is enough.
+    assert!(load(Exposure::Public, &env(&[(vars::JUDGE_USD, "57.64")])).is_ok());
 
     // The two widget actions must differ.
     let err = load(
@@ -391,7 +396,8 @@ fn the_judge_daily_cap_defaults_to_the_slice_and_stays_within_it() {
         err.vars(),
         vec![vars::JUDGE_DAILY_USD, vars::JUDGE_CODES_FILE]
     );
-    e.insert(vars::JUDGE_DAILY_USD, "1.88".into());
+    // One default run's worst case, (70,000 + 16,000 + 32,000) × $20/M.
+    e.insert(vars::JUDGE_DAILY_USD, "2.36".into());
     assert!(load(Exposure::Public, &e).is_ok());
 }
 

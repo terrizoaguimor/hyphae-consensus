@@ -21,7 +21,7 @@
 //! | `CONSENSUS_LIVE_BURST_FRACTION` | `0.25` | Share of the daily cap available at 00:00 UTC |
 //! | `CONSENSUS_LIVE_RUN_TOKEN_CAP` | `70000` | Public per-run token cap |
 //! | `CONSENSUS_LIVE_MAX_COMPLETION_TOKENS` | `16000` | Output bound per call |
-//! | `CONSENSUS_LIVE_INPUT_CAP_TOKENS` | `8000` | Input bound per call |
+//! | `CONSENSUS_LIVE_INPUT_CAP_TOKENS` | `32000` | Input bound per call: a request whose `bytes + 1024` exceeds it is refused before sending (the Evaluator's request over the seven sealed-snapshot records needs well over 8,000); with the defaults a run's worst case is `(70,000 + 16,000 + 32,000) × $20/M = $2.36` |
 //! | `CONSENSUS_META_PRICE_INPUT_PER_M` | `4.00` | USD per million input tokens |
 //! | `CONSENSUS_META_PRICE_OUTPUT_PER_M` | `20.00` | USD per million output (and reasoning) tokens |
 //! | `CONSENSUS_TURNSTILE_SECRET_FILE` | required when enabled | File holding the widget secret |
@@ -88,7 +88,10 @@ pub mod defaults {
     pub const BURST_FRACTION: &str = "0.25";
     pub const RUN_TOKEN_CAP: &str = "70000";
     pub const MAX_COMPLETION_TOKENS: &str = "16000";
-    pub const INPUT_CAP_TOKENS: &str = "8000";
+    /// Room for the Evaluator's request over the sealed snapshot's seven
+    /// records under the provable `bytes + 1024` bound in every round
+    /// (8,000 refused every snapshot-backed run at its first evaluation).
+    pub const INPUT_CAP_TOKENS: &str = "32000";
     pub const PRICE_INPUT_PER_M: &str = "4.00";
     pub const PRICE_OUTPUT_PER_M: &str = "20.00";
     pub const KILL_SWITCH_FILE_NAME: &str = "kill-switch";
@@ -587,7 +590,10 @@ mod tests {
         assert_eq!(cfg.budget.daily_cap, Usd::parse("10").unwrap());
         assert_eq!(cfg.budget.lifetime_cap, Usd::parse("60").unwrap());
         assert_eq!(cfg.budget.judge_slice, Usd::parse("15").unwrap());
-        assert_eq!(cfg.budget.run_worst_case(), Usd::parse("1.88").unwrap());
+        // (70,000 + 16,000 + 32,000) tokens × $20/M.
+        assert_eq!(cfg.budget.run_worst_case(), Usd::parse("2.36").unwrap());
+        // It fits what the day offers at 00:00 UTC (25% of $10).
+        assert!(cfg.budget.run_worst_case() <= cfg.budget.burst());
         assert!(cfg.turnstile.is_none());
         assert!(cfg.ledger_dir.is_none());
         assert!(!cfg.judge_lane_open());

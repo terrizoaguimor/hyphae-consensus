@@ -58,12 +58,12 @@ export const LEGAL_TEXT_STATUS: "draft" | "final" = "draft";
 export const LEGAL_TEXT_UPDATED = new Date("2026-10-27T00:00:00Z");
 
 /**
- * Whether this build talks to the Hyphae Consensus API. While false, the
- * Overview's main button explains how guided examples will work (a docs
- * article) instead of promising to run one, and every view that needs the API
- * shows the not-connected placeholder.
+ * Whether the portal talks to the Hyphae Consensus API is no longer a build
+ * flag: the static export is served by the API server itself, and every view
+ * that needs the API asks GET /api/v1/health at runtime
+ * (src/lib/api/useApiHealth.ts, src/components/ApiGate.tsx). When the API
+ * does not answer, the view shows the not-connected placeholder.
  */
-export const API_CONNECTED = false;
 
 /**
  * Public contact for the privacy notice and the terms (the data controller is
@@ -102,6 +102,14 @@ export function localePath(locale: Locale, path: string): string {
 /** Path of a docs article. */
 export function docPath(locale: Locale, slug: DocSlug): string {
   return localePath(locale, `docs/${slug}`);
+}
+
+/**
+ * The run workspace of one run: a static route per locale, client-rendered
+ * from the `id` query string (src/app/[locale]/run/page.tsx).
+ */
+export function runPath(locale: Locale, runId: string): string {
+  return `${localePath(locale, "run")}?id=${encodeURIComponent(runId)}`;
 }
 
 /**

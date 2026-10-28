@@ -33,6 +33,16 @@ export const clientNamespaces = [
   "LocaleSwitcher",
   "Settings",
   "Tour",
+  // Views that talk to the API at runtime (ApiGate, New deliberation, My
+  // runs, the run workspace) and the shared pieces they render.
+  "NotConnected",
+  "ApiGate",
+  "Api",
+  "Overview",
+  "NewDeliberation",
+  "Runs",
+  "Run",
+  "Provenance",
 ] as const;
 
 export function pickClientMessages(

@@ -2,23 +2,23 @@
 //
 // Overview: what Hyphae Consensus does, the main call to action, the optional
 // tour invitation, the provenance labels, and the impact metrics, which need
-// the API and are an honest placeholder in this build.
+// data this lane does not read yet and stay an honest placeholder.
 //
-// The main button promises only what this build can do: while API_CONNECTED
-// is false it reads "How guided examples will work" and opens the Modes
-// article; once connected it reads "Run a guided example" and opens New
-// deliberation. The caveat under the buttons is not part of a button's
-// accessible name, so the name itself must not overpromise.
+// The main button promises only what the server can do, decided at runtime
+// (src/components/OverviewActions.tsx): until GET /api/v1/health answers, and
+// when it does not, it reads "How guided examples will work" and opens the
+// Modes article; once the API answered it reads "Run a guided example" and
+// opens New deliberation. The caveat under the buttons is not part of a
+// button's accessible name, so the name itself must not overpromise.
 
-import { Button } from "@astryxdesign/core/Button";
 import { getTranslations } from "next-intl/server";
 
 import { NotConnected } from "@/components/NotConnected";
+import { OverviewActions } from "@/components/OverviewActions";
 import { PageHeader } from "@/components/PageHeader";
 import { ProvenanceLabels } from "@/components/ProvenanceLabels";
 import { TourInvite } from "@/components/TourInvite";
 import { type LocaleParams, navPageMetadata, pageLocale } from "@/lib/pageLocale";
-import { API_CONNECTED, docPath, localePath } from "@/lib/site";
 
 const flowSteps = ["roles", "evidence", "policy", "human"] as const;
 
@@ -37,30 +37,7 @@ export default async function OverviewPage({ params }: LocaleParams) {
         lead={t("App.intro")}
         eyebrow={<p className="hc-eyebrow">{t("Nav.overview")}</p>}
       >
-        <p className="hc-build-note">{t("App.buildNote")}</p>
-        <div className="hc-actions">
-          {API_CONNECTED ? (
-            <Button
-              href={localePath(locale, "new")}
-              variant="primary"
-              label={t("Overview.primaryAction")}
-            />
-          ) : (
-            <Button
-              href={docPath(locale, "modes")}
-              variant="primary"
-              label={t("Overview.primaryActionPlanned")}
-            />
-          )}
-          <Button
-            href={localePath(locale, "docs")}
-            variant="secondary"
-            label={t("Overview.secondaryAction")}
-          />
-        </div>
-        {API_CONNECTED ? null : (
-          <p className="hc-supporting">{t("Overview.primaryActionNote")}</p>
-        )}
+        <OverviewActions locale={locale} buildNote={t("App.buildNote")} />
       </PageHeader>
 
       <TourInvite />
@@ -83,7 +60,6 @@ export default async function OverviewPage({ params }: LocaleParams) {
       <section className="hc-section">
         <h2 id="overview-metrics">{t("Overview.metricsHeading")}</h2>
         <NotConnected
-          locale={locale}
           planned={[
             t("Overview.metricsPlanned.computed"),
             t("Overview.metricsPlanned.labeled"),

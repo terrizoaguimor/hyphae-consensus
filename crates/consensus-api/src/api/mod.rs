@@ -40,6 +40,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::sync::watch;
 use tower::timeout::TimeoutLayer;
 use tower::ServiceBuilder;
 use types::{LiveCapabilitiesV1, LiveReadyV1, PresetId};
@@ -133,10 +134,11 @@ pub const COUNTRY_HEADER: &str = "cf-ipcountry";
 /// task. The session cookie and the other headers never reach the gate.
 pub struct LiveAdmissionRequest {
     pub preset: PresetId,
+    /// The client key (IPv4 /32, IPv6 /64) the gate's per-client daily
+    /// quota counts by.
     pub client: ClientKey,
-    /// The session's pseudonym (`visitor:<16 hex>`), for the ledger's
-    /// per-visitor budget and the `safety_identifier` sent to Meta; never
-    /// the session id or its owner hash.
+    /// The session's pseudonym (`visitor:<16 hex>`), the `safety_identifier`
+    /// sent to Meta; never the session id or its owner hash.
     pub session_pseudonym: String,
     /// The Turnstile response token, when the client sent one.
     pub turnstile_token: Option<String>,
@@ -157,16 +159,34 @@ pub struct LiveGrant {
     pub input: TaskInput,
     pub deliberation: Box<dyn Deliberation>,
     /// Called exactly once if the run cannot be started after this grant
-    /// (the store refused, the server is draining): the gate refunds
-    /// whatever it charged or consumed (a ledger debit, a Turnstile
-    /// token). Never called once the run's `TaskCreated` is durable, and
-    /// never called twice. Must not block the async worker; spawn if the
-    /// refund does I/O.
+    /// (the store refused, the server is draining): the gate gives back
+    /// what it charged (the ledger reservation, the per-client or per-code
+    /// daily count). Never called once the run's `TaskCreated` is durable,
+    /// and never called twice. Must not block the async worker; spawn if
+    /// the refund does I/O. The Turnstile token is not given back: it was
+    /// spent at Siteverify.
     pub on_start_failed: Option<Box<dyn FnOnce() + Send>>,
 }
 
-/// The future [`LiveGate::admit`] returns.
+/// The future [`LiveGate::verify`] returns.
+pub type VerifyFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Box<dyn VerifiedLiveRequest>, ApiError>> + Send + 'a>>;
+
+/// The future [`VerifiedLiveRequest::admit`] returns.
 pub type AdmitFuture<'a> = Pin<Box<dyn Future<Output = Result<LiveGrant, ApiError>> + Send + 'a>>;
+
+/// A live request the gate's first phase accepted ([`LiveGate::verify`]).
+/// It holds nothing: dropping it (the route found no free slot, the server
+/// started draining) undoes nothing, because nothing was charged; the
+/// Turnstile token it consumed stays spent.
+pub trait VerifiedLiveRequest: Send {
+    /// The second phase, called with the live deliberation slot held: the
+    /// daily quotas and the ledger reservation (the first thing that
+    /// commits money), then the metered model client and the deliberation.
+    /// An `Err` is answered as is; whatever it counted or reserved is given
+    /// back before it returns.
+    fn admit(self: Box<Self>) -> AdmitFuture<'static>;
+}
 
 /// Extension point for the public live mode (plan B9, ADR-0007):
 /// Turnstile, the USD ledger, presets and the geographic policy decide
@@ -187,19 +207,28 @@ pub type AdmitFuture<'a> = Pin<Box<dyn Future<Output = Result<LiveGrant, ApiErro
 ///    after the start, so it could not);
 /// 2. the request is admitted like every creation (session, rates, the
 ///    visitor-run ring, not shutting down);
-/// 3. a live deliberation slot is reserved ([`RunManager::reserve`]):
-///    `429 too_many_runs` or `503 shutting_down` happen *before* the gate
-///    is asked, so a refusal there charges nobody;
-/// 4. `admit` runs, asynchronously (Turnstile siteverify is an outbound
-///    call; nothing here blocks a worker). An `Err` is answered as is and
-///    releases the slot;
-/// 5. the run is started with the reserved slot. If that fails,
+/// 3. [`LiveGate::verify`] runs, asynchronously (Siteverify is an outbound
+///    call; nothing here blocks a worker): every check that holds nothing,
+///    Turnstile last. It runs *before* the live slot is taken, so requests
+///    waiting on Siteverify (bogus tokens from many prefixes included) never
+///    keep the slot from a visitor who solved a challenge. An `Err` is
+///    answered as is;
+/// 4. a live deliberation slot is reserved ([`RunManager::reserve`]):
+///    `429 too_many_runs` or `503 shutting_down` come after Turnstile passed
+///    (the token is spent: Siteverify accepts a token once) and before
+///    anything is charged;
+/// 5. [`VerifiedLiveRequest::admit`] runs with the slot held. An `Err` is
+///    answered as is and releases the slot;
+/// 6. the run is started with the reserved slot. If that fails,
 ///    [`LiveGrant::on_start_failed`] is called and the error answered.
 ///
-/// `admit` must be idempotent-safe against its own retries only: the
-/// route calls it once per request.
+/// Each phase must be idempotent-safe against its own retries only: the
+/// route calls each once per request.
 pub trait LiveGate: Send + Sync {
-    fn admit(&self, request: LiveAdmissionRequest) -> AdmitFuture<'_>;
+    /// The first phase: everything that holds nothing and charges nothing
+    /// (the production gate: preset, geography, attestation, evidence,
+    /// Turnstile, the lane).
+    fn verify(&self, request: LiveAdmissionRequest) -> VerifyFuture<'_>;
 
     /// Whether live mode can take runs at all right now. The production
     /// gate says no while its evidence source is not ok (the sealed
@@ -255,18 +284,60 @@ pub struct CreationRecord {
     pub body_sha256: String,
 }
 
-/// Run creations remembered by `Idempotency-Key`, per owner (UI-1): a
-/// retried submit returns the run it already made instead of a second
-/// one. A bounded LRU; the key is scoped to the owner, so one visitor's
-/// keys never meet another's.
+/// What [`CreationKeys`] holds for one key.
+enum KeyEntry {
+    /// A creation under this key is under way. `ended` wakes when it ends,
+    /// however it ends: its sender belongs to the [`CreationClaim`].
+    InFlight {
+        body_sha256: String,
+        claim: u64,
+        ended: watch::Receiver<()>,
+    },
+    /// The creation made this run.
+    Created(CreationRecord),
+}
+
+/// What [`CreationKeys::claim`] found under a key.
+pub enum KeyClaim {
+    /// Nobody holds the key: it is the caller's until the claim ends, by
+    /// [`CreationClaim::complete`] or by being dropped.
+    Claimed(CreationClaim),
+    /// A creation with this key and this body made this run.
+    Created(CreationRecord),
+    /// A creation with this key and this body is under way: wait for the
+    /// receiver (it wakes when that creation ends), then claim again.
+    InFlight(watch::Receiver<()>),
+    /// The key was used with another body.
+    Reused,
+}
+
+/// The key was used to create a run from another body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyReused;
+
+/// Run creations remembered by `Idempotency-Key`, per owner (UI-1, TC-8):
+/// a retried submit returns the run it already made instead of a second
+/// one. A guided or operator creation claims its key *before* it starts
+/// ([`CreationKeys::claim`]), so a duplicate sent while the first is still
+/// being created waits for it and answers with its run instead of starting
+/// another. A bounded LRU (an entry under way included); the key is scoped
+/// to the owner, so one visitor's keys never meet another's.
 pub struct CreationKeys {
-    inner: Mutex<LruMap<String, CreationRecord>>,
+    inner: Mutex<KeyTable>,
+}
+
+struct KeyTable {
+    entries: LruMap<String, KeyEntry>,
+    next_claim: u64,
 }
 
 impl CreationKeys {
     pub fn new(cap: usize) -> Self {
         Self {
-            inner: Mutex::new(LruMap::new(cap)),
+            inner: Mutex::new(KeyTable {
+                entries: LruMap::new(cap),
+                next_claim: 0,
+            }),
         }
     }
 
@@ -279,28 +350,158 @@ impl CreationKeys {
         format!("{owner}:{key}")
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, LruMap<String, CreationRecord>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, KeyTable> {
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Claims `key` for a creation from a body with `body_sha256`, in one
+    /// step under the table's lock: the creation it made, the one under way,
+    /// another body's use of the key, or (nothing there) a claim the caller
+    /// holds while it creates.
+    pub fn claim(self: &Arc<Self>, owner: &Owner, key: &str, body_sha256: &str) -> KeyClaim {
+        let scope = Self::scope(owner, key);
+        let mut table = self.lock();
+        match table.entries.get_mut(&scope) {
+            Some(KeyEntry::Created(record)) if record.body_sha256 == body_sha256 => {
+                KeyClaim::Created(record.clone())
+            }
+            Some(KeyEntry::InFlight {
+                body_sha256: claimed,
+                ended,
+                ..
+            }) if claimed == body_sha256 => KeyClaim::InFlight(ended.clone()),
+            Some(_) => KeyClaim::Reused,
+            None => {
+                let (sender, receiver) = watch::channel(());
+                let claim = table.next_claim;
+                table.next_claim += 1;
+                table.entries.insert(
+                    scope.clone(),
+                    KeyEntry::InFlight {
+                        body_sha256: body_sha256.to_string(),
+                        claim,
+                        ended: receiver,
+                    },
+                );
+                KeyClaim::Claimed(CreationClaim {
+                    keys: self.clone(),
+                    scope,
+                    claim,
+                    body_sha256: body_sha256.to_string(),
+                    completed: false,
+                    _ended: sender,
+                })
+            }
+        }
+    }
+
+    /// The creation recorded under `key` for a body with `body_sha256`
+    /// (`None` when nothing is recorded, or a creation from this body is
+    /// under way), or [`KeyReused`] when the key holds another body. The
+    /// live route's lookup: it claims nothing, a solved Turnstile challenge
+    /// being what admits a live run once.
+    pub fn recorded(
+        &self,
+        owner: &Owner,
+        key: &str,
+        body_sha256: &str,
+    ) -> Result<Option<CreationRecord>, KeyReused> {
+        match self.lock().entries.get_mut(&Self::scope(owner, key)) {
+            None => Ok(None),
+            Some(KeyEntry::Created(record)) if record.body_sha256 == body_sha256 => {
+                Ok(Some(record.clone()))
+            }
+            Some(KeyEntry::InFlight {
+                body_sha256: claimed,
+                ..
+            }) if claimed == body_sha256 => Ok(None),
+            Some(_) => Err(KeyReused),
+        }
+    }
+
+    /// Forgets `record` because its run is gone (purged), so the key is free
+    /// again; anything else under the key is kept.
+    pub fn forget(&self, owner: &Owner, key: &str, record: &CreationRecord) {
+        let scope = Self::scope(owner, key);
+        let mut table = self.lock();
+        if matches!(table.entries.get_mut(&scope), Some(KeyEntry::Created(r)) if r == record) {
+            table.entries.remove(&scope);
+        }
+    }
+
+    /// The creation recorded under `key`, whatever its body; `None` while
+    /// one is only under way.
     pub fn get(&self, owner: &Owner, key: &str) -> Option<CreationRecord> {
-        self.lock()
-            .get_mut(&Self::scope(owner, key))
-            .map(|record| record.clone())
+        match self.lock().entries.get_mut(&Self::scope(owner, key)) {
+            Some(KeyEntry::Created(record)) => Some(record.clone()),
+            _ => None,
+        }
     }
 
+    /// Records a creation under `key`, replacing whatever was there.
     pub fn insert(&self, owner: &Owner, key: &str, record: CreationRecord) {
-        self.lock().insert(Self::scope(owner, key), record);
+        self.lock()
+            .entries
+            .insert(Self::scope(owner, key), KeyEntry::Created(record));
     }
 
+    /// Keys held: recorded creations and creations under way.
     pub fn len(&self) -> usize {
-        self.lock().len()
+        self.lock().entries.len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+/// A key held by one creation from the moment it is claimed: complete it
+/// with the run the creation made ([`CreationClaim::complete`]); dropping
+/// it unfinished (the creation was refused or failed, or its request went
+/// away) frees the key. Either way every duplicate waiting on the key wakes
+/// then.
+pub struct CreationClaim {
+    keys: Arc<CreationKeys>,
+    scope: String,
+    claim: u64,
+    body_sha256: String,
+    completed: bool,
+    /// Dropped with the claim, after the entry is updated: what wakes the
+    /// waiting duplicates.
+    _ended: watch::Sender<()>,
+}
+
+impl CreationClaim {
+    /// Records `run_id` under the key: a duplicate waiting on the claim, and
+    /// every later retry, answers with that run.
+    pub fn complete(mut self, run_id: RunId) {
+        let record = CreationRecord {
+            run_id,
+            body_sha256: self.body_sha256.clone(),
+        };
+        self.keys
+            .lock()
+            .entries
+            .insert(self.scope.clone(), KeyEntry::Created(record));
+        self.completed = true;
+    }
+}
+
+impl Drop for CreationClaim {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        let mut table = self.keys.lock();
+        let ours = matches!(
+            table.entries.get_mut(&self.scope),
+            Some(KeyEntry::InFlight { claim, .. }) if *claim == self.claim
+        );
+        if ours {
+            table.entries.remove(&self.scope);
+        }
     }
 }
 
@@ -310,6 +511,21 @@ impl CreationKeys {
 ///
 /// [`RunStore::health`]: consensus_runtime::RunStore::health
 pub const READY_CACHE_TTL: Duration = Duration::from_secs(2);
+
+/// Where the operator surface reads the Meta configuration of a
+/// `model=meta` run, at the run's creation: [`MetaConfig::try_from_env`]
+/// in production (the process environment, the key file first); a test
+/// points it at its fake Chat Completions server.
+///
+/// [`MetaConfig::try_from_env`]: crate::config::MetaConfig::try_from_env
+pub type MetaSource = Arc<
+    dyn Fn() -> Result<Option<crate::config::MetaConfig>, crate::config::ConfigError> + Send + Sync,
+>;
+
+/// The production [`MetaSource`]: the process environment.
+pub fn meta_from_env() -> MetaSource {
+    Arc::new(crate::config::MetaConfig::try_from_env)
+}
 
 /// Shared state of one server.
 #[derive(Clone)]
@@ -334,6 +550,14 @@ pub struct AppState {
     /// live-only block by the live gate. Loaded from the `CONSENSUS_GEO_*` variables
     /// with their defaults whether or not live mode is enabled.
     pub geo: Arc<GeoPolicy>,
+    /// Operator surface: the live ledger every `model=meta` run is metered
+    /// on (the operator lane), when `CONSENSUS_LIVE_LEDGER_DIR` is set; with
+    /// `None` those runs are unmetered. Unused on the public surface, whose
+    /// live runs go through [`AppState::live_gate`].
+    pub operator_ledger: Option<crate::live::budget::Ledger>,
+    /// Operator surface: where a `model=meta` run's Meta configuration
+    /// comes from.
+    pub operator_meta: MetaSource,
 }
 
 impl AppState {
@@ -811,5 +1035,70 @@ mod tests {
         keys.insert(&Owner::Operator, "k", record(3));
         assert_eq!(keys.len(), 2, "bounded");
         assert_eq!(keys.get(&a, "k"), None, "the oldest was evicted");
+    }
+
+    #[tokio::test]
+    async fn a_claimed_key_is_held_until_its_creation_ends() {
+        let keys = Arc::new(CreationKeys::new(8));
+        let owner = Owner::session(&[7; 32]);
+        let KeyClaim::Claimed(claim) = keys.claim(&owner, "k", "body-a") else {
+            panic!("a new key is claimed");
+        };
+        // A duplicate finds it under way; another body is refused; nothing
+        // is recorded yet.
+        let KeyClaim::InFlight(mut ended) = keys.claim(&owner, "k", "body-a") else {
+            panic!("the duplicate waits");
+        };
+        assert!(matches!(
+            keys.claim(&owner, "k", "body-b"),
+            KeyClaim::Reused
+        ));
+        assert_eq!(keys.recorded(&owner, "k", "body-a"), Ok(None));
+        assert_eq!(keys.recorded(&owner, "k", "body-b"), Err(KeyReused));
+        assert_eq!(keys.get(&owner, "k"), None);
+        // Another owner's same key is its own.
+        assert!(matches!(
+            keys.claim(&Owner::Operator, "k", "body-b"),
+            KeyClaim::Claimed(_)
+        ));
+
+        // Completed: the waiter wakes and finds the run.
+        let run = RunId::new("run-00000000-0000-4000-8000-000000000001");
+        claim.complete(run.clone());
+        assert!(
+            ended.changed().await.is_err(),
+            "the claimant's end wakes it"
+        );
+        match keys.claim(&owner, "k", "body-a") {
+            KeyClaim::Created(record) => assert_eq!(record.run_id, run),
+            _ => panic!("the creation is recorded"),
+        }
+        let record = keys.get(&owner, "k").unwrap();
+        assert_eq!(
+            keys.recorded(&owner, "k", "body-a"),
+            Ok(Some(record.clone()))
+        );
+
+        // Dropped unfinished (a refused or failed creation): the key is
+        // free again and the waiter wakes.
+        let KeyClaim::Claimed(failed) = keys.claim(&owner, "other", "x") else {
+            panic!("a new key is claimed");
+        };
+        let KeyClaim::InFlight(mut waiting) = keys.claim(&owner, "other", "x") else {
+            panic!("the duplicate waits");
+        };
+        drop(failed);
+        assert!(waiting.changed().await.is_err());
+        assert!(matches!(
+            keys.claim(&owner, "other", "x"),
+            KeyClaim::Claimed(_)
+        ));
+
+        // A record whose run is gone is forgotten; the key is free.
+        keys.forget(&owner, "k", &record);
+        assert!(matches!(
+            keys.claim(&owner, "k", "body-a"),
+            KeyClaim::Claimed(_)
+        ));
     }
 }

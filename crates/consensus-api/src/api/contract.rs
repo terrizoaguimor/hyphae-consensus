@@ -317,6 +317,7 @@ fn fixtures_in(dir: &Path) -> Result<BTreeMap<String, Value>, String> {
             ApiError::new(ErrorCode::LiveBudgetLifetime, gate::refusal_message(ErrorCode::LiveBudgetLifetime)),
             ApiError::new(ErrorCode::LiveConcurrency, gate::refusal_message(ErrorCode::LiveConcurrency)).with_retry_after(30),
             ApiError::new(ErrorCode::LiveHourlyAdmissions, gate::refusal_message(ErrorCode::LiveHourlyAdmissions)).with_retry_after(600),
+            ApiError::new(ErrorCode::LiveClientQuota, gate::refusal_message(ErrorCode::LiveClientQuota)).with_retry_after(10_800),
             ApiError::new(ErrorCode::LiveTripped, gate::refusal_message(ErrorCode::LiveTripped)),
             ApiError::new(ErrorCode::LiveUnavailable, gate::refusal_message(ErrorCode::LiveUnavailable)).with_retry_after(30),
         ]),

@@ -3,8 +3,10 @@
 //! IPv6 /64, every table is a bounded LRU, and a refusal says when to
 //! retry. Keys come from `CF-Connecting-IP` only when the listener is a
 //! unix socket behind cloudflared or the configuration trusts the proxy;
-//! otherwise from the TCP peer address.
+//! otherwise from the TCP peer address. [`DailyCounts`] holds the live
+//! gate's daily quotas (per client key, per judge code).
 
+use chrono::NaiveDate;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 use std::net::{IpAddr, SocketAddr};
@@ -244,6 +246,97 @@ impl RateTable {
     }
 }
 
+struct DayCount {
+    day: NaiveDate,
+    count: u32,
+}
+
+/// At most `limit` counts per key per UTC day, in a bounded LRU table: the
+/// live gate's per-client quota and per-code judge limit. [`take`] counts
+/// one while the key is under its limit; [`give_back`] undoes one, for an
+/// admission refused or abandoned after its count was taken, so a refusal
+/// never consumes anything. A key's count starts again at zero on another
+/// day. The table is process-local (a restart forgets every count) and
+/// keeps at most `table_max` keys; past that the least recently counted key
+/// is forgotten first, and a key whose count goes back to zero leaves it.
+///
+/// [`take`]: DailyCounts::take
+/// [`give_back`]: DailyCounts::give_back
+pub struct DailyCounts<K> {
+    inner: Mutex<LruMap<K, DayCount>>,
+    limit: u32,
+}
+
+impl<K: Hash + Eq + Clone> DailyCounts<K> {
+    /// `limit` per key and day (at least 1), `table_max` keys at most.
+    pub fn new(limit: u32, table_max: usize) -> Self {
+        Self {
+            inner: Mutex::new(LruMap::new(table_max)),
+            limit: limit.max(1),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, LruMap<K, DayCount>> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn limit(&self) -> u32 {
+        self.limit
+    }
+
+    /// Counts one for `key` on `day`, and says so; `false`, counting
+    /// nothing, when `limit` are already counted for it that day.
+    pub fn take(&self, key: &K, day: NaiveDate) -> bool {
+        let mut table = self.lock();
+        let entry = table.get_or_insert_with(key.clone(), || DayCount { day, count: 0 });
+        if entry.day != day {
+            entry.day = day;
+            entry.count = 0;
+        }
+        if entry.count >= self.limit {
+            return false;
+        }
+        entry.count += 1;
+        true
+    }
+
+    /// Gives back one count [`take`](Self::take) made for `key` on `day`.
+    /// Nothing happens when the key's count is of another day (it started
+    /// again at zero since) or already zero.
+    pub fn give_back(&self, key: &K, day: NaiveDate) {
+        let mut table = self.lock();
+        let emptied = match table.get_mut(key) {
+            Some(entry) if entry.day == day && entry.count > 0 => {
+                entry.count -= 1;
+                entry.count == 0
+            }
+            _ => false,
+        };
+        if emptied {
+            table.remove(key);
+        }
+    }
+
+    /// What is counted for `key` on `day`.
+    pub fn count(&self, key: &K, day: NaiveDate) -> u32 {
+        match self.lock().get_mut(key) {
+            Some(entry) if entry.day == day => entry.count,
+            _ => 0,
+        }
+    }
+
+    /// Keys in the table.
+    pub fn len(&self) -> usize {
+        self.lock().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 /// Concurrent stream counters per run, per client and in total. A
 /// [`StreamPermit`] releases its counts on drop.
 pub struct StreamCaps {
@@ -423,6 +516,43 @@ mod tests {
         }
         assert_eq!(table.len(), 4);
         assert!(table.evictions() >= 96);
+    }
+
+    #[test]
+    fn daily_counts_hold_a_limit_per_key_and_day_and_give_back_what_was_refused() {
+        let day = NaiveDate::from_ymd_opt(2026, 10, 28).unwrap();
+        let next = day.succ_opt().unwrap();
+        let counts = DailyCounts::new(3, 4);
+        let a = ClientKey::V4([1, 2, 3, 4]);
+        let b = ClientKey::V6([0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 1]);
+        for n in 1..=3 {
+            assert!(counts.take(&a, day), "admission {n}");
+        }
+        assert!(!counts.take(&a, day), "the fourth of the day is refused");
+        assert_eq!(counts.count(&a, day), 3, "a refusal counts nothing");
+        assert!(counts.take(&b, day), "another client has its own count");
+        // A count given back (the ledger refused after the count was taken)
+        // makes room again; a give-back of another day changes nothing.
+        counts.give_back(&a, day);
+        assert_eq!(counts.count(&a, day), 2);
+        counts.give_back(&a, next);
+        assert_eq!(counts.count(&a, day), 2);
+        assert!(counts.take(&a, day));
+        assert!(!counts.take(&a, day));
+        // The next UTC day starts at zero, and the old day's give-back is
+        // ignored then.
+        assert!(counts.take(&a, next));
+        counts.give_back(&a, day);
+        assert_eq!(counts.count(&a, next), 1);
+        // A key back at zero leaves the table, and the table is bounded.
+        counts.give_back(&b, day);
+        assert_eq!(counts.count(&b, day), 0);
+        assert_eq!(counts.len(), 1);
+        for i in 0..50u8 {
+            assert!(counts.take(&ClientKey::V4([9, 9, 9, i]), day));
+        }
+        assert_eq!(counts.len(), 4);
+        assert_eq!(DailyCounts::<ClientKey>::new(0, 1).limit(), 1);
     }
 
     #[test]

@@ -420,6 +420,35 @@ impl TestServer {
     }
 }
 
+impl TestServer {
+    /// The run store's root directory.
+    pub fn store_dir(&self) -> PathBuf {
+        self.dir.path().join("store")
+    }
+
+    /// Edits one hex digit of the run index's first record hash, keeping
+    /// the file's length, as a hand edit made while the server runs would:
+    /// the next health check fails verification (`index_tampered`).
+    pub fn tamper_index(&self) {
+        let index = self.store_dir().join("runs").join("index.jsonl");
+        let mut bytes = std::fs::read(&index).unwrap();
+        let marker = b"\"hash\":\"";
+        let at = bytes
+            .windows(marker.len())
+            .position(|w| w == marker)
+            .expect("an index record")
+            + marker.len();
+        bytes[at] = if bytes[at] == b'0' { b'1' } else { b'0' };
+        std::fs::write(&index, bytes).unwrap();
+    }
+
+    /// Every spelling of the store directory a JSON body could carry.
+    pub fn store_dir_spellings(&self) -> Vec<String> {
+        let local = self.store_dir().to_string_lossy().into_owned();
+        vec![local.replace('\\', "\\\\"), local.replace('\\', "/"), local]
+    }
+}
+
 /// The session cookie value of a response, if it set one, under either
 /// name the server may use.
 pub fn cookie_value(headers: &HeaderMap) -> Option<String> {

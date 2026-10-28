@@ -3,7 +3,14 @@
 //! visitor's request becomes a run on the owner's Meta key. It implements
 //! [`crate::api::LiveGate`] over the admission library of this module
 //! tree, in the order ABUSE-9 fixes, stopping at the first refusal and
-//! spending nothing before the ledger has reserved the run's worst case:
+//! spending nothing before the ledger has reserved the run's worst case.
+//! It works in two phases, with the route's live deliberation slot taken
+//! between them (see [`crate::api::LiveGate`]).
+//!
+//! **Phase one, [`crate::api::LiveGate::verify`]: nothing held, nothing
+//! charged.** It runs before the slot is taken, so a request waiting on
+//! Siteverify (up to [`super::turnstile::SITEVERIFY_TIMEOUT`]; bogus tokens
+//! from many prefixes included) keeps the slot from nobody.
 //!
 //! 1. the preset must be one of the five curated tasks (`404
 //!    preset_unknown`);
@@ -25,28 +32,54 @@
 //!    and one solved challenge admits at most one run (the note below);
 //! 6. the lane: a judge code the digest file knows enters
 //!    [`Lane::Judge`]; anything else is the public lane, never an error,
-//!    and nothing in the response says whether codes exist;
-//! 7. the reservation ([`Ledger::reserve`]): a refusal is answered with a
-//!    stable code ([`refusal_code`]), `429` and `Retry-After` when the
-//!    ledger gives a hint, `503` otherwise, and a fixed sentence, never the
-//!    refusal's own text (it names amounts, trip details and files);
-//! 8. the model client for this run: the server's Meta configuration with
+//!    and nothing in the response says whether codes exist.
+//!
+//! **Phase two, [`crate::api::VerifiedLiveRequest::admit`]: with the slot
+//! held.** A token Siteverify accepted in phase one is consumed even when
+//! the slot (`429 too_many_runs`) or phase two then refuses: Siteverify
+//! accepts a token once, and the web client resets its widget after every
+//! submit, so a refused visitor solves a new (usually invisible) challenge.
+//!
+//! 7. the lane's daily quota, process-local ([`DailyCounts`]; the count goes
+//!    with the reservation: taken just before the ledger is asked, so that
+//!    concurrent requests of one client cannot overshoot, and given back when
+//!    the ledger refuses, the run cannot be built or its start fails, so a
+//!    refusal never consumes it): on the public lane at most
+//!    `CONSENSUS_LIVE_CLIENT_DAILY` admissions per client key (IPv4 /32,
+//!    IPv6 /64) per UTC day of the ledger's clock (`429 live_client_quota`,
+//!    `Retry-After` to 00:00 UTC, a fixed sentence without figures); on the
+//!    judge lane at most `CONSENSUS_LIVE_JUDGE_CODE_DAILY` per code, refused
+//!    with the judge lane's own daily refusal (`429
+//!    live_budget_judge_daily`), so a code's holder learns nothing new. The
+//!    judge lane is exempt from the client quota. Both tables reset at a
+//!    restart;
+//! 8. the reservation ([`Ledger::reserve`], through [`MeteredReservation`]):
+//!    a refusal is answered with a stable code ([`refusal_code`]), `429` and
+//!    `Retry-After` when the ledger gives a hint, `503` otherwise, and a
+//!    fixed sentence, never the refusal's own text (it names amounts, trip
+//!    details and files);
+//! 9. the model client for this run: the server's Meta configuration with
 //!    the session pseudonym as `safety_identifier` and the live
 //!    `max_completion_tokens`, metered against the reservation
 //!    ([`Ledger::meter`]);
-//! 9. the deliberation, built by the [`DeliberationFactory`] (the sealed
-//!    snapshot in production, ADR-0008, which re-checks its served files
-//!    first and refuses when they changed: the reservation is released and
-//!    the answer is `503 live_unavailable`, before any model call) and
-//!    wrapped so the reservation is released when the run ends, however it
-//!    ends;
-//! 10. the grant: the preset's canned task declared `{meta, <the
+//! 10. the deliberation, built by the [`DeliberationFactory`] (the sealed
+//!     snapshot in production, ADR-0008, which re-checks its served files
+//!     first and refuses when they changed: the reservation is released and
+//!     the answer is `503 live_unavailable`, before any model call) and
+//!     wrapped so the reservation is released when the run ends, however it
+//!     ends;
+//! 11. the grant: the preset's canned task declared `{meta, <the
 //!     factory's evidence mode>, public, <preset>}`, the deliberation, and
-//!     a refund closure for a start that fails after admission.
+//!     a refund closure for a start that fails after admission (the
+//!     reservation and the daily count are given back).
 //!
 //! Everything blocking (the ledger, Siteverify, building the HTTP client)
-//! runs on the blocking pool with owned data; the gate's future never
-//! blocks an async worker.
+//! runs on the blocking pool with owned data; the gate's futures never
+//! block an async worker. Requests in phase one therefore wait on
+//! Siteverify concurrently, each on a blocking-pool thread: the slot does
+//! not bound them; at most [`SITEVERIFY_MAX_IN_FLIGHT`] calls are in flight
+//! at once (past that `503 turnstile_unavailable`, the token not sent), and
+//! the per-client run rate and the edge rate limit bound who gets there.
 //!
 //! **Siteverify's idempotency key.** Cloudflare re-validates a token under
 //! the same `idempotency_key` for its whole validity window, and that
@@ -62,9 +95,11 @@
 //! asked; one whose first attempt died after Siteverify needs a new,
 //! usually invisible, challenge.
 //!
-//! **Reservation lifetime.** One [`ReservationHolder`] per admitted run,
-//! shared by the wrapped deliberation and the refund closure, releases the
-//! reservation exactly once, always with the bounded retries of
+//! **Reservation lifetime.** One [`ReservationHolder`] per admitted run
+//! ([`MeteredReservation`], through which the operator console's metered
+//! `model=meta` runs spend too), shared by the wrapped deliberation and the
+//! refund closure, releases the reservation exactly once, always with the
+//! bounded retries of
 //! [`RELEASE_BACKOFF`] (100/300/900 ms): when `deliberate` returns; when
 //! the deliberation is dropped without having done so (a panic caught by
 //! the run manager, a task creation that failed inside the start task, a
@@ -81,20 +116,27 @@
 //! [`Ledger::release_by_id`]. The Turnstile token spent on a failed start
 //! cannot be refunded: the visitor solves a new challenge.
 
-use super::budget::{Lane, Ledger, Refusal, Reservation, ReservationId, Snapshot, TripReason};
+use super::budget::{
+    until_midnight, Lane, Ledger, Refusal, Reservation, ReservationId, ReservationMeter, Snapshot,
+    TripReason,
+};
 use super::config::LiveConfig;
 use super::geo::{GeoDecision, GeoPolicy, Surface as GeoSurface};
-use super::judge::JudgeCodes;
+use super::judge::{JudgeCodeId, JudgeCodes};
 use super::presets::{PresetId as LivePresetId, PRESETS};
 use super::turnstile::Siteverify;
 use crate::api::error::{ApiError, ErrorCode};
 use crate::api::types::{
     EvidenceProvenance, LiveCapabilitiesV1, LiveReadyV1, ModelProvenance, PresetV1, PublicBudgetV1,
 };
-use crate::api::{geo_message, AdmitFuture, LiveAdmissionRequest, LiveGrant};
+use crate::api::{
+    geo_message, AdmitFuture, LiveAdmissionRequest, LiveGrant, VerifiedLiveRequest, VerifyFuture,
+};
 use crate::config::MetaConfig;
+use crate::limits::{ClientKey, DailyCounts};
 use crate::meta::MetaModelClient;
 use crate::runs::Deliberation;
+use chrono::NaiveDate;
 use consensus_domain::{EvidenceMode, ModelMode, RunId, RunOrigin, Task, TaskMode};
 use consensus_runtime::orchestrator::OrchestratorError;
 use consensus_runtime::{RunAggregate, RunControl, RunLimits, SharedRunLog, TaskInput};
@@ -117,6 +159,21 @@ pub const RELEASE_BACKOFF: [Duration; 3] = [
     Duration::from_millis(300),
     Duration::from_millis(900),
 ];
+/// Client keys the per-client daily quota remembers at once. A key stays in
+/// the table only once an admission is counted for it, and the ledger's
+/// rolling-hour cap bounds those to 24 × `CONSENSUS_LIVE_HOURLY_ADMISSIONS`
+/// a day (144 with the defaults), so the bound is not reached in practice;
+/// past it the least recently counted key is forgotten first (and could be
+/// admitted again that day).
+pub const CLIENT_QUOTA_TABLE_MAX: usize = 10_000;
+
+/// Siteverify calls in flight at once. Phase one no longer waits behind
+/// the live slot, so without this bound every request carrying a token,
+/// a bogus one included, could hold a blocking-pool thread for up to
+/// [`super::turnstile::SITEVERIFY_TIMEOUT`]; past it a request is refused
+/// at once with `503 turnstile_unavailable` and a short Retry-After, before
+/// Siteverify sees its token (so a genuine token stays usable).
+pub const SITEVERIFY_MAX_IN_FLIGHT: usize = 8;
 
 // ---------------------------------------------------------------------
 // The deliberation factory (the seam for the sealed snapshot client)
@@ -231,6 +288,9 @@ pub fn refusal_message(code: ErrorCode) -> &'static str {
         ErrorCode::LiveConcurrency => "every live slot is busy; retry shortly",
         ErrorCode::LiveHourlyAdmissions => {
             "the hourly cap on live runs was reached; retry after the given delay"
+        }
+        ErrorCode::LiveClientQuota => {
+            "this network has started its share of live runs for today; retry after the given delay"
         }
         ErrorCode::LiveTripped => "live mode is paused",
         ErrorCode::TurnstileRequired => {
@@ -432,13 +492,136 @@ fn blocking_section<R>(f: impl FnOnce() -> R) -> R {
     }
 }
 
+/// One metered run's reservation: the run's worst case reserved on a
+/// lane, the meter its Meta client draws every HTTP attempt on, and the
+/// [`ReservationHolder`] that releases it exactly once. The public gate and
+/// the operator console's `model=meta` runs both spend through it, so a
+/// run on either listener is reserved, drawn, settled and released the same
+/// way, and every trip (the kill switch included) stops both.
+pub struct MeteredReservation {
+    holder: Arc<ReservationHolder>,
+    meter: Arc<ReservationMeter>,
+}
+
+impl std::fmt::Debug for MeteredReservation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MeteredReservation")
+            .field("holder", &self.holder)
+            .finish_non_exhaustive()
+    }
+}
+
+impl MeteredReservation {
+    /// Reserves one run's worst case on `lane` ([`Ledger::reserve`]): the
+    /// first thing that commits money. A refusal is the ledger's, for
+    /// [`refusal_error`].
+    pub fn reserve(ledger: &Ledger, lane: Lane) -> Result<Self, Refusal> {
+        let reservation = ledger.reserve(lane)?;
+        let meter = Arc::new(ledger.meter(&reservation));
+        let holder = Arc::new(ReservationHolder::new(ledger.clone(), reservation));
+        Ok(Self { holder, meter })
+    }
+
+    /// `model`, drawing every HTTP attempt on this reservation.
+    pub fn meter_model(&self, model: MetaModelClient) -> MetaModelClient {
+        model.with_meter(self.meter.clone())
+    }
+
+    /// `inner`, releasing this reservation when the run ends, however it
+    /// ends ([`MeteredDeliberation`]).
+    pub fn wrap(&self, inner: Box<dyn Deliberation>) -> MeteredDeliberation {
+        MeteredDeliberation::new(inner, self.holder.clone())
+    }
+
+    /// Releases the reservation now, for a run that will not be built.
+    pub fn release(&self, why: &str) -> ReleaseOutcome {
+        self.holder.release(&RELEASE_BACKOFF, why)
+    }
+
+    pub fn holder(&self) -> &Arc<ReservationHolder> {
+        &self.holder
+    }
+}
+
+// ---------------------------------------------------------------------
+// The daily quotas
+// ---------------------------------------------------------------------
+
+/// What one admission is counted against: its client key on the public
+/// lane, its judge code on the judge lane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuotaKey {
+    Client(ClientKey),
+    JudgeCode(JudgeCodeId),
+}
+
+/// The gate's process-local daily quotas (see the module doc, step 7).
+struct Quotas {
+    clients: DailyCounts<ClientKey>,
+    judge_codes: DailyCounts<JudgeCodeId>,
+}
+
+impl Quotas {
+    fn new(config: &LiveConfig, judge_codes: &JudgeCodes) -> Self {
+        Self {
+            clients: DailyCounts::new(config.client_daily, CLIENT_QUOTA_TABLE_MAX),
+            // One entry per code at most: only a code the file knows is
+            // ever counted.
+            judge_codes: DailyCounts::new(config.judge_code_daily, judge_codes.len().max(1)),
+        }
+    }
+
+    fn take(&self, key: QuotaKey, day: NaiveDate) -> bool {
+        match key {
+            QuotaKey::Client(client) => self.clients.take(&client, day),
+            QuotaKey::JudgeCode(code) => self.judge_codes.take(&code, day),
+        }
+    }
+
+    fn give_back(&self, key: QuotaKey, day: NaiveDate) {
+        match key {
+            QuotaKey::Client(client) => self.clients.give_back(&client, day),
+            QuotaKey::JudgeCode(code) => self.judge_codes.give_back(&code, day),
+        }
+    }
+}
+
+/// One admission's count, taken just before the reservation and given back
+/// when it is dropped unkept: the ledger refused, or the run could not be
+/// built. [`CountedAdmission::keep`] hands the count to the grant's refund.
+struct CountedAdmission {
+    inner: Arc<Inner>,
+    key: QuotaKey,
+    day: NaiveDate,
+    kept: bool,
+}
+
+impl CountedAdmission {
+    /// The count stays; the returned closure gives it back (the refund of
+    /// a start that fails after the grant).
+    fn keep(mut self) -> impl FnOnce() + Send {
+        self.kept = true;
+        let (inner, key, day) = (self.inner.clone(), self.key, self.day);
+        move || inner.quotas.give_back(key, day)
+    }
+}
+
+impl Drop for CountedAdmission {
+    fn drop(&mut self) {
+        if !self.kept {
+            self.inner.quotas.give_back(self.key, self.day);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------
 // The gate
 // ---------------------------------------------------------------------
 
 /// Everything [`LiveGate::new`] needs. `geo` and `judge_codes` are given
 /// next to `config` so a test can script them; the server passes the
-/// configuration's own.
+/// configuration's own. The daily quotas come from `config`
+/// (`client_daily`, `judge_code_daily`).
 pub struct GateParts {
     pub config: LiveConfig,
     pub ledger: Ledger,
@@ -476,6 +659,9 @@ struct Inner {
     meta: MetaConfig,
     run_limits: RunLimits,
     factory: Arc<dyn DeliberationFactory>,
+    quotas: Quotas,
+    /// [`SITEVERIFY_MAX_IN_FLIGHT`] permits, one per Siteverify call.
+    siteverify_in_flight: tokio::sync::Semaphore,
 }
 
 /// The production [`crate::api::LiveGate`]; see the module doc.
@@ -500,6 +686,7 @@ impl LiveGate {
                 max_completion_tokens: parts.config.budget.max_completion_tokens,
                 kill_switch_file: parts.config.budget.kill_switch_file.clone(),
                 snapshot_max_age: parts.snapshot_max_age,
+                quotas: Quotas::new(&parts.config, &parts.judge_codes),
                 ledger: parts.ledger,
                 siteverify: parts.siteverify,
                 geo: parts.geo,
@@ -507,8 +694,16 @@ impl LiveGate {
                 meta: parts.meta,
                 run_limits: parts.run_limits,
                 factory: parts.factory,
+                siteverify_in_flight: tokio::sync::Semaphore::new(SITEVERIFY_MAX_IN_FLIGHT),
             }),
         }
+    }
+
+    /// Public-lane admissions counted for `client` on the ledger's current
+    /// UTC day (tests and diagnostics).
+    pub fn client_admissions_today(&self, client: ClientKey) -> u32 {
+        let day = self.inner.ledger.now().date_naive();
+        self.inner.quotas.clients.count(&client, day)
     }
 
     /// The ledger this gate reserves on (tests read its records).
@@ -521,9 +716,37 @@ impl LiveGate {
     }
 }
 
+/// A request phase one accepted: what phase two needs, and nothing held.
+struct Verified {
+    inner: Arc<Inner>,
+    preset_id: LivePresetId,
+    lane: Lane,
+    /// What the admission is counted against: the client key on the public
+    /// lane, the code on the judge lane.
+    quota: QuotaKey,
+    session_pseudonym: String,
+}
+
+impl VerifiedLiveRequest for Verified {
+    fn admit(self: Box<Self>) -> AdmitFuture<'static> {
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                let inner = self.inner.clone();
+                inner.admit_blocking(*self)
+            })
+            .await
+            .map_err(|e| ApiError::internal(format!("live admission task: {e}")))?
+        })
+    }
+}
+
 impl Inner {
-    /// The whole admission, on a blocking thread, in ABUSE-9 order.
-    fn admit_blocking(&self, request: LiveAdmissionRequest) -> Result<LiveGrant, ApiError> {
+    /// Phase one, on a blocking thread, in ABUSE-9 order: everything that
+    /// holds nothing and charges nothing, Turnstile last.
+    fn verify_blocking(
+        self: &Arc<Self>,
+        request: LiveAdmissionRequest,
+    ) -> Result<Verified, ApiError> {
         // (a) One of the five curated tasks, or nothing.
         let preset_id = LivePresetId::parse(request.preset.as_str()).map_err(|_| {
             ApiError::new(
@@ -531,7 +754,6 @@ impl Inner {
                 refusal_message(ErrorCode::PresetUnknown),
             )
         })?;
-        let preset = preset_id.preset();
 
         // (b) The live surface: the portal list, the live-only list, and
         // an unknown country all refuse.
@@ -572,6 +794,18 @@ impl Inner {
                 refusal_message(ErrorCode::TurnstileRequired),
             ));
         };
+        // At most SITEVERIFY_MAX_IN_FLIGHT calls wait on Cloudflare at once;
+        // past that the token is not sent, so a genuine one stays usable.
+        let Ok(_in_flight) = self.siteverify_in_flight.try_acquire() else {
+            eprintln!(
+                "[live-gate] refused a live run: {SITEVERIFY_MAX_IN_FLIGHT} Siteverify calls are already in flight"
+            );
+            return Err(ApiError::new(
+                ErrorCode::TurnstileUnavailable,
+                refusal_message(ErrorCode::TurnstileUnavailable),
+            )
+            .with_retry_after(2));
+        };
         let idempotency_key = uuid::Uuid::new_v4().to_string();
         if let Err(e) = self.siteverify.verify(token, None, &idempotency_key) {
             // The variant is for the operator; the token is never logged.
@@ -590,40 +824,102 @@ impl Inner {
             });
         }
 
-        // (e) The lane. An unknown code is the public lane, silently.
-        let lane = match request.judge_code.as_deref() {
-            Some(code) if self.judge_codes.verify(code) => Lane::Judge,
-            _ => Lane::Public,
+        // (e) The lane. An unknown code is the public lane, silently; the
+        // admission is counted against the code or the client key.
+        let (lane, quota) = match request
+            .judge_code
+            .as_deref()
+            .and_then(|code| self.judge_codes.lookup(code))
+        {
+            Some(code) => (Lane::Judge, QuotaKey::JudgeCode(code)),
+            None => (Lane::Public, QuotaKey::Client(request.client)),
         };
+        Ok(Verified {
+            inner: self.clone(),
+            preset_id,
+            lane,
+            quota,
+            session_pseudonym: request.session_pseudonym,
+        })
+    }
 
-        // (f) The reservation: the first and only thing that commits money.
-        let reservation = self.ledger.reserve(lane).map_err(|refusal| {
+    /// Takes the admission's daily count (step 7 of the module doc), or
+    /// refuses with the lane's fixed answer: `429 live_client_quota` on the
+    /// public lane, the judge lane's own daily refusal for a code.
+    fn count(self: &Arc<Self>, verified: &Verified) -> Result<CountedAdmission, ApiError> {
+        let now = self.ledger.now();
+        let day = now.date_naive();
+        if self.quotas.take(verified.quota, day) {
+            return Ok(CountedAdmission {
+                inner: self.clone(),
+                key: verified.quota,
+                day,
+                kept: false,
+            });
+        }
+        let retry_after = until_midnight(now);
+        Err(match verified.quota {
+            QuotaKey::Client(_) => {
+                // Never the client's address: the line says what happened.
+                eprintln!(
+                    "[live-gate] refused a public run: the client started its {} live admissions of the UTC day",
+                    self.quotas.clients.limit()
+                );
+                ApiError::new(
+                    ErrorCode::LiveClientQuota,
+                    refusal_message(ErrorCode::LiveClientQuota),
+                )
+                .with_retry_after(retry_after.as_secs())
+            }
+            QuotaKey::JudgeCode(_) => {
+                // Never the code. The answer is the judge lane's daily
+                // refusal, so a code's holder learns nothing new from it.
+                eprintln!(
+                    "[live-gate] refused a judge run: the code started its {} live admissions of the UTC day",
+                    self.quotas.judge_codes.limit()
+                );
+                refusal_error(&Refusal::JudgeDaily { retry_after })
+            }
+        })
+    }
+
+    /// Phase two, on a blocking thread, with the route's live slot held:
+    /// the daily count, the reservation, the metered model client, the
+    /// deliberation, the grant.
+    fn admit_blocking(self: &Arc<Self>, verified: Verified) -> Result<LiveGrant, ApiError> {
+        let preset = verified.preset_id.preset();
+        let lane = verified.lane;
+
+        // (f) The lane's daily quota, counted now and given back by every
+        // refusal below (the guard's drop).
+        let counted = self.count(&verified)?;
+
+        // (g) The reservation: the first and only thing that commits money.
+        let metered = MeteredReservation::reserve(&self.ledger, lane).map_err(|refusal| {
             eprintln!(
                 "[live-gate] the ledger refused a {} run: {refusal}",
                 lane.as_str()
             );
             refusal_error(&refusal)
         })?;
-        let meter = Arc::new(self.ledger.meter(&reservation));
-        let holder = Arc::new(ReservationHolder::new(self.ledger.clone(), reservation));
 
-        // (g) This run's model client: the session pseudonym identifies
+        // (h) This run's model client: the session pseudonym identifies
         // the visitor to Meta, the live output bound caps every call, and
         // every HTTP attempt is drawn on the reservation.
         let mut cfg = self.meta.clone();
-        cfg.safety_identifier = Some(request.session_pseudonym.clone());
+        cfg.safety_identifier = Some(verified.session_pseudonym.clone());
         cfg.max_completion_tokens = self.max_completion_tokens;
         let model = match MetaModelClient::new(cfg) {
-            Ok(model) => model.with_meter(meter),
+            Ok(model) => metered.meter_model(model),
             Err(e) => {
                 // A configuration error names its setting, never the key.
                 eprintln!("[live-gate] the model client could not be built: {e}");
-                holder.release(&RELEASE_BACKOFF, "the model client could not be built");
+                metered.release("the model client could not be built");
                 return Err(unavailable());
             }
         };
 
-        // (h) The deliberation over the factory's evidence, wrapped so the
+        // (i) The deliberation over the factory's evidence, wrapped so the
         // reservation is released when the run ends. The factory re-checks
         // its evidence here in full (the status above may be a cached
         // read); a refusal releases the reservation before any model call.
@@ -631,26 +927,29 @@ impl Inner {
             Ok(deliberation) => deliberation,
             Err(e) => {
                 eprintln!("[live-gate] the deliberation could not be built: {e}");
-                holder.release(&RELEASE_BACKOFF, "the deliberation could not be built");
+                metered.release("the deliberation could not be built");
                 return Err(unavailable());
             }
         };
-        let deliberation = MeteredDeliberation::new(inner, holder.clone());
+        let deliberation = metered.wrap(inner);
 
-        // (i) The grant: the canned task declared with what will actually
+        // (j) The grant: the canned task declared with what will actually
         // run, and the refund for a start that fails after this point.
         let mut input = preset.task_input();
         input.mode = Some(TaskMode {
             model: ModelMode::Meta,
             evidence: self.factory.evidence_mode(),
             origin: RunOrigin::Public,
-            preset: Some(preset_id.as_str().to_string()),
+            preset: Some(verified.preset_id.as_str().to_string()),
         });
-        let refund = holder.clone();
+        let refund = metered.holder().clone();
+        let give_back = counted.keep();
         Ok(LiveGrant {
             input,
             deliberation: Box::new(deliberation),
             on_start_failed: Some(Box::new(move || {
+                // The run never started: its daily count is given back.
+                give_back();
                 // Off the async worker: the ledger does file I/O. A start
                 // whose task creation failed has already released the
                 // reservation when the start task dropped the deliberation
@@ -722,12 +1021,13 @@ impl Inner {
 }
 
 impl crate::api::LiveGate for LiveGate {
-    fn admit(&self, request: LiveAdmissionRequest) -> AdmitFuture<'_> {
+    fn verify(&self, request: LiveAdmissionRequest) -> VerifyFuture<'_> {
         let inner = self.inner.clone();
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || inner.admit_blocking(request))
+            let verified = tokio::task::spawn_blocking(move || inner.verify_blocking(request))
                 .await
-                .map_err(|e| ApiError::internal(format!("live admission task: {e}")))?
+                .map_err(|e| ApiError::internal(format!("live verification task: {e}")))??;
+            Ok(Box::new(verified) as Box<dyn VerifiedLiveRequest>)
         })
     }
 

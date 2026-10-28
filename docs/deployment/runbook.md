@@ -79,7 +79,7 @@ Day numbers are the approved plan's (`docs/reviews/2026-10-27-independent-audit.
 | 2 | **Dedicated Meta key**: create a separate key for the public server on dev.meta.ai (never the development key); claim the hackathon credits on that account and set a spend alert (ADR-0007 consequences). | `meta.key` credential file |
 | 3 | **Reproducible Linux build**: `scripts/linux-gates.sh` green in the pinned `ubuntu:24.04` container; release build of `consensus-api` (section 3.1). | the binary and its sha256 |
 | when B11/D2 lands | **Snapshot artifact**: the sealed snapshot directory (`manifest.json`, `SHA256SUMS`, `captures/*.proof`, `*.witness`, `*.response.json`, `*.verify.json`) and its pinned anchor, captured once per ADR-0008. | `<snapshot-id>`, `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` |
-| before go-live | **Judge codes**: generate the invite codes, keep the codes only in the submission's testing notes, install their digests (section 4.3). | `/etc/consensus/judge-codes.sha256` |
+| before go-live | **Judge codes**: on the server, `sudo ~/consensus/deploy/scripts/judge-codes.sh --count <judge seats>` generates the invite codes, prints them once and installs only their digests; copy the codes into the submission's testing instructions and nowhere else (section 4.3). | `/etc/consensus/judge-codes.sha256` |
 | 5 | Legal texts approved in four languages; public contact email set (web lane). | nothing here |
 | after G1–G12 PASS | Go-live (section 8). | |
 | about 2026-11-10 | Teardown: revoke the key, export the ledger, archive the runs (section 9.7). | |
@@ -361,13 +361,21 @@ sudo tar -xzf /tmp/hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz -C /opt/hyphae
 sudo chown -R hyphae:hyphae /opt/hyphae
 sudo chmod 0755 /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae
 sudo ln -sfn /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae /opt/hyphae/bin/hyphae
-sha256sum /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae    # record: published out of band (ADR-0008 decision 2)
+sha256sum /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae    # record: CONSENSUS_HYPHAE_BIN_SHA256 (4.1), published out of band (ADR-0008 decision 2)
 sudo -u consensus /opt/hyphae/bin/hyphae --version
 rm /tmp/hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz
 ```
 
-The recorded digest of the extracted binary goes into the README and the submitted
-tag together with the snapshot anchor (ADR-0008 decision 2).
+The recorded digest of the extracted binary is the verifier pin,
+`CONSENSUS_HYPHAE_BIN_SHA256` (section 4.1). At boot `serve-public` hashes the file
+`CONSENSUS_HYPHAE_BIN` names (`/opt/hyphae/bin/hyphae`; the symbolic link is followed, as
+`exec` follows it, so the digest is the extracted binary's) before any verifier run, and
+refuses another file with `verifier_binary_mismatch` (section 8.6). The same digest must equal
+the snapshot manifest's `hyphae.binary_sha256`, the binary that produced and verified the
+captures (`capture_binary_mismatch` otherwise): compare them once the snapshot is on the
+server (section 3.3). The README and the release tag publish it together with the snapshot
+anchor and the manifest digest (ADR-0008 decision 2). The binary is hashed at boot only:
+after replacing it, restart the service.
 
 ### 3.3 Web export, research archive, sealed snapshot
 
@@ -437,6 +445,8 @@ scp -r <snapshot-id> <server>:/tmp/
 # server
 sudo mv /tmp/<snapshot-id> /var/lib/consensus/snapshots/<snapshot-id>
 ( cd /var/lib/consensus/snapshots/<snapshot-id> && sudo sha256sum -c --quiet SHA256SUMS ) && echo "snapshot verified"
+sudo sha256sum /var/lib/consensus/snapshots/<snapshot-id>/manifest.json            # must print the published manifest digest: CONSENSUS_SNAPSHOT_MANIFEST_SHA256
+sudo grep -o '"binary_sha256": "[0-9a-f]*"' /var/lib/consensus/snapshots/<snapshot-id>/manifest.json   # must be the binary digest of 3.2: CONSENSUS_HYPHAE_BIN_SHA256
 sudo chown -R consensus:consensus /var/lib/consensus/snapshots
 sudo find /var/lib/consensus/snapshots -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
 sudo chmod 0700 /var/lib/consensus/snapshots                      # nobody but the service user enters the tree
@@ -446,9 +456,20 @@ sudo -u cloudflared ls /var/lib/consensus/snapshots 2>&1 | grep -q 'Permission d
 
 The anchor for `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` is the shared anchor recorded in
 the snapshot's `manifest.json` (64 hex digits; `config.rs` normalises case and
-whitespace and refuses anything else). Both that line and `CONSENSUS_SNAPSHOT_DIR` are
-commented out in the `public.env` template until the snapshot is on the server;
-uncomment them now (with live mode still off they are only noticed, never read).
+whitespace and refuses anything else). The value of `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`
+is the SHA-256 of that `manifest.json`: the digest recorded on the owner machine after
+the last `snapshot_manifest.py build` (`docs/architecture/sealed-snapshot.md` section 3,
+step 5), equal to the `manifest.json` line of `SHA256SUMS` and to the digest the README
+and the release tag publish; the `sha256sum` line above must print it. Take the value
+from the publication, never from the copy in doubt: with it pinned, a `manifest.json` with
+any other digest does not load (`manifest_pin_mismatch`, section 8.6), and since the
+manifest holds the digest of every capture file, neither does a copy with one byte of a
+record text changed, whatever `SHA256SUMS` says. `CONSENSUS_HYPHAE_BIN_SHA256` is the
+binary digest of section 3.2, which the `grep` line above must show. Those four lines
+(`CONSENSUS_SNAPSHOT_DIR`, `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`,
+`CONSENSUS_SNAPSHOT_MANIFEST_SHA256`, `CONSENSUS_HYPHAE_BIN_SHA256`) are commented out in
+the `public.env` template until the snapshot is on the server; uncomment and fill them
+now (with live mode still off they are only noticed, never read).
 
 ### 3.4 Users, directories, binary, units, templates: `install.sh`
 
@@ -496,12 +517,16 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_WEB_ROOT` | `/var/lib/consensus/web` | default is relative `apps/web/out`; the CSP manifest is found at `<web root>/csp-manifest.json` |
 | `CONSENSUS_PUBLIC_MODE` | `true` | refuses `CONSENSUS_META_DEBUG_DIR` and development-only behaviour (`config.rs`) |
 | `CONSENSUS_META_API_KEY_FILE` | `/run/credentials/consensus-public.service/meta.key` | parallel lane; the path systemd gives a `LoadCredential=meta.key:...` for this unit (`/run/credentials/UNITNAME`, `[SD-1]`) |
-| `CONSENSUS_HYPHAE_BIN` | `/opt/hyphae/bin/hyphae` | section 3.2 |
+| `CONSENSUS_HYPHAE_BIN` | `/opt/hyphae/bin/hyphae` | section 3.2; an absolute path, which it must be with `CONSENSUS_HYPHAE_BIN_SHA256` set (a relative path or a bare name then stops startup naming it) |
+| `CONSENSUS_HYPHAE_BIN_SHA256` | the extracted binary's sha256, 64 hex (section 3.2) | required with live mode enabled on the unix socket (missing, startup stops naming it; a development TCP bind may leave it unset); commented out in the template until the capture exists (section 3.3); must equal the manifest's `hyphae.binary_sha256`; at boot another file is `verifier_binary_mismatch` and a snapshot of another build `capture_binary_mismatch`, either leaving live mode unavailable (section 8.6); with live mode enabled a malformed value stops startup naming it |
 | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` | the snapshot's anchor, 64 hex | mandatory for every non-simulated mode (ADR-0008 decision 5); commented out in the template until the capture exists (section 3.3); with live mode enabled a missing or malformed value stops startup naming it |
 | `CONSENSUS_SNAPSHOT_DIR` | `/var/lib/consensus/snapshots/<snapshot-id>` | commented out in the template until the capture exists; read only with `CONSENSUS_LIVE_ENABLED=true` (with live mode off a set value earns one `[snapshot]` notice and nothing is loaded); unset with live mode on stops startup; a snapshot that does not boot leaves the portal up with live mode unavailable (section 8.6); `CONSENSUS_SNAPSHOT_VERIFIER_DIR` stays unset (native verifier, same paths) |
+| `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` | the published sha256 of the snapshot's `manifest.json`, 64 hex (section 3.3) | required with live mode enabled on the unix socket (missing, startup stops naming it; a development TCP bind may leave it unset); commented out in the template until the capture exists; a manifest with another digest does not load (`manifest_pin_mismatch`, live mode unavailable, section 8.6); with live mode enabled a malformed value stops startup naming it |
 | `CONSENSUS_LIVE_ENABLED` | `false` until section 8.7, then `true` | `live/config.rs` |
 | `CONSENSUS_LIVE_LEDGER_DIR` | `/var/lib/consensus/ledger/staging` during staging; `/var/lib/consensus/ledger/public` from go-live | required when enabled; one directory per phase, so production starts at zero (section 4.5) |
 | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | `/etc/consensus/judge-codes.sha256`, set only once the file has at least one digest | an empty digest file is a configuration error (`live/judge.rs`) |
+| `CONSENSUS_LIVE_CLIENT_DAILY` | unset: the default `3` | public-lane live runs per client key (IPv4 /32, IPv6 /64) per UTC day; over it `429 live_client_quota` until 00:00 UTC; the judge lane is exempt; process-local, so a restart of `consensus-public` forgets the counts (`live/config.rs`, `live/gate.rs`) |
+| `CONSENSUS_LIVE_JUDGE_CODE_DAILY` | unset: the default `5` | judge-lane live runs per invite code per UTC day; over it the judge lane's daily refusal `429 live_budget_judge_daily`; process-local (`live/config.rs`, `live/gate.rs`) |
 | `CONSENSUS_TURNSTILE_SECRET_FILE` | `/run/credentials/consensus-public.service/turnstile.secret` | required when enabled |
 | `CONSENSUS_TURNSTILE_HOSTNAME` | `staging.<hostname>` during staging, `<hostname>` from go-live | one bare hostname; Siteverify's `hostname` must equal it (`live/turnstile.rs`) |
 
@@ -526,8 +551,14 @@ and `CONSENSUS_TURNSTILE_SECRET_FILE` at `/run/credentials/consensus-operator.se
 that unit's own credentials directory (the token is a `LoadCredential=` like the
 other two, section 4.2). `CONSENSUS_OPERATOR_BIND` keeps its default `127.0.0.1:8787`
 (`public_config.rs`; a non-loopback address is refused), and `CONSENSUS_LIVE_LEDGER_DIR`
-is inherited from `public.env`, never overridden: an operator live run debits the same
-ledger (gate G3).
+is inherited from `public.env`, never overridden: `serve-operator` opens that ledger with
+the same caps as `consensus-public` and meters every console `model=meta` run on it, on
+the operator lane (gate G3; section 9.2). It reads that configuration without any
+credential (the live switch, the Turnstile secret file and the judge-codes file are
+hidden from the load, as for `ledger.sh`), and refuses to start when the directory does
+not exist. A console run's `CONSENSUS_META_MAX_COMPLETION_TOKENS` (default 16000) must not
+exceed `CONSENSUS_LIVE_MAX_COMPLETION_TOKENS` (default 16000), or the metered run is
+refused before anything is reserved.
 
 The server validates every variable at startup and stops with the variable's name on
 an invalid value (`public_config.rs`, `live/config.rs`); a failed start is visible with
@@ -580,27 +611,35 @@ test configuration cannot reach production by mistake.
 
 The file holds the SHA-256 of each code as 64 lowercase hex characters, one per line,
 `#` comments and blank lines allowed; the server never sees a code in plain text and
-reports a malformed line by number only (`live/judge.rs`). The server hashes the
-presented code after trimming, so hash the bare code without a trailing newline.
-Generate on the owner machine; the codes themselves go only into the submission's
-testing notes (release checklist, owner step 4).
+reports a malformed line by number only (`live/judge.rs`). The digests are unsalted, so
+the codes must be long and random: `deploy/scripts/judge-codes.sh` makes them on the
+server, 140 random bits each from `/dev/urandom` (28 symbols of `0-9 A-Z` without
+`I L O U`, in seven groups of four joined by hyphens), prints them once, and installs
+only their digests, `root:consensus 0640`, after one comment line. It refuses to
+overwrite an existing digests file unless given `--force`, which replaces the file and
+so revokes every code it held. The codes themselves go only into the submission's
+testing instructions (release checklist, owner step 4); a judge enters one exactly as
+printed, hyphens included (the server hashes what it receives, trimmed).
 
 ```sh
-# owner machine: one code per judge seat; keep the codes, send the digests
-code=$(openssl rand -base64 24 | tr -d '/+=')      # repeat per code; store the codes in the submission notes
-printf '%s' "$code" | sha256sum | cut -d' ' -f1 >> judge-codes.sha256
-scp judge-codes.sha256 <server>:/tmp/
+# server: one code per judge seat
+sudo ~/consensus/deploy/scripts/judge-codes.sh --count 3      # prints the codes ONCE: copy them into the testing instructions now
+sudo stat -c '%U:%G %a' /etc/consensus/judge-codes.sha256      # root:consensus 640
+sudo grep -c -E '^[0-9a-f]{64}$' /etc/consensus/judge-codes.sha256   # the number of codes
 ```
 
-```sh
-# server
-sudo install -o root -g consensus -m 0640 /tmp/judge-codes.sha256 /etc/consensus/judge-codes.sha256 && rm /tmp/judge-codes.sha256
-grep -c -E '^[0-9a-f]{64}$' /etc/consensus/judge-codes.sha256   # the number of codes
-```
-
-Then uncomment `CONSENSUS_LIVE_JUDGE_CODES_FILE` in `public.env`. Revocation is
-editing the file and restarting, or the kill switch for everything at once
-(`live/judge.rs`).
+Then uncomment `CONSENSUS_LIVE_JUDGE_CODES_FILE` in `public.env` and restart
+`consensus-public`: the file is read at startup only. Each code admits at most
+`CONSENSUS_LIVE_JUDGE_CODE_DAILY` (default 5) judge-lane runs per UTC day, refused over it
+with the judge lane's own daily refusal (`429 live_budget_judge_daily`), so a code's holder
+learns nothing new from it (`live/gate.rs`). Revocation is deleting the code's line from
+the file (`sudoedit /etc/consensus/judge-codes.sha256`) and restarting `consensus-public`,
+or the kill switch for every lane at once. What a code cannot hide: the judge lane is
+observable (its refusals differ from the public lane's, it has its own hourly window and
+slot, and `/capabilities`' `daily_remaining` leaves judge reservations out), so someone who
+solves one Turnstile challenge per guess can tell a valid code from an invalid one, which
+is why the codes are long and random; and a leaked code drains the judge slice and the
+judge daily cap at up to its per-code limit a day until it is revoked.
 
 ### 4.4 The kill-switch file and the reset
 
@@ -762,9 +801,10 @@ line and restart the service; never fall back to adding cloudflared to `consensu
 ### 5.2 `consensus-operator.service` (on demand, never enabled)
 
 Same sandbox and `EnvironmentFile=` chain (`public.env`, then `operator.env`: "the
-later setting will override the earlier setting" `[SD-1]`), its own three
-`LoadCredential=` lines (`meta.key`, `turnstile.secret` and `operator.token`, so
-`/run/credentials/consensus-operator.service/` holds all three while it runs),
+later setting will override the earlier setting" `[SD-1]`), its own two
+`LoadCredential=` lines (`meta.key` and `operator.token`, so
+`/run/credentials/consensus-operator.service/` holds both while it runs; no Turnstile
+secret: `serve-operator` reads the live configuration credential-free),
 `ReadWritePaths=` without the socket directory (the console has no socket),
 `ExecStart=/usr/local/bin/consensus-api serve-operator`, no `Restart=` and **no
 `[Install]` section**: enabling consists solely of creating the symlinks `[Install]`
@@ -1007,8 +1047,9 @@ the origin the second (`live/geo.rs` module docs).
       Create rule → Rate limiting rules `[CF-19]`: name "Consensus: live-run creations",
       expression `(http.request.uri.path eq "/api/v1/live-runs")`, same characteristics
       IP, when rate exceeds 5 requests per 10 seconds, action Block, duration 10 seconds.
-      The server's own limits (6 run creations per minute per client, one live slot)
-      remain the fine-grained control (`public_config.rs`, ADR-0007).
+      The server's own limits (6 run creations per minute per client, 3 public live
+      runs per client a day, one live slot taken only after Turnstile passed) remain the
+      fine-grained control (`public_config.rs`, `live/gate.rs`, ADR-0007).
 
 Verification: from a blocked country (or a VPN exit there) `curl -sS -o /dev/null -w
 '%{http_code} %{header_json}' https://<hostname>/` answers `403` with a `cf-ray`
@@ -1317,9 +1358,16 @@ sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 
 ```
 
 **What a good boot shows.** With live mode enabled, the journal has `Sealed snapshot evidence:
-<snapshot-id> (project demo-repo, 7 records, anchor <12 hex>…, captured <time>, proofs
-re-verified at boot <time>)` and `Public live mode: enabled on the owner's key (...)`, no
-`[snapshot]` line, and `/api/v1/ready` answers `"ready":true` with `"evidence_ok":true`. With
+<snapshot-id> (project demo-repo, 7 records, anchor <12 hex>…, manifest sha256 pinned <12
+hex>…, verifier binary sha256 pinned <12 hex>…, captured <time>, proofs re-verified at boot
+<time>)` and `Public live mode: enabled on the owner's key (...)`, no `[snapshot]` line, and
+`/api/v1/ready` answers `"ready":true` with `"evidence_ok":true`. The two pinned prefixes must
+be those of the published manifest and binary digests (sections 3.2, 3.3); the line shows
+prefixes only, never a whole digest or a path. `manifest not pinned
+(CONSENSUS_SNAPSHOT_MANIFEST_SHA256 unset)` or `verifier binary not pinned
+(CONSENSUS_HYPHAE_BIN_SHA256 unset)` in its place means that pin is missing from
+`public.env`: live mode runs, but nothing at runtime ties the directory or the binary to the
+published digests; set it before go-live. With
 live mode disabled there is no snapshot line at all, or, when `CONSENSUS_SNAPSHOT_DIR` is set
 anyway, the one notice `[snapshot] CONSENSUS_SNAPSHOT_DIR is set, but public live mode is
 disabled (CONSENSUS_LIVE_ENABLED): the snapshot is not loaded or verified`.
@@ -1341,21 +1389,28 @@ to fix, then `sudo systemctl restart consensus-public`:
 | Code | Meaning | Remedy |
 |---|---|---|
 | `snapshot_dir_missing` | `CONSENSUS_SNAPSHOT_DIR` names no directory (not copied yet) | copy the snapshot (section 3.3) |
-| `checksums_invalid`, `checksums_incomplete`, `checksums_mismatch`, `digest_mismatch`, `file_unreadable`, `file_too_large`, `symlink_refused`, `layout_too_deep` | the directory is not the captured one byte for byte | re-copy it and run `sha256sum -c SHA256SUMS` in it (section 3.3) |
+| `checksums_invalid`, `checksums_incomplete`, `checksums_mismatch`, `digest_mismatch`, `file_unreadable`, `file_too_large`, `symlink_refused`, `layout_too_deep` | the directory is not the captured one byte for byte (`digest_mismatch` while `sha256sum -c SHA256SUMS` passes: a capture file, a record text say, was changed and the listing regenerated over it) | re-copy it from the owner machine and run `sha256sum -c SHA256SUMS` in it (section 3.3) |
+| `manifest_pin_mismatch` | the SHA-256 of `manifest.json` is not `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`: this is not the published snapshot, or the pin is wrong | re-copy the published snapshot (section 3.3), or correct the pin to the digest the README and the release tag publish; never pin a digest computed from the copy in doubt |
 | `pinned_anchor_mismatch` | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` is not the manifest's `anchor_hex` | set the anchor published with the snapshot |
+| `verifier_binary_mismatch` | the file `CONSENSUS_HYPHAE_BIN` names is missing, unreadable, not a regular file, or does not hash to `CONSENSUS_HYPHAE_BIN_SHA256` (nothing ran it) | reinstall the release binary (section 3.2) and compare its `sha256sum` with the pin |
+| `capture_binary_mismatch` | the pinned binary is not the build the snapshot was captured with (`manifest.hyphae.binary_sha256`) | install the capture's build (section 3.2), or deploy a snapshot captured with the installed one |
 | `project_mismatch` | the snapshot serves another project than the presets' `demo-repo` | deploy the `demo-repo` snapshot |
 | `boot_verification_failed` | `hyphae proof verify` refused a served capture, or its digests are not the capture-time ones | run `sandbox-probe.sh` (above) on the deployed directory; a sandbox error is a unit change under gate G9 |
 | any other `manifest_*`, `capture_*`, `response_invalid`, `memory_ids_mismatch`, `foreign_record`, `store_mismatch`, `verify_record_invalid`, `proof_shared` | the manifest or a capture is not the documented one | re-copy the snapshot; `python -I scripts/snapshot_manifest.py check <dir>` on the owner machine names the file |
 
-The same state follows any change to the served files after boot (a proof, witness or
-`manifest.json` deleted, truncated or replaced): the next status read (`/ready`,
+The same state follows any change to the served files after boot (a response, proof,
+witness, capture-time report or `manifest.json` deleted, truncated or replaced; an edited
+record text included): the next status read (`/ready`,
 `/capabilities` or an admission; the routes reuse a read for at most two seconds, an
 admission always re-hashes) logs `[snapshot] live evidence unavailable: <code>` and turns
 live mode unavailable, and the first read after the files are the verified ones again logs
 `[snapshot] live evidence ok again`, without a restart. A run whose files are swapped
-under it records its proofs `invalid` and is blocked. A configuration
-error (live mode enabled with `CONSENSUS_SNAPSHOT_DIR` unset, or a missing or malformed
-`CONSENSUS_HYPHAE_EXPECTED_ANCHOR`) still stops startup with `error: <VARIABLE>: ...`
+under it records its proofs `invalid` and is blocked. The verifier binary is not re-hashed
+after boot: replacing it takes a restart to be checked. A configuration
+error (live mode enabled with `CONSENSUS_SNAPSHOT_DIR` unset, a missing or malformed
+`CONSENSUS_HYPHAE_EXPECTED_ANCHOR`, a `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` or
+`CONSENSUS_HYPHAE_BIN_SHA256` that is not 64 hex digits, a relative `CONSENSUS_HYPHAE_BIN`
+with the binary pinned) still stops startup with `error: <VARIABLE>: ...`
 (`journalctl -u consensus-public -n 50`).
 
 **Why the probe exists.** Guided runs never call Hyphae (`guided.rs` uses
@@ -1387,8 +1442,9 @@ set on a transient unit; none of the unit's is expected to be one.
 `/api/v1/ready` reports the run store (index head, tampering, tail repair), the
 showcase status, active and queued runs and `shutting_down` (`api/v1.rs` `ready`), and,
 with live mode enabled, `live.ledger_ok`, `live.tripped` and `live.evidence_ok`: the
-boot check of ADR-0008 decision 1 (kind, scope, anchor, binding) and the files still
-being the verified ones. It carries the boolean only; the reason code is in the journal
+boot check of ADR-0008 decision 1 (kind, scope, anchor, binding, the digest pins) and the
+files still being the verified ones. It carries the boolean only (a pin that does not hold
+reads `"evidence_ok":false` like any other boot failure); the reason code is in the journal
 (`[snapshot] ...`, above). `/api/v1/health` is static facts only: version, schema,
 policy, `contract_sha256`, `executor: disabled` (`api/types.rs`).
 
@@ -1521,10 +1577,22 @@ sudo systemctl stop consensus-operator.service
 ```
 
 The console accepts `Host` values `127.0.0.1:8787` and `localhost:8787` and nothing
-else (`public_config.rs`), so the forwarded port must be 8787. Operator live runs
-debit the same ledger (gate G3). Until the console exposes the ledger snapshot, the
-files above are the record: one JSONL per UTC day plus `lifetime.json`
-(`live/budget.rs`).
+else (`public_config.rs`), so the forwarded port must be 8787. Every console
+`model=meta` run is metered on the same ledger, on the operator lane (gate G3,
+`server.rs` `operator_ledger`): its worst case is reserved before it starts and counts
+against the daily and lifetime caps the public lane shares, every Meta call is drawn and
+settled, and the kill switch or any trip refuses it with the ledger's code
+(`live_tripped`, `live_budget_daily`, ...). Check the console's startup line:
+
+```sh
+journalctl -u consensus-operator.service -n 20 --no-pager | grep 'Operator model=meta runs'
+# "metered on the live ledger at /var/lib/consensus/ledger/<phase> (...)"; an "UNMETERED" line
+# means CONSENSUS_LIVE_LEDGER_DIR did not reach the unit: stop the console and fix public.env
+```
+
+Until the console exposes the ledger snapshot, the files above are the record: one JSONL
+per UTC day plus `lifetime.json` (`live/budget.rs`); an operator run's reservation carries
+`"lane":"operator"`.
 
 ### 9.3 Kill switch, reset and reconciliation
 
@@ -1539,8 +1607,9 @@ sudo ~/consensus/deploy/scripts/ledger.sh release <reservation-id> --by <operato
 
 Semantics (`live/budget.rs`, `ledger_cli.rs`): the file's presence trips the ledger at
 the next admission; a tripped ledger refuses every reservation and every draw, so
-in-flight runs stop at their next model call; the trip is persistent, survives
-restarts, and a file still present re-trips it. **Only an operator reset clears a
+in-flight runs stop at their next model call, the operator console's `model=meta` runs
+included (they are metered on the same ledger, section 9.2); the trip is persistent,
+survives restarts, and a file still present re-trips it. **Only an operator reset clears a
 trip** (section 4.4): `off` only removes the file; `ledger.sh reset` re-opens live mode
 on the same ledger once the reason for the stop is written up. Guided runs and the
 showcase are unaffected. The ledger also trips on its own on 401/402/403 from Meta, on
@@ -1637,6 +1706,29 @@ Suspected key exposure, unexpected spend, or a compromised host:
    on the server may be deleted (`sudo rm -rf /var/lib/consensus/snapshots`): the owner
    holds the capture.
 
+### 9.8 Judge codes and the daily quotas
+
+```sh
+# a code leaked or a judge seat ends: delete its digest line, then restart (the file is read at startup only)
+sudoedit /etc/consensus/judge-codes.sha256
+sudo systemctl restart consensus-public.service
+# every code at once: new codes replace the file (the old ones stop working at the restart)
+sudo ~/consensus/deploy/scripts/judge-codes.sh --count <seats> --force && sudo systemctl restart consensus-public.service
+journalctl -u consensus-public.service --since -1d --no-pager | grep -E 'refused a (public|judge) run: the (client|code) started'
+```
+
+A digest line does not say whose code it is: the lines follow the order in which the
+script printed the codes, so note which judge seat got the first, the second, ... code
+(the seat, never the code). The gate's daily counts (`live/gate.rs`) are kept in the
+`consensus-public` process only: `CONSENSUS_LIVE_CLIENT_DAILY` (default 3) public-lane
+runs per client key and `CONSENSUS_LIVE_JUDGE_CODE_DAILY` (default 5) runs per judge code,
+per UTC day, taken with the ledger reservation and given back when the ledger refuses, the
+run cannot be built or its start fails, so a refusal consumes nothing. A restart forgets
+them, so a client or a code may start its share again the same day; the ledger's caps are
+unaffected (they live in its files). A refusal logs one line without the client's address
+or the code (the `grep` above); the visitor sees `429 live_client_quota` with
+`Retry-After` until 00:00 UTC, a judge `429 live_budget_judge_daily`.
+
 ---
 
 ## Appendix A. Unit directives and the man-page definitions they were checked against
@@ -1651,7 +1743,7 @@ Suspected key exposure, unexpected spend, or a compromised host:
 | `KillMode=mixed`, `KillSignal=SIGTERM` | systemd.kill(5) `[SD-3]` | `mixed`: SIGTERM to the main process, SIGKILL to the remaining control group after the timeout; `KillSignal=` defaults to SIGTERM |
 | `User=`, `Group=`, `SupplementaryGroups=`, `UMask=` | systemd.exec(5) `[SD-1]` | user/group of the processes; supplementary groups extend the database's; `UMask=` defaults to 0022 |
 | `EnvironmentFile=` | systemd.exec(5) | newline-separated `VAR=value`, read shortly before execution, later files override earlier ones |
-| `LoadCredential=ID:PATH` (`meta.key`, `turnstile.secret`; plus `operator.token` in the operator unit) | systemd.exec(5) | copied read-only, accessible to the unit's user only, `$CREDENTIALS_DIRECTORY`, `/run/credentials/UNITNAME` for system services, 1 MB total |
+| `LoadCredential=ID:PATH` (`meta.key` and `turnstile.secret` in the public unit; `meta.key` and `operator.token` in the operator unit) | systemd.exec(5) | copied read-only, accessible to the unit's user only, `$CREDENTIALS_DIRECTORY`, `/run/credentials/UNITNAME` for system services, 1 MB total |
 | *(not used)* `RuntimeDirectory=` — replaced by `/etc/tmpfiles.d/consensus.conf` (`d /run/consensus 2750 consensus consensus-sock - -`) and `ReadWritePaths=/run/consensus` | systemd.exec(5); tmpfiles.d(5), systemd-tmpfiles(8) `[SD-8]` | `RuntimeDirectory=` owns the directory `User=`/`Group=` and re-applies that ownership to an existing directory, which would put the socket in the group `consensus`; a `d` line creates the directory at boot with the given mode and ownership, setgid included (the page's own examples use `1777`) |
 | `NoNewPrivileges=`, `ProtectSystem=strict`, `ReadWritePaths=`, `ProtectHome=`, `PrivateTmp=`, `PrivateDevices=` | systemd.exec(5) | as quoted in section 5.1 |
 | `ProtectKernelTunables=`, `ProtectKernelModules=`, `ProtectKernelLogs=`, `ProtectControlGroups=`, `ProtectClock=`, `ProtectHostname=`, `ProtectProc=invisible` | systemd.exec(5) | kernel tunables read-only; module loading denied; kernel log inaccessible; cgroup fs read-only; clock writes denied; UTS namespace; other users' processes hidden from `/proc` (effective with `User=`) |

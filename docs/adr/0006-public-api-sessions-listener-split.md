@@ -95,6 +95,23 @@ history; its router is never exposed.
    read-only on a copy, labelled `research_archive`, and `/research/{*path}` serves the
    pinned files so a browser (or `consensus-api verify`) can recompute the chain.
 
+## Implementation note (2026-10-28): creation keys
+
+A run creation may carry an `Idempotency-Key` (1 to 128 characters of
+`[A-Za-z0-9_.:-]`), scoped to the caller's owner and remembered with the SHA-256 of the
+parsed body in a bounded LRU (`api::CreationKeys`, `CONSENSUS_RATE_TABLE_MAX` entries).
+Guided runs (`POST /api/v1/runs`) and operator runs (`POST /api/v1/operator/runs`)
+claim the key before anything is admitted or started (`CreationKeys::claim`, one step
+under the table's lock): a duplicate with the same body that arrives while the first
+creation is still under way waits until it ends (bounded by the request timeout), then
+answers `202` with the same run, or claims the key itself when that creation failed (a
+claim dropped unfinished frees the key); the same key with another body is `409
+idempotency_key_reused`; a key whose run was purged is free again. So concurrent
+duplicates of one submit start one run. The live route (`POST /api/v1/live-runs`) keeps
+its lookup without a claim (`CreationKeys::recorded`) and records the key after the
+start: concurrent duplicates all reach the gate, where Siteverify accepts their shared
+token once (ADR-0007), so one solved challenge still admits one run.
+
 ## Consequences
 
 - G1 holds by construction: the v0 router no longer exists in the binary; the operator

@@ -244,6 +244,13 @@
           "type": "string"
         },
         {
+          "description": "Public live mode: this client (IPv4 address, IPv6 /64) has started its share of public live runs for the UTC day; `retry_after_secs` runs to 00:00 UTC.",
+          "enum": [
+            "live_client_quota"
+          ],
+          "type": "string"
+        },
+        {
           "description": "Public live mode: the ledger is tripped (kill switch, a cap, a provider refusal of the key); an operator must reset it.",
           "enum": [
             "live_tripped"

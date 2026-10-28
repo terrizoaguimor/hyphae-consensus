@@ -56,3 +56,9 @@ coverage/
 
 # Release binaries built by scripts/linux-gates.sh --release (copied to the server, never committed).
 /dist/
+
+# The scripted CLI demo's own log (consensus-api with no subcommand).
+/scripted-demo/
+
+# Python bytecode (helper scripts are stdlib-only and run with python -I).
+__pycache__/

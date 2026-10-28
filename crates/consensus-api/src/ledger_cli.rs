@@ -2,9 +2,11 @@
 //! `consensus-api ledger <status | reset | release>`: the operator's hands
 //! on the live-mode USD ledger (ADR-0007), from a shell on the server.
 //!
-//!   consensus-api ledger status
-//!   consensus-api ledger reset --by <operator>
-//!   consensus-api ledger release <reservation-id> --by <operator>
+//! ```text
+//! consensus-api ledger status
+//! consensus-api ledger reset --by <operator>
+//! consensus-api ledger release <reservation-id> --by <operator>
+//! ```
 //!
 //! It opens the ledger the public server writes, configured from the
 //! server's own environment (`CONSENSUS_LIVE_LEDGER_DIR`, the kill-switch
@@ -32,7 +34,7 @@
 //! absent ledger directory, a ledger error, an unknown reservation).
 
 use crate::live::budget::{Ledger, ReservationId};
-use crate::live::config::{vars, ConfigError, EnvSource, Exposure, LiveConfig, ProcessEnv};
+use crate::live::config::{vars, EnvSource, LiveConfig, ProcessEnv};
 use serde_json::json;
 use std::fmt::Display;
 use std::io::Write;
@@ -118,18 +120,26 @@ fn parse_by(value: &str) -> Result<String, String> {
     }
 }
 
-/// The server's environment without what the ledger never needs: the
-/// live-mode switch (so nothing else becomes required) and the two files
-/// that hold secrets.
-struct LedgerEnv<'a>(&'a dyn EnvSource);
-
-impl EnvSource for LedgerEnv<'_> {
-    fn get(&self, name: &'static str) -> Result<Option<String>, ConfigError> {
-        match name {
-            vars::LIVE_ENABLED | vars::TURNSTILE_SECRET_FILE | vars::JUDGE_CODES_FILE => Ok(None),
-            _ => self.0.get(name),
-        }
+/// The ledger `cfg` names (`CONSENSUS_LIVE_LEDGER_DIR`), opened with its
+/// caps: `Ok(None)` when the variable is unset; an error naming the
+/// variable when the directory does not exist (a mistyped path is never a
+/// fresh, empty ledger) or the ledger does not open. The subcommand and
+/// `serve-operator` both open the server's ledger this way, from a
+/// configuration read with [`LiveConfig::load_credential_free`].
+pub fn open_configured(cfg: &LiveConfig) -> Result<Option<Ledger>, String> {
+    let Some(dir) = cfg.ledger_dir.as_deref() else {
+        return Ok(None);
+    };
+    if !dir.is_dir() {
+        return Err(format!(
+            "{}: no ledger directory at {}",
+            vars::LEDGER_DIR,
+            dir.display()
+        ));
     }
+    Ledger::open(dir, cfg.budget.clone())
+        .map(Some)
+        .map_err(|e| format!("{}: {e}", vars::LEDGER_DIR))
 }
 
 /// Runs the subcommand over the process environment; returns the exit code.
@@ -169,20 +179,11 @@ fn execute(
     env: &dyn EnvSource,
     out: &mut dyn Write,
 ) -> Result<(), String> {
-    let cfg = LiveConfig::load(Exposure::Public, &LedgerEnv(env)).map_err(text)?;
-    let dir = cfg
-        .ledger_dir
-        .clone()
-        .ok_or_else(|| format!("{} is not set", vars::LEDGER_DIR))?;
-    if !dir.is_dir() {
-        return Err(format!(
-            "{}: no ledger directory at {}",
-            vars::LEDGER_DIR,
-            dir.display()
-        ));
-    }
+    let cfg = LiveConfig::load_credential_free(env).map_err(text)?;
+    let ledger =
+        open_configured(&cfg)?.ok_or_else(|| format!("{} is not set", vars::LEDGER_DIR))?;
+    let dir = ledger.dir().to_path_buf();
     let kill_switch = cfg.budget.kill_switch_file.clone();
-    let ledger = Ledger::open(&dir, cfg.budget).map_err(text)?;
     let view = match command {
         LedgerCommand::Status => {
             let snapshot = ledger.snapshot().map_err(text)?;

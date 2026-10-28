@@ -37,7 +37,10 @@ use thiserror::Error;
 /// reason (schema 1.3): `RunFailed.code` and `EvidenceUnavailable.code`.
 /// A reader localizes from these, never from the hashed reason text. A
 /// stop requested through [`RunControl`] records its stage (`cancelled`,
-/// `shutdown` or `deadline`) as its code.
+/// `shutdown` or `deadline`) as its code. A model client may classify a
+/// failure under its own code ([`ModelError::code`], e.g. the Meta
+/// adapter's `meta_unauthorized`); that code is recorded instead of the
+/// generic one.
 pub mod codes {
     /// An evaluation broke the protocol 1.3 evaluation contract (stage
     /// `evaluate`).
@@ -51,6 +54,11 @@ pub mod codes {
     pub const MODEL_TIMEOUT: &str = "model_timeout";
     /// A model call returned malformed structured output.
     pub const MODEL_MALFORMED_OUTPUT: &str = "model_malformed_output";
+    /// The model's output hit its token bound (`finish_reason` `length`)
+    /// before the document was complete.
+    pub const MODEL_OUTPUT_TRUNCATED: &str = "model_output_truncated";
+    /// The model declined to produce the document.
+    pub const MODEL_REFUSAL: &str = "model_refusal";
     /// The model service was unavailable.
     pub const MODEL_UNAVAILABLE: &str = "model_unavailable";
     /// The per-run token cap was crossed (stage `token_budget`).
@@ -65,14 +73,76 @@ pub mod codes {
     pub const MEMORY_ERROR: &str = "memory_error";
     /// Evidence: records past the per-run cap were not processed.
     pub const EVIDENCE_CAP: &str = "evidence_cap";
+    /// Evidence: the memory backend returned a record of a project other
+    /// than the run's or `_global` (audit finding TC-4); it was dropped.
+    pub const FOREIGN_RECORD: &str = "foreign_record";
 }
 
+/// The code recorded for a failed model call: the client's own when it
+/// gave one, else the generic code of the error's kind.
 fn model_error_code(e: &ModelError) -> &'static str {
-    match e {
+    e.code().unwrap_or(match e {
         ModelError::Timeout => codes::MODEL_TIMEOUT,
         ModelError::MalformedOutput { .. } => codes::MODEL_MALFORMED_OUTPUT,
-        ModelError::Unavailable(_) => codes::MODEL_UNAVAILABLE,
+        ModelError::Refused { .. } => codes::MODEL_REFUSAL,
+        ModelError::Unavailable(_) | ModelError::Provider { .. } => codes::MODEL_UNAVAILABLE,
+    })
+}
+
+/// Hyphae answers a failed proof generation with one generic `corruption`
+/// category for capacity, configuration and concurrency failures as well
+/// as for real corruption (audit finding HY-4), so the record's detail says
+/// so next to the fail-closed `Invalid`.
+const GENERIC_CORRUPTION_NOTE: &str = "No verifier ran. Hyphae reports capacity and configuration failures (a store past its proof size limit, a socket inside the data directory, a store that changed while its witness was bundled) under the same generic corruption category as tampering, so this alone does not show tampering; the record still counts as Invalid (fail-closed).";
+
+/// The integrity check of a record whose proof generation failed
+/// upstream, from its recorded `proof_error` and, when the recall gave
+/// it, the backend's typed failure. `Invalid` when the typed category is
+/// `corruption` OR the text names corruption (the keyword rule earlier
+/// runs were recorded under): the typed category may only widen that
+/// rule, never narrow it (LC-10). Anything else is `Unavailable`.
+fn upstream_proof_check(
+    ev: &EvidenceReference,
+    reason: &str,
+    failure: Option<&ProofFailure>,
+) -> ProofCheck {
+    let typed_corruption = failure
+        .and_then(|f| f.category.as_deref())
+        .is_some_and(|c| c.eq_ignore_ascii_case("corruption"));
+    let corruption = typed_corruption || reason.to_lowercase().contains("corrupt");
+    let (status, detail) = if corruption {
+        (
+            IntegrityStatus::Invalid,
+            format!("proof generation failed upstream: {reason}. {GENERIC_CORRUPTION_NOTE}"),
+        )
+    } else {
+        (
+            IntegrityStatus::Unavailable,
+            format!("proof generation failed upstream: {reason}. No verifier ran; the record's integrity is unavailable."),
+        )
+    };
+    ProofCheck {
+        status,
+        verifier: Some("recall(prove) upstream".into()),
+        verified_anchor: ev.anchor.clone(),
+        detail: Some(detail),
+        report: None,
     }
+}
+
+/// The recorded reason for a dropped foreign record: its id and the
+/// project the backend named for it, each quoted and bounded
+/// ([`contract::quote`]), never its content.
+fn foreign_record_reason(foreign: &ForeignRecord, project: &ProjectId) -> String {
+    let owner = match &foreign.backend_project {
+        Some(p) => format!("for project {}", contract::quote(p)),
+        None => "without naming its project".to_string(),
+    };
+    format!(
+        "record {} was returned {owner}, neither {} nor _global: dropped, never used as evidence",
+        contract::quote(foreign.evidence_id.as_str()),
+        contract::quote(project.as_str())
+    )
 }
 
 fn memory_error_code(e: &MemoryError) -> &'static str {
@@ -246,10 +316,17 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
     /// run fails at that call's stage (code `proposal_contract`,
     /// `challenge_contract` or `evaluation_contract`) and the refused call
     /// is kept in `RunFailed.invocation`, as is an answered call whose
-    /// output the adapter refused (code `model_malformed_output`). A revision
-    /// follows only while objections stay open, the result is not blocked,
-    /// the round made progress (it resolved at least one objection the
-    /// previous evaluation had left open) and the round bound allows.
+    /// output the adapter refused (code `model_malformed_output`, or the
+    /// adapter's own code); either is charged to the token budget. A
+    /// revision follows only while objections stay open, the result is not
+    /// blocked, the round made progress (it resolved at least one objection
+    /// the previous evaluation had left open) and the round bound allows.
+    ///
+    /// Each recall goes through [`MemoryClient::recall_with_proof`]. A
+    /// record the backend returned for another project is dropped and
+    /// recorded as `EvidenceUnavailable` (code `foreign_record`); every
+    /// proof the backend sealed, an empty result's included, is recorded as
+    /// `RecallProven` after the recall's records.
     ///
     /// `control` is checked before every model call, before every memory
     /// recall, before every proof verification and before the
@@ -299,7 +376,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         }
         let (mut proposal, inv) = match self.model.propose(task) {
             Ok(v) => v,
-            Err(e) => return self.model_failed(sink, agg, "propose", &e),
+            Err(e) => return self.model_failed(sink, agg, "propose", &e, &mut budget),
         };
         let over_budget = budget.charge("propose", &inv);
         if let Err(violation) = contract::validate_claims(&proposal) {
@@ -327,6 +404,11 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             return self.fail(sink, agg, "token_budget", code, &reason);
         }
 
+        // Why proof generation failed upstream, as the backend typed it,
+        // for each record retrieved in this run (the first retrieval of a
+        // record is the one the log keeps, so it is the one kept here).
+        let mut proof_failures: Vec<(EvidenceId, ProofFailure)> = Vec::new();
+
         // Stages 2-5, bounded by revision rounds and a no-progress exit.
         let final_kind = loop {
             let round = agg.round();
@@ -338,9 +420,12 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                 if let Some(stop) = control.check() {
                     return self.stop(sink, agg, stop, "memory recall");
                 }
-                match self.memory.recall(&task.project_id, &claim.statement, 5) {
-                    Ok(records) => {
-                        for rec in records {
+                match self
+                    .memory
+                    .recall_with_proof(&task.project_id, &claim.statement, 5)
+                {
+                    Ok(recall) => {
+                        for rec in recall.records {
                             // A record retrieved earlier in the run is
                             // already in every later round's context; only
                             // NEW records count against the cap.
@@ -351,11 +436,46 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
                                 capped += 1;
                                 continue;
                             }
+                            if let Some(failure) = &recall.proof_failure {
+                                proof_failures.push((rec.id.clone(), failure.clone()));
+                            }
                             self.emit(
                                 sink,
                                 &mut agg,
                                 Actor::Runtime,
                                 EventPayload::EvidenceRetrieved { evidence: rec },
+                            )?;
+                        }
+                        // TC-4: a record of another project never becomes
+                        // evidence, and its drop is on the record.
+                        for foreign in &recall.foreign {
+                            self.emit(
+                                sink,
+                                &mut agg,
+                                Actor::Runtime,
+                                EventPayload::EvidenceUnavailable {
+                                    query: claim.statement.clone(),
+                                    reason: foreign_record_reason(foreign, &task.project_id),
+                                    code: Some(codes::FOREIGN_RECORD.into()),
+                                },
+                            )?;
+                        }
+                        // HY-6/HY-12: every proof the backend sealed is
+                        // recorded, an empty result's included (it proves
+                        // absence, e.g. project isolation).
+                        if let Some(proof) = recall.proof {
+                            let empty = proof.evidence_ids.is_empty();
+                            self.emit(
+                                sink,
+                                &mut agg,
+                                Actor::Runtime,
+                                EventPayload::RecallProven {
+                                    request: proof.request,
+                                    evidence_ids: proof.evidence_ids,
+                                    proof_ref: proof.proof_ref,
+                                    anchor: proof.anchor,
+                                    empty,
+                                },
                             )?;
                         }
                     }
@@ -397,21 +517,18 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             // corruption-class signals count as Invalid (never silently
             // downgraded), other failures as Unavailable. Every record is
             // checked every round; a verifier may reuse its own results
-            // (the Hyphae verifier checks each distinct proof once per run).
+            // (the Hyphae verifier reuses a result for the same artifact
+            // bytes and anchor).
             let mut checks: Vec<ProofCheck> = Vec::with_capacity(evidence.len());
             for ev in &evidence {
                 let check = match &ev.proof_error {
-                    Some(reason) => ProofCheck {
-                        status: if reason.to_lowercase().contains("corrupt") {
-                            IntegrityStatus::Invalid
-                        } else {
-                            IntegrityStatus::Unavailable
-                        },
-                        verifier: Some("recall(prove) upstream".into()),
-                        verified_anchor: ev.anchor.clone(),
-                        detail: Some(reason.clone()),
-                        report: None,
-                    },
+                    Some(reason) => {
+                        let failure = proof_failures
+                            .iter()
+                            .find(|(id, _)| id == &ev.id)
+                            .map(|(_, f)| f);
+                        upstream_proof_check(ev, reason, failure)
+                    }
                     None => {
                         if let Some(stop) = control.check() {
                             return self.stop(sink, agg, stop, "proof verification");
@@ -437,7 +554,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             }
             let (challenge, inv) = match self.model.critique(&proposal, &ctx) {
                 Ok(v) => v,
-                Err(e) => return self.model_failed(sink, agg, "critique", &e),
+                Err(e) => return self.model_failed(sink, agg, "critique", &e, &mut budget),
             };
             let over_budget = budget.charge("critique", &inv);
             if let Err(violation) = contract::validate_challenge(&agg.items_seen, &challenge) {
@@ -470,7 +587,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             }
             let (evaluation, inv) = match self.model.evaluate(&proposal, &challenge, &ctx) {
                 Ok(v) => v,
-                Err(e) => return self.model_failed(sink, agg, "evaluate", &e),
+                Err(e) => return self.model_failed(sink, agg, "evaluate", &e, &mut budget),
             };
             let over_budget = budget.charge("evaluate", &inv);
             // The contract replay enforces, against what the log holds so
@@ -563,7 +680,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             let (revision, inv) = match self.model.revise(&proposal, &challenge, &evaluation, &ctx)
             {
                 Ok(v) => v,
-                Err(e) => return self.model_failed(sink, agg, "revise", &e),
+                Err(e) => return self.model_failed(sink, agg, "revise", &e, &mut budget),
             };
             let over_budget = budget.charge("revise", &inv);
             if let Err(violation) = contract::validate_claims(&revision.proposal) {
@@ -692,23 +809,35 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
     }
 
     /// A model call that returned an error instead of a document. When the
-    /// provider had answered (the adapter refused its output), the call
-    /// stays on the record (`RunFailed.invocation`) with its request id
-    /// and tokens.
+    /// provider had answered (the adapter refused its output, or a body
+    /// read failed after the answer), the call stays on the record
+    /// (`RunFailed.invocation`) with its request id and tokens, and it is
+    /// charged to the run's token budget like any other call (TC-7). The
+    /// call comes from the error itself or, when the error could not carry
+    /// it, from [`ModelClient::take_failed_invocation`]; it is recorded
+    /// once either way. The run fails with the model's code: a budget the
+    /// call exhausted changes nothing more, as for a refused document.
     fn model_failed<S: EventSink>(
         &mut self,
         sink: &mut S,
         agg: RunAggregate,
         stage: &str,
         error: &ModelError,
+        budget: &mut TokenBudget,
     ) -> Result<RunAggregate, OrchestratorError> {
+        // Always taken, so a kept call can never surface on a later error.
+        let kept = self.model.take_failed_invocation();
+        let invocation = error.invocation().cloned().or(kept);
+        if let Some(call) = &invocation {
+            let _ = budget.charge(stage, call);
+        }
         self.fail_with(
             sink,
             agg,
             stage,
             model_error_code(error),
             &error.to_string(),
-            error.invocation().cloned(),
+            invocation,
         )
     }
 
@@ -1240,6 +1369,28 @@ mod tests {
             codes::MODEL_MALFORMED_OUTPUT,
             &run_log("code-malformed.jsonl", model, memory(), None),
         );
+        // A client's own codes: truncated output and a refusal.
+        let mut model = reference();
+        model.critiques.clear();
+        model
+            .critiques
+            .push_back(Err(ModelError::malformed_with_code(
+                codes::MODEL_OUTPUT_TRUNCATED,
+                "the output reached its token bound",
+            )));
+        note(
+            codes::MODEL_OUTPUT_TRUNCATED,
+            &run_log("code-truncated.jsonl", model, memory(), None),
+        );
+        let mut model = reference();
+        model.critiques.clear();
+        model
+            .critiques
+            .push_back(Err(ModelError::Refused { invocation: None }));
+        note(
+            codes::MODEL_REFUSAL,
+            &run_log("code-refusal.jsonl", model, memory(), None),
+        );
         note(
             codes::MODEL_UNAVAILABLE,
             &run_log(
@@ -1332,6 +1483,19 @@ mod tests {
                 None,
             ),
         );
+        // A record the backend attributed to another project (TC-4).
+        let foreign = ScriptedRecall(Recall {
+            records: memory().records,
+            foreign: vec![ForeignRecord {
+                evidence_id: EvidenceId::new("ev-other"),
+                backend_project: Some("other-repo".into()),
+            }],
+            ..Recall::default()
+        });
+        note(
+            codes::FOREIGN_RECORD,
+            &run_log("code-foreign.jsonl", reference(), foreign, None),
+        );
 
         // A restart closes a run left mid-deliberation.
         let s = retry_constraint_scenario();
@@ -1351,6 +1515,8 @@ mod tests {
             codes::PROPOSAL_CONTRACT,
             codes::MODEL_TIMEOUT,
             codes::MODEL_MALFORMED_OUTPUT,
+            codes::MODEL_OUTPUT_TRUNCATED,
+            codes::MODEL_REFUSAL,
             codes::MODEL_UNAVAILABLE,
             codes::TOKEN_BUDGET_EXCEEDED,
             codes::TOKEN_USAGE_MISSING,
@@ -1358,6 +1524,7 @@ mod tests {
             codes::MEMORY_UNAVAILABLE,
             codes::MEMORY_ERROR,
             codes::EVIDENCE_CAP,
+            codes::FOREIGN_RECORD,
         ] {
             assert!(recorded.contains(&code), "{code} is never exercised");
         }
@@ -1460,6 +1627,300 @@ mod tests {
             .after_call(answered)
             .invocation()
             .is_none());
+    }
+
+    /// A client whose every call fails with `error` and that keeps `kept`
+    /// for [`ModelClient::take_failed_invocation`].
+    struct FailingAfterAnswer {
+        error: ModelError,
+        kept: Option<ModelInvocation>,
+        taken: usize,
+    }
+
+    impl ModelClient for FailingAfterAnswer {
+        fn propose(&mut self, _: &Task) -> Result<(Proposal, ModelInvocation), ModelError> {
+            Err(self.error.clone())
+        }
+        fn critique(
+            &mut self,
+            _: &Proposal,
+            _: &RoleContext,
+        ) -> Result<(Challenge, ModelInvocation), ModelError> {
+            Err(self.error.clone())
+        }
+        fn evaluate(
+            &mut self,
+            _: &Proposal,
+            _: &Challenge,
+            _: &RoleContext,
+        ) -> Result<(Evaluation, ModelInvocation), ModelError> {
+            Err(self.error.clone())
+        }
+        fn revise(
+            &mut self,
+            _: &Proposal,
+            _: &Challenge,
+            _: &Evaluation,
+            _: &RoleContext,
+        ) -> Result<(Revision, ModelInvocation), ModelError> {
+            Err(self.error.clone())
+        }
+        fn take_failed_invocation(&mut self) -> Option<ModelInvocation> {
+            self.taken += 1;
+            self.kept.take()
+        }
+    }
+
+    fn answered_call(request_id: &str) -> ModelInvocation {
+        ModelInvocation {
+            provider: "meta".into(),
+            model: "muse-wonder-1.0".into(),
+            request_id: Some(request_id.into()),
+            latency_ms: Some(5),
+            input_tokens: Some(70),
+            output_tokens: Some(30),
+            finish_reason: None,
+            reasoning_tokens: None,
+            max_completion_tokens: Some(16_000),
+            schema_name: Some("DraftProposal".into()),
+            schema_sha256: None,
+            prompt_sha256: None,
+            reasoning_effort: None,
+            safety_identifier_sent: Some(false),
+            attempts: Some(1),
+        }
+    }
+
+    /// Runs `model` against the reference memory; returns the run, its
+    /// log and the client.
+    fn run_failing(
+        name: &str,
+        model: FailingAfterAnswer,
+    ) -> (RunAggregate, EventLog, FailingAfterAnswer) {
+        let s = retry_constraint_scenario();
+        let mut log = EventLog::open(temp_log(name)).unwrap();
+        let mut orch = orchestrator(model, s.memory, s.verifier);
+        let agg = orch.run(&mut log, s.input).unwrap();
+        (agg, log, orch.model)
+    }
+
+    fn last_failure(log: &EventLog) -> (String, Option<String>, Option<ModelInvocation>) {
+        match &log.all_events().last().expect("a record").payload {
+            EventPayload::RunFailed {
+                stage,
+                code,
+                invocation,
+                ..
+            } => (stage.clone(), code.clone(), invocation.clone()),
+            other => panic!("expected RunFailed last, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_call_kept_by_the_client_is_recorded_once_with_the_clients_code() {
+        // TC-7: the error cannot carry the call (a body read that timed
+        // out after the answer); the client keeps it, the run records it.
+        let kept = answered_call("chatcmpl-kept");
+        let (agg, log, model) = run_failing(
+            "kept-call.jsonl",
+            FailingAfterAnswer {
+                error: ModelError::Provider {
+                    code: "meta_timeout",
+                    message: "the Meta API answered but its response did not arrive".into(),
+                },
+                kept: Some(kept.clone()),
+                taken: 0,
+            },
+        );
+        assert_eq!(
+            last_failure(&log),
+            (
+                "propose".into(),
+                Some("meta_timeout".into()),
+                Some(kept.clone())
+            )
+        );
+        assert_eq!(agg.invocations, vec![kept.clone()]);
+        assert_eq!(model.taken, 1);
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "replays");
+
+        // The same call on the error and kept by the client: once.
+        let (agg, log, _) = run_failing(
+            "kept-and-carried.jsonl",
+            FailingAfterAnswer {
+                error: ModelError::malformed("draft parse: expected value")
+                    .after_call(kept.clone()),
+                kept: Some(kept.clone()),
+                taken: 0,
+            },
+        );
+        assert_eq!(
+            last_failure(&log),
+            (
+                "propose".into(),
+                Some(codes::MODEL_MALFORMED_OUTPUT.into()),
+                Some(kept.clone())
+            )
+        );
+        assert_eq!(agg.invocations, vec![kept]);
+
+        // No answer behind the error, nothing kept: no call recorded.
+        let (agg, log, model) = run_failing(
+            "nothing-kept.jsonl",
+            FailingAfterAnswer {
+                error: ModelError::Timeout,
+                kept: None,
+                taken: 0,
+            },
+        );
+        assert_eq!(
+            last_failure(&log),
+            ("propose".into(), Some(codes::MODEL_TIMEOUT.into()), None)
+        );
+        assert!(agg.invocations.is_empty());
+        assert_eq!(model.taken, 1, "always taken, so nothing stale survives");
+    }
+
+    #[test]
+    fn truncated_and_refused_outputs_record_their_own_codes() {
+        for (error, code) in [
+            (
+                ModelError::malformed_with_code(codes::MODEL_OUTPUT_TRUNCATED, "cut at the bound"),
+                codes::MODEL_OUTPUT_TRUNCATED,
+            ),
+            (
+                ModelError::Refused { invocation: None },
+                codes::MODEL_REFUSAL,
+            ),
+            (
+                ModelError::Provider {
+                    code: "meta_unauthorized",
+                    message: "the Meta API rejected the API key (HTTP 401)".into(),
+                },
+                "meta_unauthorized",
+            ),
+        ] {
+            let call = answered_call("chatcmpl-coded");
+            let (agg, log, _) = run_failing(
+                &format!("coded-{code}.jsonl"),
+                FailingAfterAnswer {
+                    error: error.clone().after_call(call.clone()),
+                    kept: None,
+                    taken: 0,
+                },
+            );
+            let (stage, recorded, invocation) = last_failure(&log);
+            assert_eq!(
+                (stage.as_str(), recorded.as_deref()),
+                ("propose", Some(code))
+            );
+            // A refusal and malformed output carry the answered call.
+            let answered = !matches!(error, ModelError::Provider { .. });
+            assert_eq!(invocation.is_some(), answered, "{code}");
+            assert_eq!(agg.invocations.len(), usize::from(answered), "{code}");
+        }
+    }
+
+    /// One scripted recall result for every query.
+    struct ScriptedRecall(Recall);
+
+    impl MemoryClient for ScriptedRecall {
+        fn recall(
+            &mut self,
+            _: &ProjectId,
+            _: &str,
+            _: usize,
+        ) -> Result<Vec<EvidenceReference>, MemoryError> {
+            Ok(self.0.records.clone())
+        }
+        fn recall_with_proof(
+            &mut self,
+            _: &ProjectId,
+            _: &str,
+            _: usize,
+        ) -> Result<Recall, MemoryError> {
+            Ok(self.0.clone())
+        }
+        fn status(&mut self) -> Result<MemoryStatus, MemoryError> {
+            Ok(MemoryStatus {
+                healthy: true,
+                detail: "scripted".into(),
+            })
+        }
+    }
+
+    #[test]
+    fn foreign_records_are_dropped_and_proofs_recorded_even_when_empty() {
+        let s = retry_constraint_scenario();
+        let own = s.memory.records.clone();
+        let request = |project: &str| ProofRequest {
+            operation: "recall".into(),
+            project: project.into(),
+            query: None,
+            limit: Some(5),
+        };
+        let memory = ScriptedRecall(Recall {
+            records: own.clone(),
+            proof: Some(RecallProof {
+                request: request("demo-repo"),
+                evidence_ids: own
+                    .iter()
+                    .map(|r| r.id.clone())
+                    .chain([EvidenceId::new("ev-foreign")])
+                    .collect(),
+                proof_ref: "proof-1".into(),
+                anchor: "ab".repeat(32),
+            }),
+            proof_failure: None,
+            foreign: vec![ForeignRecord {
+                evidence_id: EvidenceId::new("ev-foreign"),
+                backend_project: Some("tenant-b".into()),
+            }],
+        });
+        let mut log = EventLog::open(temp_log("foreign-and-proven.jsonl")).unwrap();
+        let mut orch = orchestrator(s.model, memory, s.verifier);
+        let agg = orch.run(&mut log, s.input).unwrap();
+        // The reference run still ends as documented: the foreign record
+        // never entered it.
+        assert_eq!(agg.state, RunState::AwaitingHumanApproval);
+        assert!(agg.retrieved.iter().all(|e| e.id.as_str() != "ev-foreign"));
+        let events = log.all_events();
+        let dropped = events
+            .iter()
+            .filter(|e| {
+                matches!(&e.payload, EventPayload::EvidenceUnavailable { code, reason, .. }
+                    if code.as_deref() == Some(codes::FOREIGN_RECORD)
+                        && reason.contains("\"ev-foreign\"")
+                        && reason.contains("\"tenant-b\""))
+            })
+            .count();
+        let proven = events
+            .iter()
+            .filter(|e| matches!(&e.payload, EventPayload::RecallProven { proof_ref, .. } if proof_ref == "proof-1"))
+            .count();
+        // One drop and one proof per recall: two claims, two rounds.
+        assert_eq!((dropped, proven), (4, 4));
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "replays");
+
+        // A proven empty recall is recorded too.
+        let s = retry_constraint_scenario();
+        let empty = ScriptedRecall(Recall {
+            proof: Some(RecallProof {
+                request: request("demo-repo"),
+                evidence_ids: vec![],
+                proof_ref: "proof-empty".into(),
+                anchor: "ab".repeat(32),
+            }),
+            ..Recall::default()
+        });
+        let mut log = EventLog::open(temp_log("proven-empty.jsonl")).unwrap();
+        let mut orch = orchestrator(s.model, empty, s.verifier);
+        let agg = orch.run(&mut log, s.input).unwrap();
+        assert!(log.all_events().iter().any(|e| matches!(
+            &e.payload,
+            EventPayload::RecallProven { empty: true, evidence_ids, .. } if evidence_ids.is_empty()
+        )));
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "replays");
     }
 
     #[test]

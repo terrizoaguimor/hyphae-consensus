@@ -19,3 +19,7 @@ axum.workspace = true
 futures-core.workspace = true
 async-stream.workspace = true
 tokio.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+# Pinned: the Meta key is zeroized on drop (already in the lock through rustls).
+zeroize = "=1.9.1"

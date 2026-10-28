@@ -6,12 +6,13 @@
 
 use consensus_api::config::HyphaeConfig;
 use consensus_api::hyphae::{
-    connect_from_config, CommandOutput, CommandRunner, HyphaeMemoryClient, HyphaeProofVerifier,
-    InMemoryTransport, SystemCommandRunner,
+    connect_from_config, CommandError, CommandOutput, CommandRunner, HyphaeMemoryClient,
+    HyphaeProofVerifier, InMemoryTransport, SystemCommandRunner,
 };
 use consensus_domain::*;
 use consensus_runtime::ports::{MemoryClient, ProofVerifier};
 use serde_json::{json, Value};
+use std::time::Duration;
 
 fn transport_with(recall_result: Value) -> InMemoryTransport {
     let mut t = InMemoryTransport::default();
@@ -35,6 +36,7 @@ fn handshake_and_recall_map_records_and_request_proofs() {
     let t = transport_with(json!({
         "structuredContent": {"memories": [{
             "id": "mem-42",
+            "project": "demo-repo",
             "text": "Constraint: retries capped at 3 attempts",
             "kind": "constraint",
             "anchor_digest": "a1b2",
@@ -67,8 +69,7 @@ fn handshake_and_recall_map_records_and_request_proofs() {
 
 #[test]
 fn recall_accepts_text_content_fallback() {
-    let inner =
-        r#"[{"id":"m1","content":"Fact: timeouts correlate with retry bursts","kind":"fact"}]"#;
+    let inner = r#"[{"id":"m1","project":"p","content":"Fact: timeouts correlate with retry bursts","kind":"fact"}]"#;
     let t = transport_with(json!({"content": [{"type": "text", "text": inner}]}));
     let mut client = HyphaeMemoryClient::connect(t).unwrap();
     let out = client.recall(&ProjectId::new("p"), "retry", 3).unwrap();
@@ -97,7 +98,7 @@ fn recall_falls_back_to_unproven_when_proof_generation_fails() {
         "tools/call",
         json!({
             "structuredContent": {"memories": [{
-                "id": "77", "text": "Constraint: cap retries at 3", "kind": "constraint"
+                "id": "77", "project": "demo-repo", "text": "Constraint: cap retries at 3", "kind": "constraint"
             }], "proof": null}
         }),
     );
@@ -190,7 +191,7 @@ fn proven_recall_attaches_the_shared_proof_to_every_record() {
 fn proven_recall_without_artifacts_is_recorded_never_silent() {
     let t = transport_with(json!({
         "structuredContent": {"memories": [{
-            "id": "7", "text": "Fact: retries capped at 3", "kind": "fact"
+            "id": "7", "project": "demo-repo", "text": "Fact: retries capped at 3", "kind": "fact"
         }], "proof": null}
     }));
     let mut client = HyphaeMemoryClient::connect(t).unwrap();
@@ -219,10 +220,10 @@ fn connect_rejects_surface_without_memory_recall() {
     }
 }
 
-struct ScriptedRunner(Result<CommandOutput, String>, Vec<Vec<String>>);
+struct ScriptedRunner(Result<CommandOutput, CommandError>, Vec<Vec<String>>);
 
 impl CommandRunner for ScriptedRunner {
-    fn run(&mut self, argv: &[String]) -> Result<CommandOutput, String> {
+    fn run(&mut self, argv: &[String], _timeout: Duration) -> Result<CommandOutput, CommandError> {
         self.1.push(argv.to_vec());
         self.0.clone()
     }
@@ -246,7 +247,7 @@ const VERIFIED_REPORT: &str = r#"{
   "witness_digest": "216a0a01061de84f59d9d5543b1415ed510c7e549e62d99c8ed97d68f7b7a799"
 }"#;
 
-fn exited(code: i32, stdout: &str, stderr: &str) -> Result<CommandOutput, String> {
+fn exited(code: i32, stdout: &str, stderr: &str) -> Result<CommandOutput, CommandError> {
     Ok(CommandOutput {
         code,
         stdout: stdout.into(),
@@ -254,9 +255,13 @@ fn exited(code: i32, stdout: &str, stderr: &str) -> Result<CommandOutput, String
     })
 }
 
-fn verifier(outcome: Result<CommandOutput, String>) -> HyphaeProofVerifier<ScriptedRunner> {
+fn verifier(outcome: Result<CommandOutput, CommandError>) -> HyphaeProofVerifier<ScriptedRunner> {
     HyphaeProofVerifier::new("hyphae".into(), ScriptedRunner(outcome, vec![]))
 }
+
+/// The anchor of the captured live recall proof, which the captured
+/// verifier report (`VERIFIED_REPORT`) names as its `anchor_digest`.
+const LIVE_ANCHOR: &str = "e9cf8c51ad12358397bcd1a387d73b0778482070b1a6133e3f5d9351bbc22621";
 
 fn evidence_with_proof() -> EvidenceReference {
     EvidenceReference {
@@ -267,7 +272,9 @@ fn evidence_with_proof() -> EvidenceReference {
         kind: "constraint".into(),
         content: "x".into(),
         retrieved_at: "2026-10-26T00:00:00Z".into(),
-        anchor: Some("ab".repeat(32)),
+        // The anchor the captured report was produced for: `Valid` now
+        // requires the report's anchor_digest to match it (HY-1).
+        anchor: Some(LIVE_ANCHOR.into()),
         proof_file: Some("/tmp/p.hyproof".into()),
         witness_file: Some("/tmp/w.hywit".into()),
         proof_error: None,
@@ -302,7 +309,9 @@ fn proof_verifier_maps_exit_codes_to_integrity_only() {
     assert_eq!(check.status, IntegrityStatus::Invalid);
     assert!(check.detail.unwrap().contains("digest mismatch"));
 
-    let mut spawn_fail = verifier(Err("spawn hyphae-missing: not found".into()));
+    let mut spawn_fail = verifier(Err(CommandError::Spawn(
+        "hyphae-missing (not found)".into(),
+    )));
     assert_eq!(
         spawn_fail.verify(&evidence_with_proof()).status,
         IntegrityStatus::VerificationError
@@ -344,11 +353,32 @@ fn verifier_failure_categories_captured_live_map_to_integrity() {
     }
 }
 
+/// Proof and witness files with the given contents, in a directory of
+/// this test's own: results are reused by artifact bytes now (HY-13), so
+/// the artifacts must exist.
+fn artifacts(test: &str, proof: &str, witness: &str) -> (String, String) {
+    let dir = std::env::temp_dir().join(format!(
+        "hyphae-consensus-artifacts-{}-{test}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (p, w) = (dir.join("recall.proof"), dir.join("recall.witness"));
+    std::fs::write(&p, proof).unwrap();
+    std::fs::write(&w, witness).unwrap();
+    (
+        p.to_string_lossy().into_owned(),
+        w.to_string_lossy().into_owned(),
+    )
+}
+
 #[test]
 fn one_proof_covering_several_records_is_verified_once() {
     let mut v = verifier(exited(0, VERIFIED_REPORT, ""));
-    let first = evidence_with_proof();
-    let mut second = evidence_with_proof();
+    let (proof, witness) = artifacts("verified-once", "proof bytes", "witness bytes");
+    let mut first = evidence_with_proof();
+    first.proof_file = Some(proof);
+    first.witness_file = Some(witness);
+    let mut second = first.clone();
     second.id = EvidenceId::new("mem-2");
     assert_eq!(v.verify(&first).status, IntegrityStatus::Valid);
     assert_eq!(v.verify(&second).status, IntegrityStatus::Valid);

@@ -7,6 +7,7 @@
 //! fails the run safely on any `Err` and never guesses.
 
 use crate::contract::OpenItem;
+use crate::orchestrator::codes;
 use consensus_domain::*;
 use thiserror::Error;
 
@@ -22,9 +23,28 @@ pub enum ModelError {
         /// keeps it in `RunFailed.invocation` (audit finding TC-7).
         /// `None` when no answered call stands behind the error.
         invocation: Option<Box<ModelInvocation>>,
+        /// A stable code more precise than `model_malformed_output`, when
+        /// the client knows one (e.g. `model_output_truncated`: the output
+        /// hit its token bound before the document was complete).
+        code: Option<&'static str>,
     },
     #[error("model service unavailable: {0}")]
     Unavailable(String),
+    /// The model declined to produce the document (code
+    /// `model_refusal`). The provider answered, so the call is recorded.
+    /// The refusal's own text is never part of the error: it is model
+    /// output that may quote the prompt, and the reason is persisted.
+    #[error("model_refusal: the model declined to produce the requested document")]
+    Refused {
+        invocation: Option<Box<ModelInvocation>>,
+    },
+    /// A provider failure the client classified under a stable code (an
+    /// HTTP status class, a timeout, a transport failure, its own
+    /// configuration), with a fixed short message for that class. The
+    /// message never quotes the provider's response body: the orchestrator
+    /// persists it as `RunFailed.reason` (audit findings MA-4, SEC-9).
+    #[error("{code}: {message}")]
+    Provider { code: &'static str, message: String },
 }
 
 impl ModelError {
@@ -34,16 +54,30 @@ impl ModelError {
         Self::MalformedOutput {
             reason: reason.into(),
             invocation: None,
+            code: None,
+        }
+    }
+
+    /// Malformed output whose cause has its own stable `code`.
+    pub fn malformed_with_code(code: &'static str, reason: impl Into<String>) -> Self {
+        Self::MalformedOutput {
+            reason: reason.into(),
+            invocation: None,
+            code: Some(code),
         }
     }
 
     /// The same error, recording the answered call it refused. Only
-    /// malformed output follows an answer, so other errors are returned
-    /// unchanged.
+    /// malformed output and a refusal follow an answer, so other errors
+    /// are returned unchanged.
     pub fn after_call(self, call: ModelInvocation) -> Self {
         match self {
-            Self::MalformedOutput { reason, .. } => Self::MalformedOutput {
+            Self::MalformedOutput { reason, code, .. } => Self::MalformedOutput {
                 reason,
+                invocation: Some(Box::new(call)),
+                code,
+            },
+            Self::Refused { .. } => Self::Refused {
                 invocation: Some(Box::new(call)),
             },
             other => other,
@@ -53,8 +87,24 @@ impl ModelError {
     /// The answered call this error refused, if any.
     pub fn invocation(&self) -> Option<&ModelInvocation> {
         match self {
-            Self::MalformedOutput { invocation, .. } => invocation.as_deref(),
+            Self::MalformedOutput { invocation, .. } | Self::Refused { invocation } => {
+                invocation.as_deref()
+            }
             _ => None,
+        }
+    }
+
+    /// The stable code the client gave this failure, when it gave one
+    /// (`meta_unauthorized`, `model_output_truncated`, `model_refusal`,
+    /// ...). Without one the orchestrator records the variant's generic
+    /// code (`model_timeout`, `model_malformed_output`,
+    /// `model_unavailable`).
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::MalformedOutput { code, .. } => *code,
+            Self::Refused { .. } => Some(codes::MODEL_REFUSAL),
+            Self::Provider { code, .. } => Some(code),
+            Self::Timeout | Self::Unavailable(_) => None,
         }
     }
 }
@@ -88,9 +138,11 @@ pub struct RoleContext {
 /// completes or repairs a document, whichever client produced it.
 ///
 /// A client that refuses a document after the provider answered returns
-/// [`ModelError::MalformedOutput`] with the call's invocation
-/// ([`ModelError::after_call`]), so the call is recorded even though no
-/// document is.
+/// [`ModelError::MalformedOutput`] (or [`ModelError::Refused`]) with the
+/// call's invocation ([`ModelError::after_call`]), so the call is recorded
+/// even though no document is. A client whose error cannot carry the call
+/// (a body read that timed out after the provider answered, say) keeps it
+/// for [`take_failed_invocation`](Self::take_failed_invocation) instead.
 pub trait ModelClient {
     fn propose(&mut self, task: &Task) -> Result<(Proposal, ModelInvocation), ModelError>;
     fn critique(
@@ -111,6 +163,68 @@ pub trait ModelClient {
         evaluation: &Evaluation,
         ctx: &RoleContext,
     ) -> Result<(Revision, ModelInvocation), ModelError>;
+
+    /// The call behind the last error, when the provider had answered it
+    /// (audit finding TC-7), and only once: taking it clears it. The
+    /// orchestrator takes it after every failed call, records it in
+    /// `RunFailed.invocation` unless the error already carried the call
+    /// ([`ModelError::invocation`]), and charges it to the run's token
+    /// budget. The default keeps nothing.
+    fn take_failed_invocation(&mut self) -> Option<ModelInvocation> {
+        None
+    }
+}
+
+/// One recall as the memory backend answered it ([`MemoryClient::recall_with_proof`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Recall {
+    /// The records the run may use: those the backend attributed to the
+    /// requested project or to `_global`, in result order.
+    pub records: Vec<EvidenceReference>,
+    /// The proof the backend sealed for this recall, when it produced one.
+    pub proof: Option<RecallProof>,
+    /// Why proof generation failed upstream, when it did: the records were
+    /// then recalled without a proof, and each carries the failure's text
+    /// in `proof_error`.
+    pub proof_failure: Option<ProofFailure>,
+    /// Records the backend returned for any other project (or for no
+    /// project it named). They are never evidence; the orchestrator
+    /// records each as `EvidenceUnavailable` (code `foreign_record`).
+    pub foreign: Vec<ForeignRecord>,
+}
+
+/// A proof sealed for one recall. It covers the recall's whole result
+/// (every record in it, foreign ones included), so a proof of an empty
+/// result still proves absence, e.g. for project isolation. Recorded as
+/// `EventPayload::RecallProven`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecallProof {
+    /// The request the proof seals.
+    pub request: ProofRequest,
+    /// Every record of the sealed result, in result order; empty when the
+    /// result was empty.
+    pub evidence_ids: Vec<EvidenceId>,
+    /// Public identifier of the proof artifact, never a local path.
+    pub proof_ref: String,
+    /// The anchor the proof is bound to.
+    pub anchor: String,
+}
+
+/// Why the memory backend could not generate a proof: its own error
+/// category, when it gave one, and its message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProofFailure {
+    pub category: Option<String>,
+    pub message: String,
+}
+
+/// A record the backend returned for a project other than the requested
+/// one or `_global`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignRecord {
+    pub evidence_id: EvidenceId,
+    /// The project the backend reported for it; `None` when it named none.
+    pub backend_project: Option<String>,
 }
 
 #[derive(Debug, Error, Clone, PartialEq)]
@@ -136,12 +250,32 @@ pub struct MemoryStatus {
 /// tools the `memory-reader` profile exposes; `store`/`journal`/`forget`
 /// are never reachable through this trait.
 pub trait MemoryClient {
+    /// The records a recall may use as evidence, without proof metadata.
     fn recall(
         &mut self,
         project: &ProjectId,
         query: &str,
         limit: usize,
     ) -> Result<Vec<EvidenceReference>, MemoryError>;
+
+    /// The same recall with what the backend said about it: the proof it
+    /// sealed (if any), why proof generation failed (if it did) and the
+    /// records it returned for another project. The orchestrator calls
+    /// this. The default wraps [`recall`](Self::recall) and claims no
+    /// proof, which is what a client without real proofs (a scripted
+    /// double) must report.
+    fn recall_with_proof(
+        &mut self,
+        project: &ProjectId,
+        query: &str,
+        limit: usize,
+    ) -> Result<Recall, MemoryError> {
+        Ok(Recall {
+            records: self.recall(project, query, limit)?,
+            ..Recall::default()
+        })
+    }
+
     fn status(&mut self) -> Result<MemoryStatus, MemoryError>;
 }
 

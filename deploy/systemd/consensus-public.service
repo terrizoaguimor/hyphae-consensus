@@ -1,0 +1,87 @@
+# SPDX-License-Identifier: Apache-2.0
+# Hyphae Consensus public server: `consensus-api serve-public` on the unix
+# socket /run/consensus/public.sock that only cloudflared reaches (ADR-0006).
+# Install as /etc/systemd/system/consensus-public.service (root:root 0644).
+# Runbook: docs/deployment/runbook.md, section 5. Every directive below is
+# checked against systemd.exec(5), systemd.service(5), systemd.kill(5),
+# systemd.resource-control(5) and systemd.unit(5); see the runbook's
+# citation list and appendix A.
+
+[Unit]
+Description=Hyphae Consensus public server (serve-public)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=consensus
+Group=consensus
+UMask=0027
+
+# Non-secret configuration (root:consensus 0640). systemd reads it as
+# VAR=value lines; nothing is expanded.
+EnvironmentFile=/etc/consensus/public.env
+
+# Secrets: systemd copies them into /run/credentials/consensus-public.service/,
+# readable by the service user only; they never enter the environment
+# (gate G4). public.env points CONSENSUS_META_API_KEY_FILE and
+# CONSENSUS_TURNSTILE_SECRET_FILE at these two paths.
+LoadCredential=meta.key:/etc/consensus/credentials/meta.key
+LoadCredential=turnstile.secret:/etc/consensus/credentials/turnstile.secret
+
+# /run/consensus, owned consensus:consensus, mode 0750: the cloudflared user
+# (supplementary group consensus) traverses it and connects to the 0660
+# socket the server creates there.
+RuntimeDirectory=consensus
+RuntimeDirectoryMode=0750
+
+ExecStart=/usr/local/bin/consensus-api serve-public
+
+# SIGTERM to the main process only: the server cancels active runs and waits
+# for them to reach a checkpoint (shutdown grace 60 s), then exits; remaining
+# children (a hyphae verifier) get SIGKILL after TimeoutStopSec.
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=5s
+
+# --- Sandbox ---------------------------------------------------------------
+NoNewPrivileges=yes
+ProtectSystem=strict
+# The only writable paths: the per-run store and the USD ledger (the kill
+# switch file lives in the ledger directory). research/, snapshots/ and web/
+# stay read-only (gate G9: no writer path near the proofs). /run/consensus is
+# writable through RuntimeDirectory=; /tmp through PrivateTmp=.
+ReadWritePaths=/var/lib/consensus/runs /var/lib/consensus/ledger
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+
+# --- Resources (a 2 GiB host shared with cloudflared and, on demand, the
+# operator console) --------------------------------------------------------
+MemoryHigh=768M
+MemoryMax=1G
+TasksMax=1024
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -8,3 +8,7 @@
 
 # The generated API contract is compared byte for byte by a test: keep LF.
 /contracts/** text eol=lf
+
+# Deployment templates and scripts are copied to a Linux server verbatim
+# (systemd units, env files, cloudflared YAML): keep LF on every checkout.
+/deploy/** text eol=lf

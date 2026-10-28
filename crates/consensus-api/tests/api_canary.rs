@@ -13,7 +13,10 @@ use consensus_api::server::BuildOptions;
 use serde_json::json;
 use std::path::Path;
 
-const CANARY: &str = "canary-key-7f3e9c2a-never-leak-0b1d";
+// In the documented key shape (`LLM_<numeric id>_<secret>`), which the
+// hardened configuration checks before any call; the secret part is the
+// canary looked for in every output.
+const CANARY: &str = "LLM_7739320001_canary-key-7f3e9c2a-never-leak-0b1d";
 
 fn files_under(dir: &Path, out: &mut Vec<Vec<u8>>) {
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -61,11 +64,20 @@ async fn the_meta_key_never_appears_in_any_output() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     assert_eq!(detail["summary"]["state"], "failed", "{detail}");
-    // A refused connection reaches the adapter as a send error, which it
-    // reports as a timeout or as unavailability; either is a model failure.
+    // A refused connection reaches the adapter as a send error, which the
+    // hardened adapter reports under its own stable code (`meta_transport`
+    // after its connect retries, or `meta_timeout` when the call budget
+    // ran out first); either is a model failure and names no endpoint.
     let code = detail["summary"]["failure"]["code"].as_str().unwrap_or("");
     assert!(
-        matches!(code, "model_unavailable" | "model_timeout"),
+        matches!(
+            code,
+            "meta_transport"
+                | "meta_timeout"
+                | "meta_unavailable"
+                | "model_unavailable"
+                | "model_timeout"
+        ),
         "{detail}"
     );
     // The declared Meta mode is cross-checked: no Meta call was recorded.

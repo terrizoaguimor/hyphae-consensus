@@ -14,13 +14,13 @@ serde_json.workspace = true
 schemars.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
+sha2.workspace = true
+uuid.workspace = true
 reqwest.workspace = true
 axum.workspace = true
 futures-core.workspace = true
 async-stream.workspace = true
 tokio.workspace = true
-sha2.workspace = true
-uuid.workspace = true
 # Pinned: the Meta key is zeroized on drop (already in the lock through rustls).
 zeroize = "=1.9.1"
 # Session ids and operator tokens: 256 bits straight from the OS. Already

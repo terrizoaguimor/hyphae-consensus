@@ -100,7 +100,7 @@ impl Drop for TempDir {
 /// evaluation never listed, and how many of them the evaluation of their
 /// own round had listed as unresolved. Counted independently from the
 /// raw JSONL (2026-10-27). Before protocol 1.3 nothing judged them again.
-const NEVER_REJUDGED: [(&str, usize, usize); 40] = [
+const NEVER_REJUDGED: [(&str, usize, usize); 44] = [
     ("C01", 2, 2),
     ("C02", 2, 2),
     ("C03", 0, 0),
@@ -141,6 +141,13 @@ const NEVER_REJUDGED: [(&str, usize, usize); 40] = [
     ("F06", 8, 7),
     ("H01", 11, 11),
     ("H02", 9, 9),
+    // Protocol 1.3 smoke runs (docs/evaluation.md section 6): every carried
+    // objection received an explicit verdict, so nothing was left unjudged;
+    // K02 failed before any evaluation.
+    ("K01", 0, 0),
+    ("K02", 0, 0),
+    ("K03", 0, 0),
+    ("K04", 0, 0),
 ];
 
 /// Receipt v2 of every MANIFEST run, keyed by label.
@@ -188,6 +195,7 @@ fn every_archived_run_has_a_receipt_v2_consistent_with_its_log() {
             "1.0" => "pre-1.1 (not re-derived on replay)",
             "1.1" => "policy 1.1",
             "1.2" => "policy 1.2",
+            "1.3" => "protocol 1.3 · policy rules 1.2",
             other => panic!("{label}: unexpected schema {other}"),
         };
         assert_eq!(receipt.protocol, label_for_schema, "{label}");
@@ -394,7 +402,7 @@ fn recorded_receipts_agree_with_receipt_v2() {
         assert_eq!(verifications, flat, "{label}");
         compared += 1;
     }
-    assert_eq!(compared, 33);
+    assert_eq!(compared, 37);
 }
 
 #[test]

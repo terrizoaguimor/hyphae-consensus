@@ -28,8 +28,9 @@ assembled manifest are computed, never stored here.
   binary answer a `proof verify` with the report of the capture whose synthetic
   proof bytes they are given (the digests are content-derived, as Hyphae's are).
   Note that the verifier's `proof_digest` is not the response's `proof_blake3`:
-  the recovery probe of 2026-10-27 reported `proof_blake3 1ee5c45d…` for the
-  proof file whose verify report says `proof_digest 6a5f2fa6…`.
+  the recovery probe of 2026-10-27 (an MCP recall, whose `proof` object has the
+  same fields as `agent ui`'s) reported `proof_blake3 1ee5c45d…` for the proof
+  file whose verify report says `proof_digest 6a5f2fa6…`.
 
 The anchor `4e1f0c9a…8d0f`, the `proof_blake3` values, the `root_digest` and
 the paths inside `proof` are synthetic. They are not the demo store's anchor

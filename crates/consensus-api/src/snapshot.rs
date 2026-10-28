@@ -90,13 +90,16 @@
 //!   the manifest and `SHA256SUMS`, both checked here but both written by
 //!   the capture script. The runtime cannot recompute the response's
 //!   `proof_blake3` (no BLAKE3 in this workspace), and the verifier's
-//!   `proof_digest` is NOT that value: for the 2026-10-27 recovery probe
-//!   the `agent ui` response said `proof_blake3 1ee5c45d…df79` while
-//!   `hyphae proof verify` on that proof file said `proof_digest
-//!   6a5f2fa6…edbb`. Nor is `result_digest` recomputable from the response
-//!   without Hyphae's canonical form. A swap of ALL files of one capture
-//!   with another's is therefore caught through the responses (record
-//!   count, project attribution, memory ids), not through the proofs.
+//!   `proof_digest` is NOT that value: the 2026-10-27 recovery probe (an
+//!   MCP recall; its `proof` object has the same fields as `agent ui`'s)
+//!   reported `proof_blake3 1ee5c45d…df79` for the proof file
+//!   `recall-01a17bf3-…-361661d67761.proof`, while `hyphae proof verify`
+//!   on that file reported `proof_digest 6a5f2fa6…edbb`
+//!   (`demo-run/recovery-2026-10-27/`, local). Nor is `result_digest`
+//!   recomputable from the response without Hyphae's canonical form. A
+//!   swap of ALL files of one capture with another's is therefore caught
+//!   through the responses (record count, project attribution, memory
+//!   ids), not through the proofs.
 //!
 //! The record texts are never byte-compared with the proof; the verifier's
 //! own detail says so, and the honest label of ADR-0008 applies ("this

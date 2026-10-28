@@ -368,3 +368,29 @@ async fn the_operator_gets_the_whole_chain_of_a_live_run() {
     assert!(text.contains(UPSTREAM));
     assert!(verify_bytes(text.as_bytes()).is_ok(), "the chain verifies");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_operator_ready_keeps_the_index_error_text_next_to_its_code() {
+    let server = operator_server(&[], BuildOptions::default());
+    let (status, created, _) = server
+        .json(
+            Req::post("/api/v1/operator/runs")
+                .json(&json!({"model":"fake","memory":"fake","scenario":"retry"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = created["run"]["run_id"].as_str().unwrap().to_string();
+    server.wait_resting("", &run_id).await;
+    server.wait_released(&run_id).await;
+    server.tamper_index();
+    let (status, ready, _) = server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(status, StatusCode::OK, "{ready}");
+    let store = &ready["run_store"];
+    assert_eq!(store["index_error_code"], "index_tampered", "{store}");
+    assert!(
+        store["index_error"]
+            .as_str()
+            .is_some_and(|text| text.contains("fails verification")),
+        "{store}"
+    );
+}

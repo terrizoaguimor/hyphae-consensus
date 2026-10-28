@@ -1820,3 +1820,41 @@ async fn a_damaged_stored_run_is_reported_never_served_as_if_whole() {
     assert_eq!(server.state.stream_caps.open_streams(), 0);
     assert_eq!(server.state.rates.sse.len(), streams_before + 1);
 }
+
+// ---------------------------------------------------------------------
+// Readiness: the index error's code, never the store's text
+// ---------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ready_names_an_index_failure_by_its_code_and_publishes_no_store_text() {
+    let server = public_server(&[], BuildOptions::default());
+    let (_, ready, _) = server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(ready["ready"], true, "{ready}");
+    assert!(ready["run_store"].get("index_error_code").is_none());
+    // A run, so the index has records; then wait out the readiness cache.
+    let cookie = server.new_session().await;
+    let (status, created) = server.create_guided(&cookie, "retry").await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = created["run"]["run_id"].as_str().unwrap().to_string();
+    server.wait_resting(&cookie, &run_id).await;
+    server.wait_released(&run_id).await;
+    tokio::time::sleep(consensus_api::api::READY_CACHE_TTL + Duration::from_millis(100)).await;
+
+    server.tamper_index();
+    let (status, ready, _) = server.json(Req::get("/api/v1/ready")).await;
+    assert_eq!(status, StatusCode::OK, "{ready}");
+    assert_eq!(ready["ready"], false, "{ready}");
+    let store = &ready["run_store"];
+    assert_eq!(store["ok"], false, "{store}");
+    assert_eq!(store["index_tampered"], true, "{store}");
+    assert_eq!(store["index_error_code"], "index_tampered", "{store}");
+    assert!(store.get("index_error").is_none(), "{store}");
+    // Nothing of the store's text: not its directory in any spelling, not
+    // the index file, not the verifier's words.
+    let text = ready.to_string();
+    let mut leaks = server.store_dir_spellings();
+    leaks.extend(["index.jsonl".to_string(), "fails verification".to_string()]);
+    for leak in &leaks {
+        assert!(!text.contains(leak.as_str()), "{leak}: {text}");
+    }
+}

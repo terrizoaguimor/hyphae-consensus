@@ -1042,6 +1042,22 @@ pub struct HealthV1 {
     pub executor: String,
 }
 
+/// Why the run index could not be verified, as `/ready` publishes it: the
+/// kind of failure, never the store's own text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexErrorCodeV1 {
+    /// The index failed verification: a record was edited, removed or
+    /// added since the store opened.
+    IndexTampered,
+    /// A lock the store needs is held by another writer or unusable.
+    IndexLocked,
+    /// The file system refused a read or a write.
+    IndexIo,
+    /// Anything else the store could not read as it writes it.
+    IndexUnreadable,
+}
+
 /// The run store as `/ready` reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunStoreStatusV1 {
@@ -1052,6 +1068,12 @@ pub struct RunStoreStatusV1 {
     pub index_head: Option<String>,
     pub index_tampered: bool,
     pub index_tail_repaired: bool,
+    /// Why the run index could not be verified at the last check, on both
+    /// surfaces; absent while it verifies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_error_code: Option<IndexErrorCodeV1>,
+    /// Operator surface only: the store's own error text, which can name
+    /// files by path. The server logs it once per change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index_error: Option<String>,
 }

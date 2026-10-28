@@ -30,7 +30,7 @@ use consensus_runtime::clock::{SystemClock, UuidIdGen};
 use consensus_runtime::fakes::{FakeMemoryClient, FakeProofVerifier};
 use consensus_runtime::policy::PolicyVersion;
 use consensus_runtime::receipts::protocol_label;
-use consensus_runtime::run_store::StoreHealth;
+use consensus_runtime::run_store::{IndexErrorCode, StoreHealth};
 use consensus_runtime::scenarios::retry_constraint_scenario;
 use consensus_runtime::{
     build_receipt_v2, parse_run_id, Clock, Orchestrator, Owner, Retention, TaskInput,
@@ -1002,7 +1002,10 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthV1> {
 
 /// The store's health, re-verified at most once per [`READY_CACHE_TTL`]:
 /// verifying the whole run index per request would let an anonymous
-/// caller make the server re-hash it at will.
+/// caller make the server re-hash it at will. A change of the index error
+/// (a new one, another one, or none any more) is logged once, with the
+/// store's text: the server log is where that text goes, never a public
+/// response ([`run_store_status`]).
 async fn store_health(state: &AppState) -> Result<StoreHealth, ApiError> {
     {
         let cache = state
@@ -1017,24 +1020,59 @@ async fn store_health(state: &AppState) -> Result<StoreHealth, ApiError> {
     }
     let manager = state.manager.clone();
     let health = blocking(move || manager.store().health()).await?;
-    *state
+    let mut cache = state
         .ready_cache
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), health.clone()));
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Compared with what is cached now, under the lock: two requests that
+    // both refreshed log a change once.
+    let previous = cache.as_ref().and_then(|(_, h)| h.index_error.clone());
+    if previous != health.index_error {
+        match (&health.index_error, health.index_error_code) {
+            (Some(detail), code) => eprintln!(
+                "[ready] the run index could not be verified ({}): {detail}",
+                code.map_or("unclassified", |c| c.as_str())
+            ),
+            (None, _) => eprintln!("[ready] the run index verifies again"),
+        }
+    }
+    *cache = Some((Instant::now(), health.clone()));
     Ok(health)
 }
 
-pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyV1>, ApiError> {
-    let health = store_health(&state).await?;
-    let stats = state.manager.stats();
-    let store = RunStoreStatusV1 {
+/// The API's name for a run index error code.
+fn index_error_code_v1(code: IndexErrorCode) -> IndexErrorCodeV1 {
+    match code {
+        IndexErrorCode::Tampered => IndexErrorCodeV1::IndexTampered,
+        IndexErrorCode::Locked => IndexErrorCodeV1::IndexLocked,
+        IndexErrorCode::Io => IndexErrorCodeV1::IndexIo,
+        IndexErrorCode::Unreadable => IndexErrorCodeV1::IndexUnreadable,
+    }
+}
+
+/// The run store as `/ready` reports it on `surface`. Both surfaces get the
+/// stable code of an index error ([`StoreHealth::index_error_code`]); only
+/// the operator surface gets the store's own text, which can name the
+/// index, its lock or a run's files by absolute path.
+pub fn run_store_status(health: &StoreHealth, surface: Surface) -> RunStoreStatusV1 {
+    RunStoreStatusV1 {
         ok: health.index_head.is_some() && !health.index_tampered,
         index_seq: health.index_head.as_ref().map(|h| h.seq),
         index_head: health.index_head.as_ref().map(|h| h.hash.clone()),
         index_tampered: health.index_tampered,
         index_tail_repaired: health.index_tail_repaired,
-        index_error: health.index_error.clone(),
-    };
+        index_error_code: health.index_error_code.map(index_error_code_v1),
+        index_error: match surface {
+            Surface::Operator => health.index_error.clone(),
+            Surface::Public => None,
+        },
+    }
+}
+
+pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyV1>, ApiError> {
+    let health = store_health(&state).await?;
+    let stats = state.manager.stats();
+    let store = run_store_status(&health, state.surface());
     let showcase = state.showcase.status();
     let live = live_readiness(&state).await?;
     // A tripped or unreadable ledger, or an evidence source that is not
@@ -1200,5 +1238,63 @@ pub async fn console(State(state): State<AppState>) -> Response {
             response
         }
         None => ApiError::not_found().into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use consensus_runtime::IndexHead;
+
+    #[test]
+    fn the_public_ready_names_an_index_error_by_code_never_by_its_text() {
+        // The text an event log error prints: absolute paths of the
+        // deployment template's store.
+        let detail = "event log /var/lib/consensus/runs/runs/run-x.jsonl is locked by another writer (lock file /var/lib/consensus/runs/runs/run-x.lock)";
+        let failing = StoreHealth {
+            index_error: Some(detail.into()),
+            index_error_code: Some(IndexErrorCode::Locked),
+            ..StoreHealth::default()
+        };
+        let public = run_store_status(&failing, Surface::Public);
+        assert!(!public.ok);
+        assert_eq!(public.index_error_code, Some(IndexErrorCodeV1::IndexLocked));
+        assert_eq!(public.index_error, None);
+        let json = serde_json::to_string(&public).unwrap();
+        assert!(
+            json.contains(r#""index_error_code":"index_locked""#),
+            "{json}"
+        );
+        for leak in ["/var/lib", "run-x", "lock file", "index_error\""] {
+            assert!(!json.contains(leak), "{leak}: {json}");
+        }
+        // The operator keeps the text next to the code.
+        let operator = run_store_status(&failing, Surface::Operator);
+        assert_eq!(operator.index_error.as_deref(), Some(detail));
+        assert_eq!(
+            operator.index_error_code,
+            Some(IndexErrorCodeV1::IndexLocked)
+        );
+        // Every code has the runtime's spelling on the wire.
+        for code in IndexErrorCode::ALL {
+            assert_eq!(
+                serde_json::to_value(index_error_code_v1(code)).unwrap(),
+                code.as_str()
+            );
+        }
+        // A verified index carries neither.
+        let healthy = StoreHealth {
+            index_head: Some(IndexHead {
+                seq: 4,
+                hash: "ab".repeat(32),
+            }),
+            ..StoreHealth::default()
+        };
+        for surface in [Surface::Public, Surface::Operator] {
+            let view = run_store_status(&healthy, surface);
+            assert!(view.ok);
+            assert_eq!(view.index_seq, Some(4));
+            assert_eq!((view.index_error_code, view.index_error), (None, None));
+        }
     }
 }

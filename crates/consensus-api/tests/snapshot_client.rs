@@ -544,13 +544,19 @@ fn tampering_with_any_file_fails_open_with_its_code() {
         "{err}"
     );
 
+    // Edits of a response or a capture-time report below rewrite the
+    // manifest's digests as well (`recompute_digests`): with SHA256SUMS
+    // alone regenerated, the manifest's `response_sha256`/`verify_sha256`
+    // would refuse them first (`a_record_text_edited_with_the_listing_
+    // regenerated_does_not_load`), and these cases are about the checks
+    // behind the digests.
     let dir = build("response-ids");
     let response_path = capture_file(&dir, &format!("{LIST_ID}.response.json"));
     let mut response: Value =
         serde_json::from_slice(&std::fs::read(&response_path).unwrap()).unwrap();
     response["memories"][2]["id"] = json!("999");
     std::fs::write(&response_path, response.to_string()).unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     assert_eq!(load_error(&dir).code, codes::MEMORY_IDS_MISMATCH);
 
     let dir = build("manifest-ids-reordered");
@@ -572,7 +578,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
         serde_json::from_slice(&std::fs::read(&response_path).unwrap()).unwrap();
     response["proof"]["anchor_hex"] = json!("ab".repeat(32));
     std::fs::write(&response_path, response.to_string()).unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     let err = load_error(&dir);
     assert_eq!(err.code, codes::ANCHOR_MISMATCH, "{err}");
 
@@ -581,7 +587,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
     let mut report: Value = serde_json::from_slice(&std::fs::read(&verify_path).unwrap()).unwrap();
     report["kind"] = json!("catalog");
     std::fs::write(&verify_path, report.to_string()).unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     assert_eq!(load_error(&dir).code, codes::VERIFY_RECORD_INVALID);
 
     // A capture-time record verified against another anchor.
@@ -592,7 +598,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
         report_with(ISOLATION_ID, "anchor_digest", json!("ab".repeat(32))),
     )
     .unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     let err = load_error(&dir);
     assert_eq!(err.code, codes::ANCHOR_MISMATCH, "{err}");
     assert!(
@@ -609,7 +615,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
             serde_json::from_slice(&std::fs::read(&verify_path).unwrap()).unwrap();
         report.as_object_mut().unwrap().remove(key);
         std::fs::write(&verify_path, report.to_string()).unwrap();
-        write_checksums(&dir);
+        recompute_digests(&dir);
         let err = load_error(&dir);
         assert_eq!(err.code, codes::VERIFY_RECORD_INVALID, "{key}: {err}");
         assert!(err.message.contains(key), "{err}");
@@ -626,7 +632,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
         serde_json::from_slice(&std::fs::read(&response_path).unwrap()).unwrap();
     response["memories"][4]["project"] = json!("tenant-b");
     std::fs::write(&response_path, response.to_string()).unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     let err = load_error(&dir);
     assert_eq!(err.code, codes::FOREIGN_RECORD, "{err}");
     assert!(err.message.contains("\"tenant-b\""), "{err}");
@@ -1298,7 +1304,9 @@ fn one_proof_cannot_stand_for_both_served_captures() {
     );
     assert_eq!(open_error(&dir).code, codes::PROOF_SHARED);
 
-    // The same response-reported proof_blake3 on both captures.
+    // The same response-reported proof_blake3 on both captures (the
+    // manifest's digest of the edited response rewritten too, so the case
+    // reaches the shared-proof check behind it).
     let dir = build("shared-blake3");
     let response_path = capture_file(&dir, &format!("{ISOLATION_ID}.response.json"));
     let mut response: Value =
@@ -1308,7 +1316,7 @@ fn one_proof_cannot_stand_for_both_served_captures() {
     edit_manifest(&dir, |m| {
         m["captures"][1]["proof_blake3"] = json!(list_spec().proof_blake3)
     });
-    write_checksums(&dir);
+    recompute_digests(&dir);
     assert_eq!(load_error(&dir).code, codes::PROOF_SHARED);
 
     // Proof and witness swapped BETWEEN the captures, capture-time records
@@ -1389,6 +1397,498 @@ fn the_client_is_plain_data_that_can_be_shared_between_runs() {
         7
     );
     assert!(format!("{client:?}").contains(SNAPSHOT_ID));
+}
+
+// ---------------------------------------------------------------------
+// The record texts, the manifest and the verifier binary bound (review R6)
+// ---------------------------------------------------------------------
+
+/// The text a tampered snapshot would serve instead of the 2026-09
+/// decision: the proofs untouched (they do not bind the text, HY-1).
+const EDITED_TEXT: &str =
+    "Decision (edited after capture): raise the payment-client retry cap to 10 attempts.";
+
+/// The text of the list capture's first record, as captured.
+fn captured_text(index: usize) -> String {
+    let list: Value = serde_json::from_str(&fixture("list-demo-repo.response.json")).unwrap();
+    list["memories"][index]["text"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn a_record_text_edited_with_the_listing_regenerated_does_not_load() {
+    let original = captured_text(0);
+    // Review R6: one record's text edited in the list response and
+    // SHA256SUMS regenerated over it. The manifest's response_sha256
+    // refuses it before the response is parsed, naming the file by its
+    // relative path and quoting neither text; boot stops there, before any
+    // verifier run.
+    let dir = build("edited-text");
+    edit_record_text(&dir, LIST_ID, 0, EDITED_TEXT);
+    write_checksums(&dir);
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::DIGEST_MISMATCH, "{err}");
+    assert!(
+        err.message
+            .starts_with(&format!("captures/{LIST_ID}.response.json")),
+        "{err}"
+    );
+    let local = dir.to_string_lossy().into_owned();
+    for leak in [EDITED_TEXT, original.as_str(), local.as_str(), "synthetic"] {
+        assert!(!err.to_string().contains(leak), "{err} leaks {leak:?}");
+    }
+    let cfg = config(&dir, "hyphae");
+    let mut verifier = scripted(&cfg, None);
+    assert_eq!(
+        SnapshotMemoryClient::open(&cfg, &mut verifier).unwrap_err(),
+        err
+    );
+    assert!(verifier.runner.calls.is_empty(), "nothing was verified");
+
+    // The binding is of bytes, not of meaning: the isolation response
+    // re-serialized with the same JSON, or a field of the capture-time
+    // report the loader never reads, changes the digest just the same.
+    let dir = build("reserialized-response");
+    let path = dir
+        .join("captures")
+        .join(format!("{ISOLATION_ID}.response.json"));
+    let same: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    std::fs::write(&path, same.to_string()).unwrap();
+    write_checksums(&dir);
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::DIGEST_MISMATCH, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{ISOLATION_ID}.response.json")),
+        "{err}"
+    );
+    let dir = build("edited-report");
+    std::fs::write(
+        dir.join("captures").join(format!("{LIST_ID}.verify.json")),
+        report_with(LIST_ID, "total_file_bytes", json!(1)),
+    )
+    .unwrap();
+    write_checksums(&dir);
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::DIGEST_MISMATCH, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{LIST_ID}.verify.json")),
+        "{err}"
+    );
+
+    // Both digests are required (no manifest exists without them) and are
+    // 64 lowercase hex digits.
+    for (name, edit, code) in [
+        (
+            "no-response-digest",
+            Box::new(|m: &mut Value| {
+                m["captures"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("response_sha256");
+            }) as Box<dyn FnOnce(&mut Value)>,
+            codes::MANIFEST_INVALID,
+        ),
+        (
+            "no-verify-digest",
+            Box::new(|m: &mut Value| {
+                m["captures"][1]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("verify_sha256");
+            }),
+            codes::MANIFEST_INVALID,
+        ),
+        (
+            "response-digest-uppercase",
+            Box::new(|m: &mut Value| {
+                let upper = m["captures"][0]["response_sha256"]
+                    .as_str()
+                    .unwrap()
+                    .to_ascii_uppercase();
+                m["captures"][0]["response_sha256"] = json!(upper);
+            }),
+            codes::CAPTURE_INVALID,
+        ),
+        (
+            "verify-digest-short",
+            Box::new(|m: &mut Value| m["captures"][1]["verify_sha256"] = json!("ab".repeat(31))),
+            codes::CAPTURE_INVALID,
+        ),
+    ] {
+        let dir = build_with(
+            &format!("manifest-{name}"),
+            &[list_spec(), isolation_spec()],
+            edit,
+        );
+        let err = load_error(&dir);
+        assert_eq!(err.code, code, "{name}: {err}");
+    }
+}
+
+#[test]
+fn the_served_responses_and_reports_are_rechecked_after_boot() {
+    let dir = build("recheck-responses");
+    let (mut client, _) = open(&dir);
+    assert!(client.status().unwrap().healthy);
+    let local = dir.to_string_lossy().into_owned();
+    let original = captured_text(0);
+
+    // A record text edited after boot: unhealthy with the code and the
+    // response's relative path, neither text, no filesystem path.
+    let response = dir
+        .join("captures")
+        .join(format!("{LIST_ID}.response.json"));
+    let captured = std::fs::read(&response).unwrap();
+    edit_record_text(&dir, LIST_ID, 0, EDITED_TEXT);
+    let status = client.status().unwrap();
+    assert!(!status.healthy, "{}", status.detail);
+    assert!(
+        status.detail.starts_with(&format!(
+            "{}: captures/{LIST_ID}.response.json",
+            codes::DIGEST_MISMATCH
+        )),
+        "{}",
+        status.detail
+    );
+    for leak in [EDITED_TEXT, original.as_str(), local.as_str()] {
+        assert!(!status.detail.contains(leak), "{}", status.detail);
+    }
+    assert_eq!(
+        client.check_artifacts().unwrap_err().code,
+        codes::DIGEST_MISMATCH
+    );
+    // The records are the ones boot read; the re-check reports the disk.
+    let records = client.recall(&ProjectId::new(PROJECT), "q", 5).unwrap();
+    assert_eq!(records[0].content, original);
+    std::fs::write(&response, &captured).unwrap();
+    assert!(client.status().unwrap().healthy, "restored");
+
+    // The isolation capture's capture-time report edited, then its
+    // response deleted.
+    let report = dir
+        .join("captures")
+        .join(format!("{ISOLATION_ID}.verify.json"));
+    let captured = std::fs::read(&report).unwrap();
+    std::fs::write(
+        &report,
+        report_with(ISOLATION_ID, "total_file_bytes", json!(1)),
+    )
+    .unwrap();
+    let err = client.check_artifacts().unwrap_err();
+    assert_eq!(err.code, codes::DIGEST_MISMATCH, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{ISOLATION_ID}.verify.json")),
+        "{err}"
+    );
+    std::fs::write(&report, &captured).unwrap();
+    client.check_artifacts().expect("restored");
+    let response = dir
+        .join("captures")
+        .join(format!("{ISOLATION_ID}.response.json"));
+    std::fs::remove_file(&response).unwrap();
+    let err = client.check_artifacts().unwrap_err();
+    assert_eq!(err.code, codes::FILE_UNREADABLE, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{ISOLATION_ID}.response.json")),
+        "{err}"
+    );
+}
+
+#[test]
+fn the_pinned_manifest_digest_refuses_every_other_manifest() {
+    let dir = build("manifest-pin");
+    let local = dir.to_string_lossy().into_owned();
+    let pin = manifest_sha256(&dir);
+    let snapshot = Snapshot::load_pinned(&dir, None, Some(&pin)).expect("the pinned manifest");
+    assert_eq!(snapshot.manifest_sha256(), pin);
+    assert_eq!(
+        Snapshot::load(&dir, None).unwrap().manifest_sha256(),
+        pin,
+        "the digest of the bytes loaded"
+    );
+    Snapshot::load_pinned(
+        &dir,
+        None,
+        Some(&format!(" {}\n", pin.to_ascii_uppercase())),
+    )
+    .expect("case and whitespace as the configuration normalizes them");
+
+    // Another digest: refused before the manifest is parsed, both digests
+    // and the variable named, no path.
+    let other = "ab".repeat(32);
+    let err = Snapshot::load_pinned(&dir, None, Some(&other)).unwrap_err();
+    assert_eq!(err.code, codes::MANIFEST_PIN_MISMATCH, "{err}");
+    assert!(err.message.starts_with("manifest.json"), "{err}");
+    for part in ["CONSENSUS_SNAPSHOT_MANIFEST_SHA256", &pin, &other] {
+        assert!(err.message.contains(part), "{err}");
+    }
+    assert!(!err.message.contains(&local), "{err}");
+
+    // Review R6: a consistent rewrite (a record text edited, the
+    // manifest's digest of it and SHA256SUMS regenerated). Nothing in the
+    // directory tells: unpinned, it loads and serves the edited text. The
+    // pin refuses it, and nothing is verified for it.
+    edit_record_text(&dir, LIST_ID, 0, EDITED_TEXT);
+    recompute_digests(&dir);
+    let rewritten = Snapshot::load(&dir, None).expect("consistent, so unpinned it loads");
+    assert_eq!(rewritten.records()[0].text, EDITED_TEXT);
+    let err = Snapshot::load_pinned(&dir, None, Some(&pin)).unwrap_err();
+    assert_eq!(err.code, codes::MANIFEST_PIN_MISMATCH, "{err}");
+    assert!(!err.message.contains(EDITED_TEXT), "{err}");
+    let cfg = pinned_config(&dir, "hyphae", Some(&pin), None);
+    assert_eq!(cfg.manifest_sha256.as_deref(), Some(pin.as_str()));
+    let mut verifier = scripted(&cfg, None);
+    let err = SnapshotMemoryClient::open(&cfg, &mut verifier).unwrap_err();
+    assert_eq!(err.code, codes::MANIFEST_PIN_MISMATCH, "{err}");
+    assert!(verifier.runner.calls.is_empty(), "nothing was verified");
+    // The pin is only as good as the value pinned: the rewritten manifest's
+    // own digest opens it. Hence the published digest (README, release tag).
+    let cfg = pinned_config(&dir, "hyphae", Some(&manifest_sha256(&dir)), None);
+    let mut verifier = scripted(&cfg, None);
+    SnapshotMemoryClient::open(&cfg, &mut verifier).expect("pinned to the rewrite itself");
+
+    // The listing still comes first: a manifest byte flipped without
+    // SHA256SUMS regenerated is a checksum error, pinned or not.
+    let dir = build("manifest-pin-listing-first");
+    let pin = manifest_sha256(&dir);
+    flip_first_byte(&dir.join("manifest.json"));
+    assert_eq!(
+        Snapshot::load_pinned(&dir, None, Some(&pin))
+            .unwrap_err()
+            .code,
+        codes::CHECKSUMS_MISMATCH
+    );
+}
+
+#[test]
+fn the_digest_pins_are_validated_and_a_pinned_binary_must_be_an_absolute_path() {
+    let from = |pairs: &[(&str, &str)]| {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        SnapshotConfig::from_vars(|name| {
+            pairs
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+        })
+    };
+    const MANIFEST_PIN: &str = "CONSENSUS_SNAPSHOT_MANIFEST_SHA256";
+    const BIN_PIN: &str = "CONSENSUS_HYPHAE_BIN_SHA256";
+    const BIN: &str = "CONSENSUS_HYPHAE_BIN";
+    let base = [
+        ("CONSENSUS_SNAPSHOT_DIR", "/srv/snapshots/snap"),
+        ("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", ANCHOR),
+    ];
+    // Absolute on every platform (a Unix path has no drive on Windows).
+    let absolute = std::env::temp_dir()
+        .join("hyphae-pinned")
+        .to_string_lossy()
+        .into_owned();
+    let with = |extra: &[(&'static str, &str)]| {
+        let mut pairs: Vec<(&str, &str)> = base.to_vec();
+        pairs.extend_from_slice(extra);
+        from(&pairs)
+    };
+
+    // Unset: nothing pinned.
+    let cfg = with(&[]).unwrap().unwrap();
+    assert_eq!((cfg.manifest_sha256, cfg.binary_sha256), (None, None));
+    let cfg = with(&[(MANIFEST_PIN, "  "), (BIN_PIN, "")])
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (cfg.manifest_sha256, cfg.binary_sha256),
+        (None, None),
+        "an empty value is unset"
+    );
+
+    // Set: normalized (whitespace, case) like the anchor.
+    let digest = "c3".repeat(32);
+    let padded = format!(" {}\r\n", digest.to_ascii_uppercase());
+    let cfg = with(&[
+        (MANIFEST_PIN, padded.as_str()),
+        (BIN_PIN, padded.as_str()),
+        (BIN, absolute.as_str()),
+    ])
+    .unwrap()
+    .unwrap();
+    assert_eq!(cfg.manifest_sha256.as_deref(), Some(digest.as_str()));
+    assert_eq!(cfg.binary_sha256.as_deref(), Some(digest.as_str()));
+    assert_eq!(cfg.binary, absolute);
+
+    // Unusable: a configuration error naming the variable (live-enabled
+    // startup stops on it), never an unpinned configuration.
+    let short = digest[..63].to_string();
+    let long = format!("{digest}0");
+    let glyph = format!("{}g", &digest[..63]);
+    let prefixed = format!("sha256:{digest}");
+    let sums_line = format!("{digest}  manifest.json");
+    for var in [MANIFEST_PIN, BIN_PIN] {
+        for bad in [
+            short.as_str(),
+            long.as_str(),
+            glyph.as_str(),
+            prefixed.as_str(),
+            sums_line.as_str(),
+            "<64-hex-sha256>",
+        ] {
+            let err = match with(&[(var, bad), (BIN, absolute.as_str())]) {
+                Err(err) => err,
+                Ok(cfg) => panic!("{var}={bad:?} must be an error, got {cfg:?}"),
+            };
+            assert_eq!(err.setting, var, "{bad:?}");
+            assert!(err.to_string().starts_with(var), "{err}");
+        }
+    }
+
+    // With the binary pinned, CONSENSUS_HYPHAE_BIN must be an absolute
+    // path: the default `hyphae` (looked up on PATH) and relative paths are
+    // configuration errors naming it.
+    for bin in [
+        None,
+        Some("hyphae"),
+        Some("./hyphae"),
+        Some("scripts/hyphae-docker.cmd"),
+    ] {
+        let mut extra = vec![(BIN_PIN, digest.as_str())];
+        if let Some(bin) = bin {
+            extra.push((BIN, bin));
+        }
+        let err = match with(&extra) {
+            Err(err) => err,
+            Ok(cfg) => panic!("{bin:?} must be refused with the binary pinned, got {cfg:?}"),
+        };
+        assert_eq!(err.setting, BIN, "{bin:?}");
+        assert!(
+            err.message.contains("absolute path") && err.message.contains(BIN_PIN),
+            "{err}"
+        );
+    }
+    // Unpinned, a relative binary stays accepted (the dev machine's
+    // container wrapper: nothing is hashed then), and the manifest pin
+    // alone puts no condition on the binary.
+    let cfg = with(&[(BIN, "scripts/hyphae-docker.cmd")])
+        .unwrap()
+        .unwrap();
+    assert_eq!(cfg.binary_sha256, None);
+    let cfg = with(&[
+        (MANIFEST_PIN, digest.as_str()),
+        (BIN, "scripts/hyphae-docker.cmd"),
+    ])
+    .unwrap()
+    .unwrap();
+    assert_eq!(cfg.binary, "scripts/hyphae-docker.cmd");
+}
+
+#[test]
+fn a_pinned_verifier_binary_must_be_the_build_the_snapshot_was_captured_with() {
+    let dir = build("binary-pin");
+    let root = dir.root().to_path_buf();
+    let (binary, log) = fake_hyphae(&root);
+    // The fake binary recorded as the capture build: its real digest is the
+    // manifest's hyphae.binary_sha256, and the pinned boot runs it.
+    let digest = record_capture_binary(&dir, &binary);
+    let pinned = |binary: &str| pinned_config(&dir, binary, None, Some(&digest));
+    let open_with = |cfg: &SnapshotConfig| {
+        SnapshotMemoryClient::open(cfg, &mut verifier_from_config(cfg, SystemCommandRunner))
+    };
+    let client = open_with(&pinned(&binary)).expect("the pinned capture build boots");
+    assert_eq!(client.snapshot_status().hyphae_binary_sha256, digest);
+    assert_eq!(logged_calls(&log).len(), 2);
+
+    // Review R6: CONSENSUS_HYPHAE_BIN replaced by a wrapper that prints the
+    // capture-time report next to the proof it is given, and the list proof
+    // tampered with, every digest regenerated around it. Unpinned, the
+    // lie passes boot...
+    let (wrapper, wrapper_log) = report_printing_wrapper(&root);
+    flip_first_byte(&dir.join("captures").join(format!("{LIST_ID}.proof")));
+    recompute_digests(&dir);
+    open_with(&config(&dir, &wrapper)).expect("unpinned, nothing tells the wrapper from Hyphae");
+    assert_eq!(logged_calls(&wrapper_log).len(), 2);
+    // ...pinned, it never runs, and the message names the variables and
+    // the digests, never the path.
+    let err = open_with(&pinned(&wrapper)).unwrap_err();
+    assert_eq!(err.code, codes::VERIFIER_BINARY_MISMATCH, "{err}");
+    assert!(
+        err.message.contains("CONSENSUS_HYPHAE_BIN ")
+            && err.message.contains("CONSENSUS_HYPHAE_BIN_SHA256")
+            && err.message.contains(&digest),
+        "{err}"
+    );
+    let shown = err.to_string();
+    for leak in [
+        root.to_string_lossy().as_ref(),
+        "lying-wrapper",
+        "hyphae.cmd",
+    ] {
+        assert!(!shown.contains(leak), "{shown} leaks {leak:?}");
+    }
+    assert_eq!(logged_calls(&wrapper_log).len(), 2, "the wrapper never ran");
+    // The pinned build itself refuses the tampered proof.
+    let calls = logged_calls(&log).len();
+    let err = open_with(&pinned(&binary)).unwrap_err();
+    assert_eq!(err.code, codes::BOOT_VERIFICATION_FAILED, "{err}");
+    assert_eq!(logged_calls(&log).len(), calls + 1);
+
+    // The pinned file altered by one line, missing, or not a regular file:
+    // the same code, before any verifier run.
+    let altered = root.join(if cfg!(windows) {
+        "altered.cmd"
+    } else {
+        "altered"
+    });
+    let mut bytes = std::fs::read(&binary).unwrap();
+    bytes.extend_from_slice(if cfg!(windows) {
+        b"rem altered\r\n"
+    } else {
+        b"# altered\n"
+    });
+    std::fs::write(&altered, bytes).unwrap();
+    let missing = root.join("no-such-hyphae");
+    for (label, path) in [
+        ("altered", altered.as_path()),
+        ("missing", missing.as_path()),
+        ("a directory", root.as_path()),
+    ] {
+        let calls = logged_calls(&log).len();
+        let err = open_with(&pinned(&path.to_string_lossy())).unwrap_err();
+        assert_eq!(err.code, codes::VERIFIER_BINARY_MISMATCH, "{label}: {err}");
+        assert!(
+            !err.to_string().contains(root.to_string_lossy().as_ref()),
+            "{label}: {err}"
+        );
+        assert_eq!(logged_calls(&log).len(), calls, "{label}: nothing ran");
+    }
+
+    // A snapshot captured with another Hyphae build: the binary is the
+    // pinned one, the manifest's build is not.
+    let dir = build("binary-pin-other-build");
+    let (binary, log) = fake_hyphae(dir.root());
+    let digest = sha256_hex(&std::fs::read(&binary).unwrap());
+    let recorded = "f0e1d2c3".repeat(8);
+    let cfg = pinned_config(&dir, &binary, None, Some(&digest));
+    let err = open_with(&cfg).unwrap_err();
+    assert_eq!(err.code, codes::CAPTURE_BINARY_MISMATCH, "{err}");
+    for part in [
+        "hyphae.binary_sha256",
+        "CONSENSUS_HYPHAE_BIN_SHA256",
+        &recorded,
+        &digest,
+        SNAPSHOT_ID,
+    ] {
+        assert!(err.message.contains(part), "{err}");
+    }
+    assert!(logged_calls(&log).is_empty(), "nothing was verified");
+    // Unpinned, nothing compares the two builds.
+    open_with(&config(&dir, &binary)).expect("unpinned, the build is not checked");
 }
 
 /// A two-claim run: the Critic finds nothing, the Evaluator corroborates

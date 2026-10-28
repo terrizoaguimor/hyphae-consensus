@@ -76,6 +76,14 @@ pub enum FactoryMode {
         hyphae_bin: String,
         /// `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`: must be the manifest's.
         anchor: String,
+        /// `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`; `None` leaves the manifest
+        /// unpinned.
+        manifest_sha256: Option<String>,
+        /// `CONSENSUS_HYPHAE_BIN_SHA256` (the fixture records the fake
+        /// binary's digest as the capture build,
+        /// `super::snapshot::record_capture_binary`); `None` leaves the
+        /// verifier binary unpinned.
+        hyphae_bin_sha256: Option<String>,
     },
     /// What `serve-public` makes of these snapshot variables with live mode
     /// enabled ([`SnapshotFactory::live_evidence_from_vars`]): a factory
@@ -279,6 +287,19 @@ pub fn snapshot_factory(
     hyphae_bin: &str,
     anchor: &str,
 ) -> SnapshotFactory {
+    pinned_snapshot_factory(dir, verifier_dir, hyphae_bin, anchor, None, None)
+}
+
+/// [`snapshot_factory`] with the digest pins
+/// (`CONSENSUS_SNAPSHOT_MANIFEST_SHA256`, `CONSENSUS_HYPHAE_BIN_SHA256`).
+pub fn pinned_snapshot_factory(
+    dir: &Path,
+    verifier_dir: Option<&str>,
+    hyphae_bin: &str,
+    anchor: &str,
+    manifest_sha256: Option<&str>,
+    hyphae_bin_sha256: Option<&str>,
+) -> SnapshotFactory {
     let vars = [
         (
             "CONSENSUS_SNAPSHOT_DIR",
@@ -289,6 +310,14 @@ pub fn snapshot_factory(
         (
             "CONSENSUS_SNAPSHOT_VERIFIER_DIR",
             verifier_dir.map(str::to_string),
+        ),
+        (
+            "CONSENSUS_SNAPSHOT_MANIFEST_SHA256",
+            manifest_sha256.map(str::to_string),
+        ),
+        (
+            "CONSENSUS_HYPHAE_BIN_SHA256",
+            hyphae_bin_sha256.map(str::to_string),
         ),
     ];
     let cfg = SnapshotConfig::from_vars(|name| {
@@ -342,11 +371,20 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
             verifier_dir,
             hyphae_bin,
             anchor,
+            manifest_sha256,
+            hyphae_bin_sha256,
         } => {
             let factory = Arc::new(
-                snapshot_factory(&dir, verifier_dir.as_deref(), &hyphae_bin, &anchor)
-                    .with_status_ttl(snapshot_status_ttl)
-                    .with_log(log),
+                pinned_snapshot_factory(
+                    &dir,
+                    verifier_dir.as_deref(),
+                    &hyphae_bin,
+                    &anchor,
+                    manifest_sha256.as_deref(),
+                    hyphae_bin_sha256.as_deref(),
+                )
+                .with_status_ttl(snapshot_status_ttl)
+                .with_log(log),
             );
             snapshot = Some(factory.clone());
             factory

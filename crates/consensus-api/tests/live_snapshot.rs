@@ -21,11 +21,13 @@ mod support;
 use axum::http::StatusCode;
 use chrono::{DateTime, FixedOffset};
 use common::live::{
-    live_config, live_server, snapshot_factory, FactoryMode, LiveOptions, VISITOR_IP,
+    live_config, live_server, pinned_snapshot_factory, snapshot_factory, FactoryMode, LiveOptions,
+    VISITOR_IP,
 };
 use common::snapshot::{
-    build, config as snapshot_config, copy_dir, edit_manifest, fake_hyphae, flip_first_byte,
-    logged_calls, proof_bytes, recompute_digests, restore_dir, sha256_hex,
+    build, config as snapshot_config, copy_dir, edit_manifest, edit_record_text, fake_hyphae,
+    flip_first_byte, logged_calls, manifest_sha256, proof_bytes, recompute_digests,
+    record_capture_binary, report_printing_wrapper, restore_dir, sha256_hex,
     swap_list_with_isolation, verify_report, write_checksums, SnapshotDir, TempRoot, ANCHOR,
     CAPTURED_AT, ISOLATION_ID, LIST_ID, OTHER, PROJECT, RECORD_IDS, SNAPSHOT_ID,
 };
@@ -57,6 +59,10 @@ const TOKEN: &str = "tok-snapshot-1";
 /// The record the fake Evaluator cites: the fact that payment client
 /// timeouts correlate with retry bursts above 5 attempts.
 const CITED: &str = RECORD_IDS[1];
+/// The text a tampered snapshot would serve instead of the 2026-09
+/// decision (review R6): the proofs untouched, which do not bind the text.
+const EDITED_TEXT: &str =
+    "Decision (edited after capture): raise the payment-client retry cap to 10 attempts.";
 /// The explicit per-call input cap (tokens) of the first tests, which are
 /// about paths and verification, not the budget: below the production
 /// default (32,000, [`defaults::INPUT_CAP_TOKENS`]), it keeps their bound on
@@ -123,11 +129,16 @@ fn list_request() -> Value {
 }
 
 /// A fixture snapshot directory with the fake `hyphae` binary next to it,
-/// removed with it when the fixture is dropped.
+/// removed with it when the fixture is dropped. The fake binary is the
+/// snapshot's capture build: its real SHA-256 is in the manifest
+/// (`hyphae.binary_sha256`), and the fixture boots, as production does,
+/// with the verifier binary and the manifest pinned.
 struct Fixture {
     snapshot: SnapshotDir,
     dir: PathBuf,
     hyphae_bin: String,
+    /// The fake binary's SHA-256 (`CONSENSUS_HYPHAE_BIN_SHA256`).
+    hyphae_bin_sha256: String,
     log: PathBuf,
 }
 
@@ -136,24 +147,31 @@ impl Fixture {
         Self::of(build(&format!("live-{test}")))
     }
 
-    /// The fake binary next to an already assembled snapshot.
+    /// The fake binary next to an already assembled snapshot, recorded in
+    /// its manifest as the capture build.
     fn of(snapshot: SnapshotDir) -> Self {
         let dir = snapshot.path().to_path_buf();
         let (hyphae_bin, log) = fake_hyphae(snapshot.root());
+        let hyphae_bin_sha256 = record_capture_binary(&dir, &hyphae_bin);
         Self {
             snapshot,
             dir,
             hyphae_bin,
+            hyphae_bin_sha256,
             log,
         }
     }
 
+    /// The production factory over this snapshot, both digests pinned (the
+    /// manifest as it is now).
     fn factory_mode(&self) -> FactoryMode {
         FactoryMode::Snapshot {
             dir: self.dir.clone(),
             verifier_dir: None,
             hyphae_bin: self.hyphae_bin.clone(),
             anchor: ANCHOR.into(),
+            manifest_sha256: Some(manifest_sha256(&self.dir)),
+            hyphae_bin_sha256: Some(self.hyphae_bin_sha256.clone()),
         }
     }
 
@@ -178,7 +196,9 @@ impl Fixture {
         }
     }
 
-    /// The snapshot variables `serve-public` reads for this fixture.
+    /// The snapshot variables `serve-public` reads for this fixture, as
+    /// production sets them: both digests pinned (the manifest as it is
+    /// now, the fake binary as recorded).
     fn vars(&self) -> Vec<(&'static str, String)> {
         vec![
             (
@@ -187,7 +207,34 @@ impl Fixture {
             ),
             ("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", ANCHOR.into()),
             ("CONSENSUS_HYPHAE_BIN", self.hyphae_bin.clone()),
+            (
+                "CONSENSUS_SNAPSHOT_MANIFEST_SHA256",
+                manifest_sha256(&self.dir),
+            ),
+            (
+                "CONSENSUS_HYPHAE_BIN_SHA256",
+                self.hyphae_bin_sha256.clone(),
+            ),
         ]
+    }
+
+    /// [`vars`](Self::vars) without the two digest pins.
+    fn unpinned_vars(&self) -> Vec<(&'static str, String)> {
+        self.vars()
+            .into_iter()
+            .filter(|(k, _)| !k.ends_with("_SHA256"))
+            .collect()
+    }
+
+    /// [`vars`](Self::vars) with `name` set to `value` (added when absent).
+    fn vars_with(&self, name: &'static str, value: &str) -> Vec<(&'static str, String)> {
+        let mut vars: Vec<_> = self
+            .vars()
+            .into_iter()
+            .filter(|(k, _)| *k != name)
+            .collect();
+        vars.push((name, value.to_string()));
+        vars
     }
 
     /// A copy of the snapshot as it is now, next to it.
@@ -754,8 +801,8 @@ async fn wait_until(what: &str, done: impl Fn() -> bool) {
 
 /// A snapshot whose list capture's capture-time record names another
 /// proof digest than the verifier reports: everything else is consistent
-/// (digests, `SHA256SUMS`), so it loads, and its boot verification fails
-/// (`boot_verification_failed`).
+/// (the manifest's digests, `SHA256SUMS`), so it loads, and its boot
+/// verification fails (`boot_verification_failed`).
 fn unverifiable(test: &str) -> SnapshotDir {
     let snapshot = build(&format!("live-{test}"));
     let record = snapshot
@@ -765,7 +812,7 @@ fn unverifiable(test: &str) -> SnapshotDir {
         serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
     report["proof_digest"] = json!("ab".repeat(32));
     std::fs::write(&record, serde_json::to_string_pretty(&report).unwrap()).unwrap();
-    write_checksums(&snapshot);
+    recompute_digests(&snapshot);
     snapshot
 }
 
@@ -999,6 +1046,74 @@ async fn files_changed_after_boot_make_live_mode_unavailable_at_once_without_a_p
     for line in &lines {
         fx.assert_no_path("log line", line);
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_record_text_or_a_report_edited_after_boot_makes_live_mode_unavailable_at_once() {
+    // Review R6: the served captures' responses and capture-time reports
+    // are re-hashed with the proofs and witnesses, so an edit after boot
+    // turns live mode unavailable at once, with the code in the log only.
+    let edits: Vec<Tamper> = vec![
+        (
+            "a record text of the list response edited",
+            codes::DIGEST_MISMATCH,
+            |dir: &Path| edit_record_text(dir, LIST_ID, 0, EDITED_TEXT),
+        ),
+        (
+            "the isolation capture-time report edited",
+            codes::DIGEST_MISMATCH,
+            |dir: &Path| {
+                let path = dir
+                    .join("captures")
+                    .join(format!("{ISOLATION_ID}.verify.json"));
+                let mut report: Value =
+                    serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                report["total_file_bytes"] = json!(1);
+                std::fs::write(&path, report.to_string()).unwrap();
+            },
+        ),
+    ];
+    let fx = Fixture::new("edited-after-boot");
+    let backup = fx.backup();
+    let meta = serve(one_run());
+    let h = live_server(fx.default_options(), meta_config(&meta.base_url));
+    let cookie = h.session().await;
+    for (what, code, edit) in &edits {
+        edit(&fx.dir);
+        let status = h.factory.status();
+        assert!(!status.ok, "{what}");
+        assert_eq!(status.detail.as_deref(), Some(*code), "{what}");
+        let (_, ready, _) = h.server.json(Req::get("/api/v1/ready")).await;
+        assert_eq!(ready["ready"], false, "{what}: {ready}");
+        assert_eq!(ready["live"]["evidence_ok"], false, "{what}: {ready}");
+        let (_, caps, _) = h.server.json(Req::get("/api/v1/capabilities")).await;
+        assert_eq!(caps["live_enabled"], false, "{what}: {caps}");
+        let (status, body, _) = h.server.json(submit(&cookie)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{what}: {body}");
+        assert_eq!(body["code"], "live_unavailable", "{what}: {body}");
+        for (part, text) in [
+            ("ready", ready.to_string()),
+            ("capabilities", caps.to_string()),
+            ("503", body.to_string()),
+        ] {
+            fx.assert_no_path(&format!("{what}: {part}"), &text);
+            assert!(!text.contains(code), "{what}: {part}: {text}");
+            assert!(!text.contains(EDITED_TEXT), "{what}: {part}: {text}");
+        }
+        restore_dir(&fx.dir, &backup);
+        assert!(h.factory.status().ok, "{what}: restored");
+        let (_, ready, _) = h.server.json(Req::get("/api/v1/ready")).await;
+        assert_eq!(ready["live"]["evidence_ok"], true, "{what}: restored");
+    }
+    assert!(h.siteverify.calls().is_empty(), "no token was spent");
+    assert!(h.ledger_records("reservation").is_empty());
+    assert_eq!(meta.hits(), 0);
+    let mut expected = Vec::new();
+    for (_, code, _) in &edits {
+        expected.push(unavailable_line(code));
+        expected.push(OK_AGAIN_LINE.to_string());
+    }
+    assert_eq!(h.evidence_lines(), expected);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1263,8 +1378,8 @@ async fn a_snapshot_that_fails_boot_verification_leaves_the_portal_up_with_live_
 #[test]
 fn a_snapshot_of_another_project_does_not_boot_for_live_mode() {
     let fx = Fixture::new("other-project");
-    // A consistent snapshot of `payments-repo`: its records, its manifest,
-    // its list capture.
+    // A consistent snapshot of `payments-repo`: its records, its manifest
+    // (the response's digest included), its list capture.
     let response = fx.capture_file(&format!("{LIST_ID}.response.json"));
     let text = std::fs::read_to_string(&response).unwrap().replace(
         "\"project\": \"demo-repo\"",
@@ -1275,7 +1390,7 @@ fn a_snapshot_of_another_project_does_not_boot_for_live_mode() {
         m["project"] = json!("payments-repo");
         m["captures"][0]["arguments"]["project"] = json!("payments-repo");
     });
-    write_checksums(&fx.dir);
+    recompute_digests(&fx.dir);
     let cfg = snapshot_config(&fx.dir, &fx.hyphae_bin);
     let mut verifier = verifier_from_config(&cfg, SystemCommandRunner);
     // The snapshot client serves any one project...
@@ -1327,6 +1442,216 @@ fn a_proof_tampered_with_consistently_is_refused_by_the_verifier_on_every_platfo
         1,
         "the verifier saw the list proof and refused it"
     );
+}
+
+// ---------------------------------------------------------------------
+// The record texts, the manifest and the verifier binary bound (review R6)
+// ---------------------------------------------------------------------
+
+#[test]
+fn the_startup_line_says_whether_the_manifest_and_the_verifier_binary_are_pinned() {
+    let fx = Fixture::new("startup-pins");
+    let manifest = manifest_sha256(&fx.dir);
+    let binary = fx.hyphae_bin_sha256.clone();
+    // Pinned, as in production: each digest's prefix, never the digest.
+    let factory = pinned_snapshot_factory(
+        &fx.dir,
+        None,
+        &fx.hyphae_bin,
+        ANCHOR,
+        Some(&manifest),
+        Some(&binary),
+    );
+    let line = factory.startup_line();
+    assert!(
+        line.contains(&format!("manifest sha256 pinned {}…", &manifest[..12])),
+        "{line}"
+    );
+    assert!(
+        line.contains(&format!("verifier binary sha256 pinned {}…", &binary[..12])),
+        "{line}"
+    );
+    assert!(!line.contains("not pinned"), "{line}");
+    assert!(
+        !line.contains(&manifest) && !line.contains(&binary),
+        "prefixes only: {line}"
+    );
+    fx.assert_no_path("pinned startup line", &line);
+    // Unpinned: said so, with the variable that would pin it.
+    let line = snapshot_factory(&fx.dir, None, &fx.hyphae_bin, ANCHOR).startup_line();
+    assert!(
+        line.contains("manifest not pinned (CONSENSUS_SNAPSHOT_MANIFEST_SHA256 unset)"),
+        "{line}"
+    );
+    assert!(
+        line.contains("verifier binary not pinned (CONSENSUS_HYPHAE_BIN_SHA256 unset)"),
+        "{line}"
+    );
+    fx.assert_no_path("unpinned startup line", &line);
+    // One pinned, the other not.
+    let line = pinned_snapshot_factory(&fx.dir, None, &fx.hyphae_bin, ANCHOR, None, Some(&binary))
+        .startup_line();
+    assert!(
+        line.contains("manifest not pinned") && line.contains("verifier binary sha256 pinned"),
+        "{line}"
+    );
+}
+
+/// How a snapshot breaks its binding before boot: what is done to the
+/// fixture, and the variables `serve-public` then gets.
+type Unbind = fn(&Fixture) -> Vec<(&'static str, String)>;
+
+fn unbound() -> Vec<(&'static str, &'static str, Unbind)> {
+    vec![
+        (
+            "a record text edited, SHA256SUMS regenerated",
+            codes::DIGEST_MISMATCH,
+            |fx: &Fixture| {
+                edit_record_text(&fx.dir, LIST_ID, 0, EDITED_TEXT);
+                write_checksums(&fx.dir);
+                fx.vars()
+            },
+        ),
+        (
+            "a record text edited, the manifest's digests and SHA256SUMS rewritten to match, the published manifest pinned",
+            codes::MANIFEST_PIN_MISMATCH,
+            |fx: &Fixture| {
+                let published = manifest_sha256(&fx.dir);
+                edit_record_text(&fx.dir, LIST_ID, 0, EDITED_TEXT);
+                recompute_digests(&fx.dir);
+                fx.vars_with("CONSENSUS_SNAPSHOT_MANIFEST_SHA256", &published)
+            },
+        ),
+        (
+            "another manifest digest pinned",
+            codes::MANIFEST_PIN_MISMATCH,
+            |fx: &Fixture| fx.vars_with("CONSENSUS_SNAPSHOT_MANIFEST_SHA256", &"ab".repeat(32)),
+        ),
+        (
+            "the verifier binary replaced by a wrapper printing the capture-time reports",
+            codes::VERIFIER_BINARY_MISMATCH,
+            |fx: &Fixture| {
+                let (wrapper, _) = report_printing_wrapper(fx.snapshot.root());
+                fx.vars_with("CONSENSUS_HYPHAE_BIN", &wrapper)
+            },
+        ),
+        (
+            "a snapshot captured with another Hyphae build",
+            codes::CAPTURE_BINARY_MISMATCH,
+            |fx: &Fixture| {
+                edit_manifest(&fx.dir, |m| {
+                    m["hyphae"]["binary_sha256"] = json!("f0e1d2c3".repeat(8))
+                });
+                write_checksums(&fx.dir);
+                fx.vars()
+            },
+        ),
+    ]
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_snapshot_that_breaks_its_binding_leaves_the_portal_up_with_live_mode_unavailable() {
+    let captured = {
+        let list: Value =
+            serde_json::from_str(&common::snapshot::fixture("list-demo-repo.response.json"))
+                .unwrap();
+        list["memories"][0]["text"].as_str().unwrap().to_string()
+    };
+    for (n, (what, code, unbind)) in unbound().into_iter().enumerate() {
+        let fx = Fixture::new(&format!("unbound-{n}"));
+        let vars = unbind(&fx);
+        let local = fx.dir.to_string_lossy().into_owned();
+        // The strict entry point: the variable, the code, no path, no text.
+        let err = SnapshotFactory::from_vars(lookup(&vars))
+            .err()
+            .unwrap_or_else(|| panic!("{what}: must not boot"));
+        assert!(
+            err.starts_with(&format!("CONSENSUS_SNAPSHOT_DIR: {code}: ")),
+            "{what}: {err}"
+        );
+        for leak in [local.as_str(), EDITED_TEXT, captured.as_str(), "synthetic"] {
+            assert!(!err.contains(leak), "{what}: {err} leaks {leak:?}");
+        }
+        // What serve-public does with live mode enabled: the portal up,
+        // live mode unavailable, the code logged once and nowhere else.
+        let meta = serve(one_run());
+        let h = live_server(
+            LiveOptions {
+                factory: FactoryMode::SnapshotFromVars(vars),
+                ..LiveOptions::default()
+            },
+            meta_config(&meta.base_url),
+        );
+        assert!(h.snapshot.is_none(), "{what}: nothing booted");
+        let status = h.factory.status();
+        assert!(!status.ok, "{what}");
+        assert_eq!(status.detail.as_deref(), Some(code), "{what}");
+        let (_, ready, _) = h.server.json(Req::get("/api/v1/ready")).await;
+        assert_eq!(ready["ready"], false, "{what}: {ready}");
+        assert_eq!(ready["live"]["evidence_ok"], false, "{what}: {ready}");
+        let (_, caps, _) = h.server.json(Req::get("/api/v1/capabilities")).await;
+        assert_eq!(caps["live_enabled"], false, "{what}: {caps}");
+        let cookie = h.session().await;
+        let (status, body, _) = h.server.json(submit(&cookie)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{what}: {body}");
+        assert_eq!(body["code"], "live_unavailable", "{what}: {body}");
+        let lines = h.evidence_lines();
+        assert_eq!(lines, [unavailable_line(code)], "{what}");
+        for (part, text) in [
+            ("ready", ready.to_string()),
+            ("capabilities", caps.to_string()),
+            ("503", body.to_string()),
+            ("log line", lines[0].clone()),
+        ] {
+            fx.assert_no_path(&format!("{what}: {part}"), &text);
+            assert!(!text.contains(EDITED_TEXT), "{what}: {part}: {text}");
+            assert!(!text.contains(&captured), "{what}: {part}: {text}");
+            if part != "log line" {
+                assert!(!text.contains(code), "{what}: {part}: {text}");
+            }
+        }
+        // Refused before any verifier run, Turnstile, the ledger or a model.
+        assert!(fx.calls().is_empty(), "{what}: {:?}", fx.calls());
+        assert!(h.siteverify.calls().is_empty(), "{what}");
+        assert!(h.ledger_records("reservation").is_empty(), "{what}");
+        assert_eq!(meta.hits(), 0, "{what}");
+    }
+    // The wrapper of the case above never ran either.
+    let fx = Fixture::new("unbound-wrapper");
+    let (wrapper, wrapper_log) = report_printing_wrapper(fx.snapshot.root());
+    let vars = fx.vars_with("CONSENSUS_HYPHAE_BIN", &wrapper);
+    let evidence = SnapshotFactory::live_evidence_from_vars(
+        lookup(&vars),
+        collector(&Arc::new(Mutex::new(Vec::new()))),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        evidence.status().detail.as_deref(),
+        Some(codes::VERIFIER_BINARY_MISMATCH)
+    );
+    assert!(
+        logged_calls(&wrapper_log).is_empty(),
+        "the wrapper never ran"
+    );
+    // Unpinned, the same wrapper boots: what the binary pin closes.
+    let mut unpinned: Vec<_> = fx
+        .unpinned_vars()
+        .into_iter()
+        .filter(|(k, _)| *k != "CONSENSUS_HYPHAE_BIN")
+        .collect();
+    unpinned.push(("CONSENSUS_HYPHAE_BIN", wrapper.clone()));
+    let evidence = SnapshotFactory::live_evidence_from_vars(
+        lookup(&unpinned),
+        collector(&Arc::new(Mutex::new(Vec::new()))),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(
+        evidence.status().ok,
+        "unpinned, nothing tells the wrapper from Hyphae"
+    );
+    assert_eq!(logged_calls(&wrapper_log).len(), 2);
 }
 
 // ---------------------------------------------------------------------
@@ -1524,6 +1849,14 @@ fn placeholder_vars() -> Vec<(&'static str, String)> {
             "CONSENSUS_HYPHAE_EXPECTED_ANCHOR",
             "<64-hex-anchor-from-the-snapshot-manifest>".into(),
         ),
+        (
+            "CONSENSUS_SNAPSHOT_MANIFEST_SHA256",
+            "<64-hex-sha256-of-the-snapshot-manifest.json>".into(),
+        ),
+        (
+            "CONSENSUS_HYPHAE_BIN_SHA256",
+            "<64-hex-sha256-of-the-installed-hyphae-binary>".into(),
+        ),
     ]
 }
 
@@ -1653,4 +1986,75 @@ fn with_live_mode_enabled_serve_public_starts_on_a_snapshot_that_does_not_boot_a
         "{s:?}"
     );
     assert!(!s.all().contains(TEST_KEY));
+}
+
+#[test]
+fn with_live_mode_enabled_serve_public_boots_pinned_and_refuses_an_unusable_pin() {
+    let scratch = TempRoot::new("serve-public-pins");
+    let live = [server_vars(&scratch), live_on_vars(&scratch)].concat();
+    let fx = Fixture::new("serve-public-pinned");
+
+    // Both digests pinned, as production runs: the evidence line says so,
+    // with the prefixes only and no path.
+    let s = serve_public(&scratch, &[live.clone(), fx.vars()].concat());
+    assert!(s.listening, "{s:?}");
+    assert!(s.snapshot_lines().is_empty(), "{s:?}");
+    let evidence = s
+        .stdout
+        .iter()
+        .find(|l| l.starts_with("Sealed snapshot evidence: "))
+        .unwrap_or_else(|| panic!("no evidence line: {s:?}"));
+    let manifest = manifest_sha256(&fx.dir);
+    assert!(
+        evidence.contains(&format!("manifest sha256 pinned {}…", &manifest[..12])),
+        "{evidence}"
+    );
+    assert!(
+        evidence.contains(&format!(
+            "verifier binary sha256 pinned {}…",
+            &fx.hyphae_bin_sha256[..12]
+        )),
+        "{evidence}"
+    );
+    fx.assert_no_path("evidence line", evidence);
+    assert_eq!(fx.calls().len(), 2, "{:?}", fx.calls());
+
+    // An unusable pin stops startup naming its variable, as an unusable
+    // anchor does: the env example's two placeholders, and a pinned binary
+    // that is not an absolute path.
+    let placeholders = placeholder_vars();
+    for (var, value, named) in [
+        (
+            placeholders[2].0,
+            placeholders[2].1.clone(),
+            "error: CONSENSUS_SNAPSHOT_MANIFEST_SHA256: ",
+        ),
+        (
+            placeholders[3].0,
+            placeholders[3].1.clone(),
+            "error: CONSENSUS_HYPHAE_BIN_SHA256: ",
+        ),
+        (
+            "CONSENSUS_HYPHAE_BIN",
+            "hyphae".to_string(),
+            "error: CONSENSUS_HYPHAE_BIN: ",
+        ),
+    ] {
+        let s = serve_public(
+            &scratch,
+            &[live.clone(), fx.vars_with(var, &value)].concat(),
+        );
+        assert!(!s.listening, "{var}: {s:?}");
+        assert_eq!(s.exit_code, Some(1), "{var}: {s:?}");
+        assert!(
+            s.stderr.iter().any(|l| l.starts_with(named)),
+            "{var}: {s:?}"
+        );
+        assert!(
+            !s.all().contains("Sealed snapshot evidence"),
+            "{var}: {s:?}"
+        );
+        assert!(!s.all().contains(TEST_KEY));
+    }
+    assert_eq!(fx.calls().len(), 2, "nothing was verified for them");
 }

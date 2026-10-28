@@ -4,21 +4,37 @@
 //!   cargo run -p consensus-api -- serve-public     # public API + static export (unix socket, or CONSENSUS_PUBLIC_BIND)
 //!   cargo run -p consensus-api -- serve-operator   # operator console (loopback, bearer token); `serve` is an alias
 //!   cargo run -p consensus-api -- verify <log.jsonl> [--run <id>] [--receipt <receipt.json>]
+//!   cargo run -p consensus-api -- ledger status    # operator: the live-mode USD ledger (also `reset --by <who>`, `release <id> --by <who>`)
 //!   cargo run -p consensus-api                     # scripted demo to AwaitingHumanApproval
 //!   cargo run -p consensus-api -- --approve        # also record human approval
 //!   cargo run -p consensus-api -- --reject         # also record human rejection
 //!
 //! Approval is RECORDED ONLY in every mode. No repository or external
 //! mutation occurs (the executor is deferred through M3). The scripted
-//! demo persists events to `demo-run/events.jsonl`; delete that directory
-//! for a fresh run — the binary replays it instead of re-running when a
-//! completed run exists.
+//! demo persists its events to `scripted-demo/events.jsonl` under the
+//! current directory and replays the run it finds there instead of
+//! re-running; it refuses to run inside `demo-run/` or `research/`, which
+//! hold the research evidence (`EventLog::open` opens a log read-write).
+//! Anything else on the command line prints the usage.
 
 use consensus_domain::*;
 use consensus_runtime::clock::{SequentialIdGen, SystemClock};
 use consensus_runtime::orchestrator::{build_receipt, record_human_decision, Orchestrator};
 use consensus_runtime::scenarios::retry_constraint_scenario;
 use consensus_runtime::{EventLog, RunLimits};
+use std::path::{Component, Path, PathBuf};
+
+const USAGE: &str = "usage: consensus-api serve-public | serve-operator | serve
+       consensus-api verify <log.jsonl> [--run <id>] [--receipt <receipt.json>]
+       consensus-api ledger status | reset --by <operator> | release <reservation-id> --by <operator>
+       consensus-api [--approve | --reject]    (the scripted demo)";
+
+/// Where the scripted demo keeps its log, under the current directory.
+const DEMO_LOG: &str = "scripted-demo/events.jsonl";
+
+/// Directory names whose logs are research evidence: the scripted demo
+/// never writes below them.
+const PROTECTED_DIRS: [&str; 2] = ["demo-run", "research"];
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -29,13 +45,47 @@ fn main() {
             let code = consensus_api::verify_cli::run(&args[2..], &mut std::io::stdout());
             std::process::exit(code);
         }
-        _ => {
-            if let Err(e) = run() {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
+        Some("ledger") => {
+            let code = consensus_api::ledger_cli::run(
+                &args[2..],
+                &mut std::io::stdout(),
+                &mut std::io::stderr(),
+            );
+            std::process::exit(code);
+        }
+        Some("-h") | Some("--help") | Some("help") => println!("{USAGE}"),
+        None => demo(),
+        Some("--approve") | Some("--reject") if args.len() == 2 => demo(),
+        Some(other) => {
+            eprintln!("unknown command or option {other:?}\n{USAGE}");
+            std::process::exit(2);
         }
     }
+}
+
+fn demo() {
+    if let Err(e) = run() {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
+}
+
+/// The scripted demo's log under `cwd`, refused when `cwd` lies inside a
+/// directory that holds research evidence.
+fn demo_log_path(cwd: &Path) -> Result<PathBuf, String> {
+    let inside = cwd.components().any(|c| match c {
+        Component::Normal(name) => PROTECTED_DIRS
+            .iter()
+            .any(|p| name.to_str().is_some_and(|n| n.eq_ignore_ascii_case(p))),
+        _ => false,
+    });
+    if inside {
+        return Err(format!(
+            "the scripted demo does not run inside {} (they hold the research evidence); run it from another directory",
+            PROTECTED_DIRS.join(" or ")
+        ));
+    }
+    Ok(cwd.join(DEMO_LOG))
 }
 
 fn serve<F>(server: F)
@@ -62,7 +112,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let mut log = EventLog::open("demo-run/events.jsonl")?;
+    let path = demo_log_path(&std::env::current_dir()?)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut log = EventLog::open(&path)?;
     if log.recovered_truncated_tail {
         println!("[recovery] discarded a truncated tail record from a previous crash");
     }
@@ -138,4 +192,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let receipt = build_receipt(&log, &run_id, consensus_runtime::Clock::now(&SystemClock))?;
     println!("\n{}", serde_json::to_string_pretty(&receipt)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_scripted_demo_never_writes_below_the_research_directories() {
+        let ok = demo_log_path(Path::new("/tmp/scratch")).unwrap();
+        assert!(ok.ends_with("scripted-demo/events.jsonl"), "{ok:?}");
+        for cwd in [
+            "/repo/demo-run",
+            "/repo/demo-run/live-battery",
+            "/repo/research/2026-10-27",
+            "/repo/Research",
+        ] {
+            assert!(demo_log_path(Path::new(cwd)).is_err(), "{cwd}");
+        }
+        // A directory whose name only contains the word is not protected.
+        assert!(demo_log_path(Path::new("/repo/research-notes")).is_ok());
+    }
 }

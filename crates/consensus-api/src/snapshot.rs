@@ -35,7 +35,36 @@
 //! ids) but never served or boot-verified. [`Snapshot::load`] checks the
 //! whole directory structurally; every failure is a [`SnapshotError`] with
 //! a stable code ([`codes`]) and a message that names the offending file
-//! by its relative path and never quotes its contents.
+//! by its relative path and never quotes its contents. The directory is
+//! walked without following symbolic links (a link anywhere under it is
+//! refused, so a loop cannot recurse and a link cannot stand for an
+//! artifact) and no deeper than the flat layout ([`MAX_DEPTH`]). After
+//! boot, [`SnapshotMemoryClient::check_artifacts`] re-hashes the served
+//! artifacts (`manifest.json` and every file of the two served captures:
+//! response, proof, witness, capture-time report) against the digests the
+//! boot check accepted (and [`MemoryClient::status`] calls it on every
+//! call), so the public live mode's evidence factory stops reporting the
+//! evidence ok (`/ready`'s `evidence_ok`) and refuses admissions as soon as
+//! a file on disk is not the one verified (`crate::live::snapshot_factory`).
+//!
+//! # Pins
+//!
+//! Two optional operator pins (production sets both; ADR-0008, "Binding")
+//! tie the directory and the verifier to values published out of band:
+//!
+//! - `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` ([`SnapshotConfig::manifest_sha256`]):
+//!   the loader refuses a `manifest.json` whose SHA-256 differs
+//!   (`manifest_pin_mismatch`), before parsing it. The manifest holds the
+//!   digest of every capture file, so with the pin every byte served is
+//!   bound to the published digest, `SHA256SUMS` regenerated or not.
+//! - `CONSENSUS_HYPHAE_BIN_SHA256` ([`SnapshotConfig::binary_sha256`]): at
+//!   boot, before any verifier run, the file `CONSENSUS_HYPHAE_BIN` names
+//!   (an absolute path, symbolic links followed as `exec` follows them)
+//!   must hash to the pin (`verifier_binary_mismatch`) and the pin must be
+//!   the manifest's `hyphae.binary_sha256` (`capture_binary_mismatch`: the
+//!   snapshot was captured with another Hyphae build)
+//!   ([`check_verifier_binary`]). The binary is hashed at boot only: one
+//!   replaced while the server runs is not detected until the next start.
 //!
 //! # What a recall returns
 //!
@@ -86,9 +115,16 @@
 //!   request, so one proof cannot stand for both the list and the empty
 //!   recall. A copy step that writes one capture's proof and witness into
 //!   the other's files is caught at load (`proof_shared`).
-//! - The response file (the record texts) is bound to the proof only by
-//!   the manifest and `SHA256SUMS`, both checked here but both written by
-//!   the capture script. The runtime cannot recompute the response's
+//! - The response file (the record texts) and the capture-time report are
+//!   bound to their capture by the manifest's `response_sha256` and
+//!   `verify_sha256`, checked against the very bytes the loader then
+//!   parses (`digest_mismatch`), and by `SHA256SUMS`. The manifest builder
+//!   writes both digests from the ones the capture session recorded the
+//!   moment each file was written (`captures.index`). Nothing in the
+//!   directory binds the manifest itself: a consistent rewrite of
+//!   `manifest.json` and `SHA256SUMS` loads unless the manifest is pinned
+//!   (`CONSENSUS_SNAPSHOT_MANIFEST_SHA256`, above). Nor is the text bound to
+//!   the proof: the runtime cannot recompute the response's
 //!   `proof_blake3` (no BLAKE3 in this workspace), and the verifier's
 //!   `proof_digest` is NOT that value: the 2026-10-27 recovery probe (an
 //!   MCP recall; its `proof` object has the same fields as `agent ui`'s)
@@ -98,8 +134,15 @@
 //!   (`demo-run/recovery-2026-10-27/`, local). Nor is `result_digest`
 //!   recomputable from the response without Hyphae's canonical form. A
 //!   swap of ALL files of one capture with another's is therefore caught
-//!   through the responses (record count, project attribution, memory
-//!   ids), not through the proofs.
+//!   by the manifest's digests, and with the manifest's entries rewritten
+//!   to match, through the responses (record count, project attribution,
+//!   memory ids), never through the proofs.
+//! - Every proof of a session shares the anchor, so after boot the
+//!   verifier alone cannot tell the list capture's artifacts from the
+//!   isolation capture's either. A run's verifier is therefore bound to
+//!   the boot check ([`BootBoundVerifier`]): its `Valid` stands only when
+//!   the report's `proof_digest` and `result_digest` are the ones boot
+//!   accepted for the record's `proof_ref`.
 //!
 //! The record texts are never byte-compared with the proof; the verifier's
 //! own detail says so, and the honest label of ADR-0008 applies ("this
@@ -111,7 +154,7 @@ use crate::hyphae::{CommandRunner, HyphaeProofVerifier, VERIFIED_KIND, VERIFIED_
 use consensus_domain::*;
 use consensus_runtime::contract::quote;
 use consensus_runtime::ports::{
-    MemoryClient, MemoryError, MemoryStatus, ProofVerifier, Recall, RecallProof,
+    MemoryClient, MemoryError, MemoryStatus, ProofCheck, ProofVerifier, Recall, RecallProof,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -133,6 +176,11 @@ pub const LIST_LIMIT: u32 = 64;
 /// Largest file read from a snapshot directory (a witness is a full copy
 /// of the store's data directory, about 3.3 MB for the seven records).
 pub const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
+/// Deepest path under the snapshot directory, in `/`-separated components:
+/// the layout is flat (`manifest.json`, `captures/<file>`), so a directory
+/// inside `captures/` (or inside any other first-level directory) is
+/// refused rather than walked.
+pub const MAX_DEPTH: usize = 2;
 
 /// Stable codes of [`SnapshotError`].
 pub mod codes {
@@ -143,6 +191,10 @@ pub mod codes {
     /// `manifest.json` is not the documented JSON document (a field is
     /// missing, mistyped or out of range).
     pub const MANIFEST_INVALID: &str = "manifest_invalid";
+    /// The SHA-256 of `manifest.json` is not the operator-pinned
+    /// `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`: the directory is not the
+    /// snapshot whose digest was published.
+    pub const MANIFEST_PIN_MISMATCH: &str = "manifest_pin_mismatch";
     /// `manifest.schema` or `hyphae.control_schema` is not the one known.
     pub const MANIFEST_SCHEMA: &str = "manifest_schema";
     /// `snapshot_id` breaks `^[a-z0-9][a-z0-9-]{0,63}$`.
@@ -169,13 +221,22 @@ pub mod codes {
     pub const FILE_UNREADABLE: &str = "file_unreadable";
     /// A file exceeds [`super::MAX_FILE_BYTES`].
     pub const FILE_TOO_LARGE: &str = "file_too_large";
+    /// A symbolic link under the snapshot directory. Artifacts are plain
+    /// files: a link could point outside the directory (its target would be
+    /// hashed and served as if it were the artifact) or loop.
+    pub const SYMLINK_REFUSED: &str = "symlink_refused";
+    /// A directory nested deeper than the flat layout allows
+    /// ([`super::MAX_DEPTH`] components).
+    pub const LAYOUT_TOO_DEEP: &str = "layout_too_deep";
     /// `SHA256SUMS` is missing or not in `sha256sum` format.
     pub const CHECKSUMS_INVALID: &str = "checksums_invalid";
     /// A file under the directory is not listed, or a listed file is absent.
     pub const CHECKSUMS_INCOMPLETE: &str = "checksums_incomplete";
     /// A file's SHA-256 differs from its `SHA256SUMS` line.
     pub const CHECKSUMS_MISMATCH: &str = "checksums_mismatch";
-    /// A proof or witness differs from the manifest's digest of it.
+    /// A capture file (response, proof, witness or capture-time report)
+    /// differs from the manifest's digest of it, or a served file differs
+    /// from the digest the boot check accepted.
     pub const DIGEST_MISMATCH: &str = "digest_mismatch";
     /// A response file is not the documented result object.
     pub const RESPONSE_INVALID: &str = "response_invalid";
@@ -196,6 +257,20 @@ pub mod codes {
     /// The verifier did not accept a required capture at boot, or its
     /// report's digests are not the capture-time record's.
     pub const BOOT_VERIFICATION_FAILED: &str = "boot_verification_failed";
+    /// The snapshot serves a project other than the one its user requires
+    /// (the public live presets all run against `demo-repo`,
+    /// `crate::live::presets::PRESET_PROJECT`); raised by the live mode's
+    /// evidence factory before anything is verified.
+    pub const PROJECT_MISMATCH: &str = "project_mismatch";
+    /// The file `CONSENSUS_HYPHAE_BIN` names is missing, unreadable, not a
+    /// regular file, or does not hash to the pinned
+    /// `CONSENSUS_HYPHAE_BIN_SHA256`; raised at boot before any verifier
+    /// run.
+    pub const VERIFIER_BINARY_MISMATCH: &str = "verifier_binary_mismatch";
+    /// The pinned `CONSENSUS_HYPHAE_BIN_SHA256` is not the manifest's
+    /// `hyphae.binary_sha256`: the snapshot was captured with another
+    /// Hyphae build; raised at boot before any verifier run.
+    pub const CAPTURE_BINARY_MISMATCH: &str = "capture_binary_mismatch";
 }
 
 /// Why a snapshot cannot be served. `message` names files by their path
@@ -208,7 +283,9 @@ pub struct SnapshotError {
 }
 
 impl SnapshotError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    /// An error with one of the [`codes`]; `message` must follow the rule
+    /// above (relative file names, no contents).
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -268,6 +345,12 @@ pub struct Capture {
     pub proof_blake3: String,
     pub proof_sha256: String,
     pub witness_sha256: String,
+    /// SHA-256 of the response file (the record texts), as the capture
+    /// session recorded it the moment the file was written. Required: the
+    /// one binding of the texts that the manifest pin covers.
+    pub response_sha256: String,
+    /// SHA-256 of the capture-time verifier report, recorded the same way.
+    pub verify_sha256: String,
     /// Exactly the ids in the response, in response order.
     pub memory_ids: Vec<String>,
     pub verification: CaptureVerification,
@@ -415,6 +498,8 @@ pub struct Snapshot {
     dir: PathBuf,
     verifier_dir: Option<String>,
     pub manifest: Manifest,
+    /// SHA-256 of the `manifest.json` bytes that were loaded.
+    manifest_sha256: String,
     list: usize,
     isolation: usize,
     records: Vec<CapturedMemory>,
@@ -423,10 +508,23 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// Loads and checks `dir` (see the module doc for every check). With
-    /// `verifier_dir`, artifact paths handed to the verifier are joined
-    /// under it with `/` instead of under `dir`.
+    /// Loads and checks `dir` (see the module doc for every check), its
+    /// manifest not pinned. With `verifier_dir`, artifact paths handed to
+    /// the verifier are joined under it with `/` instead of under `dir`.
     pub fn load(dir: &Path, verifier_dir: Option<&str>) -> Result<Self> {
+        Self::load_pinned(dir, verifier_dir, None)
+    }
+
+    /// [`load`](Self::load) with the manifest pinned to `manifest_pin`
+    /// (64 hex digits, `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`): a
+    /// `manifest.json` whose SHA-256 differs is refused with
+    /// `manifest_pin_mismatch` before it is parsed. The listing is checked
+    /// first, as without a pin.
+    pub fn load_pinned(
+        dir: &Path,
+        verifier_dir: Option<&str>,
+        manifest_pin: Option<&str>,
+    ) -> Result<Self> {
         if !dir.is_dir() {
             return Err(SnapshotError::new(
                 codes::SNAPSHOT_DIR_MISSING,
@@ -445,6 +543,22 @@ impl Snapshot {
                 format!("{MANIFEST_FILE}: {}", e.message),
             )
         })?;
+        let manifest_sha256 = sha256_hex(&manifest_bytes);
+        // The pin is compared with the very bytes parsed below, before they
+        // are parsed: a manifest that is not the published one is reported
+        // as such, whatever else it says.
+        if let Some(pin) = manifest_pin {
+            let pin = pin.trim().to_ascii_lowercase();
+            if pin != manifest_sha256 {
+                return Err(SnapshotError::new(
+                    codes::MANIFEST_PIN_MISMATCH,
+                    format!(
+                        "{MANIFEST_FILE}: its SHA-256 is {manifest_sha256}, not the pinned {} {pin}: this is not the snapshot whose manifest digest was published",
+                        crate::config::MANIFEST_SHA256_VAR
+                    ),
+                ));
+            }
+        }
         let manifest: Manifest = serde_json::from_slice(&manifest_bytes).map_err(|e| {
             SnapshotError::new(
                 codes::MANIFEST_INVALID,
@@ -575,6 +689,7 @@ impl Snapshot {
             dir: dir.to_path_buf(),
             verifier_dir,
             manifest,
+            manifest_sha256,
             list,
             isolation,
             records,
@@ -582,9 +697,21 @@ impl Snapshot {
         })
     }
 
-    /// [`load`](Self::load) with the configured directories.
+    /// [`load_pinned`](Self::load_pinned) with the configured directories
+    /// and manifest pin (none when `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` is
+    /// unset).
     pub fn load_from_config(cfg: &SnapshotConfig) -> Result<Self> {
-        Self::load(&cfg.dir, cfg.verifier_dir.as_deref())
+        Self::load_pinned(
+            &cfg.dir,
+            cfg.verifier_dir.as_deref(),
+            cfg.manifest_sha256.as_deref(),
+        )
+    }
+
+    /// SHA-256 of the `manifest.json` bytes that were loaded (the value
+    /// `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` pins).
+    pub fn manifest_sha256(&self) -> &str {
+        &self.manifest_sha256
     }
 
     /// The proven list of the served project.
@@ -691,14 +818,17 @@ fn local_path(dir: &Path, relative: &str) -> PathBuf {
     path
 }
 
-/// The bytes of a file under the snapshot directory, bounded.
+/// The bytes of a file under the snapshot directory, bounded. A symbolic
+/// link is refused, not followed (`symlink_refused`).
 fn read_file(dir: &Path, relative: &str) -> Result<Vec<u8>> {
     let path = local_path(dir, relative);
-    let size = std::fs::metadata(&path)
-        .map_err(|e| {
-            SnapshotError::new(codes::FILE_UNREADABLE, format!("{relative}: {}", e.kind()))
-        })?
-        .len();
+    let meta = std::fs::symlink_metadata(&path).map_err(|e| {
+        SnapshotError::new(codes::FILE_UNREADABLE, format!("{relative}: {}", e.kind()))
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(symlink_refused(relative));
+    }
+    let size = meta.len();
     if size > MAX_FILE_BYTES {
         return Err(SnapshotError::new(
             codes::FILE_TOO_LARGE,
@@ -854,6 +984,8 @@ fn check_capture_entry(manifest: &Manifest, capture: &Capture) -> Result<()> {
         ("proof_blake3", &capture.proof_blake3),
         ("proof_sha256", &capture.proof_sha256),
         ("witness_sha256", &capture.witness_sha256),
+        ("response_sha256", &capture.response_sha256),
+        ("verify_sha256", &capture.verify_sha256),
     ] {
         check_hex64(
             value,
@@ -897,8 +1029,14 @@ fn check_capture_entry(manifest: &Manifest, capture: &Capture) -> Result<()> {
 }
 
 /// Every file under `dir`, as `/`-separated paths relative to it, sorted.
+/// Symbolic links are refused wherever they appear (`symlink_refused`: a
+/// link is never followed, so a loop cannot recurse and a link to a file
+/// outside the directory is not taken for the artifact), and so is a
+/// directory nested deeper than the flat layout (`layout_too_deep`,
+/// [`MAX_DEPTH`]).
 fn walk(dir: &Path) -> Result<Vec<String>> {
-    fn visit(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<()> {
+    /// `depth` is the number of components of the entries of `dir`.
+    fn visit(dir: &Path, prefix: &str, depth: usize, out: &mut Vec<String>) -> Result<()> {
         let entries = std::fs::read_dir(dir).map_err(|e| {
             SnapshotError::new(
                 codes::FILE_UNREADABLE,
@@ -920,11 +1058,23 @@ fn walk(dir: &Path) -> Result<Vec<String>> {
                 format!("{prefix}/{name}")
             };
             let path = entry.path();
-            let meta = std::fs::metadata(&path).map_err(|e| {
+            // Not followed: a link is reported as what it is.
+            let meta = std::fs::symlink_metadata(&path).map_err(|e| {
                 SnapshotError::new(codes::FILE_UNREADABLE, format!("{relative}: {}", e.kind()))
             })?;
+            if meta.file_type().is_symlink() {
+                return Err(symlink_refused(&relative));
+            }
             if meta.is_dir() {
-                visit(&path, &relative, out)?;
+                if depth + 1 > MAX_DEPTH {
+                    return Err(SnapshotError::new(
+                        codes::LAYOUT_TOO_DEEP,
+                        format!(
+                            "{relative}: a directory nested deeper than the flat layout allows ({MAX_DEPTH} components)"
+                        ),
+                    ));
+                }
+                visit(&path, &relative, depth + 1, out)?;
             } else {
                 out.push(relative);
             }
@@ -932,9 +1082,16 @@ fn walk(dir: &Path) -> Result<Vec<String>> {
         Ok(())
     }
     let mut out = Vec::new();
-    visit(dir, "", &mut out)?;
+    visit(dir, "", 1, &mut out)?;
     out.sort();
     Ok(out)
+}
+
+fn symlink_refused(relative: &str) -> SnapshotError {
+    SnapshotError::new(
+        codes::SYMLINK_REFUSED,
+        format!("{relative}: a symbolic link; a snapshot holds plain files only"),
+    )
 }
 
 /// `SHA256SUMS` lines as `(digest, relative path)`.
@@ -1027,24 +1184,33 @@ fn string_field(object: &Value, key: &str) -> Option<String> {
     object.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
+/// The bytes of the capture file `relative`, which must hash to `expected`
+/// (the manifest entry's digest of it): what a caller parses next is what
+/// was checked here, not a later read of the file.
+fn read_digested(dir: &Path, relative: &str, expected: &str, capture_id: &str) -> Result<Vec<u8>> {
+    let bytes = read_file(dir, relative)?;
+    if sha256_hex(&bytes) != expected {
+        return Err(SnapshotError::new(
+            codes::DIGEST_MISMATCH,
+            format!("{relative}: SHA-256 differs from the manifest entry of capture {capture_id}"),
+        ));
+    }
+    Ok(bytes)
+}
+
 /// One capture's files against its manifest entry.
 fn check_capture(dir: &Path, manifest: &Manifest, capture: &Capture) -> Result<ParsedCapture> {
     let id = &capture.id;
-    for (file, expected) in [
-        (&capture.proof_file, &capture.proof_sha256),
-        (&capture.witness_file, &capture.witness_sha256),
-    ] {
-        let bytes = read_file(dir, file)?;
-        if sha256_hex(&bytes) != *expected {
-            return Err(SnapshotError::new(
-                codes::DIGEST_MISMATCH,
-                format!("{file}: SHA-256 differs from the manifest entry of capture {id}"),
-            ));
-        }
-    }
+    // Every file against the manifest's digest first, in file order: an
+    // altered file (an edited record text, say) is reported as such, never
+    // as whatever parse error it then causes.
+    let response_bytes = read_digested(dir, &capture.response_file, &capture.response_sha256, id)?;
+    read_digested(dir, &capture.proof_file, &capture.proof_sha256, id)?;
+    read_digested(dir, &capture.witness_file, &capture.witness_sha256, id)?;
+    let verify_bytes = read_digested(dir, &capture.verify_file, &capture.verify_sha256, id)?;
 
     let response_file = &capture.response_file;
-    let response: Value = serde_json::from_slice(&read_file(dir, response_file)?).map_err(|e| {
+    let response: Value = serde_json::from_slice(&response_bytes).map_err(|e| {
         SnapshotError::new(
             codes::RESPONSE_INVALID,
             format!("{response_file}: {}", one_line(&e.to_string(), 200)),
@@ -1130,7 +1296,7 @@ fn check_capture(dir: &Path, manifest: &Manifest, capture: &Capture) -> Result<P
     };
 
     let verify_file = &capture.verify_file;
-    let verify: Value = serde_json::from_slice(&read_file(dir, verify_file)?).map_err(|e| {
+    let verify: Value = serde_json::from_slice(&verify_bytes).map_err(|e| {
         SnapshotError::new(
             codes::VERIFY_RECORD_INVALID,
             format!("{verify_file}: {}", one_line(&e.to_string(), 200)),
@@ -1193,7 +1359,98 @@ pub fn verifier_from_config<R: CommandRunner>(
     verifier
 }
 
-/// What `/health` and `/ready` may say about the served snapshot: plain
+/// Largest verifier binary [`check_verifier_binary`] hashes. The released
+/// Linux `hyphae` is far smaller; the bound only keeps a misconfigured
+/// path from stalling boot.
+pub const MAX_BINARY_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// The pinned verifier binary, checked at boot before any verifier run; a
+/// no-op when `CONSENSUS_HYPHAE_BIN_SHA256` is unset. The file
+/// `CONSENSUS_HYPHAE_BIN` names (an absolute path: [`SnapshotConfig`]
+/// refuses any other with the pin set, and so does this check for a
+/// configuration built in code; symbolic links followed, as `exec` follows
+/// them) must be a regular file whose SHA-256 is the pin
+/// (`verifier_binary_mismatch`: a replaced binary, or a wrapper that prints
+/// a capture-time report, never runs), and the pin must be the manifest's
+/// `hyphae.binary_sha256` (`capture_binary_mismatch`: the snapshot was
+/// captured with another Hyphae build). Messages name the variables and
+/// the digests, never the binary's path. The file is hashed once, here:
+/// one replaced after boot is not detected until the next start.
+/// [`SnapshotMemoryClient::open`] and the live mode's evidence factory
+/// (`crate::live::snapshot_factory`) call it.
+pub fn check_verifier_binary(cfg: &SnapshotConfig, manifest: &Manifest) -> Result<()> {
+    let Some(pin) = cfg.binary_sha256.as_deref() else {
+        return Ok(());
+    };
+    let pin = pin.trim().to_ascii_lowercase();
+    let var = crate::config::HYPHAE_BIN_SHA256_VAR;
+    let mismatch = |message: String| SnapshotError::new(codes::VERIFIER_BINARY_MISMATCH, message);
+    // The configuration refuses this already; a configuration built in
+    // code is held to it here: a relative path or a bare name is resolved
+    // differently when hashed (the working directory) and when run (PATH).
+    if !Path::new(&cfg.binary).is_absolute() {
+        return Err(mismatch(format!(
+            "CONSENSUS_HYPHAE_BIN is not an absolute path, so the file hashed could differ from the one run: it is not checked against the pinned {var} ({pin})"
+        )));
+    }
+    let actual = file_sha256(Path::new(&cfg.binary)).map_err(|why| {
+        mismatch(format!(
+            "CONSENSUS_HYPHAE_BIN {why}, so it is not the binary pinned by {var} ({pin})"
+        ))
+    })?;
+    if actual != pin {
+        return Err(mismatch(format!(
+            "CONSENSUS_HYPHAE_BIN hashes to {actual}, not to the pinned {var} {pin}: it is not the verifier build that was pinned"
+        )));
+    }
+    if manifest.hyphae.binary_sha256 != pin {
+        return Err(SnapshotError::new(
+            codes::CAPTURE_BINARY_MISMATCH,
+            format!(
+                "snapshot {} was captured with the Hyphae build {} (hyphae.binary_sha256), not the pinned {var} {pin}",
+                manifest.snapshot_id, manifest.hyphae.binary_sha256
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// SHA-256 of a regular file of at most [`MAX_BINARY_BYTES`], read in
+/// chunks; `Err` says why not (an I/O error kind, not a regular file, too
+/// large), without the path.
+fn file_sha256(path: &Path) -> std::result::Result<String, String> {
+    use std::io::Read;
+    let unreadable = |e: std::io::Error| format!("cannot be read ({})", e.kind());
+    let too_large = |size: u64| format!("is {size} bytes, more than {MAX_BINARY_BYTES}");
+    let meta = std::fs::metadata(path).map_err(unreadable)?;
+    if !meta.is_file() {
+        return Err("is not a regular file".into());
+    }
+    if meta.len() > MAX_BINARY_BYTES {
+        return Err(too_large(meta.len()));
+    }
+    let mut file = std::fs::File::open(path).map_err(unreadable)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    let mut total: u64 = 0;
+    loop {
+        let n = match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(unreadable(e)),
+        };
+        total += n as u64;
+        if total > MAX_BINARY_BYTES {
+            return Err(too_large(total));
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex(&hasher.finalize()))
+}
+
+/// What the boot verification established about the served snapshot, for
+/// the operator's startup line and the live mode's evidence factory: plain
 /// data, no path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotStatus {
@@ -1206,8 +1463,11 @@ pub struct SnapshotStatus {
     pub anchor_hex: String,
     pub record_count: usize,
     pub hyphae_version: String,
-    /// SHA-256 of the Hyphae binary that produced the captures (published
-    /// out of band; not compared with the verifier binary here).
+    /// SHA-256 of the Hyphae binary that produced the captures (the
+    /// manifest's `hyphae.binary_sha256`, published out of band). With
+    /// `CONSENSUS_HYPHAE_BIN_SHA256` set, the boot check required the
+    /// verifier binary to be this build ([`check_verifier_binary`]);
+    /// without it, nothing compared them.
     pub hyphae_binary_sha256: String,
     /// When this process verified the required captures (RFC 3339 UTC).
     pub verified_at: String,
@@ -1259,6 +1519,12 @@ pub struct SnapshotMemoryClient {
     records: Vec<EvidenceReference>,
     list_proof: RecallProof,
     isolation_proof: RecallProof,
+    /// The local snapshot directory, for [`check_artifacts`](Self::check_artifacts).
+    dir: PathBuf,
+    /// `(relative path, SHA-256)` of `manifest.json` and of every file of
+    /// the two served captures (response, proof, witness, capture-time
+    /// report), as the boot check accepted them.
+    artifacts: Vec<(String, String)>,
     now: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
@@ -1271,17 +1537,24 @@ impl std::fmt::Debug for SnapshotMemoryClient {
 }
 
 impl SnapshotMemoryClient {
-    /// Loads the configured snapshot and verifies its two required captures
-    /// with `verifier` (the same `hyphae proof verify` the runs use). Boot
-    /// fails when the pinned anchor is not the manifest's, or when either
-    /// capture is not `Valid` as a `memory` proof re-executed at scope
-    /// `semantic_reexecution` against that anchor.
+    /// Loads the configured snapshot (its manifest pinned when
+    /// `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` is set), checks the pinned
+    /// verifier binary ([`check_verifier_binary`]) and verifies its two
+    /// required captures with `verifier` (the same `hyphae proof verify` the
+    /// runs use). Boot fails when a pin does not hold, when the pinned anchor
+    /// is not the manifest's, or when either capture is not `Valid` as a
+    /// `memory` proof re-executed at scope `semantic_reexecution` against
+    /// that anchor.
     pub fn open<V: ProofVerifier + ?Sized>(cfg: &SnapshotConfig, verifier: &mut V) -> Result<Self> {
         let snapshot = Snapshot::load_from_config(cfg)?;
+        check_verifier_binary(cfg, &snapshot.manifest)?;
         Self::from_snapshot(snapshot, &cfg.expected_anchor, verifier)
     }
 
-    /// [`open`](Self::open) over an already loaded snapshot.
+    /// [`open`](Self::open) over an already loaded snapshot, with
+    /// `verifier` as given: no binary pin applies here (the configuration
+    /// holds it; [`open`](Self::open) and the live mode's evidence factory
+    /// check it before calling this).
     pub fn from_snapshot<V: ProofVerifier + ?Sized>(
         snapshot: Snapshot,
         expected_anchor: &str,
@@ -1352,7 +1625,21 @@ impl SnapshotMemoryClient {
             verified_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             captures,
         };
+        let mut artifacts = vec![(MANIFEST_FILE.to_string(), snapshot.manifest_sha256.clone())];
+        for capture in [list, isolation] {
+            artifacts.extend([
+                (
+                    capture.response_file.clone(),
+                    capture.response_sha256.clone(),
+                ),
+                (capture.proof_file.clone(), capture.proof_sha256.clone()),
+                (capture.witness_file.clone(), capture.witness_sha256.clone()),
+                (capture.verify_file.clone(), capture.verify_sha256.clone()),
+            ]);
+        }
         Ok(Self {
+            dir: snapshot.dir.clone(),
+            artifacts,
             isolation_project: ProjectId::new(isolation.arguments.project.clone()),
             list_proof: RecallProof {
                 request: list_request,
@@ -1384,6 +1671,29 @@ impl SnapshotMemoryClient {
         &self.status
     }
 
+    /// The served artifacts as they are on disk NOW: `manifest.json` and
+    /// every file of the two served captures (response, proof, witness,
+    /// capture-time report) are re-read (bounded, no symlink) and re-hashed
+    /// against the digests the boot check accepted. A file deleted,
+    /// truncated or replaced after boot (an edited record text included) is
+    /// a [`SnapshotError`] (`file_unreadable`, `file_too_large`,
+    /// `symlink_refused` or `digest_mismatch`) naming the artifact by its
+    /// relative path, never by a filesystem path or its contents. The
+    /// records themselves are served from memory, as boot read them; the
+    /// re-check keeps the disk (what the next start would load) honest.
+    pub fn check_artifacts(&self) -> Result<()> {
+        for (relative, expected) in &self.artifacts {
+            let bytes = read_file(&self.dir, relative)?;
+            if sha256_hex(&bytes) != *expected {
+                return Err(SnapshotError::new(
+                    codes::DIGEST_MISMATCH,
+                    format!("{relative}: SHA-256 differs from the digest accepted at boot"),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// The served records (templates: `retrieved_at` is set per recall).
     pub fn records(&self) -> &[EvidenceReference] {
         &self.records
@@ -1395,6 +1705,82 @@ impl SnapshotMemoryClient {
 
     pub fn isolation_project(&self) -> &ProjectId {
         &self.isolation_project
+    }
+
+    /// `inner` (a run's own `hyphae proof verify` verifier) bound to what
+    /// this client's boot check accepted: see [`BootBoundVerifier`].
+    pub fn boot_bound_verifier<V: ProofVerifier>(&self, inner: V) -> BootBoundVerifier<V> {
+        BootBoundVerifier {
+            inner,
+            accepted: self
+                .status
+                .captures
+                .iter()
+                .filter_map(|c| c.report.clone().map(|report| (c.id.clone(), report)))
+                .collect(),
+        }
+    }
+}
+
+/// The fixed `detail` of a record [`BootBoundVerifier`] refuses.
+pub const NOT_THE_BOOT_ARTIFACTS: &str = "the verifier accepted proof artifacts whose proof or result digest is not the one the boot check accepted for this record's proof_ref: the snapshot's files changed after boot, so the record is not proven by the sealed snapshot";
+
+/// A run's proof verifier bound to the boot check of its snapshot.
+///
+/// Every proof of a capture session shares the anchor, so `hyphae proof
+/// verify` accepts the isolation capture's proof and witness as readily
+/// as the list capture's: a pair copied over the served files after boot
+/// would verify `Valid` (kind, scope and pinned anchor all hold). This
+/// wrapper lets a `Valid` result stand only when the verifier's report
+/// names the `proof_digest` and `result_digest` of the boot-accepted report
+/// of the record's `proof_ref` (the verifier's parsed report carries no
+/// request digest to compare). Anything else (another digest, a record
+/// without a `proof_ref`, a report without digests) is `Invalid` with
+/// [`NOT_THE_BOOT_ARTIFACTS`] as its detail; the verifier's own report is
+/// kept on the record. Results other than `Valid` pass through unchanged.
+pub struct BootBoundVerifier<V> {
+    inner: V,
+    /// `(capture id, report)` of every capture boot verified.
+    accepted: Vec<(String, VerifierReport)>,
+}
+
+impl<V> BootBoundVerifier<V> {
+    /// The wrapped verifier (tests read its configuration).
+    pub fn inner(&self) -> &V {
+        &self.inner
+    }
+}
+
+impl<V: ProofVerifier> ProofVerifier for BootBoundVerifier<V> {
+    fn verify(&mut self, evidence: &EvidenceReference) -> ProofCheck {
+        let check = self.inner.verify(evidence);
+        if check.status != IntegrityStatus::Valid {
+            return check;
+        }
+        let same = |now: &Option<String>, then: &Option<String>| match (now, then) {
+            (Some(now), Some(then)) => now.trim().eq_ignore_ascii_case(then.trim()),
+            _ => false,
+        };
+        let boot = evidence
+            .proof_ref
+            .as_deref()
+            .and_then(|r| self.accepted.iter().find(|(id, _)| id == r))
+            .map(|(_, report)| report);
+        let bound = match (boot, check.report.as_ref()) {
+            (Some(then), Some(now)) => {
+                same(&now.proof_digest, &then.proof_digest)
+                    && same(&now.result_digest, &then.result_digest)
+            }
+            _ => false,
+        };
+        if bound {
+            return check;
+        }
+        ProofCheck {
+            status: IntegrityStatus::Invalid,
+            detail: Some(NOT_THE_BOOT_ARTIFACTS.into()),
+            ..check
+        }
     }
 }
 
@@ -1547,10 +1933,26 @@ impl MemoryClient for SnapshotMemoryClient {
         )))
     }
 
+    /// `healthy` is established on every call, not at boot: the served
+    /// artifacts are re-hashed ([`check_artifacts`](Self::check_artifacts)),
+    /// so a response, proof, witness, report or manifest deleted, truncated
+    /// or replaced on disk reads as unhealthy before the next run would
+    /// notice. The detail then starts with the error (its code and the
+    /// artifact's relative path) and keeps the boot summary after it. (The
+    /// public live mode reads
+    /// [`check_artifacts`](Self::check_artifacts) itself, without a clone:
+    /// `crate::live::snapshot_factory`.)
     fn status(&mut self) -> std::result::Result<MemoryStatus, MemoryError> {
-        Ok(MemoryStatus {
-            healthy: true,
-            detail: self.status.summary(),
+        let summary = self.status.summary();
+        Ok(match self.check_artifacts() {
+            Ok(()) => MemoryStatus {
+                healthy: true,
+                detail: summary,
+            },
+            Err(e) => MemoryStatus {
+                healthy: false,
+                detail: format!("{e}; at boot: {summary}"),
+            },
         })
     }
 }

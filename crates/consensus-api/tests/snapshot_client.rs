@@ -8,14 +8,15 @@
 //! is assembled from `tests/fixtures/snapshot/` with synthetic proof and
 //! witness bytes.
 
-mod support;
+mod common;
 
+use common::snapshot::*;
 use consensus_api::config::SnapshotConfig;
 use consensus_api::hyphae::{
     CommandError, CommandOutput, CommandRunner, HyphaeProofVerifier, SystemCommandRunner,
 };
 use consensus_api::snapshot::{
-    codes, verifier_from_config, Snapshot, SnapshotError, SnapshotMemoryClient, MANIFEST_SCHEMA,
+    codes, verifier_from_config, Snapshot, SnapshotError, SnapshotMemoryClient,
 };
 use consensus_domain::*;
 use consensus_runtime::clock::{FixedClock, SequentialIdGen};
@@ -25,240 +26,8 @@ use consensus_runtime::ports::{MemoryClient, MemoryError, ProofCheck, ProofVerif
 use consensus_runtime::scenarios::{assessment, claim, evaluation, proposal, TS};
 use consensus_runtime::{EventLog, RunAggregate, RunLimits};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-
-const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/snapshot");
-const SNAPSHOT_ID: &str = "snap-2026-10-29-demo-repo";
-const ANCHOR: &str = "4e1f0c9a7b3d5e2f8a6c4b0d9e7f1a3c5b8d2e4f6a0c1b3d5e7f9a2c4e6b8d0f";
-const PROJECT: &str = "demo-repo";
-const OTHER: &str = "other-repo";
-const LIST_ID: &str = "list-demo-repo";
-const ISOLATION_ID: &str = "recall-other-repo-isolation";
-const ISOLATION_QUERY: &str = "Fix payment client timeouts";
-const CAPTURED_AT: &str = "2026-10-29T15:04:05Z";
-const VERIFIED_AT: &str = "2026-10-29T15:04:09Z";
-/// The seven demo-repo records, in capture order (see the fixture README).
-const RECORD_IDS: [&str; 7] = [
-    "186670067796945807561772405393844769735",
-    "8864874238917673930644756936982232317",
-    "287567405605917891851290763137356115373",
-    "161896895843658017381255677281559699870",
-    "237412834382378687445660534362297845298",
-    "328114099256634798832222840773545327795",
-    "295729039551322334710406856728557559035",
-];
-
-fn fixture(name: &str) -> String {
-    std::fs::read_to_string(Path::new(FIXTURES).join(name)).expect(name)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
-/// One capture to assemble: its manifest entry's fields and which fixture
-/// response and capture-time verify report it carries.
-#[derive(Clone)]
-struct Spec {
-    id: &'static str,
-    operation: &'static str,
-    project: &'static str,
-    query: &'static str,
-    limit: u32,
-    response_fixture: &'static str,
-    verify_fixture: &'static str,
-    proof_blake3: &'static str,
-}
-
-fn list_spec() -> Spec {
-    Spec {
-        id: LIST_ID,
-        operation: "list",
-        project: PROJECT,
-        query: "",
-        limit: 64,
-        response_fixture: "list-demo-repo.response.json",
-        verify_fixture: "list-demo-repo.verify.json",
-        proof_blake3: "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
-    }
-}
-
-fn isolation_spec() -> Spec {
-    Spec {
-        id: ISOLATION_ID,
-        operation: "recall",
-        project: OTHER,
-        query: ISOLATION_QUERY,
-        limit: 8,
-        response_fixture: "recall-other-repo-isolation.response.json",
-        verify_fixture: "recall-other-repo-isolation.verify.json",
-        proof_blake3: "e5f60718e5f60718e5f60718e5f60718e5f60718e5f60718e5f60718e5f60718",
-    }
-}
-
-const PROOF_PREFIX: &str = "synthetic proof bytes of ";
-
-fn proof_bytes(id: &str) -> Vec<u8> {
-    format!("{PROOF_PREFIX}{id}\n").into_bytes()
-}
-
-/// The capture whose synthetic proof bytes `path` holds; by file name
-/// when the path is not readable here (a mapped container path).
-fn capture_of_proof(path: &str) -> String {
-    match std::fs::read_to_string(path) {
-        Ok(text) => text
-            .trim()
-            .strip_prefix(PROOF_PREFIX)
-            .unwrap_or_else(|| panic!("not synthetic proof bytes: {path}"))
-            .to_string(),
-        Err(_) => Path::new(path)
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .trim_end_matches(".proof")
-            .to_string(),
-    }
-}
-
-fn witness_bytes(id: &str) -> Vec<u8> {
-    format!("synthetic witness bytes of {id}: a private copy of the data directory\n").into_bytes()
-}
-
-/// Every file under `dir` as `/`-separated relative paths, sorted.
-fn files_under(dir: &Path) -> Vec<String> {
-    fn visit(dir: &Path, prefix: &str, out: &mut Vec<String>) {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let entry = entry.unwrap();
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let relative = if prefix.is_empty() {
-                name
-            } else {
-                format!("{prefix}/{name}")
-            };
-            if entry.path().is_dir() {
-                visit(&entry.path(), &relative, out);
-            } else {
-                out.push(relative);
-            }
-        }
-    }
-    let mut out = Vec::new();
-    visit(dir, "", &mut out);
-    out.sort();
-    out
-}
-
-/// (Re)writes `SHA256SUMS` for every other file under `dir`.
-fn write_checksums(dir: &Path) {
-    let mut text = String::new();
-    for relative in files_under(dir) {
-        if relative == "SHA256SUMS" {
-            continue;
-        }
-        let bytes = std::fs::read(dir.join(&relative)).unwrap();
-        text.push_str(&format!("{}  {relative}\n", sha256_hex(&bytes)));
-    }
-    std::fs::write(dir.join("SHA256SUMS"), text).unwrap();
-}
-
-fn capture_entry(spec: &Spec, dir: &Path) -> Value {
-    let response: Value = serde_json::from_str(&fixture(spec.response_fixture)).unwrap();
-    let memory_ids: Vec<Value> = response["memories"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|m| m["id"].clone())
-        .collect();
-    let id = spec.id;
-    let proof = std::fs::read(dir.join("captures").join(format!("{id}.proof"))).unwrap();
-    let witness = std::fs::read(dir.join("captures").join(format!("{id}.witness"))).unwrap();
-    json!({
-        "id": id,
-        "operation": spec.operation,
-        "arguments": {"project": spec.project, "query": spec.query, "limit": spec.limit, "prove": true},
-        "response_file": format!("captures/{id}.response.json"),
-        "proof_file": format!("captures/{id}.proof"),
-        "witness_file": format!("captures/{id}.witness"),
-        "verify_file": format!("captures/{id}.verify.json"),
-        "proof_blake3": spec.proof_blake3,
-        "proof_sha256": sha256_hex(&proof),
-        "witness_sha256": sha256_hex(&witness),
-        "memory_ids": memory_ids,
-        "verification": {"verified_at": VERIFIED_AT, "status": "verified", "kind": "memory",
-                         "scope": "semantic_reexecution", "anchor_hex": ANCHOR}
-    })
-}
-
-/// Assembles a complete snapshot directory `<temp>/<SNAPSHOT_ID>` from the
-/// fixtures and synthetic artifacts, lets `edit` change the manifest, then
-/// writes `SHA256SUMS` over the result.
-fn build_with(test: &str, specs: &[Spec], edit: impl FnOnce(&mut Value)) -> PathBuf {
-    let root = support::temp_dir(&format!("snapshot-{test}"));
-    let dir = root.join(SNAPSHOT_ID);
-    std::fs::create_dir_all(dir.join("captures")).unwrap();
-    for spec in specs {
-        let captures = dir.join("captures");
-        let id = spec.id;
-        std::fs::write(
-            captures.join(format!("{id}.response.json")),
-            fixture(spec.response_fixture),
-        )
-        .unwrap();
-        std::fs::write(captures.join(format!("{id}.proof")), proof_bytes(id)).unwrap();
-        std::fs::write(captures.join(format!("{id}.witness")), witness_bytes(id)).unwrap();
-        std::fs::write(
-            captures.join(format!("{id}.verify.json")),
-            fixture(spec.verify_fixture),
-        )
-        .unwrap();
-    }
-    let list: Value = serde_json::from_str(&fixture("list-demo-repo.response.json")).unwrap();
-    let mut manifest = json!({
-        "schema": MANIFEST_SCHEMA,
-        "snapshot_id": SNAPSHOT_ID,
-        "captured_at": CAPTURED_AT,
-        "project": PROJECT,
-        "anchor_hex": ANCHOR,
-        "hyphae": {"version": "hyphae 4.0.0", "binary_sha256": "f0e1d2c3".repeat(8),
-                   "control_schema": "hyphae-omarchy-control-v1"},
-        "store": {"record_count": 7, "root_digest": list["snapshot"]["root_digest"],
-                  "visible_csn": list["snapshot"]["visible_csn"],
-                  "logical_time_micros": list["snapshot"]["logical_time_micros"]},
-        "captures": specs.iter().map(|s| capture_entry(s, &dir)).collect::<Vec<_>>()
-    });
-    edit(&mut manifest);
-    std::fs::write(
-        dir.join("manifest.json"),
-        serde_json::to_string_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
-    write_checksums(&dir);
-    dir
-}
-
-fn build(test: &str) -> PathBuf {
-    build_with(test, &[list_spec(), isolation_spec()], |_| {})
-}
-
-fn config(dir: &Path, binary: &str) -> SnapshotConfig {
-    let vars = [
-        ("CONSENSUS_SNAPSHOT_DIR", dir.to_string_lossy().into_owned()),
-        ("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", ANCHOR.to_string()),
-        ("CONSENSUS_HYPHAE_BIN", binary.to_string()),
-    ];
-    SnapshotConfig::from_vars(|name| {
-        vars.iter()
-            .find(|(k, _)| *k == name)
-            .map(|(_, v)| v.clone())
-    })
-    .unwrap()
-    .expect("a snapshot config")
-}
 
 /// Answers every `hyphae proof verify` and records each argv. With an
 /// `outcome`, every call gets it; without one, a call gets the capture-time
@@ -288,11 +57,6 @@ fn exited(code: i32, stdout: &str, stderr: &str) -> Result<CommandOutput, Comman
         stdout: stdout.into(),
         stderr: stderr.into(),
     })
-}
-
-/// The capture-time `hyphae proof verify` report of a capture.
-fn verify_report(id: &str) -> String {
-    fixture(&format!("{id}.verify.json"))
 }
 
 /// `verify_report(id)` with one field changed.
@@ -336,38 +100,6 @@ fn open_error(dir: &Path) -> SnapshotError {
         Ok(_) => panic!("open must fail"),
         Err(e) => e,
     }
-}
-
-/// Rewrites the manifest's `proof_sha256` and `witness_sha256` from the
-/// files on disk, as a capture script computing them after a copy step
-/// would, then `SHA256SUMS`.
-fn recompute_digests(dir: &Path) {
-    edit_manifest(dir, |m| {
-        for capture in m["captures"].as_array_mut().unwrap() {
-            for (field, file) in [
-                ("proof_sha256", "proof_file"),
-                ("witness_sha256", "witness_file"),
-            ] {
-                let relative = capture[file].as_str().unwrap().to_string();
-                let bytes = std::fs::read(dir.join(relative)).unwrap();
-                capture[field] = json!(sha256_hex(&bytes));
-            }
-        }
-    });
-    write_checksums(dir);
-}
-
-fn flip_first_byte(path: &Path) {
-    let mut bytes = std::fs::read(path).unwrap();
-    bytes[0] ^= 0x01;
-    std::fs::write(path, bytes).unwrap();
-}
-
-fn edit_manifest(dir: &Path, edit: impl FnOnce(&mut Value)) {
-    let path = dir.join("manifest.json");
-    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    edit(&mut manifest);
-    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
 }
 
 #[test]
@@ -444,6 +176,60 @@ fn the_snapshot_config_requires_the_pinned_anchor() {
     assert_eq!(verifier.expected_anchor.as_deref(), Some(ANCHOR));
     assert_eq!(verifier.timeout, Duration::from_secs(7));
     assert_eq!(verifier.binary, "scripts/hyphae-docker.cmd");
+}
+
+#[test]
+fn a_set_snapshot_dir_with_a_missing_or_malformed_anchor_is_a_boot_error() {
+    // ADR-0008 decision 1: with the directory set, a missing or malformed
+    // pinned anchor is an error naming the variable, never `None` (which a
+    // caller would read as "snapshot mode not configured" and fall back
+    // silently). `from_vars` and `try_from_env` are the only entry points.
+    let from = |pairs: &[(&str, &str)]| {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        SnapshotConfig::from_vars(|name| {
+            pairs
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+        })
+    };
+    let short = ANCHOR[..63].to_string();
+    let long = format!("{ANCHOR}0");
+    let glyph = format!("{}g", &ANCHOR[..63]);
+    let cases: [(&str, Option<&str>); 7] = [
+        ("missing", None),
+        ("blank", Some("   ")),
+        ("not hex", Some("not-hex")),
+        ("63 digits", Some(short.as_str())),
+        ("65 digits", Some(long.as_str())),
+        ("a non-hex glyph", Some(glyph.as_str())),
+        ("the demo store's prefix only", Some("d91ac10d")),
+    ];
+    for (label, anchor) in cases {
+        let mut pairs = vec![("CONSENSUS_SNAPSHOT_DIR", "/srv/snapshots/snap")];
+        if let Some(anchor) = anchor {
+            pairs.push(("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", anchor));
+        }
+        let err = match from(&pairs) {
+            Err(err) => err,
+            Ok(cfg) => {
+                panic!("{label}: a set directory with a bad anchor must be an error, got {cfg:?}")
+            }
+        };
+        assert_eq!(err.setting, "CONSENSUS_HYPHAE_EXPECTED_ANCHOR", "{label}");
+        assert!(
+            err.to_string().contains("CONSENSUS_HYPHAE_EXPECTED_ANCHOR"),
+            "{label}: the message names the variable: {err}"
+        );
+    }
+    // The directory alone unset is the one `None`: snapshot mode off.
+    assert_eq!(
+        from(&[("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", ANCHOR)]).unwrap(),
+        None
+    );
 }
 
 #[test]
@@ -758,13 +544,19 @@ fn tampering_with_any_file_fails_open_with_its_code() {
         "{err}"
     );
 
+    // Edits of a response or a capture-time report below rewrite the
+    // manifest's digests as well (`recompute_digests`): with SHA256SUMS
+    // alone regenerated, the manifest's `response_sha256`/`verify_sha256`
+    // would refuse them first (`a_record_text_edited_with_the_listing_
+    // regenerated_does_not_load`), and these cases are about the checks
+    // behind the digests.
     let dir = build("response-ids");
     let response_path = capture_file(&dir, &format!("{LIST_ID}.response.json"));
     let mut response: Value =
         serde_json::from_slice(&std::fs::read(&response_path).unwrap()).unwrap();
     response["memories"][2]["id"] = json!("999");
     std::fs::write(&response_path, response.to_string()).unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     assert_eq!(load_error(&dir).code, codes::MEMORY_IDS_MISMATCH);
 
     let dir = build("manifest-ids-reordered");
@@ -786,7 +578,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
         serde_json::from_slice(&std::fs::read(&response_path).unwrap()).unwrap();
     response["proof"]["anchor_hex"] = json!("ab".repeat(32));
     std::fs::write(&response_path, response.to_string()).unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     let err = load_error(&dir);
     assert_eq!(err.code, codes::ANCHOR_MISMATCH, "{err}");
 
@@ -795,7 +587,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
     let mut report: Value = serde_json::from_slice(&std::fs::read(&verify_path).unwrap()).unwrap();
     report["kind"] = json!("catalog");
     std::fs::write(&verify_path, report.to_string()).unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     assert_eq!(load_error(&dir).code, codes::VERIFY_RECORD_INVALID);
 
     // A capture-time record verified against another anchor.
@@ -806,7 +598,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
         report_with(ISOLATION_ID, "anchor_digest", json!("ab".repeat(32))),
     )
     .unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     let err = load_error(&dir);
     assert_eq!(err.code, codes::ANCHOR_MISMATCH, "{err}");
     assert!(
@@ -823,7 +615,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
             serde_json::from_slice(&std::fs::read(&verify_path).unwrap()).unwrap();
         report.as_object_mut().unwrap().remove(key);
         std::fs::write(&verify_path, report.to_string()).unwrap();
-        write_checksums(&dir);
+        recompute_digests(&dir);
         let err = load_error(&dir);
         assert_eq!(err.code, codes::VERIFY_RECORD_INVALID, "{key}: {err}");
         assert!(err.message.contains(key), "{err}");
@@ -840,7 +632,7 @@ fn tampering_with_any_file_fails_open_with_its_code() {
         serde_json::from_slice(&std::fs::read(&response_path).unwrap()).unwrap();
     response["memories"][4]["project"] = json!("tenant-b");
     std::fs::write(&response_path, response.to_string()).unwrap();
-    write_checksums(&dir);
+    recompute_digests(&dir);
     let err = load_error(&dir);
     assert_eq!(err.code, codes::FOREIGN_RECORD, "{err}");
     assert!(err.message.contains("\"tenant-b\""), "{err}");
@@ -943,10 +735,249 @@ fn tampering_with_any_file_fails_open_with_its_code() {
             "no file contents: {err}"
         );
     }
-    let root = support::temp_dir("not-a-dir");
+    let root = TempRoot::new("not-a-dir");
     assert_eq!(
         load_error(&root.join("absent")).code,
         codes::SNAPSHOT_DIR_MISSING
+    );
+}
+
+/// Creates the symbolic link `link` to `target`, or returns `None` after a
+/// clear message when the OS refuses: on Windows, creating a symlink needs
+/// Developer Mode or the SeCreateSymbolicLinkPrivilege (error 1314). For a
+/// directory link on Windows without that privilege, a junction stands in:
+/// it needs no privilege, and Windows reports it as a name-surrogate
+/// reparse point, which `FileType::is_symlink` (the check `walk` relies on)
+/// reports as a symbolic link, so a loop through it is the same hazard.
+fn symlink(target: &Path, link: &Path, to_directory: bool) -> Option<()> {
+    #[cfg(windows)]
+    let result = if to_directory {
+        std::os::windows::fs::symlink_dir(target, link)
+    } else {
+        std::os::windows::fs::symlink_file(target, link)
+    };
+    #[cfg(not(windows))]
+    let result = {
+        let _ = to_directory;
+        std::os::unix::fs::symlink(target, link)
+    };
+    match result {
+        Ok(()) => Some(()),
+        Err(e)
+            if e.kind() == std::io::ErrorKind::PermissionDenied
+                || e.raw_os_error() == Some(1314) =>
+        {
+            #[cfg(windows)]
+            if to_directory {
+                let made = std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(link)
+                    .arg(target)
+                    .stdout(std::process::Stdio::null())
+                    .status();
+                if matches!(made, Ok(status) if status.success()) {
+                    let kind = std::fs::symlink_metadata(link).unwrap().file_type();
+                    assert!(
+                        kind.is_symlink(),
+                        "a junction is a name-surrogate reparse point, seen as a symlink"
+                    );
+                    eprintln!("note: no symlink privilege ({e}); a junction stands in for the directory link");
+                    return Some(());
+                }
+            }
+            eprintln!(
+                "SKIPPED: this OS refuses to create a symbolic link ({e}); on Windows enable Developer Mode or run the test as administrator"
+            );
+            None
+        }
+        Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
+    }
+}
+
+#[test]
+fn a_symlink_loop_under_the_directory_is_refused_not_followed() {
+    // `captures/loop` -> the snapshot directory itself: following it would
+    // recurse without bound (a stack overflow at boot instead of an error).
+    let dir = build("symlink-loop");
+    let link = dir.join("captures").join("loop");
+    if symlink(&dir, &link, true).is_none() {
+        return;
+    }
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::SYMLINK_REFUSED, "{err}");
+    assert!(err.message.contains("captures/loop"), "{err}");
+    assert_eq!(open_error(&dir).code, codes::SYMLINK_REFUSED);
+}
+
+#[test]
+fn a_symlinked_artifact_pointing_outside_the_directory_is_refused() {
+    // The isolation witness replaced by a link to a file outside the
+    // directory holding the same bytes: every digest would match if the
+    // link were followed.
+    let dir = build("symlink-artifact");
+    let outside = dir.parent().unwrap().join("outside.witness");
+    let witness = dir.join("captures").join(format!("{ISOLATION_ID}.witness"));
+    std::fs::copy(&witness, &outside).unwrap();
+    std::fs::remove_file(&witness).unwrap();
+    if symlink(&outside, &witness, false).is_none() {
+        return;
+    }
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::SYMLINK_REFUSED, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{ISOLATION_ID}.witness")),
+        "{err}"
+    );
+    assert!(
+        !err.message.contains("outside.witness"),
+        "names the artifact, not the link target: {err}"
+    );
+    assert_eq!(open_error(&dir).code, codes::SYMLINK_REFUSED);
+    // A link in place of SHA256SUMS itself is refused by the first read.
+    let dir = build("symlink-sums");
+    let sums = dir.join("SHA256SUMS");
+    let outside = dir.parent().unwrap().join("outside.SHA256SUMS");
+    std::fs::copy(&sums, &outside).unwrap();
+    std::fs::remove_file(&sums).unwrap();
+    symlink(&outside, &sums, false).unwrap();
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::SYMLINK_REFUSED, "{err}");
+    assert!(err.message.starts_with("SHA256SUMS"), "{err}");
+}
+
+#[test]
+fn a_directory_nested_deeper_than_the_flat_layout_is_refused() {
+    // No symlink needed: the walk stops at MAX_DEPTH components.
+    let dir = build("too-deep");
+    let deep = dir.join("captures").join("deep");
+    std::fs::create_dir_all(deep.join("deeper")).unwrap();
+    std::fs::write(deep.join("deeper").join("x.txt"), "x").unwrap();
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::LAYOUT_TOO_DEEP, "{err}");
+    assert!(err.message.contains("captures/deep"), "{err}");
+    assert!(
+        !err.message.contains("captures/deep/deeper"),
+        "stops at the first directory too deep: {err}"
+    );
+    assert_eq!(open_error(&dir).code, codes::LAYOUT_TOO_DEEP);
+    // A first-level directory is within the layout: it is walked, and its
+    // unlisted file is reported as such.
+    let dir = build("first-level-dir");
+    std::fs::create_dir_all(dir.join("extra")).unwrap();
+    std::fs::write(dir.join("extra").join("note.txt"), "x").unwrap();
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::CHECKSUMS_INCOMPLETE, "{err}");
+    assert!(err.message.contains("extra/note.txt"), "{err}");
+}
+
+#[test]
+fn status_rehashes_the_served_artifacts_on_every_call() {
+    let dir = build("status-rehash");
+    let (mut client, _) = open(&dir);
+    let boot_summary = client.snapshot_status().summary();
+    let healthy = client.status().unwrap();
+    assert!(healthy.healthy);
+    assert_eq!(healthy.detail, boot_summary);
+    client
+        .check_artifacts()
+        .expect("the artifacts are as verified");
+
+    // The isolation witness altered after boot (a flipped byte): unhealthy
+    // with the code and the artifact's relative path, the boot summary kept.
+    let witness = dir.join("captures").join(format!("{ISOLATION_ID}.witness"));
+    let original = std::fs::read(&witness).unwrap();
+    flip_first_byte(&witness);
+    let status = client.status().unwrap();
+    assert!(!status.healthy, "{}", status.detail);
+    assert!(
+        status.detail.starts_with(codes::DIGEST_MISMATCH),
+        "{}",
+        status.detail
+    );
+    assert!(
+        status
+            .detail
+            .contains(&format!("captures/{ISOLATION_ID}.witness")),
+        "{}",
+        status.detail
+    );
+    assert!(status.detail.contains(&boot_summary), "{}", status.detail);
+    assert!(
+        !status.detail.contains(&dir.to_string_lossy().into_owned()),
+        "no filesystem path: {}",
+        status.detail
+    );
+    assert!(
+        !status.detail.contains("synthetic witness bytes"),
+        "no witness content: {}",
+        status.detail
+    );
+    let err = client.check_artifacts().unwrap_err();
+    assert_eq!(
+        err.code,
+        codes::DIGEST_MISMATCH,
+        "the code for /health: {err}"
+    );
+    // A clone handed to a run sees the same disk.
+    assert!(!client.clone().status().unwrap().healthy);
+
+    // Truncated.
+    std::fs::write(&witness, &original[..original.len() / 2]).unwrap();
+    let status = client.status().unwrap();
+    assert!(
+        !status.healthy && status.detail.starts_with(codes::DIGEST_MISMATCH),
+        "{}",
+        status.detail
+    );
+    // Deleted.
+    std::fs::remove_file(&witness).unwrap();
+    let status = client.status().unwrap();
+    assert!(!status.healthy, "{}", status.detail);
+    assert!(
+        status.detail.starts_with(codes::FILE_UNREADABLE),
+        "{}",
+        status.detail
+    );
+    assert!(
+        status
+            .detail
+            .contains(&format!("captures/{ISOLATION_ID}.witness")),
+        "{}",
+        status.detail
+    );
+    // Restored: the check is of the files as they are now.
+    std::fs::write(&witness, &original).unwrap();
+    assert!(client.status().unwrap().healthy);
+
+    // The list capture's proof replaced, then the manifest rewritten.
+    let proof = dir.join("captures").join(format!("{LIST_ID}.proof"));
+    flip_first_byte(&proof);
+    let status = client.status().unwrap();
+    assert!(
+        !status.healthy && status.detail.contains(&format!("captures/{LIST_ID}.proof")),
+        "{}",
+        status.detail
+    );
+    flip_first_byte(&proof);
+    assert!(client.status().unwrap().healthy);
+    edit_manifest(&dir, |m| m["captured_at"] = json!("2026-10-30T00:00:00Z"));
+    let status = client.status().unwrap();
+    assert!(
+        !status.healthy
+            && status.detail.starts_with(codes::DIGEST_MISMATCH)
+            && status.detail.contains("manifest.json"),
+        "{}",
+        status.detail
+    );
+    // Recalls still answer from the records verified at boot (the client
+    // is plain data); only the health report changes.
+    assert_eq!(
+        client
+            .recall(&ProjectId::new(PROJECT), "q", 5)
+            .unwrap()
+            .len(),
+        7
     );
 }
 
@@ -1273,7 +1304,9 @@ fn one_proof_cannot_stand_for_both_served_captures() {
     );
     assert_eq!(open_error(&dir).code, codes::PROOF_SHARED);
 
-    // The same response-reported proof_blake3 on both captures.
+    // The same response-reported proof_blake3 on both captures (the
+    // manifest's digest of the edited response rewritten too, so the case
+    // reaches the shared-proof check behind it).
     let dir = build("shared-blake3");
     let response_path = capture_file(&dir, &format!("{ISOLATION_ID}.response.json"));
     let mut response: Value =
@@ -1283,7 +1316,7 @@ fn one_proof_cannot_stand_for_both_served_captures() {
     edit_manifest(&dir, |m| {
         m["captures"][1]["proof_blake3"] = json!(list_spec().proof_blake3)
     });
-    write_checksums(&dir);
+    recompute_digests(&dir);
     assert_eq!(load_error(&dir).code, codes::PROOF_SHARED);
 
     // Proof and witness swapped BETWEEN the captures, capture-time records
@@ -1366,73 +1399,508 @@ fn the_client_is_plain_data_that_can_be_shared_between_runs() {
     assert!(format!("{client:?}").contains(SNAPSHOT_ID));
 }
 
-/// A fake `hyphae` binary: appends its arguments to `log` and prints the
-/// capture-time verify report of the capture whose synthetic proof bytes
-/// the `--proof` file holds (digests follow content, as Hyphae's do).
-/// Windows: a `.cmd` script (`std::process::Command` runs it through
-/// `cmd.exe`); elsewhere a `sh` script.
-fn fake_hyphae(root: &Path) -> (String, PathBuf) {
-    let log = root.join("hyphae-calls.log");
-    let reports = root.join("reports");
-    std::fs::create_dir_all(&reports).unwrap();
-    for id in [LIST_ID, ISOLATION_ID] {
-        std::fs::write(reports.join(format!("{id}.verify.json")), verify_report(id)).unwrap();
-    }
-    let (name, script) = if cfg!(windows) {
-        (
-            "hyphae.cmd",
-            [
-                "@echo off".to_string(),
-                format!(">>\"{}\" echo %*", log.display()),
-                "set \"proof=\"".into(),
-                ":loop".into(),
-                "if \"%~1\"==\"\" goto done".into(),
-                "if \"%~1\"==\"--proof\" set \"proof=%~2\"".into(),
-                "shift".into(),
-                "goto loop".into(),
-                ":done".into(),
-                // "synthetic proof bytes of <id>": the fifth token.
-                "for /f \"tokens=5\" %%a in ('type \"%proof%\"') do set \"id=%%a\"".into(),
-                format!("type \"{}\\%id%.verify.json\"", reports.display()),
-                String::new(),
-            ]
-            .join("\r\n"),
-        )
-    } else {
-        (
-            "hyphae",
-            [
-                "#!/bin/sh".to_string(),
-                format!("printf '%s\\n' \"$*\" >> \"{}\"", log.display()),
-                "proof=".into(),
-                "while [ $# -gt 0 ]; do".into(),
-                "  if [ \"$1\" = \"--proof\" ]; then proof=$2; fi".into(),
-                "  shift".into(),
-                "done".into(),
-                format!("id=$(sed -n 's/^{PROOF_PREFIX}\\(.*\\)$/\\1/p' \"$proof\")"),
-                format!("cat \"{}/$id.verify.json\"", reports.display()),
-                String::new(),
-            ]
-            .join("\n"),
-        )
-    };
-    let path = root.join(name);
-    std::fs::write(&path, script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    (path.to_string_lossy().into_owned(), log)
+// ---------------------------------------------------------------------
+// The record texts, the manifest and the verifier binary bound (review R6)
+// ---------------------------------------------------------------------
+
+/// The text a tampered snapshot would serve instead of the 2026-09
+/// decision: the proofs untouched (they do not bind the text, HY-1).
+const EDITED_TEXT: &str =
+    "Decision (edited after capture): raise the payment-client retry cap to 10 attempts.";
+
+/// The text of the list capture's first record, as captured.
+fn captured_text(index: usize) -> String {
+    let list: Value = serde_json::from_str(&fixture("list-demo-repo.response.json")).unwrap();
+    list["memories"][index]["text"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
-fn logged_calls(log: &Path) -> Vec<String> {
-    std::fs::read_to_string(log)
-        .unwrap_or_default()
-        .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect()
+#[test]
+fn a_record_text_edited_with_the_listing_regenerated_does_not_load() {
+    let original = captured_text(0);
+    // Review R6: one record's text edited in the list response and
+    // SHA256SUMS regenerated over it. The manifest's response_sha256
+    // refuses it before the response is parsed, naming the file by its
+    // relative path and quoting neither text; boot stops there, before any
+    // verifier run.
+    let dir = build("edited-text");
+    edit_record_text(&dir, LIST_ID, 0, EDITED_TEXT);
+    write_checksums(&dir);
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::DIGEST_MISMATCH, "{err}");
+    assert!(
+        err.message
+            .starts_with(&format!("captures/{LIST_ID}.response.json")),
+        "{err}"
+    );
+    let local = dir.to_string_lossy().into_owned();
+    for leak in [EDITED_TEXT, original.as_str(), local.as_str(), "synthetic"] {
+        assert!(!err.to_string().contains(leak), "{err} leaks {leak:?}");
+    }
+    let cfg = config(&dir, "hyphae");
+    let mut verifier = scripted(&cfg, None);
+    assert_eq!(
+        SnapshotMemoryClient::open(&cfg, &mut verifier).unwrap_err(),
+        err
+    );
+    assert!(verifier.runner.calls.is_empty(), "nothing was verified");
+
+    // The binding is of bytes, not of meaning: the isolation response
+    // re-serialized with the same JSON, or a field of the capture-time
+    // report the loader never reads, changes the digest just the same.
+    let dir = build("reserialized-response");
+    let path = dir
+        .join("captures")
+        .join(format!("{ISOLATION_ID}.response.json"));
+    let same: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    std::fs::write(&path, same.to_string()).unwrap();
+    write_checksums(&dir);
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::DIGEST_MISMATCH, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{ISOLATION_ID}.response.json")),
+        "{err}"
+    );
+    let dir = build("edited-report");
+    std::fs::write(
+        dir.join("captures").join(format!("{LIST_ID}.verify.json")),
+        report_with(LIST_ID, "total_file_bytes", json!(1)),
+    )
+    .unwrap();
+    write_checksums(&dir);
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::DIGEST_MISMATCH, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{LIST_ID}.verify.json")),
+        "{err}"
+    );
+
+    // Both digests are required (no manifest exists without them) and are
+    // 64 lowercase hex digits.
+    for (name, edit, code) in [
+        (
+            "no-response-digest",
+            Box::new(|m: &mut Value| {
+                m["captures"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("response_sha256");
+            }) as Box<dyn FnOnce(&mut Value)>,
+            codes::MANIFEST_INVALID,
+        ),
+        (
+            "no-verify-digest",
+            Box::new(|m: &mut Value| {
+                m["captures"][1]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("verify_sha256");
+            }),
+            codes::MANIFEST_INVALID,
+        ),
+        (
+            "response-digest-uppercase",
+            Box::new(|m: &mut Value| {
+                let upper = m["captures"][0]["response_sha256"]
+                    .as_str()
+                    .unwrap()
+                    .to_ascii_uppercase();
+                m["captures"][0]["response_sha256"] = json!(upper);
+            }),
+            codes::CAPTURE_INVALID,
+        ),
+        (
+            "verify-digest-short",
+            Box::new(|m: &mut Value| m["captures"][1]["verify_sha256"] = json!("ab".repeat(31))),
+            codes::CAPTURE_INVALID,
+        ),
+    ] {
+        let dir = build_with(
+            &format!("manifest-{name}"),
+            &[list_spec(), isolation_spec()],
+            edit,
+        );
+        let err = load_error(&dir);
+        assert_eq!(err.code, code, "{name}: {err}");
+    }
+}
+
+#[test]
+fn the_served_responses_and_reports_are_rechecked_after_boot() {
+    let dir = build("recheck-responses");
+    let (mut client, _) = open(&dir);
+    assert!(client.status().unwrap().healthy);
+    let local = dir.to_string_lossy().into_owned();
+    let original = captured_text(0);
+
+    // A record text edited after boot: unhealthy with the code and the
+    // response's relative path, neither text, no filesystem path.
+    let response = dir
+        .join("captures")
+        .join(format!("{LIST_ID}.response.json"));
+    let captured = std::fs::read(&response).unwrap();
+    edit_record_text(&dir, LIST_ID, 0, EDITED_TEXT);
+    let status = client.status().unwrap();
+    assert!(!status.healthy, "{}", status.detail);
+    assert!(
+        status.detail.starts_with(&format!(
+            "{}: captures/{LIST_ID}.response.json",
+            codes::DIGEST_MISMATCH
+        )),
+        "{}",
+        status.detail
+    );
+    for leak in [EDITED_TEXT, original.as_str(), local.as_str()] {
+        assert!(!status.detail.contains(leak), "{}", status.detail);
+    }
+    assert_eq!(
+        client.check_artifacts().unwrap_err().code,
+        codes::DIGEST_MISMATCH
+    );
+    // The records are the ones boot read; the re-check reports the disk.
+    let records = client.recall(&ProjectId::new(PROJECT), "q", 5).unwrap();
+    assert_eq!(records[0].content, original);
+    std::fs::write(&response, &captured).unwrap();
+    assert!(client.status().unwrap().healthy, "restored");
+
+    // The isolation capture's capture-time report edited, then its
+    // response deleted.
+    let report = dir
+        .join("captures")
+        .join(format!("{ISOLATION_ID}.verify.json"));
+    let captured = std::fs::read(&report).unwrap();
+    std::fs::write(
+        &report,
+        report_with(ISOLATION_ID, "total_file_bytes", json!(1)),
+    )
+    .unwrap();
+    let err = client.check_artifacts().unwrap_err();
+    assert_eq!(err.code, codes::DIGEST_MISMATCH, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{ISOLATION_ID}.verify.json")),
+        "{err}"
+    );
+    std::fs::write(&report, &captured).unwrap();
+    client.check_artifacts().expect("restored");
+    let response = dir
+        .join("captures")
+        .join(format!("{ISOLATION_ID}.response.json"));
+    std::fs::remove_file(&response).unwrap();
+    let err = client.check_artifacts().unwrap_err();
+    assert_eq!(err.code, codes::FILE_UNREADABLE, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{ISOLATION_ID}.response.json")),
+        "{err}"
+    );
+}
+
+#[test]
+fn the_pinned_manifest_digest_refuses_every_other_manifest() {
+    let dir = build("manifest-pin");
+    let local = dir.to_string_lossy().into_owned();
+    let pin = manifest_sha256(&dir);
+    let snapshot = Snapshot::load_pinned(&dir, None, Some(&pin)).expect("the pinned manifest");
+    assert_eq!(snapshot.manifest_sha256(), pin);
+    assert_eq!(
+        Snapshot::load(&dir, None).unwrap().manifest_sha256(),
+        pin,
+        "the digest of the bytes loaded"
+    );
+    Snapshot::load_pinned(
+        &dir,
+        None,
+        Some(&format!(" {}\n", pin.to_ascii_uppercase())),
+    )
+    .expect("case and whitespace as the configuration normalizes them");
+
+    // Another digest: refused before the manifest is parsed, both digests
+    // and the variable named, no path.
+    let other = "ab".repeat(32);
+    let err = Snapshot::load_pinned(&dir, None, Some(&other)).unwrap_err();
+    assert_eq!(err.code, codes::MANIFEST_PIN_MISMATCH, "{err}");
+    assert!(err.message.starts_with("manifest.json"), "{err}");
+    for part in ["CONSENSUS_SNAPSHOT_MANIFEST_SHA256", &pin, &other] {
+        assert!(err.message.contains(part), "{err}");
+    }
+    assert!(!err.message.contains(&local), "{err}");
+
+    // Review R6: a consistent rewrite (a record text edited, the
+    // manifest's digest of it and SHA256SUMS regenerated). Nothing in the
+    // directory tells: unpinned, it loads and serves the edited text. The
+    // pin refuses it, and nothing is verified for it.
+    edit_record_text(&dir, LIST_ID, 0, EDITED_TEXT);
+    recompute_digests(&dir);
+    let rewritten = Snapshot::load(&dir, None).expect("consistent, so unpinned it loads");
+    assert_eq!(rewritten.records()[0].text, EDITED_TEXT);
+    let err = Snapshot::load_pinned(&dir, None, Some(&pin)).unwrap_err();
+    assert_eq!(err.code, codes::MANIFEST_PIN_MISMATCH, "{err}");
+    assert!(!err.message.contains(EDITED_TEXT), "{err}");
+    let cfg = pinned_config(&dir, "hyphae", Some(&pin), None);
+    assert_eq!(cfg.manifest_sha256.as_deref(), Some(pin.as_str()));
+    let mut verifier = scripted(&cfg, None);
+    let err = SnapshotMemoryClient::open(&cfg, &mut verifier).unwrap_err();
+    assert_eq!(err.code, codes::MANIFEST_PIN_MISMATCH, "{err}");
+    assert!(verifier.runner.calls.is_empty(), "nothing was verified");
+    // The pin is only as good as the value pinned: the rewritten manifest's
+    // own digest opens it. Hence the published digest (README, release tag).
+    let cfg = pinned_config(&dir, "hyphae", Some(&manifest_sha256(&dir)), None);
+    let mut verifier = scripted(&cfg, None);
+    SnapshotMemoryClient::open(&cfg, &mut verifier).expect("pinned to the rewrite itself");
+
+    // The listing still comes first: a manifest byte flipped without
+    // SHA256SUMS regenerated is a checksum error, pinned or not.
+    let dir = build("manifest-pin-listing-first");
+    let pin = manifest_sha256(&dir);
+    flip_first_byte(&dir.join("manifest.json"));
+    assert_eq!(
+        Snapshot::load_pinned(&dir, None, Some(&pin))
+            .unwrap_err()
+            .code,
+        codes::CHECKSUMS_MISMATCH
+    );
+}
+
+#[test]
+fn the_digest_pins_are_validated_and_a_pinned_binary_must_be_an_absolute_path() {
+    let from = |pairs: &[(&str, &str)]| {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        SnapshotConfig::from_vars(|name| {
+            pairs
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+        })
+    };
+    const MANIFEST_PIN: &str = "CONSENSUS_SNAPSHOT_MANIFEST_SHA256";
+    const BIN_PIN: &str = "CONSENSUS_HYPHAE_BIN_SHA256";
+    const BIN: &str = "CONSENSUS_HYPHAE_BIN";
+    let base = [
+        ("CONSENSUS_SNAPSHOT_DIR", "/srv/snapshots/snap"),
+        ("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", ANCHOR),
+    ];
+    // Absolute on every platform (a Unix path has no drive on Windows).
+    let absolute = std::env::temp_dir()
+        .join("hyphae-pinned")
+        .to_string_lossy()
+        .into_owned();
+    let with = |extra: &[(&'static str, &str)]| {
+        let mut pairs: Vec<(&str, &str)> = base.to_vec();
+        pairs.extend_from_slice(extra);
+        from(&pairs)
+    };
+
+    // Unset: nothing pinned.
+    let cfg = with(&[]).unwrap().unwrap();
+    assert_eq!((cfg.manifest_sha256, cfg.binary_sha256), (None, None));
+    let cfg = with(&[(MANIFEST_PIN, "  "), (BIN_PIN, "")])
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (cfg.manifest_sha256, cfg.binary_sha256),
+        (None, None),
+        "an empty value is unset"
+    );
+
+    // Set: normalized (whitespace, case) like the anchor.
+    let digest = "c3".repeat(32);
+    let padded = format!(" {}\r\n", digest.to_ascii_uppercase());
+    let cfg = with(&[
+        (MANIFEST_PIN, padded.as_str()),
+        (BIN_PIN, padded.as_str()),
+        (BIN, absolute.as_str()),
+    ])
+    .unwrap()
+    .unwrap();
+    assert_eq!(cfg.manifest_sha256.as_deref(), Some(digest.as_str()));
+    assert_eq!(cfg.binary_sha256.as_deref(), Some(digest.as_str()));
+    assert_eq!(cfg.binary, absolute);
+
+    // Unusable: a configuration error naming the variable (live-enabled
+    // startup stops on it), never an unpinned configuration.
+    let short = digest[..63].to_string();
+    let long = format!("{digest}0");
+    let glyph = format!("{}g", &digest[..63]);
+    let prefixed = format!("sha256:{digest}");
+    let sums_line = format!("{digest}  manifest.json");
+    for var in [MANIFEST_PIN, BIN_PIN] {
+        for bad in [
+            short.as_str(),
+            long.as_str(),
+            glyph.as_str(),
+            prefixed.as_str(),
+            sums_line.as_str(),
+            "<64-hex-sha256>",
+        ] {
+            let err = match with(&[(var, bad), (BIN, absolute.as_str())]) {
+                Err(err) => err,
+                Ok(cfg) => panic!("{var}={bad:?} must be an error, got {cfg:?}"),
+            };
+            assert_eq!(err.setting, var, "{bad:?}");
+            assert!(err.to_string().starts_with(var), "{err}");
+        }
+    }
+
+    // With the binary pinned, CONSENSUS_HYPHAE_BIN must be an absolute
+    // path: the default `hyphae` (looked up on PATH) and relative paths are
+    // configuration errors naming it.
+    for bin in [
+        None,
+        Some("hyphae"),
+        Some("./hyphae"),
+        Some("scripts/hyphae-docker.cmd"),
+    ] {
+        let mut extra = vec![(BIN_PIN, digest.as_str())];
+        if let Some(bin) = bin {
+            extra.push((BIN, bin));
+        }
+        let err = match with(&extra) {
+            Err(err) => err,
+            Ok(cfg) => panic!("{bin:?} must be refused with the binary pinned, got {cfg:?}"),
+        };
+        assert_eq!(err.setting, BIN, "{bin:?}");
+        assert!(
+            err.message.contains("absolute path") && err.message.contains(BIN_PIN),
+            "{err}"
+        );
+    }
+    // Unpinned, a relative binary stays accepted (the dev machine's
+    // container wrapper: nothing is hashed then), and the manifest pin
+    // alone puts no condition on the binary.
+    let cfg = with(&[(BIN, "scripts/hyphae-docker.cmd")])
+        .unwrap()
+        .unwrap();
+    assert_eq!(cfg.binary_sha256, None);
+    let cfg = with(&[
+        (MANIFEST_PIN, digest.as_str()),
+        (BIN, "scripts/hyphae-docker.cmd"),
+    ])
+    .unwrap()
+    .unwrap();
+    assert_eq!(cfg.binary, "scripts/hyphae-docker.cmd");
+}
+
+#[test]
+fn a_pinned_verifier_binary_must_be_the_build_the_snapshot_was_captured_with() {
+    let dir = build("binary-pin");
+    let root = dir.root().to_path_buf();
+    let (binary, log) = fake_hyphae(&root);
+    // The fake binary recorded as the capture build: its real digest is the
+    // manifest's hyphae.binary_sha256, and the pinned boot runs it.
+    let digest = record_capture_binary(&dir, &binary);
+    let pinned = |binary: &str| pinned_config(&dir, binary, None, Some(&digest));
+    let open_with = |cfg: &SnapshotConfig| {
+        SnapshotMemoryClient::open(cfg, &mut verifier_from_config(cfg, SystemCommandRunner))
+    };
+    let client = open_with(&pinned(&binary)).expect("the pinned capture build boots");
+    assert_eq!(client.snapshot_status().hyphae_binary_sha256, digest);
+    assert_eq!(logged_calls(&log).len(), 2);
+
+    // Review R6: CONSENSUS_HYPHAE_BIN replaced by a wrapper that prints the
+    // capture-time report next to the proof it is given, and the list proof
+    // tampered with, every digest regenerated around it. Unpinned, the
+    // lie passes boot...
+    let (wrapper, wrapper_log) = report_printing_wrapper(&root);
+    flip_first_byte(&dir.join("captures").join(format!("{LIST_ID}.proof")));
+    recompute_digests(&dir);
+    open_with(&config(&dir, &wrapper)).expect("unpinned, nothing tells the wrapper from Hyphae");
+    assert_eq!(logged_calls(&wrapper_log).len(), 2);
+    // ...pinned, it never runs, and the message names the variables and
+    // the digests, never the path.
+    let err = open_with(&pinned(&wrapper)).unwrap_err();
+    assert_eq!(err.code, codes::VERIFIER_BINARY_MISMATCH, "{err}");
+    assert!(
+        err.message.contains("CONSENSUS_HYPHAE_BIN ")
+            && err.message.contains("CONSENSUS_HYPHAE_BIN_SHA256")
+            && err.message.contains(&digest),
+        "{err}"
+    );
+    let shown = err.to_string();
+    for leak in [
+        root.to_string_lossy().as_ref(),
+        "lying-wrapper",
+        "hyphae.cmd",
+    ] {
+        assert!(!shown.contains(leak), "{shown} leaks {leak:?}");
+    }
+    assert_eq!(logged_calls(&wrapper_log).len(), 2, "the wrapper never ran");
+    // The pinned build itself refuses the tampered proof.
+    let calls = logged_calls(&log).len();
+    let err = open_with(&pinned(&binary)).unwrap_err();
+    assert_eq!(err.code, codes::BOOT_VERIFICATION_FAILED, "{err}");
+    assert_eq!(logged_calls(&log).len(), calls + 1);
+
+    // The pinned file altered by one line, missing, or not a regular file:
+    // the same code, before any verifier run.
+    let altered = root.join(if cfg!(windows) {
+        "altered.cmd"
+    } else {
+        "altered"
+    });
+    let mut bytes = std::fs::read(&binary).unwrap();
+    bytes.extend_from_slice(if cfg!(windows) {
+        b"rem altered\r\n"
+    } else {
+        b"# altered\n"
+    });
+    std::fs::write(&altered, bytes).unwrap();
+    let missing = root.join("no-such-hyphae");
+    for (label, path) in [
+        ("altered", altered.as_path()),
+        ("missing", missing.as_path()),
+        ("a directory", root.as_path()),
+    ] {
+        let calls = logged_calls(&log).len();
+        let err = open_with(&pinned(&path.to_string_lossy())).unwrap_err();
+        assert_eq!(err.code, codes::VERIFIER_BINARY_MISMATCH, "{label}: {err}");
+        assert!(
+            !err.to_string().contains(root.to_string_lossy().as_ref()),
+            "{label}: {err}"
+        );
+        assert_eq!(logged_calls(&log).len(), calls, "{label}: nothing ran");
+    }
+    // A configuration built in code (its fields are public) is held to the
+    // absolute path too: the pinned binary's own name, relative, is
+    // refused, never hashed in the working directory and run from PATH.
+    let mut relative = pinned(&binary);
+    relative.binary = Path::new(&binary)
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let err = open_with(&relative).unwrap_err();
+    assert_eq!(err.code, codes::VERIFIER_BINARY_MISMATCH, "{err}");
+    assert!(err.message.contains("not an absolute path"), "{err}");
+
+    // A snapshot captured with another Hyphae build: the binary is the
+    // pinned one, the manifest's build is not.
+    let dir = build("binary-pin-other-build");
+    let (binary, log) = fake_hyphae(dir.root());
+    let digest = sha256_hex(&std::fs::read(&binary).unwrap());
+    let recorded = "f0e1d2c3".repeat(8);
+    let cfg = pinned_config(&dir, &binary, None, Some(&digest));
+    let err = open_with(&cfg).unwrap_err();
+    assert_eq!(err.code, codes::CAPTURE_BINARY_MISMATCH, "{err}");
+    for part in [
+        "hyphae.binary_sha256",
+        "CONSENSUS_HYPHAE_BIN_SHA256",
+        &recorded,
+        &digest,
+        SNAPSHOT_ID,
+    ] {
+        assert!(err.message.contains(part), "{err}");
+    }
+    assert!(logged_calls(&log).is_empty(), "nothing was verified");
+    // Unpinned, nothing compares the two builds.
+    open_with(&config(&dir, &binary)).expect("unpinned, the build is not checked");
 }
 
 /// A two-claim run: the Critic finds nothing, the Evaluator corroborates
@@ -1479,7 +1947,7 @@ fn run<V: ProofVerifier>(
     memory: SnapshotMemoryClient,
     verifier: V,
 ) -> (RunAggregate, EventLog, String) {
-    let path = support::temp_dir("snapshot-runs").join(log_name);
+    let path = temp_dir("snapshot-runs").join(log_name);
     let mut log = EventLog::open(&path).unwrap();
     let mut orch = Orchestrator {
         model,
@@ -1508,6 +1976,8 @@ fn run<V: ProofVerifier>(
 
 #[test]
 fn an_orchestrated_run_over_the_snapshot_is_proven_verified_and_recommended() {
+    // The runs' event logs (`run` writes them there); removed last.
+    let _runs = TempRoot::new("snapshot-runs");
     let dir = build("orchestrated");
     let root = dir.parent().unwrap().to_path_buf();
     let (binary, log_file) = fake_hyphae(&root);

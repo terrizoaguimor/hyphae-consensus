@@ -21,14 +21,18 @@ only thing that binds a proof or a witness to ITS capture once the directory
 has left the container: every proof of one session shares the anchor, so the
 verifier alone cannot tell a swapped pair), requires the two required
 captures to carry different proofs, computes the sha256 of every file, and
-writes manifest.json (keys in the documented order) and SHA256SUMS. It then
-runs check.
+writes manifest.json (keys in the documented order; every capture entry
+carries the sha256 of its response, proof, witness and verifier report, the
+digests captures.index recorded) and SHA256SUMS. It then runs check.
 
 check recomputes every digest, validates the manifest schema (field presence,
 key order, patterns, the two required captures, memory_ids equal to the
-response ids, one anchor everywhere), requires captures.index and the
-capture-time digests it holds, and exits non-zero with one precise message on
-the first mismatch. --public-only skips the digest check of the .proof and
+response ids, one anchor everywhere), requires every response and verifier
+report to equal the manifest's response_sha256 and verify_sha256 before
+either is parsed (the manifest is what binds the record texts at runtime:
+the runtime checks the same digests and never reads captures.index),
+requires captures.index and the capture-time digests it holds, and exits
+non-zero with one precise message on the first mismatch. --public-only skips the digest check of the .proof and
 .witness files (they are git-ignored, so a checkout of the committed subset
 lacks them) while still requiring their SHA256SUMS lines. With --reverify the
 verifier is run again on every capture, exactly as the runtime runs it
@@ -43,8 +47,10 @@ the verifier gets this directory's absolute paths.
 selftest builds a synthetic snapshot in a temporary directory (fake proof and
 witness bytes, synthetic responses and verifier reports, a fake verifier),
 checks it, and asserts that a one-byte change in any file, a missing file, an
-extra file, a swapped proof/witness pair, a swapped report or response and
-every cross-check violation are detected, and that --reverify accepts the
+extra file, a swapped proof/witness pair, a swapped report or response, a
+record text or a report edited with SHA256SUMS (and captures.index)
+regenerated around it, a manifest without the response and report digests
+and every cross-check violation are detected, and that --reverify accepts the
 pristine snapshot and refuses a report that the verifier does not reproduce.
 
 The layout, the manifest schema and their meaning are specified in
@@ -90,7 +96,8 @@ HYPHAE_KEYS = ["version", "binary_sha256", "control_schema"]
 STORE_KEYS = ["record_count", "root_digest", "visible_csn", "logical_time_micros"]
 CAPTURE_KEYS = [
     "id", "operation", "arguments", "response_file", "proof_file", "witness_file", "verify_file",
-    "proof_blake3", "proof_sha256", "witness_sha256", "memory_ids", "verification",
+    "proof_blake3", "proof_sha256", "witness_sha256", "response_sha256", "verify_sha256",
+    "memory_ids", "verification",
 ]
 ARGUMENT_KEYS = ["project", "query", "limit", "prove"]
 VERIFICATION_KEYS = ["verified_at", "status", "kind", "scope", "anchor_hex"]
@@ -274,13 +281,32 @@ def reverify_capture(root, cid, anchor, captured, reverify):
         )
 
 
+# The layout is flat: files in the root and in one directory level (captures/).
+# The runtime refuses anything deeper (layout_too_deep) and every symbolic
+# link (symlink_refused); this tool refuses the same, so a directory that
+# passes `check` also boots.
+MAX_DEPTH = 2
+
+
 def relative_files(root):
-    """Every regular file under root, as sorted forward-slash relative paths, except SHA256SUMS."""
+    """Every regular file under root, as sorted forward-slash relative paths, except SHA256SUMS.
+
+    Symbolic links (files or directories) and directories nested below the
+    first level are refused with the runtime's codes.
+    """
     found = []
-    for dirpath, dirnames, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        rel_dir = os.path.relpath(dirpath, root)
+        depth = 0 if rel_dir == "." else rel_dir.count(os.sep) + 1
         dirnames.sort()
-        for name in filenames:
+        for name in dirnames:
             rel = os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, "/")
+            require(not os.path.islink(os.path.join(dirpath, name)), f"symlink_refused: {rel} is a symbolic link")
+            require(depth + 1 < MAX_DEPTH, f"layout_too_deep: {rel} is nested below the first directory level")
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            require(not os.path.islink(full), f"symlink_refused: {rel} is a symbolic link")
             if rel != SUMS_NAME:
                 found.append(rel)
     return sorted(found)
@@ -440,6 +466,8 @@ def validate_manifest(manifest, root, public_only=False, expect_ids=None, reveri
         require_hex64(capture["proof_blake3"], f"{cw}: proof_blake3")
         require_hex64(capture["proof_sha256"], f"{cw}: proof_sha256")
         require_hex64(capture["witness_sha256"], f"{cw}: witness_sha256")
+        require_hex64(capture["response_sha256"], f"{cw}: response_sha256")
+        require_hex64(capture["verify_sha256"], f"{cw}: verify_sha256")
         memory_ids = capture["memory_ids"]
         require(isinstance(memory_ids, list), f"{cw}: memory_ids must be an array")
         for mid in memory_ids:
@@ -479,6 +507,20 @@ def validate_manifest(manifest, root, public_only=False, expect_ids=None, reveri
         cid = capture["id"]
         cw = f"capture {cid}"
         paths = capture_paths(cid)
+        # The response (the record texts) and the verifier report against the
+        # manifest's own digests first, before either is parsed: these are
+        # the digests the runtime checks (it never reads captures.index), so
+        # an edited text is refused here as the runtime refuses it.
+        recomputed[cid] = {}
+        for key, field in (("response", "response_sha256"), ("verify", "verify_sha256")):
+            path = os.path.join(root, paths[key])
+            require(os.path.isfile(path), f"{cw}: {paths[key]} is missing")
+            actual = sha256_file(path)
+            require(
+                actual == capture[field],
+                f"{cw}: sha256 of {paths[key]} is {actual}, manifest {field} says {capture[field]}: the file is not the one the manifest binds to this capture",
+            )
+            recomputed[cid][key] = actual
         response = load_json(os.path.join(root, paths["response"]), f"{cw} response")
         result = result_object(response, f"{cw} response")
         r_anchor, r_blake3 = response_proof(result, f"{cw} response")
@@ -495,10 +537,6 @@ def validate_manifest(manifest, root, public_only=False, expect_ids=None, reveri
         report = load_json(os.path.join(root, paths["verify"]), f"{cw} verifier report")
         check_verify_report(report, anchor, f"{cw} verifier report")
         reports[cid] = report
-        recomputed[cid] = {
-            "response": sha256_file(os.path.join(root, paths["response"])),
-            "verify": sha256_file(os.path.join(root, paths["verify"])),
-        }
         files_checked += 2
         for key, field in (("proof", "proof_sha256"), ("witness", "witness_sha256")):
             path = os.path.join(root, paths[key])
@@ -752,6 +790,10 @@ def build(root, captured_at=None, expect_ids=None, reverify=None):
             "proof_blake3": r_blake3,
             "proof_sha256": digests["proof"],
             "witness_sha256": digests["witness"],
+            # The binding of the record texts and of the capture-time report
+            # that the runtime checks (equal to captures.index, checked above).
+            "response_sha256": digests["response"],
+            "verify_sha256": digests["verify"],
             "memory_ids": list(ids),
             "verification": {
                 "verified_at": entry["verified_at"],
@@ -1077,6 +1119,85 @@ def selftest():
         if expect_failure("manifest key order accepted", lambda: validate_manifest(reordered, copy), failures):
             passed.append("manifest key order enforced")
 
+        # The record texts and the verifier reports are bound by the manifest
+        # itself (response_sha256, verify_sha256: the digests the runtime
+        # checks, review R6). A text edited with SHA256SUMS regenerated is
+        # refused by them, and so it is with captures.index rewritten to
+        # match as well; only a rewritten manifest gets past them, which the
+        # runtime's manifest pin (CONSENSUS_SNAPSHOT_MANIFEST_SHA256) refuses.
+        def rewrite_sums(path):
+            with open(os.path.join(path, SUMS_NAME), "w", encoding="utf-8", newline="\n") as fh:
+                for rel in relative_files(path):
+                    fh.write(f"{sha256_file(os.path.join(path, rel))}  {rel}\n")
+
+        def rewrite_index_digest(path, cid, key):
+            index_path = os.path.join(path, INDEX_NAME)
+            with open(index_path, "r", encoding="utf-8") as fh:
+                index_lines = fh.read().split("\n")[:-1]
+            for n, line in enumerate(index_lines):
+                entry = json.loads(line)
+                if entry["id"] == cid:
+                    entry["sha256"][key] = sha256_file(os.path.join(path, capture_paths(cid)[key]))
+                    index_lines[n] = json.dumps(entry, separators=(",", ":"))
+            write_text(index_path, "\n".join(index_lines) + "\n")
+
+        def edit_record_text(path):
+            target = os.path.join(path, capture_paths(LIST_CAPTURE_ID)["response"])
+            response = load_json(target, "list response")
+            response["memories"][0]["text"] = "Synthetic record 0, edited after capture."
+            write_text(target, json.dumps(response, separators=(",", ":")) + "\n")
+
+        def expect_bound(label, path, field):
+            detail = expect_failure(f"{label} accepted", lambda: check(path), failures)
+            if detail and f"manifest {field}" in detail:
+                passed.append(f"{label} refused by the manifest's {field}: {detail[:60]}")
+            elif detail:
+                failures.append(f"{label} refused for another reason than the manifest's {field}: {detail[:90]}")
+
+        built = load_json(os.path.join(root, MANIFEST_NAME), MANIFEST_NAME)
+        index = read_index(os.path.join(root, INDEX_NAME))
+        copied = all(
+            c["response_sha256"] == index[c["id"]]["sha256"]["response"]
+            and c["verify_sha256"] == index[c["id"]]["sha256"]["verify"]
+            for c in built["captures"]
+        )
+        if copied:
+            passed.append("build writes response_sha256 and verify_sha256 from captures.index")
+        else:
+            failures.append("build did not copy the capture-time response and report digests into the manifest")
+        copy = fresh_copy("edited-text")
+        edit_record_text(copy)
+        rewrite_sums(copy)
+        expect_bound("a record text edited with SHA256SUMS regenerated", copy, "response_sha256")
+        copy = fresh_copy("edited-text-index")
+        edit_record_text(copy)
+        rewrite_index_digest(copy, LIST_CAPTURE_ID, "response")
+        rewrite_sums(copy)
+        expect_bound("a record text edited with captures.index and SHA256SUMS regenerated", copy, "response_sha256")
+        copy = fresh_copy("edited-report-index")
+        report_path = os.path.join(copy, capture_paths(ISOLATION_CAPTURE_ID)["verify"])
+        edited_report = load_json(report_path, "isolation verifier report")
+        edited_report["total_file_bytes"] = 1
+        write_text(report_path, json.dumps(edited_report, indent=2, sort_keys=True) + "\n")
+        rewrite_index_digest(copy, ISOLATION_CAPTURE_ID, "verify")
+        rewrite_sums(copy)
+        expect_bound("a verifier report edited with captures.index and SHA256SUMS regenerated", copy, "verify_sha256")
+        copy = fresh_copy("old-manifest")
+        old_path = os.path.join(copy, MANIFEST_NAME)
+        old = load_json(old_path, MANIFEST_NAME)
+        for capture in old["captures"]:
+            del capture["response_sha256"]
+            del capture["verify_sha256"]
+        with open(old_path, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(old, fh, indent=2)
+            fh.write("\n")
+        rewrite_sums(copy)
+        detail = expect_failure("a manifest without response_sha256 and verify_sha256 accepted", lambda: check(copy), failures)
+        if detail and "response_sha256" in detail:
+            passed.append(f"a manifest without the response and report digests refused: {detail[:60]}")
+        elif detail:
+            failures.append(f"a manifest without the response and report digests refused for another reason: {detail[:90]}")
+
         # Binding of each file to ITS capture: swaps between the two captures
         # keep every digest valid somewhere, share the anchor, and verify;
         # only the capture-time record in captures.index tells them apart.
@@ -1113,6 +1234,27 @@ def selftest():
         swap(copy, ".response.json")
         if expect_failure("swapped responses accepted", lambda: check(copy), failures):
             passed.append("swapped responses refused")
+        copy = fresh_copy("nested-dir")
+        deep = os.path.join(copy, "captures", "deep")
+        os.makedirs(deep)
+        write_text(os.path.join(deep, "x.txt"), "x\n")
+        detail = expect_failure("nested directory accepted", lambda: check(copy), failures)
+        if detail and "layout_too_deep" in detail:
+            passed.append(f"nested directory refused as the runtime does: {detail[:70]}")
+        elif detail:
+            failures.append(f"nested directory refused for another reason: {detail[:70]}")
+        copy = fresh_copy("symlinked-file")
+        link = os.path.join(copy, "captures", "link.response.json")
+        try:
+            os.symlink(os.path.join(copy, "captures", "list-demo-repo.response.json"), link)
+        except (OSError, NotImplementedError) as exc:
+            passed.append(f"symbolic link case SKIPPED: the OS refused to create a link ({exc.__class__.__name__})")
+        else:
+            detail = expect_failure("symbolic link accepted", lambda: check(copy), failures)
+            if detail and "symlink_refused" in detail:
+                passed.append(f"symbolic link refused as the runtime does: {detail[:70]}")
+            elif detail:
+                failures.append(f"symbolic link refused for another reason: {detail[:70]}")
         copy = fresh_copy("no-index")
         os.remove(os.path.join(copy, INDEX_NAME))
         detail = expect_failure("missing captures.index accepted", lambda: check(copy), failures)

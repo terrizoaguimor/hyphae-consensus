@@ -176,8 +176,13 @@ pub enum OperatorMemory {
     Hyphae,
 }
 
-/// Bounded operator text: at most `max` characters, no control characters
-/// other than newlines and tabs.
+/// Bounded text from an operator or a visitor (the decision note): at most
+/// `max` characters, no control characters other than newlines and tabs,
+/// and none of the invisible characters that make stored text read
+/// differently from what it holds: the bidirectional embedding, override
+/// and isolate controls (Trojan Source) and the zero-width space, word
+/// joiner and byte-order mark. Joiners (U+200C, U+200D) and the
+/// directional marks stay accepted: scripts and emoji need them.
 fn check_text(name: &str, value: &str, max: usize) -> Result<(), String> {
     if value.chars().count() > max {
         return Err(format!("{name} may have at most {max} characters"));
@@ -188,7 +193,20 @@ fn check_text(name: &str, value: &str, max: usize) -> Result<(), String> {
     {
         return Err(format!("{name} may not contain control characters"));
     }
+    if value.chars().any(is_hidden_format_character) {
+        return Err(format!(
+            "{name} may not contain bidirectional controls or zero-width characters"
+        ));
+    }
     Ok(())
+}
+
+/// The invisible format characters [`check_text`] refuses.
+fn is_hidden_format_character(c: char) -> bool {
+    matches!(
+        c,
+        '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200B}' | '\u{2060}' | '\u{FEFF}'
+    )
 }
 
 /// `POST /api/v1/operator/runs` (operator): start a run in any mode.
@@ -1024,6 +1042,22 @@ pub struct HealthV1 {
     pub executor: String,
 }
 
+/// Why the run index could not be verified, as `/ready` publishes it: the
+/// kind of failure, never the store's own text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexErrorCodeV1 {
+    /// The index failed verification: a record was edited, removed or
+    /// added since the store opened.
+    IndexTampered,
+    /// A lock the store needs is held by another writer or unusable.
+    IndexLocked,
+    /// The file system refused a read or a write.
+    IndexIo,
+    /// Anything else the store could not read as it writes it.
+    IndexUnreadable,
+}
+
 /// The run store as `/ready` reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RunStoreStatusV1 {
@@ -1034,6 +1068,12 @@ pub struct RunStoreStatusV1 {
     pub index_head: Option<String>,
     pub index_tampered: bool,
     pub index_tail_repaired: bool,
+    /// Why the run index could not be verified at the last check, on both
+    /// surfaces; absent while it verifies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_error_code: Option<IndexErrorCodeV1>,
+    /// Operator surface only: the store's own error text, which can name
+    /// files by path. The server logs it once per change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index_error: Option<String>,
 }
@@ -1114,6 +1154,27 @@ pub struct ShowcaseV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stored_text_refuses_hidden_format_characters() {
+        for hidden in [
+            "\u{202A}", "\u{202E}", "\u{2066}", "\u{2069}", "\u{200B}", "\u{2060}", "\u{FEFF}",
+        ] {
+            let text = format!("approve{hidden} this");
+            let err = check_text("note", &text, 2000).unwrap_err();
+            assert!(err.contains("bidirectional"), "{hidden:?}: {err}");
+        }
+        // Joiners, directional marks and ordinary text stay accepted.
+        for fine in [
+            "\u{0642}\u{0631}\u{0627}\u{0631}\u{200F} ok",
+            "\u{1F469}\u{200D}\u{1F4BB} ok",
+            "\u{0632}\u{0628}\u{0627}\u{0646}\u{200C}\u{0647}\u{0627}",
+            "d\u{00E9}cision approuv\u{00E9}e",
+            "line one\nline two\tend",
+        ] {
+            assert!(check_text("note", fine, 2000).is_ok(), "{fine:?}");
+        }
+    }
 
     #[test]
     fn requests_refuse_unknown_fields_and_free_strings() {

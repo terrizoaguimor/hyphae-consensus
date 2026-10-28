@@ -550,8 +550,13 @@ pub struct StoreHealth {
     /// on an index that verifies.
     pub index_tampered: bool,
     /// Why the index could not be verified now, tampered or otherwise
-    /// (I/O, a poisoned lock, an append whose rollback failed).
+    /// (I/O, a poisoned lock, an append whose rollback failed): the error's
+    /// own text, for the operator. It can name files.
     pub index_error: Option<String>,
+    /// The same failure as a stable code ([`RunStoreError::index_error_code`]),
+    /// set exactly when `index_error` is: what a public health route may
+    /// publish.
+    pub index_error_code: Option<IndexErrorCode>,
     /// The index ended in a torn record (a crash mid-append), which was
     /// cut off. Only a head obtained earlier tells whether that record
     /// was the only thing lost.
@@ -559,6 +564,68 @@ pub struct StoreHealth {
     /// The last failure to index a run's checkpoint or terminal head; see
     /// [`RunStore::index_write_error`].
     pub index_write_error: Option<String>,
+}
+
+/// Why the run index could not be verified, as a stable code: the variant
+/// of the [`RunStoreError`], never its text. The text can name the index,
+/// its lock or a run's files by absolute path, so a public health route
+/// publishes this code and leaves the text to the operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IndexErrorCode {
+    /// The index failed verification ([`RunStoreError::IndexTampered`]).
+    Tampered,
+    /// A lock is held by another writer or unusable: a run held by another
+    /// handle, a lock poisoned by a thread that panicked, an event log
+    /// locked by or changed under another writer.
+    Locked,
+    /// The file system refused a read or a write, including an index
+    /// whose failed append could not be rolled back.
+    Io,
+    /// Anything else: something the store could not read as it writes it.
+    Unreadable,
+}
+
+impl IndexErrorCode {
+    /// Every code, in a fixed order.
+    pub const ALL: [IndexErrorCode; 4] = [
+        IndexErrorCode::Tampered,
+        IndexErrorCode::Locked,
+        IndexErrorCode::Io,
+        IndexErrorCode::Unreadable,
+    ];
+
+    /// The published spelling: `index_tampered`, `index_locked`,
+    /// `index_io` or `index_unreadable`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IndexErrorCode::Tampered => "index_tampered",
+            IndexErrorCode::Locked => "index_locked",
+            IndexErrorCode::Io => "index_io",
+            IndexErrorCode::Unreadable => "index_unreadable",
+        }
+    }
+}
+
+impl RunStoreError {
+    /// The stable code [`RunStore::health`] reports for this error.
+    pub fn index_error_code(&self) -> IndexErrorCode {
+        match self {
+            RunStoreError::IndexTampered { .. } => IndexErrorCode::Tampered,
+            RunStoreError::InUse(_)
+            | RunStoreError::Poisoned(_)
+            | RunStoreError::Log(EventLogError::Locked { .. })
+            | RunStoreError::Log(EventLogError::ConcurrentWriter { .. }) => IndexErrorCode::Locked,
+            RunStoreError::Io(_) | RunStoreError::Log(EventLogError::Io(_)) => IndexErrorCode::Io,
+            RunStoreError::InvalidId(_)
+            | RunStoreError::UnknownRun(_)
+            | RunStoreError::Inconsistent { .. }
+            | RunStoreError::IndexMissing { .. }
+            | RunStoreError::InvalidRetention(_)
+            | RunStoreError::Clock(_)
+            | RunStoreError::Log(_)
+            | RunStoreError::Serde(_) => IndexErrorCode::Unreadable,
+        }
+    }
 }
 
 /// Run storage under one root directory (see the module docs). Share it
@@ -848,6 +915,7 @@ impl RunStore {
             Ok(head) => health.index_head = Some(head),
             Err(e) => {
                 health.index_tampered = matches!(e, RunStoreError::IndexTampered { .. });
+                health.index_error_code = Some(e.index_error_code());
                 health.index_error = Some(e.to_string());
             }
         }
@@ -4588,6 +4656,109 @@ mod tests {
             matches!(reopened, Err(RunStoreError::IndexTampered { .. })),
             "{reopened:?}"
         );
+    }
+
+    #[test]
+    fn health_reports_a_stable_code_with_every_index_error() {
+        // Every error health can meet maps to one of four codes, whatever
+        // its text says (an event log error names its files by path).
+        let log_path = PathBuf::from("/var/lib/consensus/runs/runs/run-x.jsonl");
+        let lock_path = PathBuf::from("/var/lib/consensus/runs/runs/run-x.lock");
+        let cases = [
+            (
+                RunStoreError::IndexTampered {
+                    line: 3,
+                    detail: "hash mismatch".into(),
+                },
+                IndexErrorCode::Tampered,
+            ),
+            (RunStoreError::Poisoned("run index"), IndexErrorCode::Locked),
+            (
+                RunStoreError::InUse(RunId::new("run-x")),
+                IndexErrorCode::Locked,
+            ),
+            (
+                RunStoreError::Log(EventLogError::Locked {
+                    path: log_path.clone(),
+                    lock_file: lock_path,
+                }),
+                IndexErrorCode::Locked,
+            ),
+            (
+                RunStoreError::Log(EventLogError::ConcurrentWriter {
+                    path: log_path,
+                    expected: 1,
+                    found: 2,
+                }),
+                IndexErrorCode::Locked,
+            ),
+            (
+                RunStoreError::Io(io::Error::other("disk")),
+                IndexErrorCode::Io,
+            ),
+            (index_unusable("an append failed"), IndexErrorCode::Io),
+            (
+                RunStoreError::Log(EventLogError::Io(io::Error::other("disk"))),
+                IndexErrorCode::Io,
+            ),
+            (
+                RunStoreError::IndexMissing {
+                    found: "run files".into(),
+                },
+                IndexErrorCode::Unreadable,
+            ),
+            (
+                RunStoreError::Clock("yesterday".into()),
+                IndexErrorCode::Unreadable,
+            ),
+        ];
+        for (error, code) in &cases {
+            assert_eq!(error.index_error_code(), *code, "{error}");
+        }
+        let spelled: BTreeSet<&str> = IndexErrorCode::ALL.iter().map(|c| c.as_str()).collect();
+        assert_eq!(
+            spelled,
+            BTreeSet::from([
+                "index_io",
+                "index_locked",
+                "index_tampered",
+                "index_unreadable"
+            ])
+        );
+
+        // health() sets the code exactly with the text: none while the
+        // index verifies, `index_tampered` for an edit, `index_io` for an
+        // index file that disappeared under the open store.
+        let root = TempRoot::new("health-codes");
+        let store = open_store(&root);
+        ended_run(&store, visitor(1), Retention::VISITOR);
+        let health = store.health();
+        assert_eq!(
+            (health.index_error_code, health.index_error.as_deref()),
+            (None, None)
+        );
+        let index_path = root.runs().join(INDEX_FILE);
+        let original = std::fs::read_to_string(&index_path).unwrap();
+        std::fs::write(
+            &index_path,
+            original.replacen(T0, "2026-10-27T00:00:01Z", 1),
+        )
+        .unwrap();
+        let health = store.health();
+        assert_eq!(health.index_error_code, Some(IndexErrorCode::Tampered));
+        assert!(health.index_error.is_some());
+        drop(store);
+        std::fs::write(&index_path, &original).unwrap();
+        let store = open_store(&root);
+        std::fs::remove_file(&index_path).unwrap();
+        let health = store.health();
+        assert_eq!(
+            health.index_error_code,
+            Some(IndexErrorCode::Io),
+            "{health:?}"
+        );
+        assert!(!health.index_tampered);
+        assert!(health.index_error.is_some());
     }
 
     #[test]

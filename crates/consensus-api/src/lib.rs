@@ -17,6 +17,8 @@
 //!   web export with per-page CSP.
 //! - [`server`]: `serve-public` and `serve-operator`.
 //! - [`verify_cli`]: the read-only `verify` subcommand.
+//! - [`ledger_cli`]: the operator's `ledger` subcommand (status, reset,
+//!   release) on the live-mode USD ledger.
 //! - [`guided`]: the five guided scenarios.
 //! - [`live`]: admission controls for the public live mode (budget ledger,
 //!   Turnstile verification, presets, geographic policy).
@@ -28,6 +30,7 @@ pub mod api;
 pub mod config;
 pub mod guided;
 pub mod hyphae;
+pub mod ledger_cli;
 pub mod limits;
 pub mod live;
 pub mod meta;

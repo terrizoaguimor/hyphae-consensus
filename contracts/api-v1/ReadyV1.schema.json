@@ -1,6 +1,39 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "IndexErrorCodeV1": {
+      "description": "Why the run index could not be verified, as `/ready` publishes it: the kind of failure, never the store's own text.",
+      "oneOf": [
+        {
+          "description": "The index failed verification: a record was edited, removed or added since the store opened.",
+          "enum": [
+            "index_tampered"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A lock the store needs is held by another writer or unusable.",
+          "enum": [
+            "index_locked"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The file system refused a read or a write.",
+          "enum": [
+            "index_io"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Anything else the store could not read as it writes it.",
+          "enum": [
+            "index_unreadable"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "LiveReadyV1": {
       "description": "The live mode as `/ready` reports it. `ready` is false while the ledger is tripped or unreadable, or the evidence source is not ok.",
       "properties": {
@@ -33,10 +66,22 @@
       "description": "The run store as `/ready` reports it.",
       "properties": {
         "index_error": {
+          "description": "Operator surface only: the store's own error text, which can name files by path. The server logs it once per change.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "index_error_code": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/IndexErrorCodeV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the run index could not be verified at the last check, on both surfaces; absent while it verifies."
         },
         "index_head": {
           "type": [

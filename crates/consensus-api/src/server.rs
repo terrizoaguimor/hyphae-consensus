@@ -13,9 +13,13 @@
 //!   USD ledger, the geographic policy and the judge lane; it needs the
 //!   Meta key (`CONSENSUS_META_API_KEY_FILE`), the live configuration
 //!   ([`crate::live::config`]) and the sealed-snapshot evidence factory
-//!   ([`serve_public_with`]); a missing part stops startup naming the
-//!   variable, and `503 live_disabled` is the answer only when live mode
-//!   is off. Decisions carry `public_demo` authority.
+//!   (`CONSENSUS_SNAPSHOT_DIR`, [`SnapshotFactory::live_evidence_from_env`],
+//!   loaded only with live mode enabled); a missing or unusable setting
+//!   stops startup naming the variable, a snapshot that does not boot
+//!   leaves the portal up with live mode unavailable (`503
+//!   live_unavailable`, `/ready` `live.evidence_ok: false`), and `503
+//!   live_disabled` is the answer when live mode is off. Decisions carry
+//!   `public_demo` authority.
 //! - **`serve-operator`** listens on loopback only. Every `/api` request
 //!   needs `Authorization: Bearer <token>` (constant-time compare; the
 //!   token comes from `CONSENSUS_OPERATOR_TOKEN_FILE` or is generated and
@@ -24,22 +28,30 @@
 //!   operator capabilities (`model=fake|meta`, `memory=fake|offline|hyphae`
 //!   with a caller-chosen project) through the same run manager, store and
 //!   streams; its decisions carry `operator` authority and its views keep
-//!   the raw failure reasons.
+//!   the raw failure reasons. With `CONSENSUS_LIVE_LEDGER_DIR` set (the
+//!   server, where the operator unit loads `public.env` too) every
+//!   `model=meta` run is metered on that live ledger, on the operator lane
+//!   ([`operator_ledger`]): the run's worst case reserved before it starts,
+//!   every HTTP attempt drawn and settled, the reservation released when
+//!   the run ends, so the caps, every trip and the kill switch apply to it.
+//!   Without the variable those runs are unmetered, and the startup line
+//!   says so ([`operator_metering_line`]).
 //!
 //! Both answer `202` on creation and stream the deliberation over SSE;
 //! the old synchronous `POST /api/runs` no longer exists on either.
 
 use crate::api::contract;
 use crate::api::{
-    operator_router, public_router, AppState, ConsolePage, CreationKeys, LiveGate, OperatorAuth,
-    RateTables, ServeConfig,
+    meta_from_env, operator_router, public_router, AppState, ConsolePage, CreationKeys, LiveGate,
+    MetaSource, OperatorAuth, RateTables, ServeConfig,
 };
 use crate::config::{MetaConfig, META_KEY_FILE_VARIABLE, META_KEY_VARIABLES};
 use crate::limits::{ClientKeyPolicy, StreamCaps};
 use crate::live::budget::Ledger;
-use crate::live::config::{vars as live_vars, LiveConfig};
+use crate::live::config::{vars as live_vars, EnvSource, LiveConfig};
 use crate::live::gate::{DeliberationFactory, GateParts, SNAPSHOT_DIR_VAR, SNAPSHOT_MAX_AGE};
 use crate::live::geo::GeoPolicy;
+use crate::live::snapshot_factory::{SnapshotFactory, UNUSED_NOTICE};
 use crate::live::turnstile::{Siteverify, TurnstileVerifier};
 use crate::public_config::{
     operator_limits, OperatorConfig, ProcessEnv, PublicConfig, PublicListener, RuntimeConfig,
@@ -80,6 +92,14 @@ pub struct BuildOptions {
     /// enabled; the default is the owner's documented lists, which is what
     /// those variables default to.
     pub geo: GeoPolicy,
+    /// The operator server's metering: the live ledger its `model=meta`
+    /// runs reserve, draw and settle on ([`operator_ledger`] in
+    /// `serve-operator`); `None` leaves them unmetered.
+    pub operator_ledger: Option<Ledger>,
+    /// Where the operator server reads a `model=meta` run's Meta
+    /// configuration; `None` is the process environment
+    /// ([`crate::api::meta_from_env`]).
+    pub operator_meta: Option<MetaSource>,
 }
 
 impl Default for BuildOptions {
@@ -92,6 +112,8 @@ impl Default for BuildOptions {
             live_gate: None,
             recover: true,
             geo: GeoPolicy::default_policy(),
+            operator_ledger: None,
+            operator_meta: None,
         }
     }
 }
@@ -247,6 +269,10 @@ pub fn build_public(cfg: &PublicConfig, opts: BuildOptions) -> Result<Built, Str
         creation_keys: Arc::new(CreationKeys::new(cfg.runtime.rates.table_max)),
         ready_cache: Arc::new(Mutex::new(None)),
         geo: Arc::new(opts.geo),
+        // The public listener has no operator route: its live runs are the
+        // gate's.
+        operator_ledger: None,
+        operator_meta: meta_from_env(),
     };
     let router = public_router(state.clone());
     Ok(Built {
@@ -315,6 +341,8 @@ pub fn build_operator(
         // Never consulted: the operator router has no geographic block
         // (it listens on loopback, behind SSH).
         geo: Arc::new(opts.geo),
+        operator_ledger: opts.operator_ledger,
+        operator_meta: opts.operator_meta.unwrap_or_else(meta_from_env),
     };
     let router = operator_router(state.clone());
     Ok(Built {
@@ -453,17 +481,22 @@ fn public_meta_config() -> Result<MetaConfig, String> {
 /// configuration: the ledger on `CONSENSUS_LIVE_LEDGER_DIR`, the Turnstile
 /// verifier over the HTTP transport (test secrets were refused by the
 /// configuration load in public mode), the judge codes, the geographic
-/// policy, the Meta configuration and the evidence factory. Without a
-/// factory, startup fails: this build has no sealed-snapshot client yet
-/// (lane D2 plugs it in through [`serve_public_with`]), and there is no
-/// fallback to simulated evidence.
+/// policy, the Meta configuration and the evidence factory. The factory is
+/// the sealed snapshot ([`SnapshotFactory::live_evidence_from_env`],
+/// plugged in by [`serve_public`]; the snapshot directory is
+/// `CONSENSUS_SNAPSHOT_DIR`), possibly unavailable when it did not boot
+/// (the gate then refuses every admission). Without one, startup fails
+/// naming that variable: there is no fallback to simulated evidence.
 pub fn build_live_gate(
     live: &LiveConfig,
     meta: MetaConfig,
     factory: Option<Arc<dyn DeliberationFactory>>,
 ) -> Result<Arc<dyn LiveGate>, String> {
     let factory = factory.ok_or_else(|| {
-        format!("public live mode requires the sealed snapshot client ({SNAPSHOT_DIR_VAR}); not wired in this build")
+        format!(
+            "public live mode requires the sealed snapshot ({SNAPSHOT_DIR_VAR}): the evidence factory is not wired while that variable is unset; set it (with CONSENSUS_HYPHAE_EXPECTED_ANCHOR) or set {} to false",
+            live_vars::LIVE_ENABLED
+        )
     })?;
     let ledger_dir = live.ledger_dir.as_ref().ok_or_else(|| {
         format!(
@@ -499,25 +532,97 @@ pub fn build_live_gate(
     Ok(Arc::new(gate))
 }
 
-/// `serve-public` without an evidence factory: with live mode enabled,
-/// startup fails until the sealed-snapshot client is wired.
-pub async fn serve_public() -> Result<(), Box<dyn std::error::Error>> {
-    serve_public_with(None).await
+/// With live mode enabled on the unix socket (the deployment path), the
+/// sealed snapshot's manifest and the verifier binary must both be pinned
+/// ([`crate::config::MANIFEST_SHA256_VAR`],
+/// [`crate::config::HYPHAE_BIN_SHA256_VAR`]): production never serves an
+/// unpinned snapshot, and a missing pin is a configuration error naming
+/// the variable. A development TCP bind may leave them unset (a
+/// containerised verifier is a wrapper, not the pinned binary); its
+/// startup line says what is not pinned.
+pub fn require_snapshot_pins(
+    listener: &PublicListener,
+    get: impl Fn(&str) -> Option<String>,
+) -> Result<(), String> {
+    if !matches!(listener, PublicListener::UnixSocket(_)) {
+        return Ok(());
+    }
+    let missing: Vec<&str> = [
+        crate::config::MANIFEST_SHA256_VAR,
+        crate::config::HYPHAE_BIN_SHA256_VAR,
+    ]
+    .into_iter()
+    .filter(|name| get(name).is_none_or(|value| value.trim().is_empty()))
+    .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "public live mode on the unix socket requires {}: production serves only a pinned snapshot and a pinned verifier (runbook 3.3 and 4.1); a development server on CONSENSUS_PUBLIC_BIND may leave them unset",
+            missing.join(" and ")
+        ))
+    }
 }
 
-/// `serve-public` with the evidence factory live runs deliberate over
-/// (the sealed snapshot, lane D2). The live configuration is read whether
-/// or not live mode is enabled: the geographic policy applies to the whole
-/// portal either way.
-pub async fn serve_public_with(
-    factory: Option<Arc<dyn DeliberationFactory>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+/// `serve-public` over the sealed snapshot named by `CONSENSUS_SNAPSHOT_DIR`
+/// ([`SnapshotFactory::live_evidence_from_env`]), loaded only with live
+/// mode enabled; see [`serve_public_with`].
+pub async fn serve_public() -> Result<(), Box<dyn std::error::Error>> {
+    serve_public_with(SnapshotFactory::live_evidence_from_env).await
+}
+
+/// `serve-public` with `evidence`, the loader of the factory live runs
+/// deliberate over (the sealed snapshot in production; a test's scripted
+/// factory). The live configuration is read first (it is read whether or
+/// not live mode is enabled: the geographic policy applies to the whole
+/// portal either way), and `evidence` runs only when live mode is
+/// enabled, before anything listens (ADR-0008 decision 1):
+/// - live mode disabled: no snapshot is loaded or verified; a set
+///   `CONSENSUS_SNAPSHOT_DIR` earns one notice ([`UNUSED_NOTICE`]), so a
+///   missing, placeholder or broken snapshot never stops a portal that does
+///   not use it;
+/// - live mode enabled: a configuration error of the loader (a snapshot or
+///   anchor variable missing or unusable), an unset
+///   `CONSENSUS_SNAPSHOT_DIR` ([`build_live_gate`]) and, on the unix
+///   socket, a missing manifest or verifier pin ([`require_snapshot_pins`])
+///   stop startup naming the variable; a snapshot that does not boot does
+///   not: the portal serves
+///   and live mode is unavailable until the snapshot is fixed and the
+///   server restarted (the code is logged; `/ready` reports
+///   `live.evidence_ok: false`).
+///
+/// The live setup runs on the blocking pool: the snapshot boot runs the
+/// verifier and hashes the artifacts, and the gate's Siteverify transport
+/// is reqwest's blocking client, which must not be built on an async worker
+/// (a debug build panics there: "Cannot drop a runtime in a context where
+/// blocking is not allowed").
+pub async fn serve_public_with<F>(evidence: F) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: FnOnce() -> Result<Option<Arc<dyn DeliberationFactory>>, String> + Send + 'static,
+{
     let cfg = PublicConfig::from_env(&ProcessEnv)?;
     let live = LiveConfig::from_env()?;
+    // What the startup lines say about the evidence of an enabled live mode.
+    let mut evidence_status = None;
     let live_gate = if live.enabled {
-        let meta = public_meta_config()?;
-        Some(build_live_gate(&live, meta, factory)?)
+        require_snapshot_pins(&cfg.listener, |name| std::env::var(name).ok())?;
+        let enabled = live.clone();
+        let (gate, status) = tokio::task::spawn_blocking(move || {
+            let meta = public_meta_config()?;
+            let factory = evidence()?;
+            let status = factory.as_ref().map(|f| f.status());
+            Ok::<_, String>((build_live_gate(&enabled, meta, factory)?, status))
+        })
+        .await
+        .map_err(|e| format!("public live mode setup: {e}"))??;
+        evidence_status = status;
+        Some(gate)
     } else {
+        let snapshot_dir_set =
+            std::env::var(SNAPSHOT_DIR_VAR).is_ok_and(|dir| !dir.trim().is_empty());
+        if snapshot_dir_set {
+            eprintln!("{UNUSED_NOTICE}");
+        }
         None
     };
     let built = build_public(
@@ -552,15 +657,21 @@ pub async fn serve_public_with(
             .join(" ")
     );
     if live.enabled {
+        // The code itself is the `[snapshot]` line's, logged once.
+        let evidence = match &evidence_status {
+            Some(status) if !status.ok => "; its evidence is UNAVAILABLE (the [snapshot] line says why): every live run is refused (503 live_unavailable) until the snapshot is fixed and the server restarted",
+            _ => "",
+        };
+        let judge_lane = if live.judge_lane_open() {
+            format!("open, {} runs per code a day", live.judge_code_daily)
+        } else {
+            "closed".to_string()
+        };
         println!(
-            "Public live mode: enabled on the owner's key (daily cap {}, lifetime cap {}, judge lane {})",
+            "Public live mode: enabled on the owner's key (daily cap {}, lifetime cap {}, {} public runs per client a day, judge lane {judge_lane}){evidence}",
             live.budget.daily_cap,
             live.budget.lifetime_cap,
-            if live.judge_lane_open() {
-                "open"
-            } else {
-                "closed"
-            }
+            live.client_daily
         );
     } else {
         println!("Public live mode: disabled (CONSENSUS_LIVE_ENABLED)");
@@ -622,11 +733,59 @@ async fn serve_unix(
     .into())
 }
 
+/// The live ledger `serve-operator` meters its `model=meta` runs on: the
+/// one `CONSENSUS_LIVE_LEDGER_DIR` names (on the server it comes from
+/// `public.env`, which the operator unit loads before `operator.env`),
+/// opened with the same caps as `serve-public`'s and read credential-free
+/// ([`LiveConfig::load_credential_free`]: the live-mode switch, the
+/// Turnstile secret file and the judge-codes file are hidden from the
+/// load). `Ok(None)` without the variable: a development machine running
+/// the recorded batteries. An absent directory or an unusable budget
+/// variable is an error naming its variable, never a fresh, empty ledger
+/// ([`crate::ledger_cli::open_configured`]).
+pub fn operator_ledger(env: &dyn EnvSource) -> Result<Option<Ledger>, String> {
+    let cfg = LiveConfig::load_credential_free(env).map_err(|e| e.to_string())?;
+    crate::ledger_cli::open_configured(&cfg)
+}
+
+/// The one line `serve-operator` prints about the metering of its
+/// `model=meta` runs.
+pub fn operator_metering_line(ledger: Option<&Ledger>) -> String {
+    match ledger {
+        Some(ledger) => {
+            let cfg = ledger.config();
+            format!(
+                "Operator model=meta runs: metered on the live ledger at {} (operator lane: daily cap {}, lifetime cap {}; a trip or the kill switch refuses them)",
+                ledger.dir().display(),
+                cfg.daily_cap,
+                cfg.lifetime_cap
+            )
+        }
+        None => format!(
+            "Operator model=meta runs: UNMETERED ({} is not set): no ledger cap, trip or kill switch applies to them",
+            live_vars::LEDGER_DIR
+        ),
+    }
+}
+
 /// `serve-operator`.
 pub async fn serve_operator() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = OperatorConfig::from_env(&ProcessEnv)?;
     let (token, generated) = operator_token(&cfg)?;
-    let built = build_operator(&cfg, &token, BuildOptions::default())?;
+    // The ledger's files are read and written under its lock: off the
+    // async workers.
+    let ledger = tokio::task::spawn_blocking(|| operator_ledger(&crate::live::config::ProcessEnv))
+        .await
+        .map_err(|e| format!("operator ledger setup: {e}"))??;
+    let metering = operator_metering_line(ledger.as_ref());
+    let built = build_operator(
+        &cfg,
+        &token,
+        BuildOptions {
+            operator_ledger: ledger,
+            ..BuildOptions::default()
+        },
+    )?;
     if let Some(report) = &built.recovery {
         print_recovery(report);
     }
@@ -638,6 +797,7 @@ pub async fn serve_operator() -> Result<(), Box<dyn std::error::Error>> {
         "Per-run token cap: {} (CONSENSUS_MAX_RUN_TOKENS)",
         cfg.runtime.max_run_tokens.max_run_tokens
     );
+    println!("{metering}");
     if generated {
         println!("Operator bearer token (required on every /api route; paste it into the console): {token}");
     } else {
@@ -656,4 +816,42 @@ pub async fn serve_operator() -> Result<(), Box<dyn std::error::Error>> {
 /// Kept for `cargo run -p consensus-api -- serve`: the operator console.
 pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     serve_operator().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    #[test]
+    fn live_mode_on_the_socket_requires_both_snapshot_pins() {
+        let socket = PublicListener::UnixSocket(PathBuf::from("/run/consensus/public.sock"));
+        let tcp = PublicListener::Tcp("127.0.0.1:8788".parse().unwrap());
+        let digest = "a".repeat(64);
+        let vars = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<BTreeMap<String, String>>()
+        };
+        let manifest = crate::config::MANIFEST_SHA256_VAR;
+        let binary = crate::config::HYPHAE_BIN_SHA256_VAR;
+        let both = vars(&[(manifest, &digest), (binary, &digest)]);
+        assert!(require_snapshot_pins(&socket, |n| both.get(n).cloned()).is_ok());
+        for (present, missing) in [
+            (vars(&[(binary, &digest)]), vec![manifest]),
+            (vars(&[(manifest, &digest)]), vec![binary]),
+            (vars(&[(manifest, "  "), (binary, &digest)]), vec![manifest]),
+            (vars(&[]), vec![manifest, binary]),
+        ] {
+            let err = require_snapshot_pins(&socket, |n| present.get(n).cloned()).unwrap_err();
+            for name in &missing {
+                assert!(err.contains(name), "{err}");
+            }
+        }
+        // A development TCP bind may run unpinned.
+        let none = vars(&[]);
+        assert!(require_snapshot_pins(&tcp, |n| none.get(n).cloned()).is_ok());
+    }
 }

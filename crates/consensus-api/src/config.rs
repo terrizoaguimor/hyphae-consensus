@@ -27,6 +27,8 @@
 //! | `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` | 60 | deadline of one `hyphae proof verify` |
 //! | `CONSENSUS_SNAPSHOT_DIR` | unset | sealed snapshot directory (`manifest.json` inside, ADR-0008); with it `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` is required and must equal the manifest's anchor |
 //! | `CONSENSUS_SNAPSHOT_VERIFIER_DIR` | unset | the same directory as the verifier binary sees it (a container path when `CONSENSUS_HYPHAE_BIN` runs Hyphae in a container); unset when the binary is native |
+//! | `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` | unset (manifest not pinned) | SHA-256 of the snapshot's `manifest.json`, 64 hex digits; when set, a manifest with another digest does not load (`manifest_pin_mismatch`) |
+//! | `CONSENSUS_HYPHAE_BIN_SHA256` | unset (verifier binary not pinned) | SHA-256 of the verifier binary, 64 hex digits; when set, `CONSENSUS_HYPHAE_BIN` must be an absolute path, the file must hash to it at boot (`verifier_binary_mismatch`) and it must be the manifest's `hyphae.binary_sha256` (`capture_binary_mismatch`) |
 //!
 //! A `safety_identifier` is never read from the environment: the caller
 //! sets it per run ([`MetaConfig::safety_identifier`]).
@@ -241,10 +243,11 @@ pub struct MetaConfig {
     /// one duplicate generation that no invocation records (a successful
     /// retry shows as `attempts` = 2 with the answered call's usage only; a
     /// failed one surfaces only in the failure reason, "2 attempt(s)
-    /// made"). ADR-0007's ledger design (lane S-b2, not yet in this tree)
-    /// charges a post-send transport failure at the attempt's full worst
-    /// case against the run's reservation; until it lands, nothing accounts
-    /// for the duplicate. Timeouts, 504 and non-retryable 4xx are never
+    /// made"). The live ledger (ADR-0007, `live/budget.rs`) charges a
+    /// post-send transport failure at the attempt's full worst case against
+    /// the run's reservation, for public live runs and metered operator
+    /// runs; an unmetered run (no ledger configured) accounts for nothing
+    /// of the duplicate. Timeouts, 504 and non-retryable 4xx are never
     /// retried, whatever this is set to.
     pub retry_transport_once: bool,
     /// `max_completion_tokens` sent with every call.
@@ -574,6 +577,22 @@ pub fn normalize_anchor(value: &str) -> Result<String, String> {
     }
 }
 
+/// A pinned SHA-256 digest (of the snapshot's `manifest.json`, of the
+/// verifier binary) as the snapshot boot compares it: surrounding
+/// whitespace removed, lowercase, exactly 64 hex digits; `what` names the
+/// digest in the error.
+pub fn normalize_sha256(value: &str, what: &str) -> Result<String, String> {
+    let digest = value.trim().to_ascii_lowercase();
+    if digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Ok(digest)
+    } else {
+        Err(format!(
+            "must be 64 hex digits ({what}), got {} characters",
+            value.trim().chars().count()
+        ))
+    }
+}
+
 /// How to reach a running Hyphae MCP memory adapter. Construction of the
 /// `hyphae mcp` argv follows the pinned CLI reference exactly:
 /// `hyphae mcp --profile memory (--endpoint X | --base-url Y)
@@ -689,10 +708,18 @@ impl HyphaeConfig {
     }
 }
 
+/// The variable pinning the SHA-256 of the snapshot's `manifest.json`.
+pub const MANIFEST_SHA256_VAR: &str = "CONSENSUS_SNAPSHOT_MANIFEST_SHA256";
+/// The variable pinning the SHA-256 of the verifier binary.
+pub const HYPHAE_BIN_SHA256_VAR: &str = "CONSENSUS_HYPHAE_BIN_SHA256";
+
 /// Where the public live mode's evidence comes from: a sealed snapshot
 /// directory (ADR-0008, [`crate::snapshot`]). Present only when
 /// `CONSENSUS_SNAPSHOT_DIR` is set; then the pinned anchor is mandatory,
 /// since a snapshot is never served against an anchor it reported itself.
+/// The two digest pins are optional (production sets both): without them
+/// the manifest and the verifier binary are whatever the directory and
+/// `CONSENSUS_HYPHAE_BIN` hold, and the startup line says so.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotConfig {
     /// `CONSENSUS_SNAPSHOT_DIR`: the directory holding `manifest.json`.
@@ -705,23 +732,35 @@ pub struct SnapshotConfig {
     /// `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`, normalized by
     /// [`normalize_anchor`]; boot fails unless it equals the manifest's.
     pub expected_anchor: String,
-    /// `CONSENSUS_HYPHAE_BIN`: the verifier binary (or wrapper).
+    /// `CONSENSUS_HYPHAE_BIN`: the verifier binary (or wrapper). An
+    /// absolute path whenever [`binary_sha256`](Self::binary_sha256) is set.
     pub binary: String,
     /// `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS`: deadline of one verifier run.
     pub verify_timeout: Duration,
+    /// `CONSENSUS_SNAPSHOT_MANIFEST_SHA256`, normalized by
+    /// [`normalize_sha256`]: when set, the loader refuses a `manifest.json`
+    /// whose SHA-256 differs (`manifest_pin_mismatch`), before parsing it.
+    pub manifest_sha256: Option<String>,
+    /// `CONSENSUS_HYPHAE_BIN_SHA256`, normalized by [`normalize_sha256`]:
+    /// when set, the file [`binary`](Self::binary) names must hash to it at
+    /// boot (`verifier_binary_mismatch`) and it must be the manifest's
+    /// `hyphae.binary_sha256` (`capture_binary_mismatch`), both before any
+    /// verifier run ([`crate::snapshot::check_verifier_binary`]).
+    pub binary_sha256: Option<String>,
 }
 
 impl SnapshotConfig {
-    /// The configuration in the environment, or `None` when
-    /// `CONSENSUS_SNAPSHOT_DIR` is unset or a setting is unusable (fail
-    /// closed); [`try_from_env`](Self::try_from_env) says which.
-    pub fn from_env() -> Option<Self> {
-        Self::try_from_env().ok().flatten()
-    }
-
-    /// `Ok(None)` without `CONSENSUS_SNAPSHOT_DIR`; an error naming the
-    /// variable when the pinned anchor is missing or any setting is
-    /// unusable.
+    /// `Ok(None)` without `CONSENSUS_SNAPSHOT_DIR` (snapshot mode not
+    /// configured); an error naming the variable when the pinned anchor is
+    /// missing or malformed or any other setting is unusable (a digest pin
+    /// that is not 64 hex digits, a `CONSENSUS_HYPHAE_BIN` that is not an
+    /// absolute path while `CONSENSUS_HYPHAE_BIN_SHA256` is set). These two
+    /// entry points (and [`from_vars`](Self::from_vars)) are the only ones
+    /// on purpose: with the directory set, a missing or malformed
+    /// `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` must abort boot, never read as
+    /// "no snapshot configured" (ADR-0008 decision 1: a snapshot that fails
+    /// its check disables the mode and says why; no silent fallback), so
+    /// there is no accessor that folds the error into `None`.
     pub fn try_from_env() -> Result<Option<Self>, ConfigError> {
         Self::from_lookup(&process_env)
     }
@@ -756,12 +795,36 @@ impl SnapshotConfig {
             )?),
             None => Duration::from_secs(DEFAULT_VERIFY_TIMEOUT_SECS),
         };
+        let pinned = |name: &'static str, what: &str| -> Result<Option<String>, ConfigError> {
+            get(name)?
+                .map(|value| normalize_sha256(&value, what).map_err(|m| ConfigError::new(name, m)))
+                .transpose()
+        };
+        let manifest_sha256 = pinned(
+            MANIFEST_SHA256_VAR,
+            "the SHA-256 of the snapshot's manifest.json",
+        )?;
+        let binary_sha256 = pinned(HYPHAE_BIN_SHA256_VAR, "the SHA-256 of the verifier binary")?;
+        let binary = get("CONSENSUS_HYPHAE_BIN")?.unwrap_or_else(|| "hyphae".into());
+        // The pinned digest is checked against one file: a name looked up on
+        // PATH (or a path relative to the working directory) could run
+        // another one than the file hashed.
+        if binary_sha256.is_some() && !Path::new(&binary).is_absolute() {
+            return Err(ConfigError::new(
+                "CONSENSUS_HYPHAE_BIN",
+                format!(
+                    "must be an absolute path when {HYPHAE_BIN_SHA256_VAR} is set: the pinned digest is checked against that one file, and a name looked up on PATH or a relative path could run another one"
+                ),
+            ));
+        }
         Ok(Some(Self {
             dir: PathBuf::from(dir.trim()),
             verifier_dir: get("CONSENSUS_SNAPSHOT_VERIFIER_DIR")?.map(|v| v.trim().to_string()),
             expected_anchor,
-            binary: get("CONSENSUS_HYPHAE_BIN")?.unwrap_or_else(|| "hyphae".into()),
+            binary,
             verify_timeout,
+            manifest_sha256,
+            binary_sha256,
         }))
     }
 }

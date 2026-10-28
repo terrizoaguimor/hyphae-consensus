@@ -5,21 +5,27 @@ files (`output: "export"`), in English, Spanish (`es`), Brazilian Portuguese
 (`pt-BR`) and French (`fr`), styled with Astryx's prebuilt CSS and a custom
 `hyphae-mission` theme. Plan items E1 (scaffold, theme, i18n plumbing, CSP
 manifest, Node container) and E2 (shell, navigation, onboarding, settings,
-legal and trust pages, in-app docs), with a Playwright and axe harness.
-Nothing here talks to the Rust server yet: every view that needs the API says
-so ("This view connects to the Hyphae Consensus API; it is not connected in
-this build"), with no sample data and no spinner.
+legal and trust pages, in-app docs), with a Playwright and axe harness, plus
+the first API lane (W1): the generated contract types, the same-origin API
+client, the SSE run stream, runtime connectivity, and the New deliberation,
+My runs and run workspace views. The export is served by the Rust server
+itself (`consensus-api serve-public`), so every API call is relative
+(`/api/v1/…`); whether the API is there is found out at runtime
+(`GET /api/v1/health`, once per page load), and a view that needs it shows the
+not-connected placeholder when it does not answer: no sample data, no
+spinner.
 
 ## Pages
 
-17 pages per locale, all pre-rendered (`/<locale>/…/`, trailing slash), plus
+18 pages per locale, all pre-rendered (`/<locale>/…/`, trailing slash), plus
 the language-neutral root page `/` and the 404 page:
 
 | Page | Path | Content |
 |---|---|---|
-| Overview | `/` | What the system does, the main call to action (while `API_CONNECTED` is false: "How guided examples will work", linking to the Modes article; once connected: "Run a guided example"), the tour invitation, how a deliberation works, the provenance legend; impact metrics are a not-connected placeholder |
-| New deliberation | `new/` | Not-connected placeholder: what the view will offer (guided example, live presets, recorded fallback, coming back through My runs) |
-| My runs | `runs/` | Not-connected placeholder (session-scoped runs, 24 h access, deletion after 7 days) |
+| Overview | `/` | What the system does, the main call to action (until the health probe answers, and when the API is unreachable: "How guided examples will work", linking to the Modes article; once the API answered it opens New deliberation and reads "Run a guided example" only when `capabilities.guided_enabled` says so, with the server's schema, policy and contract versions from the health answer, and a note when the server's contract is not the one this build was generated from), the tour invitation, how a deliberation works, the provenance legend; impact metrics are a not-connected placeholder |
+| New deliberation | `new/` | Guided examples from `GET /scenarios` (the count the server lists, title, description, expected outcome as a neutral chip, SIMULATED model and evidence badges, a Run button: `ensureSession`, `POST /runs` with a fresh `Idempotency-Key`, then the run page) and the live presets from `capabilities.live` (`LiveCapabilitiesV1`: each preset with the badges of its own recorded model and evidence axes, the public budget in US dollars, the 18+ and territory attestation linking to the Terms, an optional invite code under a disclosure, the Turnstile widget, `POST /live-runs`; see "Live form" below), or the fixed "Live mode is not enabled on this server" state linking to the showcase; every API error shows its code's sentence and the Retry-After wait |
+| My runs | `runs/` | The session's runs from `GET /runs` (title, state, outcome with its evidence axis, the failure sentence of a failed run, provenance badges, never a LIVE label: a live-model run reads META MODEL with its recorded date, created and updated, "access ends" and "deleted after" from the capabilities limits), the empty state, no list and no count without a session |
+| Run workspace | `run/?id=<run_id>` | Client-rendered from the query string: header (title, state, outcome with evidence axis and, for a revision, which proposal it is for, records, revision round, run id, the failure sentence of a failed run, provenance axes with the latest frame's delivery, flags), the error of a failed detail request with a retry, tabs Live (only while the run deliberates and its latest frame is LIVE; Playback otherwise), Explorer and Decision; see "Run workspace" below |
 | Research showcase | `showcase/` | Not-connected placeholder (recorded runs, RECORDED label, dated corrections, MANIFEST) |
 | Docs | `docs/` | Index of 7 articles, tour launcher, explanation level |
 | Docs articles | `docs/<slug>/` | `what-is`, `three-roles`, `not-voting`, `verified-evidence`, `abstain-contested`, `human-authorization`, `modes`: summary, sections, technical details, previous/next |
@@ -30,7 +36,257 @@ the language-neutral root page `/` and the 404 page:
 
 Every internal link is built from the site map in `src/lib/site.ts`;
 `tests/site-map.test.ts` requires a route file for each entry, and the e2e
-crawler requires every exported link to answer 200 without a redirect.
+crawler requires every exported link to answer 200 without a redirect. The
+run workspace is not a navigation entry: it is reached from New deliberation
+(after a run is created) and from My runs (`runPath()` in `site.ts`).
+
+## API client (lane W1)
+
+- **Contract types**: `src/lib/api/types.ts` is GENERATED by
+  `scripts/gen-api-types.mjs` from the JSON Schemas in `contracts/api-v1`
+  (schemars draft-07; a closed subset: `definitions`/`$ref`, `properties` +
+  `required`, nullable `type` lists, `enum`, `oneOf`/`anyOf` unions,
+  single-element `allOf`, `items`). The header names the contract's SHA-256
+  (`contract-sha256.txt`, computed as the server does: `<name>\n<file>` per
+  schema in name order), which `GET /api/v1/health` reports as
+  `contract_sha256`. `pnpm api:types` regenerates, `pnpm api:check` (part of
+  `pnpm check`) and `tests/api-types.test.ts` fail on drift. No generator
+  dependency was added: the policy's release cooldown and the small subset
+  made a 300-line script the smaller risk.
+- **Where the contract is**: inside the containers, `in-docker.sh` and
+  `playwright-docker.sh` mount the repository's `contracts/` read-only at
+  `/contracts`; on the host it is `../../contracts/api-v1`. The generator,
+  the tests and the e2e specs resolve it in that order (`API_CONTRACT_DIR`
+  overrides).
+- **Validation**: `src/lib/api/schemas.ts` holds zod mirrors of the
+  contract for every response the UI reads, loose on unknown fields
+  (additive server changes pass through) and strict on the enumerations the
+  honesty rules depend on; each is checked against the generated type with
+  `satisfies`, so a mirror that drifts fails `tsc`.
+  `tests/api-schemas.test.ts` parses every fixture of the contract.
+- **Client**: `src/lib/api/client.ts`, `createApiClient()` / `api`: JSON
+  only, `Content-Type: application/json` on bodies, `credentials:
+  "same-origin"`, `Idempotency-Key` on run creation and decisions, the
+  Turnstile token in `cf-turnstile-response`. Every failure is an `ApiError`
+  (`code`, `status`, `retryAfterSecs` from the body or the `Retry-After`
+  header, `path`); the client's own codes are `unreachable`,
+  `unexpected_status` and `bad_response`. `ensureSession()` POSTs only when
+  GET says there is no session.
+- **Stream**: `src/lib/api/sse.ts`, `RunStream` over `EventSource`:
+  `consensus`, `resync` and `stream_end` events, duplicates dropped, gaps
+  and resyncs ask the owner to re-read the detail, `stream_end` closes the
+  source, browser reconnects are reported as `reconnecting`. Every frame's
+  `delivery` is passed through as the server sent it.
+- **Connectivity**: `useApiHealth()` probes `GET /api/v1/health` once per
+  page load (module-level cache); `<ApiGate>` renders its children once the
+  probe answered and the `NotConnected` placeholder (with the failed
+  request's code and a retry button) when it did not. `API_CONNECTED` is
+  gone from `src/lib/site.ts`.
+- **Errors in the UI**: `<ApiErrorNotice>` shows the translated sentence of
+  the code (`Api.errors.<code>` in the catalogs, one per `ErrorCode` of the
+  contract plus the client's own; an unknown code gets the generic
+  sentence), the Retry-After wait, the code and HTTP status, and a "Try
+  again" button when the caller passes `onRetry`. The registry is
+  `src/lib/api/errors.ts`: `satisfies Record<ErrorCode, true>` makes a
+  contract code without an entry fail `tsc`, and `tests/api-errors.test.ts`
+  reads the generated `ErrorCode` union and requires a sentence for each
+  member in every catalog. The server's English `message` is never shown.
+- **Failed runs**: a failed run (header, Explorer row, My runs card) reads
+  the translated sentence of its failure CODE (`src/lib/run/failure.ts`,
+  `Run.failure.codes.<code>`: every code `public_view::failure_message`
+  knows, the live ledger's `budget_refused` and `budget_unsettled`, the Meta
+  adapter's provider codes and the runtime's model-output codes), never the
+  server's English message; another code gets the generic sentence, which
+  names the code. `evidence_unavailable` records likewise
+  (`Run.unavailable`).
+
+## Run workspace
+
+`src/components/run/`: `useRunData` loads the detail (`GET /runs/{id}`) and
+opens the stream (`GET /runs/{id}/events`, every stored frame then the live
+tail, until `stream_end`; a gap, a resync or the end re-reads the detail).
+A failed detail request is kept as an error the workspace shows with a
+retry (never a loading line), the responses of older requests are dropped,
+and a detail never replaces one that is further along; the header shows the
+newest known summary (`src/lib/run/view.ts` `newestSummary`). Frames go
+through a pacer (`src/lib/run/pacing.ts`) before they are shown: a guided
+run finishes in milliseconds and streams as `delivery: replay`, so the
+replayed frames of a scripted run (`isPaceable` in `src/lib/provenance.ts`)
+are released one every 650 ms, labelled "simulated · paced for
+readability" with a waiting count and a "Skip pacing" control while frames
+are queued, announced once when pacing starts and once when it ends; a live
+or mixed model run is never paced or labelled simulated, live frames are
+never delayed, and reduced motion (the OS setting or the in-app preference)
+turns the pacing off. Server timestamps are shown untouched.
+
+- **Live / Playback** (`StageTab`): stream status (a failed stream says the
+  stage shows the stored records and offers a reconnect after the newest
+  record held), pacing control, the three-agent stage (Proposer, Critic,
+  Evidence Evaluator) where each card shows the latest document of its role
+  with the delivery badge of the record that carried it, the runtime lane
+  (records retrieved, proofs checked, recalls proven), and the
+  recommendation with its evidence axis. The records are the frames shown so
+  far plus what the detail holds and the stream did not deliver (a gap at
+  once; the rest once the stream is settled and nothing is paced), read as
+  replayed (`stageRecords`), so the counts match the run. The tab is named
+  Live only while the run deliberates and its latest frame is LIVE, Playback
+  otherwise.
+- **Explorer** (`ExplorerTab`): the event timeline (sequence, type, actor,
+  time, a one-line summary, the public event as expandable JSON), filterable
+  by type; the rows are the union of the detail's events and the frames'.
+  Every status is translated: a scripted proof reads "SIMULATED proof
+  (scripted outcome …)", factual and relevance statuses and a decision's
+  authority have their own words, a failure or an unavailable retrieval
+  reads the sentence of its code.
+- **Decision** (`DecisionTab`): the recommendation kind with its evidence
+  axis and, right under it, the scope line when the recommendation is for a
+  revision (which proposal it is for, which one it replaced, the task, both
+  summaries side by side: K03/K04), rationale, protocol, unresolved
+  assumptions and uncertainties, the open objections, the public decision
+  form (approve or reject with an optional note; an override of a blocked or
+  abstained run needs the note) with the fixed public_demo notice, enabled
+  only while the run awaits a decision and belongs to this session; the
+  recorded decision with the server's notice; the receipt link, and the
+  verbatim log link only when the public surface publishes it
+  (`ndjsonPublishable`, the server's rule: a live-declared run answers `404
+  ndjson_unavailable`, said in a sentence instead); cancel for a run still
+  deliberating.
+- Not here: Evidence, Proof inspector, Audit trail and Meta API panel
+  (another lane; no stubs are rendered).
+
+Honesty rules the views follow (release gate G7; `src/lib/provenance.ts`,
+each with a unit test): LIVE only when a frame's delivery is `live`, the
+model axis is `live_meta` and no flag is raised (`provenance_inconsistent`,
+`unchained` and `mode_undeclared` are shown and never render as LIVE; a
+live-delivered record of a scripted run reads STREAMING); every label with a
+LIVE word (the LIVE delivery badge, the LIVE META model badge, "Meta model ·
+live", the Live tab) goes through `isLive`, so a replayed frame, a list
+entry, a preset or a flagged run reads META MODEL (a warning with a blocking
+flag) with "Meta model · recorded <date>" next to REPLAY, in every locale
+(`tests/provenance.test.ts` checks each locale's LIVE word); a scripted
+provider reads "scripted double, no model call"; simulated evidence is named
+next to every outcome ("supported — on SIMULATED evidence"); a simulated
+proof is the neutral SIMULATED token with its scripted outcome as text,
+never a green "valid"; every count comes from the run data; nothing
+pretends to load.
+
+## Conventions for the views that follow (lane W2)
+
+The Evidence tab, Proof inspector, Audit trail, Meta API panel, showcase
+detail and the plain/technical explanations of `PolicyTrace` build on what
+exists; none of it is to be duplicated.
+
+- **One run, one data source.** `useRunData(runId)` (mounted once by
+  `RunWorkspace` under `key={runId}`) is the only reader of
+  `GET /runs/{id}` and the stream; a new tab takes `data: RunData` (or
+  `detail`/`frames`) as props and adds itself to `TabKey` and the `items` of
+  `<Tabs>` in `RunWorkspace.tsx` (one panel, `run-tabpanel`). Records come
+  from `src/lib/run/view.ts`: `mergeEvents` (every record of the detail and
+  the frames: the Audit trail's list), `stageRecords` (what pacing has shown),
+  `newestSummary`, `supersededProposal`. The Explorer already lists the
+  events with their public JSON: the Audit trail is about the chain
+  (`detail.chain`, `prev_hash`/`hash`, the receipt), not a second timeline.
+- **Requests** go through `api` (`src/lib/api/client.ts`); a new endpoint
+  gets a method there and a zod mirror in `schemas.ts` (`z.looseObject`,
+  strict enumerations, `satisfies z.ZodType<T.X>` against the generated
+  `types.ts`, which is never edited by hand: `pnpm api:types`). The showcase
+  client methods exist (`showcase`, `showcaseDetail`, `showcaseReceipt`);
+  archived runs are not streamed and are never presented as running:
+  `source: research_archive` reads RECORDED, and without a delivery the
+  model badge is META MODEL by construction.
+- **Labels** come only from `src/lib/provenance.ts` (`isLive`,
+  `modelLabel(provenance, delivery?)`, `deliveryLabel`, `evidenceLabel`,
+  `sourceLabel`, `flagLabel`, `modelNoteKey`, `proofToken`,
+  `ndjsonPublishable`, `isPaceable`) and `<ProvenanceBadges>` (pass
+  `delivery` only for a frame being watched). A simulated proof is never a
+  green or cyan "valid" (`proofToken`; `ProofStatus` in `StageTab.tsx`
+  renders it); Hyphae cyan is for real proof and evidence only. Request ids
+  (`meta_request_ids`, `ModelInvocationV1.request_id`) are evidence of a
+  recorded Meta call, never of liveness.
+- **Errors and failures**: `<ApiErrorNotice error onRetry>` (every
+  `ErrorCode` has a sentence; `error.message` is never shown); a failure
+  code through `FailureSentence` / `useFailureText` / `useUnavailableText`
+  (`src/components/run/FailureSentence.tsx`). A settled failure is never a
+  loading line.
+- **Explanations**: `RecommendationV1.trace` (`PolicyTrace`: rule, reasons,
+  counts, version) and `rationale_code` are the data; render them through
+  catalog templates keyed by rule and reason, plain or technical after the
+  `explanation` preference (`usePreferences()`), and keep the server's
+  English `rationale` for the technical level only (the Decision tab still
+  shows it as recorded).
+- **i18n**: every string in `messages/{en,es,pt-BR,fr}.json`
+  (`react/jsx-no-literals`); a namespace a client component reads must be
+  listed in `clientNamespaces` (`src/i18n/messages.ts`); computed keys go
+  through `dynamicTranslator` with a unit test that every computed key exists
+  in the four catalogs (as `tests/provenance.test.ts`, `tests/api-errors.test.ts`,
+  `tests/run-failure.test.ts` do); every plural carries `=0`, `one` and
+  `other` (`tests/plurals.test.ts`; Spanish keeps its `many` branches); no
+  enumeration value is interpolated raw (translate it, as
+  `Run.explorer.factual|relevance|authority` and `Provenance.proof.*` do);
+  rich text only with `RICH_TAGS` and `richTags(locale)`.
+- **Tests**: logic lives in `src/lib/**` and is unit-tested in Vitest's node
+  environment (there is no DOM test setup); the views are covered by
+  `e2e/api.spec.ts` over `mockApi()` (`detail`, `frames`, `extraRuns`,
+  `detailFailures`, `streamFailures`, `liveEnabled`/`live*`, `capabilities`,
+  `health`), with variants derived from the fixtures (`awaitingDecisionDetail`,
+  `liveModelDetail`, `framesWith`, `inProgressLiveRun`, `failedDetail`,
+  `liveR01Run`); the showcase routes (`/showcase`, `/showcase/{id}`,
+  `/research/*`) are not mocked yet. Use `expectNoLive(page, locale)` for
+  every view that must not read LIVE, `takeProblem` for each API error a
+  test provokes, `reducedMotion: "reduce"` to skip pacing, and add the new
+  tabs to the axe scans (`writeScans`, `blocking`).
+- **CSP**: no Astryx component built on `Layer` (TabList, popover, tooltip,
+  dialog, `disabledMessage` tooltips, a TextInput `status` message): they
+  inject a `<style>` element the hash-only policy blocks; no `new Function`
+  (zod stays jitless); no inline event handler attributes.
+
+## Live form
+
+`src/components/new/NewDeliberation.tsx` over `src/lib/live/form.ts` (the
+rules, unit-tested) and `src/lib/live/turnstile.ts` (the widget):
+
+- `capabilities.live` is mirrored exactly (`LiveCapabilitiesV1`, `PresetV1`,
+  `PublicBudgetV1` in `src/lib/api/schemas.ts`). Each preset shows the
+  badges of its own model and evidence axes (no delivery, so never the
+  LIVE-worded model label); the budget is shown with translated labels in
+  US dollars, cut to whole cents on the ledger's decimal string, never
+  rounded up.
+- The form is closed, with one sentence and the showcase link, when the
+  ledger is tripped (with the trip code's reason), when no budget is
+  published (the ledger could not be read: nothing can be admitted), when no
+  preset is listed, or when the server requires Turnstile and this build has
+  no site key (every request would be refused). A closed form lists the
+  presets to read and offers no control.
+- An open form asks for a preset, the attestation (when
+  `requires_adult_attestation`: 18 or older and not using live mode from a
+  restricted territory, as the server records it, linking to the Terms;
+  legal wording pending the owner's sign-off), an optional invite code (sent
+  trimmed, only when 1 to 256 characters remain) and, when
+  `requires_turnstile`, a Turnstile token: Start stays disabled until each
+  is there.
+- Turnstile (`src/components/new/Turnstile.tsx`) loads
+  `challenges.cloudflare.com` only when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` was
+  set at build time, and then at runtime (never from the exported HTML,
+  which the CSP manifest would reject). The widget is rendered with the
+  action the server verifies (`live-run`, `CONSENSUS_TURNSTILE_ACTION_LIVE`).
+  A token is single-use (the gate spends it at Siteverify before it reserves
+  the budget, whatever it answers): every submit hands it to that request
+  only and resets the widget. The server's CSP has to allow that origin in
+  `script-src` and `frame-src` when the key is set.
+
+Manual smoke against the real server (host side, read-only use of the
+prebuilt `target/debug/consensus-api.exe serve-public` with
+`CONSENSUS_PUBLIC_BIND=127.0.0.1:8788`, `CONSENSUS_WEB_ROOT=apps/web/out`,
+`CONSENSUS_RESEARCH_DIR=research`, a temporary `CONSENSUS_RUN_STORE_DIR` and
+`CONSENSUS_COOKIE_SECURE=false`; the e2e container cannot reach it): curl the
+routes and save the bodies into the git-ignored `test-results/smoke/`
+(`health.json`, `capabilities.json`, `scenarios.json`, `session.json`,
+`run-list.json`, `run-detail.json`, `receipt.json`, `showcase.json`,
+`showcase-detail.json`, `showcase-receipt.json`, `showcase-detail-live.json`,
+`showcase-receipt-live.json`, `events.sse.txt`). `tests/api-smoke.test.ts`
+then validates every capture against the zod mirrors (and the SSE capture's
+sequence and ids); without a capture it skips. Done on 2026-10-28 for a
+guided `retry` run and the archived runs: every capture parsed.
 
 Docs and legal statements come from the root README, `docs/threat-model.md`,
 the multi-agent (AI) audit of 2026-10-27 and the approved plan, with the owner's decisions of
@@ -85,26 +341,32 @@ sh apps/web/scripts/playwright-docker.sh             # e2e + axe against out/
 ```
 
 `scripts/in-docker.sh` runs `docker run --rm` on `node:24-bookworm-slim`
-pinned by digest (Node 24.22.1), mounts only `apps/web` at `/app`, passes no
-`-e` variables, no home directory and no TTY, enables corepack, switches off
-Next.js telemetry inside the container, and runs the given command. Two parts
-of the mount are read-only, so code running in the container can never
-rewrite what the host runs or trusts: `scripts/` (the two `*.sh` files run on
-the host, where the Meta key is set) and `pnpm-workspace.yaml` (the
-supply-chain policy). The rest stays writable because the toolchain writes
-there: `node_modules/` (pnpm install, with its store in
-`node_modules/.pnpm-store`), `.next/` and `next-env.d.ts` (`next typegen`,
-`next build`), `tsconfig.tsbuildinfo` (`tsc`), `out/` (the export and
-`csp-manifest.json`). Nothing else in `apps/web` is written by a command of
-this project.
+pinned by digest (Node 24.22.1), mounts `apps/web` at `/app` and the
+repository's `contracts/` (the API contract the type generator and the tests
+read) read-only at `/contracts`, passes no `-e` variables, no home directory
+and no TTY, enables corepack, switches off Next.js telemetry inside the
+container, and runs the given command. Two parts of the `/app` mount are
+read-only, so code running in the container can never rewrite what the host
+runs or trusts: `scripts/` (the two `*.sh` files run on the host, where the
+Meta key is set) and `pnpm-workspace.yaml` (the supply-chain policy). The
+rest stays writable because the toolchain writes there: `node_modules/`
+(pnpm install, with its store in `node_modules/.pnpm-store`), `.next/` and
+`next-env.d.ts` (`next typegen`, `next build`), `tsconfig.tsbuildinfo`
+(`tsc`), `out/` (the export and `csp-manifest.json`), and
+`src/lib/api/types.ts` (`pnpm api:types`). Nothing else in `apps/web` is
+written by a command of this project.
 
 `scripts/playwright-docker.sh` runs `playwright test` in
 `mcr.microsoft.com/playwright:v1.64.1-noble`, pinned by digest
 (`sha256:47b510dd…b8ea`, Node 24.22.1, the browsers of Playwright 1.64.1, the
 same release as the pinned `@playwright/test`). Same isolation as
-`in-docker.sh`, plus `--network none`: the tests serve `out/` on the
-container's own loopback, so nothing a page loads can come from anywhere
-else. The container is further confined: `/app` is mounted read-only with
+`in-docker.sh` (the contract is mounted read-only at `/contracts` too: the
+API specs serve its fixtures as the mocked `/api/v1`), plus `--network
+none`: the tests serve `out/` on the container's own loopback, so nothing a
+page loads can come from anywhere else. The real server cannot be reached
+from that container, so the API is always mocked with `page.route()`
+(`e2e/api-mock.ts`), including the SSE stream (the frames fixture as one
+`text/event-stream` body). The container is further confined: `/app` is mounted read-only with
 `test-results/` as the only writable directory (Playwright's transform cache
 goes to the container's `/tmp`), it runs as the image's unprivileged `pwuser`
 (so `test-results/` is not root-owned on Linux and macOS), every capability
@@ -136,11 +398,13 @@ Notes:
 | `pnpm install --frozen-lockfile` | Install exactly what `pnpm-lock.yaml` records |
 | `pnpm typecheck` | `next typegen`, then `tsc --noEmit` (strict) |
 | `pnpm lint` | ESLint (`eslint-config-next` core-web-vitals + TypeScript), zero warnings allowed |
-| `pnpm test` | Vitest: locale parity, ICU and rich-text tags of every catalog, site map, preferences, theme contrast, theme script, CSP manifest, static server, i18n helpers |
+| `pnpm test` | Vitest: locale parity, ICU and rich-text tags of every catalog, =0 branches of every plural, site map, preferences, theme contrast, theme script, CSP manifest, static server, i18n helpers, the generated contract types (drift and hash), the zod mirrors over every contract fixture (per-fixture expectations, the live section), a sentence for every `ErrorCode` read from the generated union, the API client (judge code trimming), the SSE stream, the pacer, the honesty predicates (no LIVE word unless `isLive`, in every locale), the live form's rules, the Turnstile widget, the run view helpers and the failure sentences |
 | `pnpm build` | Static export to `out/`, then `node scripts/csp-manifest.mjs` |
 | `pnpm theme:build` | Compile `src/theme/hyphaeMissionTheme.ts` with `astryx theme build` |
 | `pnpm theme:check` | Fail if the committed theme outputs drift from the source |
-| `pnpm check` | `theme:check`, `typecheck`, `lint`, `test` and `build`, in that order |
+| `pnpm api:types` | Regenerate `src/lib/api/types.ts` from `contracts/api-v1` (`scripts/gen-api-types.mjs`) |
+| `pnpm api:check` | Fail if the committed contract types drift from the schemas |
+| `pnpm check` | `theme:check`, `api:check`, `typecheck`, `lint`, `test` and `build`, in that order |
 | `pnpm serve` | `scripts/serve-static.mjs`: serve `out/` on 127.0.0.1:4173 with per-page CSP (inside a container) |
 | `pnpm e2e` | Fails fast (exit 64) with a message pointing at `scripts/playwright-docker.sh`: the Node container has no browsers, and the suite runs only there |
 
@@ -194,6 +458,7 @@ exception is noted.
 | `vitest` | 5.0.5 | 2026-10-15 | |
 | `vite` | 8.3.5 | 2026-10-21 | Required peer of Vitest 5 |
 | `intl-messageformat` | 11.2.15 | 2026-09-12 | 11.x on purpose: next-intl and Astryx use 11.x; 12.1.4 is newer |
+| `zod` | 4.6.7 | 2026-10-12 | Runtime validation of API responses (`src/lib/api/schemas.ts`); no install scripts |
 | `parse5` | 8.0.1 | 2026-04-19 | HTML parser for the CSP manifest |
 | `@playwright/test` | 1.64.1 | 2026-10-14 | Newest stable (1.65 is in alpha); brings `playwright` and `playwright-core` 1.64.1 |
 | `@axe-core/playwright` | 4.14.0 | 2026-10-15 | Brings `axe-core` 4.14.0 (2026-10-05), already in the lockfile through `eslint-plugin-jsx-a11y` |
@@ -233,11 +498,21 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
   `/_next/static/media`. theme-neutral's `fonts.css` is never imported (it
   loads Figtree from Google at runtime). `.hc-tabular-nums` and `.hc-code`
   are the utilities for metrics and for hashes and ids.
-- **Components used**: `Button`, `RadioList`, `Switch`, `Badge`, `Heading`
-  and `Text`. Long-form content (docs, legal pages) is plain HTML styled by
-  the theme's reset layer, so it needs no hydration. Dialogs (tour, mobile
-  drawer) are our own `src/components/Modal.tsx` on the native `<dialog>`,
-  with a strict focus trap.
+- **Components used**: `Button`, `RadioList`, `Switch`, `Badge`, `Heading`,
+  `Text`, `CheckboxInput`, `TextInput` and `TextArea`. Long-form content
+  (docs, legal pages) is plain HTML styled by the theme's reset layer, so it
+  needs no hydration. Dialogs (tour, mobile drawer) are our own
+  `src/components/Modal.tsx` on the native `<dialog>`, with a strict focus
+  trap; the run workspace's tabs are our own `src/components/run/Tabs.tsx`
+  (WAI-ARIA tabs pattern, classes only).
+- **Not usable under the CSP**: Astryx components built on its `Layer`
+  (`TabList`, whose overflow menu goes through `useLayer`, and the popover,
+  tooltip and dialog family) append a `<style>` element at runtime
+  (`Layer/layerSlideRules.js`). The portal's policy is hash-only
+  (`style-src 'self'` plus the hashes of the exported HTML), so the browser
+  blocks that element and the e2e fixture fails the page on the violation.
+  Disclosures use the native `<details>`; anything layered needs our own
+  component or a CSS-only solution.
 - **Client boundaries**: `Theme`, `LinkProvider`, Astryx i18n,
   `NextIntlClientProvider`, `MotionConfig` and the tour live in
   `src/components/Providers.tsx`; the preference state is
@@ -400,6 +675,15 @@ same-origin request or request to another origin.
 | `onboarding.spec.ts` | Offered but never opened by itself; Skip, Escape and backdrop close it and are remembered; all six steps with Back and Finish; strict focus trap and inert page; reopening from Docs; translated in every locale |
 | `motion.spec.ts` | OS reduced motion and the in-app setting remove movement and keep a short fade; "Match system" follows the OS live; the drawer; reduced transparency makes the glass solid (Chromium, through the DevTools protocol) |
 | `a11y.spec.ts` | axe on every page in both themes and all locales, the overlays, the 404 page in both themes, and phone layouts |
+| `api.spec.ts` | Over the mocked `/api/v1` (`e2e/api-mock.ts`, the contract fixtures; the live section in the contract's shape, validated with the client's zod mirror): New deliberation -> run -> frames -> decision -> receipt link (with the `Idempotency-Key` and the `expected` block checked); a replayed finished run never reads LIVE and is named Playback; no LIVE word on a replayed, flagged or listed live-model run in the four locales, and LIVE for a live-model run in progress; a `provenance_inconsistent` run never reads LIVE even on live-delivered frames; pacing only for scripted runs, and off with the in-app Reduced setting; the header's labels; the live section's disabled state, the closed form (no site key, tripped or unreadable ledger) and the open form's request (trimmed invite code, a live refusal's sentence); an error's sentence and Retry-After; a failed detail request with its retry; a failed stream with the stored records and a reconnect; a failed run explained from its code; the scope line of a revision; no verbatim-log link for a live-declared run; My runs with and without a session; the Explorer (filter, translated statuses, SIMULATED proofs, =0 count); the run page without an id; the runtime NotConnected state against the static server; the Overview's button (and a server on another contract); the four locales; axe on `/new`, `/runs` and the three tabs of `/run` in every locale and theme, and on the open live form, a failed run and a failed detail |
+
+The page fixture (`e2e/fixtures.ts`) fails a test on any console error, page
+error, CSP violation, request to another origin or same-origin response of
+400 or more, with one exception added with the API lane: the static server's
+own HTML 404 for an `/api/v1/…` path, which is the "API unreachable"
+condition the views must handle, not a broken link. Mocked API errors (JSON
+bodies) still count, and `api.spec.ts` takes the ones it expects out of the
+list, asserting they happened.
 
 Projects: `chromium` (everything except `@mobile`), `chromium-mobile`
 (Pixel 7, `@mobile`), and `firefox` and `webkit` (the `@smoke` tests). Results
@@ -417,7 +701,22 @@ the axe scans.
   territory list of the Terms (owner decisions of 2026-10-27) has to go into
   release gate G10 of the plan.
 - No `hreflang` alternates yet: they need the public hostname (Day 2).
-- No generated contract types yet (FEAS-4; the contract freezes on Day 1).
+- The texts written for the unconnected build (the tour steps, the
+  provenance legend's intro, the Settings description of the technical
+  level, the Overview's build note) still speak in the future tense; the
+  build note now shows only when the API is unreachable, the rest awaits a
+  rewrite in the four languages once the connected portal is reviewed.
+- The live form with a Turnstile site key (Start waiting for the token, the
+  token spent and the widget reset on every submit, the `live-run` action)
+  is covered by unit tests (`tests/live-form.test.ts`,
+  `tests/turnstile.test.ts`) only: the e2e export is built without a key,
+  so the suite sees the closed form, and the open form only through a
+  mocked server that requires no token.
+- The live attestation wording (age and territory) and the Limitations
+  text are legal drafts awaiting the owner's sign-off; the Limitations
+  page still says an archived live-model run is labelled "next to LIVE
+  META", while the views now read META MODEL for anything not delivered
+  live.
 - Script weight: `/en/` loads 13 async scripts, 797,215 bytes raw (230,921
   gzip at level 9), plus a 112,594-byte `noModule` polyfill that modern
   browsers skip. The whole export is 460 files, 7,132,989 bytes (each page

@@ -6,7 +6,9 @@
 
 use consensus_api::api::error::{ApiError, ErrorCode};
 use consensus_api::api::types::GuidedScenario;
-use consensus_api::api::{AdmitFuture, LiveAdmissionRequest, LiveGate, LiveGrant};
+use consensus_api::api::{
+    AdmitFuture, LiveAdmissionRequest, LiveGate, LiveGrant, VerifiedLiveRequest, VerifyFuture,
+};
 use consensus_api::guided;
 use consensus_api::runs::{Deliberation, RunKind, StartRequest};
 use consensus_domain::*;
@@ -298,7 +300,8 @@ impl Deliberation for FailingDeliberation {
     }
 }
 
-/// What the scripted live gate does with the next request.
+/// What the scripted live gate does with the next request in its second
+/// phase (the first always passes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GateMode {
     /// Refuse with a budget error.
@@ -309,11 +312,13 @@ pub enum GateMode {
     GrantFailingStart,
 }
 
-/// A live gate for the sequencing tests: it counts admissions and refunds
-/// and keeps the last request's preset, pseudonym and Turnstile token.
+/// A live gate for the sequencing tests: it counts first-phase
+/// verifications, second-phase admissions and refunds, and keeps the last
+/// request's preset, pseudonym and Turnstile token.
 pub struct TestGate {
     mode: Mutex<GateMode>,
-    pub admitted: AtomicUsize,
+    pub verified: AtomicUsize,
+    pub admitted: Arc<AtomicUsize>,
     pub refunded: Arc<AtomicUsize>,
     pub last: Mutex<Option<(String, String, Option<String>)>>,
 }
@@ -322,7 +327,8 @@ impl TestGate {
     pub fn new(mode: GateMode) -> Arc<Self> {
         Arc::new(Self {
             mode: Mutex::new(mode),
-            admitted: AtomicUsize::new(0),
+            verified: AtomicUsize::new(0),
+            admitted: Arc::new(AtomicUsize::new(0)),
             refunded: Arc::new(AtomicUsize::new(0)),
             last: Mutex::new(None),
         })
@@ -332,6 +338,13 @@ impl TestGate {
         *self.mode.lock().unwrap() = mode;
     }
 
+    /// First-phase calls ([`LiveGate::verify`], before the slot).
+    pub fn verified(&self) -> usize {
+        self.verified.load(Ordering::SeqCst)
+    }
+
+    /// Second-phase calls ([`VerifiedLiveRequest::admit`], with the slot
+    /// held): what would have charged the ledger.
     pub fn admitted(&self) -> usize {
         self.admitted.load(Ordering::SeqCst)
     }
@@ -346,9 +359,9 @@ impl TestGate {
 }
 
 impl LiveGate for TestGate {
-    fn admit(&self, request: LiveAdmissionRequest) -> AdmitFuture<'_> {
+    fn verify(&self, request: LiveAdmissionRequest) -> VerifyFuture<'_> {
         Box::pin(async move {
-            self.admitted.fetch_add(1, Ordering::SeqCst);
+            self.verified.fetch_add(1, Ordering::SeqCst);
             *self.last.lock().unwrap() = Some((
                 request.preset.as_str().to_string(),
                 request.session_pseudonym.clone(),
@@ -356,8 +369,30 @@ impl LiveGate for TestGate {
             ));
             // An outbound verification would await here.
             tokio::task::yield_now().await;
-            let mode = *self.mode.lock().unwrap();
-            match mode {
+            let ticket: Box<dyn VerifiedLiveRequest> = Box::new(TestTicket {
+                mode: *self.mode.lock().unwrap(),
+                preset: request.preset.as_str().to_string(),
+                admitted: self.admitted.clone(),
+                refunded: self.refunded.clone(),
+            });
+            Ok(ticket)
+        })
+    }
+}
+
+/// What [`TestGate::verify`] hands the route for the second phase.
+struct TestTicket {
+    mode: GateMode,
+    preset: String,
+    admitted: Arc<AtomicUsize>,
+    refunded: Arc<AtomicUsize>,
+}
+
+impl VerifiedLiveRequest for TestTicket {
+    fn admit(self: Box<Self>) -> AdmitFuture<'static> {
+        Box::pin(async move {
+            self.admitted.fetch_add(1, Ordering::SeqCst);
+            match self.mode {
                 GateMode::Refuse => Err(ApiError::new(
                     ErrorCode::TooManyRuns,
                     "the live budget of this visitor is spent",
@@ -370,9 +405,9 @@ impl LiveGate for TestGate {
                         model: ModelMode::Scripted,
                         evidence: EvidenceMode::Simulated,
                         origin: RunOrigin::Public,
-                        preset: Some(format!("live:{}", request.preset.as_str())),
+                        preset: Some(format!("live:{}", self.preset)),
                     });
-                    let deliberation: Box<dyn Deliberation> = if mode == GateMode::Grant {
+                    let deliberation: Box<dyn Deliberation> = if self.mode == GateMode::Grant {
                         Box::new(Orchestrator {
                             model: s.model,
                             memory: s.memory,

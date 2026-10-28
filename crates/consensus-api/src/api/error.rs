@@ -87,6 +87,10 @@ pub enum ErrorCode {
     LiveConcurrency,
     /// Public live mode: the rolling-hour admission cap is reached.
     LiveHourlyAdmissions,
+    /// Public live mode: this client (IPv4 address, IPv6 /64) has started
+    /// its share of public live runs for the UTC day; `retry_after_secs`
+    /// runs to 00:00 UTC.
+    LiveClientQuota,
     /// Public live mode: the ledger is tripped (kill switch, a cap, a
     /// provider refusal of the key); an operator must reset it.
     LiveTripped,
@@ -145,7 +149,8 @@ impl ErrorCode {
             | ErrorCode::LiveBudgetDaily
             | ErrorCode::LiveBudgetJudgeDaily
             | ErrorCode::LiveConcurrency
-            | ErrorCode::LiveHourlyAdmissions => StatusCode::TOO_MANY_REQUESTS,
+            | ErrorCode::LiveHourlyAdmissions
+            | ErrorCode::LiveClientQuota => StatusCode::TOO_MANY_REQUESTS,
             ErrorCode::StorageFull
             | ErrorCode::LiveDisabled
             | ErrorCode::ShuttingDown

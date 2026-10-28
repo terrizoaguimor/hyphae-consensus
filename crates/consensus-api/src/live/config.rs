@@ -15,13 +15,15 @@
 //! | `CONSENSUS_LIVE_JUDGE_USD` | `15.00` | Judge-lane slice inside the lifetime cap |
 //! | `CONSENSUS_LIVE_JUDGE_DAILY_USD` | the judge slice | Judge reservations per UTC day (≤ the slice); a day's exposure is `daily + judge daily` |
 //! | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | unset (lane closed) | SHA-256 hex digests of invite codes, one per line |
-//! | `CONSENSUS_LIVE_LEDGER_DIR` | required when enabled | Ledger directory |
+//! | `CONSENSUS_LIVE_JUDGE_CODE_DAILY` | `5` | Judge-lane admissions per code per UTC day (process-local; over it the judge daily refusal) |
+//! | `CONSENSUS_LIVE_LEDGER_DIR` | required when enabled | Ledger directory (`serve-operator` meters its `model=meta` runs on it too) |
 //! | `CONSENSUS_LIVE_MAX_CONCURRENT` | `1` | Public live runs at once (in-process) |
 //! | `CONSENSUS_LIVE_HOURLY_ADMISSIONS` | `6` | Reservations per rolling hour, per lane |
+//! | `CONSENSUS_LIVE_CLIENT_DAILY` | `3` | Public-lane admissions per client key (IPv4 /32, IPv6 /64) per UTC day (process-local) |
 //! | `CONSENSUS_LIVE_BURST_FRACTION` | `0.25` | Share of the daily cap available at 00:00 UTC |
 //! | `CONSENSUS_LIVE_RUN_TOKEN_CAP` | `70000` | Public per-run token cap |
 //! | `CONSENSUS_LIVE_MAX_COMPLETION_TOKENS` | `16000` | Output bound per call |
-//! | `CONSENSUS_LIVE_INPUT_CAP_TOKENS` | `8000` | Input bound per call |
+//! | `CONSENSUS_LIVE_INPUT_CAP_TOKENS` | `32000` | Input bound per call: a request whose `bytes + 1024` exceeds it is refused before sending (the Evaluator's request over the seven sealed-snapshot records needs well over 8,000); with the defaults a run's worst case is `(70,000 + 16,000 + 32,000) × $20/M = $2.36` |
 //! | `CONSENSUS_META_PRICE_INPUT_PER_M` | `4.00` | USD per million input tokens |
 //! | `CONSENSUS_META_PRICE_OUTPUT_PER_M` | `20.00` | USD per million output (and reasoning) tokens |
 //! | `CONSENSUS_TURNSTILE_SECRET_FILE` | required when enabled | File holding the widget secret |
@@ -75,6 +77,8 @@ pub mod vars {
     pub const GEO_LIVE_ONLY_BLOCKED: &str = "CONSENSUS_GEO_LIVE_ONLY_BLOCKED";
     pub const KILL_SWITCH_FILE: &str = "CONSENSUS_LIVE_KILL_SWITCH_FILE";
     pub const EXPOSURE_DAYS: &str = "CONSENSUS_LIVE_EXPOSURE_DAYS";
+    pub const CLIENT_DAILY: &str = "CONSENSUS_LIVE_CLIENT_DAILY";
+    pub const JUDGE_CODE_DAILY: &str = "CONSENSUS_LIVE_JUDGE_CODE_DAILY";
 }
 
 /// Documented defaults, as strings parsed by the same code as the
@@ -88,10 +92,17 @@ pub mod defaults {
     pub const BURST_FRACTION: &str = "0.25";
     pub const RUN_TOKEN_CAP: &str = "70000";
     pub const MAX_COMPLETION_TOKENS: &str = "16000";
-    pub const INPUT_CAP_TOKENS: &str = "8000";
+    /// Room for the Evaluator's request over the sealed snapshot's seven
+    /// records under the provable `bytes + 1024` bound in every round
+    /// (8,000 refused every snapshot-backed run at its first evaluation).
+    pub const INPUT_CAP_TOKENS: &str = "32000";
     pub const PRICE_INPUT_PER_M: &str = "4.00";
     pub const PRICE_OUTPUT_PER_M: &str = "20.00";
     pub const KILL_SWITCH_FILE_NAME: &str = "kill-switch";
+    /// Public-lane admissions per client key per UTC day.
+    pub const CLIENT_DAILY: &str = "3";
+    /// Judge-lane admissions per code per UTC day.
+    pub const JUDGE_CODE_DAILY: &str = "5";
 }
 
 /// Who can reach the server. Public mode refuses test credentials.
@@ -164,6 +175,20 @@ impl EnvSource for BTreeMap<&'static str, String> {
     }
 }
 
+/// The server's environment without what the ledger never needs: the
+/// live-mode switch (so nothing else becomes required) and the two files
+/// that hold secrets ([`LiveConfig::load_credential_free`]).
+pub struct LedgerEnv<'a>(pub &'a dyn EnvSource);
+
+impl EnvSource for LedgerEnv<'_> {
+    fn get(&self, name: &'static str) -> Result<Option<String>, ConfigError> {
+        match name {
+            vars::LIVE_ENABLED | vars::TURNSTILE_SECRET_FILE | vars::JUDGE_CODES_FILE => Ok(None),
+            _ => self.0.get(name),
+        }
+    }
+}
+
 /// The validated live-mode configuration.
 #[derive(Debug, Clone)]
 pub struct LiveConfig {
@@ -177,6 +202,12 @@ pub struct LiveConfig {
     pub turnstile: Option<TurnstileConfig>,
     pub geo: GeoPolicy,
     pub exposure_days: Option<u32>,
+    /// Public-lane admissions the gate grants one client key (IPv4 /32,
+    /// IPv6 /64) per UTC day; the judge lane is exempt. Process-local.
+    pub client_daily: u32,
+    /// Judge-lane admissions the gate grants one judge code per UTC day.
+    /// Process-local.
+    pub judge_code_daily: u32,
 }
 
 impl LiveConfig {
@@ -204,6 +235,9 @@ impl LiveConfig {
             parse_positive_u32(vars::MAX_CONCURRENT, env, defaults::MAX_CONCURRENT)?;
         let hourly_admissions =
             parse_positive_u32(vars::HOURLY_ADMISSIONS, env, defaults::HOURLY_ADMISSIONS)?;
+        let client_daily = parse_positive_u32(vars::CLIENT_DAILY, env, defaults::CLIENT_DAILY)?;
+        let judge_code_daily =
+            parse_positive_u32(vars::JUDGE_CODE_DAILY, env, defaults::JUDGE_CODE_DAILY)?;
         let burst_fraction = {
             let raw = value_or(env, vars::BURST_FRACTION, defaults::BURST_FRACTION)?;
             Ppm::parse(&raw).map_err(|e| ConfigError::Invalid {
@@ -374,7 +408,18 @@ impl LiveConfig {
             turnstile,
             geo,
             exposure_days,
+            client_daily,
+            judge_code_daily,
         })
+    }
+
+    /// The configuration as the ledger's other users read it (the operator's
+    /// `ledger` subcommand, `serve-operator`'s metering): through
+    /// [`LedgerEnv`], in public mode. Live mode reads as disabled and no
+    /// credential is read, so the server's caps apply where neither the
+    /// Turnstile secret nor the judge codes are available.
+    pub fn load_credential_free(env: &dyn EnvSource) -> Result<Self, ConfigError> {
+        Self::load(Exposure::Public, &LedgerEnv(env))
     }
 
     /// True when the judge lane can admit anyone.
@@ -587,7 +632,10 @@ mod tests {
         assert_eq!(cfg.budget.daily_cap, Usd::parse("10").unwrap());
         assert_eq!(cfg.budget.lifetime_cap, Usd::parse("60").unwrap());
         assert_eq!(cfg.budget.judge_slice, Usd::parse("15").unwrap());
-        assert_eq!(cfg.budget.run_worst_case(), Usd::parse("1.88").unwrap());
+        // (70,000 + 16,000 + 32,000) tokens × $20/M.
+        assert_eq!(cfg.budget.run_worst_case(), Usd::parse("2.36").unwrap());
+        // It fits what the day offers at 00:00 UTC (25% of $10).
+        assert!(cfg.budget.run_worst_case() <= cfg.budget.burst());
         assert!(cfg.turnstile.is_none());
         assert!(cfg.ledger_dir.is_none());
         assert!(!cfg.judge_lane_open());

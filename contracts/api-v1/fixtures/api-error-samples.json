@@ -115,6 +115,11 @@
     "retry_after_secs": 600
   },
   {
+    "code": "live_client_quota",
+    "message": "this network has started its share of live runs for today; retry after the given delay",
+    "retry_after_secs": 10800
+  },
+  {
     "code": "live_tripped",
     "message": "live mode is paused"
   },

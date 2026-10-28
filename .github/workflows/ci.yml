@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# The same gates the owner runs locally (scripts/linux-gates.sh and the
-# Docker-isolated web checks), on GitHub-hosted Ubuntu 24.04. Actions are
+# The gates the owner runs locally (scripts/linux-gates.sh, plus cargo-deny,
+# which that script leaves to the host, and the Docker-isolated web checks),
+# on GitHub-hosted Ubuntu 24.04. Actions are
 # pinned by commit SHA (resolved 2026-10-27 from their v4 tags). The repo
 # is private until the owner publishes it; only the owner pushes.
 name: ci
@@ -37,6 +38,11 @@ jobs:
         run: cargo run -q -p consensus-tests --example evaluate
       - name: demo crate
         run: cargo test --manifest-path demo-repo/payment-client/Cargo.toml --locked
+      - name: sealed-snapshot tooling self-tests (manifest tool; capture script under dash)
+        run: |
+          python3 -I scripts/snapshot_manifest.py selftest
+          sh -n scripts/hyphae-container/capture-snapshot.sh
+          sh scripts/hyphae-container/capture-snapshot.sh --selftest
 
   web:
     name: web checks (apps/web)

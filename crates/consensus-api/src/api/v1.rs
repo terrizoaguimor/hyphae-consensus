@@ -7,8 +7,9 @@
 use super::error::{ApiError, ErrorCode};
 use super::types::*;
 use super::{
-    trusted_country, ApiJson, AppState, Client, CreationRecord, Identity, LiveAdmissionRequest,
-    LiveGrant, READY_CACHE_TTL, TURNSTILE_HEADER, TURNSTILE_TOKEN_MAX,
+    trusted_country, ApiJson, AppState, Client, CreationClaim, CreationRecord, Identity, KeyClaim,
+    KeyReused, LiveAdmissionRequest, LiveGrant, READY_CACHE_TTL, TURNSTILE_HEADER,
+    TURNSTILE_TOKEN_MAX,
 };
 use crate::guided;
 use crate::public_config::BODY_LIMIT_BYTES;
@@ -30,7 +31,7 @@ use consensus_runtime::clock::{SystemClock, UuidIdGen};
 use consensus_runtime::fakes::{FakeMemoryClient, FakeProofVerifier};
 use consensus_runtime::policy::PolicyVersion;
 use consensus_runtime::receipts::protocol_label;
-use consensus_runtime::run_store::StoreHealth;
+use consensus_runtime::run_store::{IndexErrorCode, StoreHealth};
 use consensus_runtime::scenarios::retry_constraint_scenario;
 use consensus_runtime::{
     build_receipt_v2, parse_run_id, Clock, Orchestrator, Owner, Retention, TaskInput,
@@ -204,9 +205,37 @@ fn body_sha256<T: serde::Serialize>(body: &T) -> String {
         .collect()
 }
 
-/// The 202 of the creation this owner already made with `key`, if its run
-/// still exists; 409 when the key was used with another body; None when
-/// the key is new (or its run is gone), so the creation proceeds.
+fn key_reused() -> ApiError {
+    ApiError::new(
+        ErrorCode::IdempotencyKeyReused,
+        "this Idempotency-Key was already used to create a different run",
+    )
+}
+
+/// The 202 of `record`'s run if it still exists; `None` when it was purged
+/// meanwhile, which frees the key again.
+async fn replay_of(
+    state: &AppState,
+    identity: &Identity,
+    key: &str,
+    record: &CreationRecord,
+) -> Result<Option<Response>, ApiError> {
+    match snapshot(state, record.run_id.as_str(), &identity.owner).await {
+        Ok(snapshot) => Ok(Some(created_response(state, &snapshot))),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            state.creation_keys.forget(&identity.owner, key, record);
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// The live route's lookup: the 202 of the creation this owner already
+/// made with `key`, if its run still exists; 409 when the key was used
+/// with another body; None when the key is new (or its run is gone), so
+/// the creation proceeds. It claims nothing: concurrent duplicates of one
+/// submit all reach the gate, where one solved Turnstile challenge admits
+/// one run ([`super::LiveGate`]).
 async fn replayed_creation(
     state: &AppState,
     identity: &Identity,
@@ -216,20 +245,64 @@ async fn replayed_creation(
     let Some(key) = key else {
         return Ok(None);
     };
-    let Some(record) = state.creation_keys.get(&identity.owner, key) else {
-        return Ok(None);
-    };
-    if record.body_sha256 != body_sha256 {
-        return Err(ApiError::new(
-            ErrorCode::IdempotencyKeyReused,
-            "this Idempotency-Key was already used to create a different run",
-        ));
+    match state
+        .creation_keys
+        .recorded(&identity.owner, key, body_sha256)
+    {
+        Err(KeyReused) => Err(key_reused()),
+        Ok(None) => Ok(None),
+        Ok(Some(record)) => replay_of(state, identity, key, &record).await,
     }
-    match snapshot(state, record.run_id.as_str(), &identity.owner).await {
-        Ok(snapshot) => Ok(Some(created_response(state, &snapshot))),
-        // Purged meanwhile: the key is free again.
-        Err(e) if e.code == ErrorCode::NotFound => Ok(None),
-        Err(e) => Err(e),
+}
+
+/// What a guided or operator creation's `Idempotency-Key` resolved to.
+enum Creation {
+    /// Create the run, and record it under the claimed key (if one was
+    /// sent) with [`CreationClaim::complete`].
+    New(Option<CreationClaim>),
+    /// The 202 of the run this owner already made with this key and body.
+    Replayed(Response),
+}
+
+/// Resolves a guided or operator creation's `Idempotency-Key` before
+/// anything is admitted or started: the run this owner already made with
+/// it (replayed), 409 for another body, or the key claimed for this
+/// creation. A duplicate that arrives while the creation that claimed the
+/// key is still under way waits until it ends, then answers with its run,
+/// or claims the key itself when that creation failed. The key is claimed
+/// before the start, so concurrent duplicates never start a second run;
+/// the wait is bounded by the request timeout.
+async fn claim_creation(
+    state: &AppState,
+    identity: &Identity,
+    key: Option<&str>,
+    body_sha256: &str,
+) -> Result<Creation, ApiError> {
+    let Some(key) = key else {
+        return Ok(Creation::New(None));
+    };
+    loop {
+        match state.creation_keys.claim(&identity.owner, key, body_sha256) {
+            KeyClaim::Claimed(claim) => return Ok(Creation::New(Some(claim))),
+            KeyClaim::Reused => return Err(key_reused()),
+            KeyClaim::InFlight(mut ended) => {
+                // Resolves once the claimant completes or gives the key up
+                // (its sender is dropped either way); then look again.
+                let _ = ended.changed().await;
+            }
+            KeyClaim::Created(record) => {
+                if let Some(replayed) = replay_of(state, identity, key, &record).await? {
+                    return Ok(Creation::Replayed(replayed));
+                }
+            }
+        }
+    }
+}
+
+/// Records the started run under the claimed key, if there is one.
+fn complete_creation(claim: Option<CreationClaim>, snapshot: &RunSnapshot) {
+    if let Some(claim) = claim {
+        claim.complete(snapshot.aggregate.run_id.clone());
     }
 }
 
@@ -345,14 +418,14 @@ pub async fn create_guided_run(
 ) -> Result<Response, ApiError> {
     let key = creation_key(&headers)?;
     let body_hash = body_sha256(&req);
-    if let Some(replayed) = replayed_creation(&state, &identity, key.as_deref(), &body_hash).await?
-    {
-        return Ok(replayed);
-    }
+    let claim = match claim_creation(&state, &identity, key.as_deref(), &body_hash).await? {
+        Creation::Replayed(response) => return Ok(response),
+        Creation::New(claim) => claim,
+    };
     admit_creation(&state, &client).await?;
     let start = guided_start(&state, &identity, req.scenario, RunOrigin::Public);
     let snapshot = state.manager.start(start).await.map_err(start_error)?;
-    remember_creation(&state, &identity, key, body_hash, &snapshot);
+    complete_creation(claim, &snapshot);
     Ok(created_response(&state, &snapshot))
 }
 
@@ -368,12 +441,14 @@ fn turnstile_token(headers: &HeaderMap) -> Option<String> {
 }
 
 /// See [`super::LiveGate`] for the order of admission: body bounds and
-/// the idempotency lookup, creation admission, the live slot, the gate,
-/// then the start; a start failure after the grant calls the grant's
-/// refund. The gate sees the preset, the client key, the session
-/// pseudonym, the Turnstile token, the attestation, the (trimmed) judge
-/// code and, from a listener behind cloudflared, the `CF-IPCountry`
-/// value: nothing else of the request, the `Idempotency-Key` included.
+/// the idempotency lookup, creation admission, the gate's first phase
+/// (Turnstile last), the live slot, the gate's second phase (quotas and
+/// the ledger reservation), then the start; a start failure after the
+/// grant calls the grant's refund. The gate sees the preset, the client
+/// key, the session pseudonym, the Turnstile token, the attestation, the
+/// (trimmed) judge code and, from a listener behind cloudflared, the
+/// `CF-IPCountry` value: nothing else of the request, the
+/// `Idempotency-Key` included.
 pub async fn create_live_run(
     State(state): State<AppState>,
     client: Client,
@@ -398,14 +473,12 @@ pub async fn create_live_run(
         return Ok(replayed);
     }
     admit_creation(&state, &client).await?;
-    // The live slot before the gate: a refusal here charges nobody.
-    let reservation = state
-        .manager
-        .reserve(RunKind::Live)
-        .await
-        .map_err(start_error)?;
-    let grant = gate
-        .admit(LiveAdmissionRequest {
+    // The gate's first phase before the live slot: preset, geography,
+    // attestation, evidence and Turnstile hold nothing, so a request still
+    // waiting on Siteverify (a bogus token included) keeps the slot from
+    // nobody.
+    let verified = gate
+        .verify(LiveAdmissionRequest {
             preset: req.preset_id.clone(),
             client: client.0,
             session_pseudonym: identity.authorized_by.clone(),
@@ -415,6 +488,15 @@ pub async fn create_live_run(
             country: trusted_country(&state, &headers),
         })
         .await?;
+    // The live slot: a refusal here comes after Turnstile passed (the
+    // token is spent) and charges nothing.
+    let reservation = state
+        .manager
+        .reserve(RunKind::Live)
+        .await
+        .map_err(start_error)?;
+    // The second phase, with the slot held: quotas, then the ledger.
+    let grant = verified.admit().await?;
     let LiveGrant {
         mut input,
         deliberation,
@@ -435,7 +517,7 @@ pub async fn create_live_run(
         }
         Err(e) => {
             // Nothing durable describes the run: whatever the gate charged
-            // is given back.
+            // (the reservation, the daily count) is given back.
             if let Some(undo) = on_start_failed {
                 undo();
             }
@@ -454,44 +536,70 @@ pub async fn create_operator_run(
     req.validate().map_err(ApiError::invalid)?;
     let key = creation_key(&headers)?;
     let body_hash = body_sha256(&req);
-    if let Some(replayed) = replayed_creation(&state, &identity, key.as_deref(), &body_hash).await?
-    {
-        return Ok(replayed);
-    }
+    let claim = match claim_creation(&state, &identity, key.as_deref(), &body_hash).await? {
+        Creation::Replayed(response) => return Ok(response),
+        Creation::New(claim) => claim,
+    };
     admit_creation(&state, &client).await?;
-    let start = match req.model {
+    let snapshot = match req.model {
         OperatorModel::Fake => {
             let scenario = req
                 .scenario
                 .ok_or_else(|| ApiError::invalid("model=fake requires a scenario"))?;
-            guided_start(&state, &identity, scenario, RunOrigin::Operator)
+            let start = guided_start(&state, &identity, scenario, RunOrigin::Operator);
+            state.manager.start(start).await.map_err(start_error)?
         }
         OperatorModel::Meta => {
-            // Client construction may spawn threads and read files: off
-            // the async workers.
+            // The live slot first, then (metered) the ledger reservation,
+            // as on the public route: a run refused for want of a slot
+            // charges nothing.
+            let slot = state
+                .manager
+                .reserve(RunKind::Live)
+                .await
+                .map_err(start_error)?;
+            // Client construction may spawn threads and read files, and the
+            // ledger does file I/O: off the async workers.
             let (state2, identity2, req2) = (state.clone(), identity.clone(), req.clone());
-            blocking(move || operator_meta_start(&state2, &identity2, &req2)).await??
+            let start = blocking(move || operator_meta_start(&state2, &identity2, &req2)).await??;
+            // A start that fails drops the deliberation, whose drop
+            // releases a metered run's reservation.
+            state
+                .manager
+                .start_reserved(slot, start)
+                .await
+                .map_err(start_error)?
         }
     };
-    let snapshot = state.manager.start(start).await.map_err(start_error)?;
-    remember_creation(&state, &identity, key, body_hash, &snapshot);
+    complete_creation(claim, &snapshot);
     Ok(created_response(&state, &snapshot))
 }
 
 /// Builds a live Meta deliberation on the operator surface: the only
-/// place the Meta credentials are consulted.
+/// place the operator's Meta configuration is consulted
+/// ([`super::AppState::operator_meta`]). When the server holds the live
+/// ledger ([`super::AppState::operator_ledger`]) the run is metered on its
+/// operator lane through the public gate's own machinery
+/// ([`MeteredReservation`]): its worst case reserved last, once everything
+/// else is ready (a refusal is answered with the ledger's stable code and
+/// fixed sentence), every HTTP attempt drawn and settled, the reservation
+/// released when the run ends, so the caps, every trip and the kill switch
+/// stop operator runs too. Without a ledger the run is unmetered.
 fn operator_meta_start(
     state: &AppState,
     identity: &Identity,
     req: &CreateOperatorRunRequest,
 ) -> Result<StartRequest, ApiError> {
-    use crate::config::{HyphaeConfig, MetaConfig};
+    use crate::config::HyphaeConfig;
     use crate::hyphae::{connect_from_config, HyphaeProofVerifier, SystemCommandRunner};
+    use crate::live::budget::Lane;
+    use crate::live::config::vars as live_vars;
+    use crate::live::gate::{refusal_error, MeteredReservation};
     use crate::meta::MetaModelClient;
 
     // An unusable setting names its variable (never the key); only an
     // absent key reads as "not configured".
-    let cfg = MetaConfig::try_from_env()
+    let cfg = (state.operator_meta)()
         .map_err(|e| ApiError::new(ErrorCode::ModelNotConfigured, format!("model=meta: {e}")))?
         .ok_or_else(|| {
             ApiError::new(
@@ -499,6 +607,22 @@ fn operator_meta_start(
                 "model=meta requires META_API_KEY (or MODEL_API_KEY) in the server environment",
             )
         })?;
+    // A metered run's calls must fit the ledger's per-call output bound,
+    // or the ledger would refuse every one of them: refused here, before
+    // anything is reserved, rather than sent with another bound.
+    if let Some(ledger) = &state.operator_ledger {
+        let bound = ledger.config().max_completion_tokens;
+        if cfg.max_completion_tokens > bound {
+            return Err(ApiError::new(
+                ErrorCode::ModelNotConfigured,
+                format!(
+                    "model=meta: CONSENSUS_META_MAX_COMPLETION_TOKENS ({}) exceeds the live ledger's per-call output bound {} ({bound}); a metered run could make no call",
+                    cfg.max_completion_tokens,
+                    live_vars::MAX_COMPLETION_TOKENS
+                ),
+            ));
+        }
+    }
     let model = MetaModelClient::new(cfg).map_err(|e| {
         eprintln!("[operator] meta client init failed: {e}");
         ApiError::new(
@@ -529,26 +653,37 @@ fn operator_meta_start(
         }),
     };
     let limits = state.config.run_limits;
-    let deliberation: Box<dyn crate::runs::Deliberation> = match req.memory {
+    // The evidence side first (a Hyphae connect can fail): the deliberation
+    // over the model client, built once the client is (or is not) metered.
+    type Build = Box<dyn FnOnce(MetaModelClient) -> Box<dyn crate::runs::Deliberation>>;
+    let build: Build = match req.memory {
         OperatorMemory::Fake => {
             let s = retry_constraint_scenario();
-            Box::new(Orchestrator {
-                model,
-                memory: s.memory,
-                verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
-                clock: SystemClock,
-                ids: UuidIdGen,
-                limits,
-            })
+            Box::new(
+                move |model: MetaModelClient| -> Box<dyn crate::runs::Deliberation> {
+                    Box::new(Orchestrator {
+                        model,
+                        memory: s.memory,
+                        verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
+                        clock: SystemClock,
+                        ids: UuidIdGen,
+                        limits,
+                    })
+                },
+            )
         }
-        OperatorMemory::Offline => Box::new(Orchestrator {
-            model,
-            memory: FakeMemoryClient::offline(),
-            verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
-            clock: SystemClock,
-            ids: UuidIdGen,
-            limits,
-        }),
+        OperatorMemory::Offline => Box::new(
+            move |model: MetaModelClient| -> Box<dyn crate::runs::Deliberation> {
+                Box::new(Orchestrator {
+                    model,
+                    memory: FakeMemoryClient::offline(),
+                    verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
+                    clock: SystemClock,
+                    ids: UuidIdGen,
+                    limits,
+                })
+            },
+        ),
         OperatorMemory::Hyphae => {
             // An unusable pinned anchor or deadline names its variable
             // (HY-10) instead of reading as "not configured".
@@ -571,15 +706,32 @@ fn operator_meta_start(
             })?;
             // Pinned anchor and verifier deadline, as configured.
             let verifier = HyphaeProofVerifier::from_config(&hcfg, SystemCommandRunner);
-            Box::new(Orchestrator {
-                model,
-                memory,
-                verifier,
-                clock: SystemClock,
-                ids: UuidIdGen,
-                limits,
-            })
+            Box::new(
+                move |model: MetaModelClient| -> Box<dyn crate::runs::Deliberation> {
+                    Box::new(Orchestrator {
+                        model,
+                        memory,
+                        verifier,
+                        clock: SystemClock,
+                        ids: UuidIdGen,
+                        limits,
+                    })
+                },
+            )
         }
+    };
+    let deliberation: Box<dyn crate::runs::Deliberation> = match &state.operator_ledger {
+        // Metered: the run's worst case on the operator lane, the first and
+        // only thing that commits money.
+        Some(ledger) => {
+            let metered =
+                MeteredReservation::reserve(ledger, Lane::Operator).map_err(|refusal| {
+                    eprintln!("[operator] the ledger refused a model=meta run: {refusal}");
+                    refusal_error(&refusal)
+                })?;
+            Box::new(metered.wrap(build(metered.meter_model(model))))
+        }
+        None => build(model),
     };
     Ok(StartRequest {
         owner: identity.owner.clone(),
@@ -902,12 +1054,26 @@ pub fn policy_version_label() -> String {
     }
 }
 
-/// The live section of `/capabilities`, read from the gate off the async
-/// workers (it may read the ledger's files).
-async fn live_capabilities(state: &AppState) -> Result<Option<LiveCapabilitiesV1>, ApiError> {
+/// Whether live mode is available, and its section of `/capabilities`,
+/// read from the gate off the async workers (it may read the ledger's
+/// files and re-hash the evidence). A gate whose evidence source is not ok
+/// publishes neither: the page shows live mode as disabled, and `/ready`
+/// says why (`live.evidence_ok: false`).
+async fn live_capabilities(
+    state: &AppState,
+) -> Result<(bool, Option<LiveCapabilitiesV1>), ApiError> {
     match state.live_gate.clone() {
-        Some(gate) => blocking(move || gate.capabilities()).await,
-        None => Ok(None),
+        Some(gate) => {
+            blocking(move || {
+                if gate.available() {
+                    (true, gate.capabilities())
+                } else {
+                    (false, None)
+                }
+            })
+            .await
+        }
+        None => Ok((false, None)),
     }
 }
 
@@ -919,11 +1085,18 @@ async fn live_readiness(state: &AppState) -> Result<Option<LiveReadyV1>, ApiErro
     }
 }
 
-pub fn capabilities_of(state: &AppState, live: Option<LiveCapabilitiesV1>) -> CapabilitiesV1 {
+/// `/capabilities` of this server. `live_enabled` is true when a live gate
+/// is wired and available ([`super::LiveGate::available`]); `live` is its
+/// section then, `None` otherwise.
+pub fn capabilities_of(
+    state: &AppState,
+    live_enabled: bool,
+    live: Option<LiveCapabilitiesV1>,
+) -> CapabilitiesV1 {
     let c = &state.config;
     CapabilitiesV1 {
         surface: c.surface.v1(),
-        live_enabled: state.live_gate.is_some(),
+        live_enabled: live_enabled && state.live_gate.is_some(),
         live,
         guided_enabled: true,
         showcase_enabled: state.showcase.is_enabled(),
@@ -959,8 +1132,8 @@ pub fn capabilities_of(state: &AppState, live: Option<LiveCapabilitiesV1>) -> Ca
 }
 
 pub async fn capabilities(State(state): State<AppState>) -> Result<Json<CapabilitiesV1>, ApiError> {
-    let live = live_capabilities(&state).await?;
-    Ok(Json(capabilities_of(&state, live)))
+    let (live_enabled, live) = live_capabilities(&state).await?;
+    Ok(Json(capabilities_of(&state, live_enabled, live)))
 }
 
 pub fn health_of(state: &AppState) -> HealthV1 {
@@ -981,7 +1154,10 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthV1> {
 
 /// The store's health, re-verified at most once per [`READY_CACHE_TTL`]:
 /// verifying the whole run index per request would let an anonymous
-/// caller make the server re-hash it at will.
+/// caller make the server re-hash it at will. A change of the index error
+/// (a new one, another one, or none any more) is logged once, with the
+/// store's text: the server log is where that text goes, never a public
+/// response ([`run_store_status`]).
 async fn store_health(state: &AppState) -> Result<StoreHealth, ApiError> {
     {
         let cache = state
@@ -996,29 +1172,68 @@ async fn store_health(state: &AppState) -> Result<StoreHealth, ApiError> {
     }
     let manager = state.manager.clone();
     let health = blocking(move || manager.store().health()).await?;
-    *state
+    let mut cache = state
         .ready_cache
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), health.clone()));
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Compared with what is cached now, under the lock: two requests that
+    // both refreshed log a change once.
+    let previous = cache.as_ref().and_then(|(_, h)| h.index_error.clone());
+    if previous != health.index_error {
+        match (&health.index_error, health.index_error_code) {
+            (Some(detail), code) => eprintln!(
+                "[ready] the run index could not be verified ({}): {detail}",
+                code.map_or("unclassified", |c| c.as_str())
+            ),
+            (None, _) => eprintln!("[ready] the run index verifies again"),
+        }
+    }
+    *cache = Some((Instant::now(), health.clone()));
     Ok(health)
 }
 
-pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyV1>, ApiError> {
-    let health = store_health(&state).await?;
-    let stats = state.manager.stats();
-    let store = RunStoreStatusV1 {
+/// The API's name for a run index error code.
+fn index_error_code_v1(code: IndexErrorCode) -> IndexErrorCodeV1 {
+    match code {
+        IndexErrorCode::Tampered => IndexErrorCodeV1::IndexTampered,
+        IndexErrorCode::Locked => IndexErrorCodeV1::IndexLocked,
+        IndexErrorCode::Io => IndexErrorCodeV1::IndexIo,
+        IndexErrorCode::Unreadable => IndexErrorCodeV1::IndexUnreadable,
+    }
+}
+
+/// The run store as `/ready` reports it on `surface`. Both surfaces get the
+/// stable code of an index error ([`StoreHealth::index_error_code`]); only
+/// the operator surface gets the store's own text, which can name the
+/// index, its lock or a run's files by absolute path.
+pub fn run_store_status(health: &StoreHealth, surface: Surface) -> RunStoreStatusV1 {
+    RunStoreStatusV1 {
         ok: health.index_head.is_some() && !health.index_tampered,
         index_seq: health.index_head.as_ref().map(|h| h.seq),
         index_head: health.index_head.as_ref().map(|h| h.hash.clone()),
         index_tampered: health.index_tampered,
         index_tail_repaired: health.index_tail_repaired,
-        index_error: health.index_error.clone(),
-    };
+        index_error_code: health.index_error_code.map(index_error_code_v1),
+        index_error: match surface {
+            Surface::Operator => health.index_error.clone(),
+            Surface::Public => None,
+        },
+    }
+}
+
+pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyV1>, ApiError> {
+    let health = store_health(&state).await?;
+    let stats = state.manager.stats();
+    let store = run_store_status(&health, state.surface());
     let showcase = state.showcase.status();
     let live = live_readiness(&state).await?;
-    // A tripped or unreadable ledger, or an evidence source that failed
-    // its check, makes the server not ready: live mode would refuse
-    // every admission.
+    // A tripped or unreadable ledger, or an evidence source that is not
+    // ok (a sealed snapshot that failed its boot check, or whose served
+    // files changed since), makes the server not ready, and the gate
+    // refuses every admission meanwhile: the evidence before Turnstile
+    // (`503 live_unavailable`), the ledger at the reservation
+    // (`live_tripped`, `live_unavailable`). Guided runs and the showcase
+    // are unaffected.
     let live_ok = live
         .as_ref()
         .is_none_or(|l| l.ledger_ok && !l.tripped && l.evidence_ok);
@@ -1175,5 +1390,63 @@ pub async fn console(State(state): State<AppState>) -> Response {
             response
         }
         None => ApiError::not_found().into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use consensus_runtime::IndexHead;
+
+    #[test]
+    fn the_public_ready_names_an_index_error_by_code_never_by_its_text() {
+        // The text an event log error prints: absolute paths of the
+        // deployment template's store.
+        let detail = "event log /var/lib/consensus/runs/runs/run-x.jsonl is locked by another writer (lock file /var/lib/consensus/runs/runs/run-x.lock)";
+        let failing = StoreHealth {
+            index_error: Some(detail.into()),
+            index_error_code: Some(IndexErrorCode::Locked),
+            ..StoreHealth::default()
+        };
+        let public = run_store_status(&failing, Surface::Public);
+        assert!(!public.ok);
+        assert_eq!(public.index_error_code, Some(IndexErrorCodeV1::IndexLocked));
+        assert_eq!(public.index_error, None);
+        let json = serde_json::to_string(&public).unwrap();
+        assert!(
+            json.contains(r#""index_error_code":"index_locked""#),
+            "{json}"
+        );
+        for leak in ["/var/lib", "run-x", "lock file", "index_error\""] {
+            assert!(!json.contains(leak), "{leak}: {json}");
+        }
+        // The operator keeps the text next to the code.
+        let operator = run_store_status(&failing, Surface::Operator);
+        assert_eq!(operator.index_error.as_deref(), Some(detail));
+        assert_eq!(
+            operator.index_error_code,
+            Some(IndexErrorCodeV1::IndexLocked)
+        );
+        // Every code has the runtime's spelling on the wire.
+        for code in IndexErrorCode::ALL {
+            assert_eq!(
+                serde_json::to_value(index_error_code_v1(code)).unwrap(),
+                code.as_str()
+            );
+        }
+        // A verified index carries neither.
+        let healthy = StoreHealth {
+            index_head: Some(IndexHead {
+                seq: 4,
+                hash: "ab".repeat(32),
+            }),
+            ..StoreHealth::default()
+        };
+        for surface in [Surface::Public, Surface::Operator] {
+            let view = run_store_status(&healthy, surface);
+            assert!(view.ok);
+            assert_eq!(view.index_seq, Some(4));
+            assert_eq!((view.index_error_code, view.index_error), (None, None));
+        }
     }
 }

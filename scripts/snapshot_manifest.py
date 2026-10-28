@@ -4,30 +4,48 @@
 Usage (standard library only; run with -I so nothing is imported from the
 snapshot directory or the current directory):
 
-  python -I scripts/snapshot_manifest.py build <snapshot dir> [--captured-at T] [--expect-ids FILE]
-  python -I scripts/snapshot_manifest.py check <snapshot dir> [--public-only] [--expect-ids FILE]
+  python -I scripts/snapshot_manifest.py build <snapshot dir> [--captured-at T] [--expect-ids FILE] [REVERIFY]
+  python -I scripts/snapshot_manifest.py check <snapshot dir> [--public-only] [--expect-ids FILE] [REVERIFY]
   python -I scripts/snapshot_manifest.py selftest
+  REVERIFY: --reverify <hyphae binary or wrapper> [--verifier-dir <dir as the verifier sees it>] [--reverify-timeout SECS]
 
 build reads <snapshot dir>/captures.index and session.json (both written by
 scripts/hyphae-container/capture-snapshot.sh inside the container) plus the
 capture files under captures/, cross-checks every index line against the
 response file (proof_blake3, anchor_hex, memory ids, projects) and the
 verifier report (status verified, kind memory, scope semantic_reexecution,
-semantic re-execution performed, anchor_digest), computes the sha256 of every
-file, and writes manifest.json (keys in the documented order) and SHA256SUMS.
-It then runs check.
+semantic re-execution performed, anchor_digest), requires the sha256 of every
+capture file (response, proof, witness, verifier report) to equal the digest
+the session recorded in captures.index the moment the file was written (the
+only thing that binds a proof or a witness to ITS capture once the directory
+has left the container: every proof of one session shares the anchor, so the
+verifier alone cannot tell a swapped pair), requires the two required
+captures to carry different proofs, computes the sha256 of every file, and
+writes manifest.json (keys in the documented order) and SHA256SUMS. It then
+runs check.
 
 check recomputes every digest, validates the manifest schema (field presence,
 key order, patterns, the two required captures, memory_ids equal to the
-response ids, one anchor everywhere) and exits non-zero with one precise
-message on the first mismatch. --public-only skips the digest check of the
-.proof and .witness files (they are git-ignored, so a checkout of the
-committed subset lacks them) while still requiring their SHA256SUMS lines.
+response ids, one anchor everywhere), requires captures.index and the
+capture-time digests it holds, and exits non-zero with one precise message on
+the first mismatch. --public-only skips the digest check of the .proof and
+.witness files (they are git-ignored, so a checkout of the committed subset
+lacks them) while still requiring their SHA256SUMS lines. With --reverify the
+verifier is run again on every capture, exactly as the runtime runs it
+(hyphae proof verify --proof F --witness F --anchor HEX), and the fresh
+report must equal the captured one field by field (its proof, witness,
+request and result digests are deterministic): this is the deployment check
+that the proof and witness in hand are the pair verified at capture time.
+--verifier-dir names the snapshot directory as the verifier sees it (the
+container path when the verifier is scripts/hyphae-docker.cmd); without it
+the verifier gets this directory's absolute paths.
 
 selftest builds a synthetic snapshot in a temporary directory (fake proof and
-witness bytes, synthetic responses and verifier reports), checks it, and
-asserts that a one-byte change in any file, a missing file, an extra file and
-every cross-check violation are detected.
+witness bytes, synthetic responses and verifier reports, a fake verifier),
+checks it, and asserts that a one-byte change in any file, a missing file, an
+extra file, a swapped proof/witness pair, a swapped report or response and
+every cross-check violation are detected, and that --reverify accepts the
+pristine snapshot and refuses a report that the verifier does not reproduce.
 
 The layout, the manifest schema and their meaning are specified in
 docs/architecture/sealed-snapshot.md (ADR-0008). This file is the only
@@ -41,6 +59,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -75,9 +94,20 @@ CAPTURE_KEYS = [
 ]
 ARGUMENT_KEYS = ["project", "query", "limit", "prove"]
 VERIFICATION_KEYS = ["verified_at", "status", "kind", "scope", "anchor_hex"]
-INDEX_KEYS = ["id", "operation", "arguments", "files", "proof_blake3", "anchor_hex", "memory_ids"]
+INDEX_KEYS = [
+    "id", "operation", "arguments", "files", "sha256", "proof_blake3", "anchor_hex", "memory_ids",
+    "captured_at", "verified_at",
+]
 INDEX_FILE_KEYS = ["response", "proof", "witness", "verify"]
 OPERATIONS = ("list", "recall")
+# Verifier report fields that are deterministic functions of the proof (and
+# therefore differ between the two required captures: a list of 7 records and
+# an empty recall seal different requests and different results).
+REPORT_PROOF_DIGESTS = ("proof_digest", "request_digest", "result_digest")
+# Never handed to a verifier child process (as the runtime does, MA-4).
+META_KEY_VARIABLES = ("CONSENSUS_META_API_KEY", "MODEL_API_KEY", "META_API_KEY")
+DEFAULT_REVERIFY_TIMEOUT = 600
+MISSING = object()
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -158,6 +188,90 @@ def require_int(value, what, minimum=0):
 
 def utc_now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def one_line(text, limit):
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[: limit - 3] + "..."
+
+
+def require_distinct(pairs, what):
+    """pairs: (capture id, value); the same value under two captures is a failure."""
+    seen = {}
+    for cid, value in pairs:
+        require(
+            value not in seen,
+            f"{what} of capture {cid} equals that of capture {seen.get(value)} ({value}): two captures cannot share one proof",
+        )
+        seen[value] = cid
+
+
+def require_required_captures_distinct(proof_sha256s, proof_blake3s, reports):
+    """The two required captures seal different requests and results, so their
+    proofs, and the verifier digests derived from them, must differ (the
+    witness may be identical: same store, same anchor)."""
+    both = (LIST_CAPTURE_ID, ISOLATION_CAPTURE_ID)
+    require_distinct([(cid, proof_sha256s[cid]) for cid in both], "proof_sha256")
+    require_distinct([(cid, proof_blake3s[cid]) for cid in both], "proof_blake3")
+    for key in REPORT_PROOF_DIGESTS:
+        values = [(cid, reports[cid].get(key)) for cid in both]
+        if all(isinstance(value, str) for _, value in values):
+            require_distinct(values, f"verifier report {key}")
+
+
+class Reverify:
+    """How to run the verifier again: the command (one binary or wrapper, as
+    the runtime's CONSENSUS_HYPHAE_BIN), the snapshot directory as that
+    verifier sees it (None: this directory's absolute paths) and a deadline."""
+
+    def __init__(self, command, verifier_dir=None, timeout=DEFAULT_REVERIFY_TIMEOUT):
+        self.command = list(command)
+        self.verifier_dir = verifier_dir
+        self.timeout = timeout
+
+    def path(self, root, rel):
+        if self.verifier_dir is None:
+            return os.path.abspath(os.path.join(root, rel))
+        return self.verifier_dir.rstrip("/") + "/" + rel
+
+
+def reverify_capture(root, cid, anchor, captured, reverify):
+    """Run `hyphae proof verify` on the capture's proof and witness and require
+    the fresh report to equal the captured one on every field."""
+    what = f"capture {cid} re-verification"
+    paths = capture_paths(cid)
+    argv = reverify.command + [
+        "proof", "verify",
+        "--proof", reverify.path(root, paths["proof"]),
+        "--witness", reverify.path(root, paths["witness"]),
+        "--anchor", anchor,
+    ]
+    env = {key: value for key, value in os.environ.items() if key not in META_KEY_VARIABLES}
+    try:
+        proc = subprocess.run(argv, capture_output=True, timeout=reverify.timeout, env=env)
+    except subprocess.TimeoutExpired:
+        raise CheckError(f"{what}: hyphae proof verify did not finish within {reverify.timeout} s") from None
+    except OSError as exc:
+        raise CheckError(f"{what}: the verifier {reverify.command[0]!r} could not run: {exc}") from None
+    stdout = proc.stdout.decode("utf-8", errors="replace")
+    stderr = proc.stderr.decode("utf-8", errors="replace")
+    require(
+        proc.returncode == 0,
+        f"{what}: hyphae proof verify exited {proc.returncode}: {one_line(stderr or stdout, 300) or '(no output)'}",
+    )
+    try:
+        fresh = json.loads(stdout)
+    except ValueError:
+        raise CheckError(f"{what}: hyphae proof verify exited 0 but printed no JSON report: {one_line(stdout, 300)!r}") from None
+    check_verify_report(fresh, anchor, f"{what}: fresh report")
+    for key in sorted(set(captured) | set(fresh)):
+        before, now = captured.get(key, MISSING), fresh.get(key, MISSING)
+        require(
+            before == now,
+            f"{what}: the fresh verifier report differs from the captured one at {key!r} "
+            f"(captured {'<absent>' if before is MISSING else repr(before)}, now {'<absent>' if now is MISSING else repr(now)}): "
+            "the proof or witness in hand is not the pair verified at capture time",
+        )
 
 
 def relative_files(root):
@@ -270,7 +384,7 @@ def capture_paths(capture_id):
 
 
 # ------------------------------------------------------------------- check
-def validate_manifest(manifest, root, public_only=False, expect_ids=None):
+def validate_manifest(manifest, root, public_only=False, expect_ids=None, reverify=None):
     """Raise CheckError on the first problem; return a short summary dict."""
     what = MANIFEST_NAME
     require_keys(manifest, MANIFEST_KEYS, what)
@@ -359,6 +473,8 @@ def validate_manifest(manifest, root, public_only=False, expect_ids=None):
 
     # Cross-check every capture against its files.
     files_checked = 0
+    reports = {}
+    recomputed = {}
     for capture in captures:
         cid = capture["id"]
         cw = f"capture {cid}"
@@ -378,6 +494,11 @@ def validate_manifest(manifest, root, public_only=False, expect_ids=None):
                 require(store[key] == snap[key], f"{MANIFEST_NAME}: store.{key} {store[key]!r} differs from the list response snapshot.{key} {snap[key]!r}")
         report = load_json(os.path.join(root, paths["verify"]), f"{cw} verifier report")
         check_verify_report(report, anchor, f"{cw} verifier report")
+        reports[cid] = report
+        recomputed[cid] = {
+            "response": sha256_file(os.path.join(root, paths["response"])),
+            "verify": sha256_file(os.path.join(root, paths["verify"])),
+        }
         files_checked += 2
         for key, field in (("proof", "proof_sha256"), ("witness", "witness_sha256")):
             path = os.path.join(root, paths[key])
@@ -387,19 +508,39 @@ def validate_manifest(manifest, root, public_only=False, expect_ids=None):
             actual = sha256_file(path)
             require(actual == capture[field], f"{cw}: sha256 of {paths[key]} is {actual}, manifest says {capture[field]}")
             files_checked += 1
+    require_required_captures_distinct(
+        {c["id"]: c["proof_sha256"] for c in captures},
+        {c["id"]: c["proof_blake3"] for c in captures},
+        reports,
+    )
 
-    # captures.index (if present) must agree with the manifest.
+    # captures.index is required: it holds the digests the session recorded
+    # the moment each file was written, the only binding of a proof, a witness
+    # or a report to ITS capture (every proof of the session shares the anchor,
+    # so a swapped pair would verify just as well).
     index_path = os.path.join(root, INDEX_NAME)
-    if os.path.isfile(index_path):
-        entries = read_index(index_path)
-        require(set(entries) == set(by_id), f"{INDEX_NAME} lists captures {sorted(entries)} but the manifest has {sorted(by_id)}")
-        for cid, entry in entries.items():
-            capture = by_id[cid]
-            require(entry["operation"] == capture["operation"], f"{INDEX_NAME}: capture {cid} operation differs from the manifest")
-            require(entry["arguments"] == capture["arguments"], f"{INDEX_NAME}: capture {cid} arguments differ from the manifest")
-            require(entry["proof_blake3"].lower() == capture["proof_blake3"], f"{INDEX_NAME}: capture {cid} proof_blake3 differs from the manifest")
-            require(entry["anchor_hex"].lower() == anchor, f"{INDEX_NAME}: capture {cid} anchor_hex differs from the manifest")
-            require(entry["memory_ids"] == capture["memory_ids"], f"{INDEX_NAME}: capture {cid} memory_ids differ from the manifest")
+    require(os.path.isfile(index_path), f"{INDEX_NAME} is missing: it holds the capture-time digests that bind every file to its capture")
+    entries = read_index(index_path)
+    require(set(entries) == set(by_id), f"{INDEX_NAME} lists captures {sorted(entries)} but the manifest has {sorted(by_id)}")
+    for cid, entry in entries.items():
+        capture = by_id[cid]
+        require(entry["operation"] == capture["operation"], f"{INDEX_NAME}: capture {cid} operation differs from the manifest")
+        require(entry["arguments"] == capture["arguments"], f"{INDEX_NAME}: capture {cid} arguments differ from the manifest")
+        require(entry["proof_blake3"].lower() == capture["proof_blake3"], f"{INDEX_NAME}: capture {cid} proof_blake3 differs from the manifest")
+        require(entry["anchor_hex"].lower() == anchor, f"{INDEX_NAME}: capture {cid} anchor_hex differs from the manifest")
+        require(entry["memory_ids"] == capture["memory_ids"], f"{INDEX_NAME}: capture {cid} memory_ids differ from the manifest")
+        require(entry["verified_at"] == capture["verification"]["verified_at"], f"{INDEX_NAME}: capture {cid} verified_at differs from the manifest")
+        recorded = entry["sha256"]
+        for key, field in (("proof", "proof_sha256"), ("witness", "witness_sha256")):
+            require(
+                recorded[key] == capture[field],
+                f"{INDEX_NAME}: capture {cid} {field} {capture[field]} differs from the digest recorded at capture time {recorded[key]}: the {key} file is not the one the session copied for this capture",
+            )
+        for key in ("response", "verify"):
+            require(
+                recorded[key] == recomputed[cid][key],
+                f"capture {cid}: sha256 of {capture_paths(cid)[key]} is {recomputed[cid][key]}, the session recorded {recorded[key]} at capture time: the file is not the one the session wrote for this capture",
+            )
 
     # SHA256SUMS: strict format, exact file set, every digest.
     sums_path = os.path.join(root, SUMS_NAME)
@@ -434,19 +575,29 @@ def validate_manifest(manifest, root, public_only=False, expect_ids=None):
         actual = sha256_file(os.path.join(root, rel))
         require(actual == listed[rel], f"sha256 of {rel!r} is {actual}, {SUMS_NAME} says {listed[rel]}")
         files_checked += 1
+
+    # Re-verification (optional, the expensive step last): the same verifier
+    # invocation as the runtime's, and the fresh report must equal the
+    # captured one.
+    reverified = 0
+    if reverify is not None:
+        for capture in captures:
+            reverify_capture(root, capture["id"], anchor, reports[capture["id"]], reverify)
+            reverified += 1
     return {
         "snapshot_id": snapshot_id,
         "anchor_hex": anchor,
         "captures": len(captures),
         "files": files_checked,
         "record_ids": listing["memory_ids"],
+        "reverified": reverified,
     }
 
 
-def check(root, public_only=False, expect_ids=None):
+def check(root, public_only=False, expect_ids=None, reverify=None):
     require(os.path.isdir(root), f"{root} is not a directory")
     manifest = load_json(os.path.join(root, MANIFEST_NAME), MANIFEST_NAME)
-    return validate_manifest(manifest, root, public_only=public_only, expect_ids=expect_ids)
+    return validate_manifest(manifest, root, public_only=public_only, expect_ids=expect_ids, reverify=reverify)
 
 
 # ------------------------------------------------------------------- build
@@ -479,12 +630,15 @@ def read_index(path):
         expected = capture_paths(cid)
         for key in INDEX_FILE_KEYS:
             require(files[key] == expected[key], f"{iw}: files.{key} must be {expected[key]!r}")
+        digests = entry["sha256"]
+        require(isinstance(digests, dict) and list(digests.keys()) == INDEX_FILE_KEYS, f"{iw}: sha256 must have keys {INDEX_FILE_KEYS} (the capture-time digests)")
+        for key in INDEX_FILE_KEYS:
+            require_hex64(digests[key], f"{iw}: sha256.{key}")
         require(isinstance(entry["proof_blake3"], str), f"{iw}: proof_blake3 must be a string")
         require(isinstance(entry["anchor_hex"], str), f"{iw}: anchor_hex must be a string")
         require(isinstance(entry["memory_ids"], list) and all(isinstance(m, str) for m in entry["memory_ids"]), f"{iw}: memory_ids must be an array of strings")
         for key in ("captured_at", "verified_at"):
-            if key in entry:
-                require_rfc3339(entry[key], f"{iw}: {key}")
+            require_rfc3339(entry[key], f"{iw}: {key}")
         entries[cid] = entry
     require(entries, f"{INDEX_NAME} is empty")
     return entries
@@ -524,7 +678,7 @@ def read_version(root, session):
     return value.strip()
 
 
-def build(root, captured_at=None, expect_ids=None):
+def build(root, captured_at=None, expect_ids=None, reverify=None):
     require(os.path.isdir(root), f"{root} is not a directory")
     snapshot_id = os.path.basename(os.path.normpath(os.path.abspath(root)))
     require(ID_RE.match(snapshot_id), f"the directory name {snapshot_id!r} must match ^[a-z0-9][a-z0-9-]{{0,63}}$ (it becomes snapshot_id)")
@@ -547,11 +701,22 @@ def build(root, captured_at=None, expect_ids=None):
     anchor = None
     store = None
     captures = []
+    reports = {}
     for cid, entry in entries.items():
         cw = f"capture {cid}"
         paths = capture_paths(cid)
+        digests = {}
         for key in INDEX_FILE_KEYS:
-            require(os.path.isfile(os.path.join(root, paths[key])), f"{cw}: {paths[key]} is missing")
+            path = os.path.join(root, paths[key])
+            require(os.path.isfile(path), f"{cw}: {paths[key]} is missing")
+            # The binding: the file must be byte-identical to the one the
+            # session wrote for this capture (digest recorded in the container
+            # right after the file was written and compared with its source).
+            digests[key] = sha256_file(path)
+            require(
+                digests[key] == entry["sha256"][key],
+                f"{cw}: sha256 of {paths[key]} is {digests[key]}, {INDEX_NAME} recorded {entry['sha256'][key]} at capture time: the file is not the one the session wrote for this capture",
+            )
         response = load_json(os.path.join(root, paths["response"]), f"{cw} response")
         result = result_object(response, f"{cw} response")
         r_anchor, r_blake3 = response_proof(result, f"{cw} response")
@@ -575,8 +740,7 @@ def build(root, captured_at=None, expect_ids=None):
             require(ids == [], f"{cw}: the isolation recall returned {len(ids)} records, it must be empty")
         report = load_json(os.path.join(root, paths["verify"]), f"{cw} verifier report")
         check_verify_report(report, anchor, f"{cw} verifier report")
-        verified_at = entry.get("verified_at") or entry.get("captured_at") or captured_at
-        require_rfc3339(verified_at, f"{cw}: verified_at")
+        reports[cid] = report
         captures.append({
             "id": cid,
             "operation": entry["operation"],
@@ -586,17 +750,22 @@ def build(root, captured_at=None, expect_ids=None):
             "witness_file": paths["witness"],
             "verify_file": paths["verify"],
             "proof_blake3": r_blake3,
-            "proof_sha256": sha256_file(os.path.join(root, paths["proof"])),
-            "witness_sha256": sha256_file(os.path.join(root, paths["witness"])),
+            "proof_sha256": digests["proof"],
+            "witness_sha256": digests["witness"],
             "memory_ids": list(ids),
             "verification": {
-                "verified_at": verified_at,
+                "verified_at": entry["verified_at"],
                 "status": VERIFIED_STATUS,
                 "kind": VERIFIED_KIND,
                 "scope": VERIFIED_SCOPE,
                 "anchor_hex": anchor,
             },
         })
+    require_required_captures_distinct(
+        {c["id"]: c["proof_sha256"] for c in captures},
+        {c["id"]: c["proof_blake3"] for c in captures},
+        reports,
+    )
     manifest = {
         "schema": MANIFEST_SCHEMA,
         "snapshot_id": snapshot_id,
@@ -622,7 +791,7 @@ def build(root, captured_at=None, expect_ids=None):
     with open(sums_path, "w", encoding="utf-8", newline="\n") as fh:
         for rel in relative_files(root):
             fh.write(f"{sha256_file(os.path.join(root, rel))}  {rel}\n")
-    return check(root, expect_ids=expect_ids)
+    return check(root, expect_ids=expect_ids, reverify=reverify)
 
 
 # ---------------------------------------------------------------- selftest
@@ -666,13 +835,56 @@ def synthetic_response(ids, project, blake3, anchor, wrapped, visible_csn):
     return result
 
 
-def synthetic_report(anchor, proof_digest):
+def fake_report(anchor, proof, witness):
+    """The report shape of the live 2026-10-27 verifier, with every digest a
+    deterministic function of the proof and witness bytes (as the real ones
+    are, by an algorithm this script does not know); FAKE_VERIFIER_SOURCE
+    computes the same values from the files it is given."""
     return {
-        "anchor_digest": anchor, "directory_count": 5, "evidence_digest": "e" * 64, "file_count": 5,
-        "kind": VERIFIED_KIND, "proof_digest": proof_digest, "request_digest": "f" * 64,
-        "result_digest": "d" * 64, "scope": VERIFIED_SCOPE, "semantic_reexecution_performed": True,
-        "status": VERIFIED_STATUS, "total_file_bytes": 4096, "witness_digest": "b" * 64,
+        "anchor_digest": anchor, "directory_count": 5,
+        "evidence_digest": sha256_bytes(b"evidence\n" + proof + witness), "file_count": 5,
+        "kind": VERIFIED_KIND, "proof_digest": sha256_bytes(proof),
+        "request_digest": sha256_bytes(b"request\n" + proof), "result_digest": sha256_bytes(b"result\n" + proof),
+        "scope": VERIFIED_SCOPE, "semantic_reexecution_performed": True, "status": VERIFIED_STATUS,
+        "total_file_bytes": len(witness), "witness_digest": sha256_bytes(witness),
     }
+
+
+# A stand-in for `hyphae proof verify` (run as `python -I <file> proof verify
+# --proof P --witness W --anchor A`): prints fake_report of the files it gets.
+FAKE_VERIFIER_SOURCE = '''
+import hashlib, json, sys
+args = sys.argv[1:]
+if args[:2] != ["proof", "verify"]:
+    sys.exit(2)
+def opt(name):
+    return args[args.index(name) + 1]
+def h(data):
+    return hashlib.sha256(data).hexdigest()
+with open(opt("--proof"), "rb") as fh:
+    proof = fh.read()
+with open(opt("--witness"), "rb") as fh:
+    witness = fh.read()
+report = {
+    "anchor_digest": opt("--anchor"), "directory_count": 5,
+    "evidence_digest": h(b"evidence\\n" + proof + witness), "file_count": 5,
+    "kind": "memory", "proof_digest": h(proof),
+    "request_digest": h(b"request\\n" + proof), "result_digest": h(b"result\\n" + proof),
+    "scope": "semantic_reexecution", "semantic_reexecution_performed": True, "status": "verified",
+    "total_file_bytes": len(witness), "witness_digest": h(witness),
+}
+print(json.dumps(report, indent=2, sort_keys=True))
+'''
+# A verifier that rejects (the structured failure the real one prints).
+FAKE_REJECTING_VERIFIER_SOURCE = '''
+import sys
+print('{"error":{"category":"corruption","message":"proof digest mismatch"},"exit_class":9}', file=sys.stderr)
+sys.exit(9)
+'''
+# A verifier that exits 0 without a report.
+FAKE_SILENT_VERIFIER_SOURCE = '''
+print("verified, trust me")
+'''
 
 
 def write_text(path, text):
@@ -687,16 +899,19 @@ def write_bytes(path, data):
         fh.write(data)
 
 
-def make_synthetic_snapshot(root, list_ids=None, isolation_ids=None, report_status=VERIFIED_STATUS, isolation_anchor=None):
+def make_synthetic_snapshot(
+    root, list_ids=None, isolation_ids=None, report_status=VERIFIED_STATUS, isolation_anchor=None,
+    identical_proofs=False, wrong_result_digest=False, old_index=False,
+):
     """A complete capture-session output as capture-snapshot.sh would leave it (no manifest yet)."""
     list_ids = SELFTEST_IDS if list_ids is None else list_ids
     isolation_ids = [] if isolation_ids is None else isolation_ids
     isolation_anchor = SELFTEST_ANCHOR if isolation_anchor is None else isolation_anchor
     proof_l = bytes((i * 7) % 256 for i in range(4096))
     witness_l = bytes((i * 13 + 1) % 256 for i in range(6000))
-    proof_i = bytes((i * 11 + 2) % 256 for i in range(3000))
+    proof_i = proof_l if identical_proofs else bytes((i * 11 + 2) % 256 for i in range(3000))
     witness_i = bytes((i * 17 + 3) % 256 for i in range(5000))
-    blake_l, blake_i = "1" * 64, "2" * 64
+    blake_l, blake_i = "1" * 64, ("1" * 64 if identical_proofs else "2" * 64)
     captures_dir = os.path.join(root, "captures")
     write_bytes(os.path.join(captures_dir, f"{LIST_CAPTURE_ID}.proof"), proof_l)
     write_bytes(os.path.join(captures_dir, f"{LIST_CAPTURE_ID}.witness"), witness_l)
@@ -706,9 +921,13 @@ def make_synthetic_snapshot(root, list_ids=None, isolation_ids=None, report_stat
     isolation_response = synthetic_response(isolation_ids, "other-repo", blake_i, isolation_anchor, True, 26)
     write_text(os.path.join(captures_dir, f"{LIST_CAPTURE_ID}.response.json"), json.dumps(list_response, separators=(",", ":")) + "\n")
     write_text(os.path.join(captures_dir, f"{ISOLATION_CAPTURE_ID}.response.json"), json.dumps(isolation_response, separators=(",", ":")) + "\n")
-    report_l = synthetic_report(SELFTEST_ANCHOR, "3" * 64)
+    report_l = fake_report(SELFTEST_ANCHOR, proof_l, witness_l)
     report_l["status"] = report_status
-    report_i = synthetic_report(isolation_anchor, "4" * 64)
+    if wrong_result_digest:
+        # A report that is well-formed and verified but was not produced from
+        # this proof: only a fresh verifier run can tell.
+        report_l["result_digest"] = "0" * 64
+    report_i = fake_report(isolation_anchor, proof_i, witness_i)
     write_text(os.path.join(captures_dir, f"{LIST_CAPTURE_ID}.verify.json"), json.dumps(report_l, indent=2, sort_keys=True) + "\n")
     write_text(os.path.join(captures_dir, f"{ISOLATION_CAPTURE_ID}.verify.json"), json.dumps(report_i, indent=2, sort_keys=True) + "\n")
     list_args = {"project": "demo-repo", "query": "", "limit": LIST_LIMIT, "prove": True}
@@ -717,11 +936,15 @@ def make_synthetic_snapshot(root, list_ids=None, isolation_ids=None, report_stat
         (LIST_CAPTURE_ID, "list", list_args, blake_l, SELFTEST_ANCHOR, list_ids),
         (ISOLATION_CAPTURE_ID, "recall", ISOLATION_ARGUMENTS, blake_i, isolation_anchor, isolation_ids),
     ):
+        paths = capture_paths(cid)
         entry = {
-            "id": cid, "operation": op, "arguments": args, "files": capture_paths(cid),
+            "id": cid, "operation": op, "arguments": args, "files": paths,
+            "sha256": {key: sha256_file(os.path.join(root, paths[key])) for key in INDEX_FILE_KEYS},
             "proof_blake3": blake, "anchor_hex": anchor, "memory_ids": ids,
             "captured_at": "2026-10-29T15:04:05Z", "verified_at": "2026-10-29T15:04:09Z",
         }
+        if old_index:
+            del entry["sha256"]
         index_lines.append(json.dumps(entry, separators=(",", ":")))
     write_text(os.path.join(root, INDEX_NAME), "\n".join(index_lines) + "\n")
     session = {
@@ -853,6 +1076,91 @@ def selftest():
         reordered = {key: manifest[key] for key in reversed(MANIFEST_KEYS)}
         if expect_failure("manifest key order accepted", lambda: validate_manifest(reordered, copy), failures):
             passed.append("manifest key order enforced")
+
+        # Binding of each file to ITS capture: swaps between the two captures
+        # keep every digest valid somewhere, share the anchor, and verify;
+        # only the capture-time record in captures.index tells them apart.
+        def swap(copy, suffix):
+            a = os.path.join(copy, "captures", f"{LIST_CAPTURE_ID}{suffix}")
+            b = os.path.join(copy, "captures", f"{ISOLATION_CAPTURE_ID}{suffix}")
+            tmp = a + ".swap"
+            os.replace(a, tmp)
+            os.replace(b, a)
+            os.replace(tmp, b)
+
+        copy = fresh_dir("swap-before-build")
+        make_synthetic_snapshot(copy)
+        swap(copy, ".proof")
+        swap(copy, ".witness")
+        detail = expect_failure("swapped proof+witness pairs accepted by build", lambda: build(copy), failures)
+        if detail:
+            passed.append(f"swapped proof+witness pairs refused by build: {detail[:80]}")
+        copy = fresh_copy("swap-after-build")
+        swap(copy, ".proof")
+        swap(copy, ".witness")
+        if expect_failure("swapped proof+witness pairs accepted by check", lambda: check(copy), failures):
+            passed.append("swapped proof+witness pairs refused by check")
+        copy = fresh_copy("swap-reports")
+        swap(copy, ".verify.json")
+        if expect_failure("swapped verifier reports accepted", lambda: check(copy), failures):
+            passed.append("swapped verifier reports refused")
+        copy = fresh_dir("swap-reports-before-build")
+        make_synthetic_snapshot(copy)
+        swap(copy, ".verify.json")
+        if expect_failure("swapped verifier reports accepted by build", lambda: build(copy), failures):
+            passed.append("swapped verifier reports refused by build")
+        copy = fresh_copy("swap-responses")
+        swap(copy, ".response.json")
+        if expect_failure("swapped responses accepted", lambda: check(copy), failures):
+            passed.append("swapped responses refused")
+        copy = fresh_copy("no-index")
+        os.remove(os.path.join(copy, INDEX_NAME))
+        detail = expect_failure("missing captures.index accepted", lambda: check(copy), failures)
+        if detail:
+            passed.append(f"missing captures.index refused: {detail[:70]}")
+        copy = fresh_dir("old-index")
+        make_synthetic_snapshot(copy, old_index=True)
+        detail = expect_failure("captures.index without capture-time digests accepted", lambda: build(copy), failures)
+        if detail:
+            passed.append(f"captures.index without sha256 refused: {detail[:70]}")
+        copy = fresh_dir("identical-proofs")
+        make_synthetic_snapshot(copy, identical_proofs=True)
+        detail = expect_failure("identical proofs for the two required captures accepted", lambda: build(copy), failures)
+        if detail:
+            passed.append(f"two required captures sharing one proof refused: {detail[:70]}")
+
+        # Re-verification with a fake verifier that reproduces the captured
+        # reports from the files: the pristine snapshot passes (with and
+        # without --verifier-dir), a report the verifier does not reproduce,
+        # a rejecting verifier and a silent one fail.
+        fake = os.path.join(base, "fake_hyphae.py")
+        write_text(fake, FAKE_VERIFIER_SOURCE)
+        rejecting = os.path.join(base, "fake_rejecting_hyphae.py")
+        write_text(rejecting, FAKE_REJECTING_VERIFIER_SOURCE)
+        silent = os.path.join(base, "fake_silent_hyphae.py")
+        write_text(silent, FAKE_SILENT_VERIFIER_SOURCE)
+        python = [sys.executable, "-I"]
+        summary = check(root, reverify=Reverify(python + [fake]))
+        require(summary["reverified"] == 2, f"expected 2 re-verified captures, got {summary['reverified']}")
+        passed.append("re-verification with a verifier that reproduces the reports passes")
+        check(root, reverify=Reverify(python + [fake], verifier_dir=os.path.abspath(root).replace(os.sep, "/")))
+        passed.append("re-verification with --verifier-dir passes")
+        copy = fresh_dir("foreign-report")
+        make_synthetic_snapshot(copy, wrong_result_digest=True)
+        build(copy)
+        passed.append("a well-formed report the verifier did not produce is not detectable offline (build passes)")
+        detail = expect_failure("report not reproduced by the verifier accepted", lambda: check(copy, reverify=Reverify(python + [fake])), failures)
+        if detail:
+            passed.append(f"re-verification refuses it: {detail[:90]}")
+        detail = expect_failure("rejecting verifier accepted", lambda: check(root, reverify=Reverify(python + [rejecting])), failures)
+        if detail:
+            passed.append(f"re-verification with a rejecting verifier fails: {detail[:80]}")
+        detail = expect_failure("verifier without a report accepted", lambda: check(root, reverify=Reverify(python + [silent])), failures)
+        if detail:
+            passed.append(f"re-verification with a verifier that prints no report fails: {detail[:80]}")
+        detail = expect_failure("missing verifier accepted", lambda: check(root, reverify=Reverify([os.path.join(base, "no-such-hyphae")])), failures)
+        if detail:
+            passed.append("re-verification with a verifier that cannot run fails")
     finally:
         shutil.rmtree(base, ignore_errors=True)
     for line in passed:
@@ -878,25 +1186,39 @@ def main(argv):
     p_check.add_argument("snapshot_dir")
     p_check.add_argument("--public-only", action="store_true", help="tolerate missing .proof/.witness files (git checkout)")
     p_check.add_argument("--expect-ids", help="file with one expected memory id per line")
+    for p in (p_build, p_check):
+        p.add_argument("--reverify", metavar="HYPHAE", help="run this hyphae binary or wrapper (as CONSENSUS_HYPHAE_BIN) on every capture and require the captured verifier report to be reproduced")
+        p.add_argument("--verifier-dir", metavar="DIR", help="the snapshot directory as the verifier sees it (the container path with scripts/hyphae-docker.cmd); default: this directory")
+        p.add_argument("--reverify-timeout", type=int, default=DEFAULT_REVERIFY_TIMEOUT, metavar="SECS", help=f"deadline of one verifier run (default {DEFAULT_REVERIFY_TIMEOUT})")
     sub.add_parser("selftest", help="build and check a synthetic snapshot, assert tampering is detected")
     args = parser.parse_args(argv)
     if args.command == "selftest":
         return selftest()
+    reverify = None
+    if args.reverify:
+        if args.reverify_timeout < 1:
+            parser.error("--reverify-timeout must be at least 1")
+        reverify = Reverify([args.reverify], args.verifier_dir, args.reverify_timeout)
+    elif args.verifier_dir:
+        parser.error("--verifier-dir needs --reverify")
     try:
         expect_ids = load_expected_ids(args.expect_ids) if args.expect_ids else None
         if args.command == "build":
-            summary = build(args.snapshot_dir, captured_at=args.captured_at, expect_ids=expect_ids)
+            summary = build(args.snapshot_dir, captured_at=args.captured_at, expect_ids=expect_ids, reverify=reverify)
             verb = "built and checked"
         else:
-            summary = check(args.snapshot_dir, public_only=args.public_only, expect_ids=expect_ids)
+            summary = check(args.snapshot_dir, public_only=args.public_only, expect_ids=expect_ids, reverify=reverify)
             verb = "checked" + (" (public files only)" if args.public_only else "")
     except CheckError as exc:
         print(f"snapshot check failed: {exc}", file=sys.stderr)
         return 1
+    reverified = ""
+    if reverify is not None:
+        reverified = f", {summary['reverified']} captures re-verified with {os.path.basename(reverify.command[0])} (fresh reports equal the captured ones)"
     print(
         f"OK: {verb} {args.snapshot_dir}: snapshot {summary['snapshot_id']}, anchor {summary['anchor_hex']}, "
         f"{summary['captures']} captures, {summary['files']} file digests verified, "
-        f"{len(summary['record_ids'])} record ids: {' '.join(summary['record_ids'])}"
+        f"{len(summary['record_ids'])} record ids: {' '.join(summary['record_ids'])}{reverified}"
     )
     return 0
 

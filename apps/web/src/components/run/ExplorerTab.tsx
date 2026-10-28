@@ -52,6 +52,7 @@ const AUTHORITIES = ["operator", "public_demo", "unspecified"] as const;
 export function ExplorerTab({ detail, frames, detailError = null }: ExplorerTabProps) {
   const t = useTranslations("Run.explorer");
   const tRun = useTranslations("Run");
+  const tAudit = useTranslations("Run.audit");
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const format = useFormatter();
   const failureText = useFailureText();
@@ -213,6 +214,9 @@ export function ExplorerTab({ detail, frames, detailError = null }: ExplorerTabP
                   <span>{summaryText(event)}</span>
                   <details className="hc-json-details">
                     <summary>{t("json")}</summary>
+                    <p className="hc-supporting" data-display-copy>
+                      {tAudit("displayCopy")}
+                    </p>
                     <pre className="hc-json hc-code">{JSON.stringify(event, null, 2)}</pre>
                   </details>
                 </td>

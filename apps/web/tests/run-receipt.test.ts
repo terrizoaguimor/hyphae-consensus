@@ -11,6 +11,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { contractDir } from "../scripts/gen-api-types.mjs";
+import { createApiClient, researchUrl } from "../src/lib/api/client";
 import type { RunReceiptV2 } from "../src/lib/api/types";
 import {
   baseName,
@@ -57,6 +58,16 @@ describe("the read-only check of a downloaded log", () => {
       "live-battery-2026-10-27-final.jsonl",
     );
     expect(baseName("MANIFEST.json")).toBe("MANIFEST.json");
+  });
+
+  it("links an archive file beside the API, each path segment encoded", () => {
+    expect(researchUrl("2026-10-27/live-battery-2026-10-27-final.jsonl")).toBe(
+      "/research/2026-10-27/live-battery-2026-10-27-final.jsonl",
+    );
+    expect(researchUrl("a dir/b?.json")).toBe("/research/a%20dir/b%3F.json");
+    const api = createApiClient();
+    expect(api.showcaseReceiptUrl(runId)).toBe(`/api/v1/showcase/${runId}/receipt`);
+    expect(api.researchUrl("MANIFEST.json")).toBe("/research/MANIFEST.json");
   });
 
   it("quotes a file name a shell would split", () => {

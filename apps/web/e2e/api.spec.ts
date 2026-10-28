@@ -778,6 +778,66 @@ test("a receipt with other limitations is shown as written, never paraphrased", 
   );
 });
 
+test("the Audit trail shows the chain, the receipt, the verbatim log and the read-only check @smoke", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  const detail = fixture<{ chain: { head_hash: string } }>("run-detail-retry.json");
+  const chain = page.locator("[data-audit-chain='run']");
+  await expect(chain.locator("[data-chain-scope='run']")).toHaveText(t("en", "Run.audit.scopes.run"));
+  await expect(chain.locator("[data-chain-field='first']")).toHaveText("1");
+  await expect(chain.locator("[data-chain-field='last']")).toHaveText("15");
+  await expect(chain.locator("[data-chain-field='head']")).toHaveText(detail.chain.head_hash);
+  // Each record's link as the public view carries it: a display copy.
+  await chain.locator("[data-audit-links] > summary").click();
+  await expect(chain.locator("[data-link-sequence]")).toHaveCount(15);
+  await expect(chain.locator("[data-link-sequence='1']")).toContainText("genesis");
+  await expect(chain.locator("[data-display-copy]")).toHaveText(t("en", "Run.audit.displayCopy"));
+  // The verbatim log of a guided run, its receipt and the exact check.
+  const log = page.locator("[data-audit-log='published'] [data-log-link]");
+  await expect(log).toHaveAttribute("href", `/api/v1/runs/${RUN_ID}/events.ndjson`);
+  await expect(log).toHaveAttribute("download", `events-${RUN_ID}.jsonl`);
+  await expect(page.locator("[data-receipt-download]")).toHaveAttribute("href", `/api/v1/runs/${RUN_ID}/receipt`);
+  await expect(page.locator("[data-cli]")).toHaveText(
+    `consensus-api verify events-${RUN_ID}.jsonl --run ${RUN_ID} --receipt receipt-${RUN_ID}.json`,
+  );
+  // The receipt: its own head, the authorization, the deliberation, the proofs.
+  const receipt = page.locator("[data-audit-receipt='ready']");
+  await expect(receipt.locator("[data-receipt-field='event_count']")).toHaveText("15");
+  await expect(receipt.locator("[data-receipt-field='head_hash']")).toHaveText(detail.chain.head_hash);
+  await expect(receipt.locator("[data-receipt-authorization='approved']")).toContainText(
+    t("en", "Run.explorer.authority.public_demo"),
+  );
+  await expect(receipt.locator("[data-receipt-never-rejudged='0']")).toContainText(
+    "Earlier-round objections never re-judged: none",
+  );
+  await expect(receipt.locator("[data-receipt-simulated='4']")).toBeVisible();
+  const limitations = fixture<{ proof_limitations: string }>("receipt-v2-retry.json").proof_limitations;
+  await expect(receipt.locator("[data-receipt-limitations]")).toHaveText(limitations);
+  await receipt.locator("details > summary").click();
+  await expect(receipt.locator("details [data-display-copy]")).toHaveText(t("en", "Run.audit.displayCopy"));
+  await expect(receipt.locator("details pre")).toContainText('"format": "hyphae-consensus-run-receipt-v2"');
+  await expectNoLive(page, "en");
+});
+
+test("a live-declared run's Audit trail names the operator's log for the check", async ({ page }) => {
+  await mockApi(page, { extraRuns: [liveR01Run()] });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en", LIVE_RUN_ID);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-log-unavailable]")).toHaveText(t("en", "Run.audit.logUnavailable"));
+  await expect(page.locator("[data-log-link]")).toHaveCount(0);
+  await expect(page.locator("[data-audit-log='unavailable']")).toContainText(t("en", "Run.audit.cliOperator"));
+  await expect(page.locator("[data-cli]")).toHaveText(
+    `consensus-api verify events-${LIVE_RUN_ID}.jsonl --run ${LIVE_RUN_ID} --receipt receipt-${LIVE_RUN_ID}.json`,
+  );
+  await expectNoLive(page, "en");
+});
+
 test("the scope change sits under the recommendation it qualifies", async ({ page }) => {
   await mockApi(page, { detail: awaitingDecisionDetail() });
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1060,12 +1120,17 @@ for (const locale of locales) {
       await page.getByRole("tab", { name: t(locale, "Run.tabs.proofs") }).click();
       await expect(page.locator("[data-limits-translated]")).toBeVisible();
       scans.push(await scan(page, `${locale} ${theme} /run proofs`));
+      await page.getByRole("tab", { name: t(locale, "Run.tabs.audit") }).click();
+      await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+      await page.locator("[data-audit-links] > summary").click();
+      await expect(page.locator("[data-link-sequence]").first()).toBeVisible();
+      scans.push(await scan(page, `${locale} ${theme} /run audit`));
       await page.getByRole("tab", { name: t(locale, "Run.tabs.decision") }).click();
       await expect(page.locator("[data-decision-form]")).toBeVisible();
       scans.push(await scan(page, `${locale} ${theme} /run decision`));
 
       await writeScans(`api-${locale}-${theme}`, scans);
-      expect(scans).toHaveLength(7);
+      expect(scans).toHaveLength(8);
       expect(blocking(scans)).toEqual([]);
     });
   }

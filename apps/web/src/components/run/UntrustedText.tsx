@@ -12,19 +12,21 @@ import { useLocale, useTranslations } from "next-intl";
 
 type UntrustedTextProps = {
   text: string;
-  /** A retrieved record's content, or a model's output. */
-  source: "record" | "model";
+  /** A retrieved record's content, a model's output, or the server's own English text. */
+  source: "record" | "model" | "server";
 };
 
 export function UntrustedText({ text, source }: UntrustedTextProps) {
   const t = useTranslations("Run.content");
   const locale = useLocale();
   const english = locale !== "en";
+  const note =
+    source === "record" ? t("recordNote") : source === "model" ? t("modelNote") : t("serverNote");
   return (
     <figure className="hc-untrusted" data-untrusted={source}>
       <figcaption className="hc-supporting">
-        {source === "record" ? t("recordNote") : t("modelNote")}
-        {english ? ` ${source === "record" ? t("originalRecord") : t("originalModel")}` : null}
+        {note}
+        {english ? ` ${source === "model" ? t("originalModel") : t("originalRecord")}` : null}
       </figcaption>
       <blockquote lang="en" className="hc-untrusted-text">
         {text}

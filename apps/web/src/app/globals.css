@@ -1807,6 +1807,19 @@
     margin: 0;
   }
 
+  /* A command to copy: wrapped, never a scrolling box. */
+  .hc-cli {
+    margin: 0;
+    padding: var(--spacing-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-element);
+    font-size: var(--text-code-size);
+    line-height: var(--text-code-leading);
+    background-color: var(--color-background-muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   /* A long value (a full hash) takes the whole row of a key-value grid. */
   .hc-kv-wide {
     grid-column: 1 / -1;

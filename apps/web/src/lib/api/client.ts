@@ -397,7 +397,23 @@ export function createApiClient(options: ApiClientOptions = {}) {
       }`,
 
     receiptUrl: (runId: string): string => `${base}${runPath(runId, "/receipt")}`,
+
+    /** The receipt of a recorded run of the research archive. */
+    showcaseReceiptUrl: (runId: string): string =>
+      `${base}/showcase/${encodeURIComponent(runId)}/receipt`,
+
+    /**
+     * A file of the research archive, served at `/research/<path>` (beside
+     * the API, not under it) with its pinned SHA-256 as the ETag. `path` is
+     * the archive path a showcase entry or the manifest names.
+     */
+    researchUrl: (path: string): string => researchUrl(path),
   };
+}
+
+/** `/research/<path>`, each segment encoded. */
+export function researchUrl(path: string): string {
+  return `/research/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 // DELETE /session has no contract body; whatever comes back is accepted.

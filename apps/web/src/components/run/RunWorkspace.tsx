@@ -27,6 +27,7 @@ import { localePath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProvenanceBadges } from "../ProvenanceBadges";
+import { AuditTab } from "./AuditTab";
 import { DecisionTab } from "./DecisionTab";
 import { EvidenceTab } from "./EvidenceTab";
 import { ExplorerTab } from "./ExplorerTab";
@@ -41,10 +42,10 @@ type RunWorkspaceProps = {
   locale: Locale;
 };
 
-type TabKey = "stage" | "explorer" | "evidence" | "proofs" | "decision";
+type TabKey = "stage" | "explorer" | "evidence" | "proofs" | "audit" | "decision";
 
 /** Tabs that show the receipt. */
-const RECEIPT_TABS: ReadonlySet<TabKey> = new Set<TabKey>(["proofs"]);
+const RECEIPT_TABS: ReadonlySet<TabKey> = new Set<TabKey>(["proofs", "audit"]);
 
 export function RunWorkspace({ locale }: RunWorkspaceProps) {
   const t = useTranslations("Run");
@@ -210,6 +211,7 @@ function RunView({ locale, runId }: RunViewProps) {
           { value: "explorer", label: t("tabs.explorer") },
           { value: "evidence", label: t("tabs.evidence") },
           { value: "proofs", label: t("tabs.proofs") },
+          { value: "audit", label: t("tabs.audit") },
           { value: "decision", label: t("tabs.decision") },
         ]}
       />
@@ -235,6 +237,17 @@ function RunView({ locale, runId }: RunViewProps) {
             detailError={detailError}
             summary={summary}
             receipt={receipt}
+          />
+        ) : null}
+        {tab === "audit" ? (
+          <AuditTab
+            runId={runId}
+            detail={detail}
+            frames={frames}
+            detailError={detailError}
+            summary={summary}
+            receipt={receipt}
+            archive={null}
           />
         ) : null}
         {tab === "decision" ? <DecisionTab runId={runId} data={data} /> : null}

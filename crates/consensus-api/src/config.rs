@@ -14,6 +14,7 @@
 //! | `CONSENSUS_META_MAX_COMPLETION_TOKENS` | 16000 | `max_completion_tokens` sent with every call |
 //! | `CONSENSUS_META_REASONING_EFFORT` | not sent | `reasoning_effort` (`minimal` .. `max`) |
 //! | `CONSENSUS_META_MAX_ATTEMPTS` | 3 | HTTP attempts per call, retries included |
+//! | `CONSENSUS_META_RETRY_TRANSPORT_ONCE` | true | retry once when the connection breaks after the request was sent (can bill one duplicate call) |
 //! | `CONSENSUS_META_DEBUG_DIR` | unset | opt-in copies of raw model output (refused in public mode) |
 //! | `CONSENSUS_PUBLIC_MODE` | false | public deployment: refuses operator-only diagnostics |
 //! | `CONSENSUS_MAX_RUN_TOKENS` | runtime default | per-run token cap |
@@ -222,6 +223,16 @@ pub struct MetaConfig {
     pub timeout: Duration,
     /// HTTP attempts per call, the first included (1 = never retry).
     pub max_attempts: u32,
+    /// `CONSENSUS_META_RETRY_TRANSPORT_ONCE`: retry exactly once, within
+    /// `max_attempts` and the call's time budget, when the connection
+    /// breaks after the request was sent (reset, EOF; no HTTP status). The
+    /// lost attempt may already have been billed, so this retry can bill
+    /// one duplicate call. The public live mode's USD ledger reserves a
+    /// run's worst case per HTTP attempt and charges a post-send transport
+    /// failure at that worst case (ADR-0007), so the duplicate is within
+    /// the reservation. Timeouts, 504 and non-retryable 4xx are never
+    /// retried, whatever this is set to.
+    pub retry_transport_once: bool,
     /// `max_completion_tokens` sent with every call.
     pub max_completion_tokens: u64,
     /// `reasoning_effort` sent with every call; not sent when `None`.
@@ -249,6 +260,7 @@ impl std::fmt::Debug for MetaConfig {
             .field("model", &self.model)
             .field("timeout", &self.timeout)
             .field("max_attempts", &self.max_attempts)
+            .field("retry_transport_once", &self.retry_transport_once)
             .field("max_completion_tokens", &self.max_completion_tokens)
             .field("reasoning_effort", &self.reasoning_effort)
             .field(
@@ -337,6 +349,7 @@ impl MetaConfig {
             model: model.into().trim().to_string(),
             timeout: Duration::from_secs(DEFAULT_MODEL_TIMEOUT_SECS),
             max_attempts: DEFAULT_MAX_ATTEMPTS,
+            retry_transport_once: true,
             max_completion_tokens: DEFAULT_MAX_COMPLETION_TOKENS,
             reasoning_effort: None,
             safety_identifier: None,
@@ -396,6 +409,7 @@ impl MetaConfig {
             model: model.trim().to_string(),
             timeout: parse_model_timeout(get("CONSENSUS_MODEL_TIMEOUT_SECS")?.as_deref()),
             max_attempts: DEFAULT_MAX_ATTEMPTS,
+            retry_transport_once: true,
             max_completion_tokens: DEFAULT_MAX_COMPLETION_TOKENS,
             reasoning_effort: None,
             safety_identifier: None,
@@ -409,6 +423,9 @@ impl MetaConfig {
         }
         if let Some(v) = get("CONSENSUS_META_MAX_ATTEMPTS")? {
             cfg.max_attempts = parse_bounded("CONSENSUS_META_MAX_ATTEMPTS", &v, 1..=10)?;
+        }
+        if let Some(v) = get("CONSENSUS_META_RETRY_TRANSPORT_ONCE")? {
+            cfg.retry_transport_once = parse_flag("CONSENSUS_META_RETRY_TRANSPORT_ONCE", &v)?;
         }
         if let Some(v) = get("CONSENSUS_META_REASONING_EFFORT")? {
             cfg.reasoning_effort = Some(v.trim().to_ascii_lowercase());
@@ -726,6 +743,10 @@ mod tests {
         assert_eq!(cfg.model, "muse-wonder-1.0");
         assert_eq!(cfg.timeout, Duration::from_secs(120));
         assert_eq!(cfg.max_attempts, 3);
+        assert!(
+            cfg.retry_transport_once,
+            "one post-send transport retry by default (live R06)"
+        );
         assert_eq!(cfg.max_completion_tokens, 16_000);
         assert_eq!(cfg.reasoning_effort, None, "not sent by default");
         assert_eq!(
@@ -740,6 +761,7 @@ mod tests {
             ("MODEL_API_KEY", KEY),
             ("CONSENSUS_META_MAX_COMPLETION_TOKENS", "32"),
             ("CONSENSUS_META_MAX_ATTEMPTS", "1"),
+            ("CONSENSUS_META_RETRY_TRANSPORT_ONCE", " off "),
             ("CONSENSUS_META_REASONING_EFFORT", " High "),
             ("CONSENSUS_META_BASE_URL", "https://gateway.example/v1/"),
         ])
@@ -747,8 +769,18 @@ mod tests {
         .unwrap();
         assert_eq!(cfg.max_completion_tokens, 32);
         assert_eq!(cfg.max_attempts, 1);
+        assert!(!cfg.retry_transport_once);
         assert_eq!(cfg.reasoning_effort.as_deref(), Some("high"));
         assert_eq!(cfg.base_url, "https://gateway.example/v1");
+        for on in ["1", "true", "yes", "on"] {
+            let cfg = meta(&[
+                ("MODEL_API_KEY", KEY),
+                ("CONSENSUS_META_RETRY_TRANSPORT_ONCE", on),
+            ])
+            .unwrap()
+            .unwrap();
+            assert!(cfg.retry_transport_once, "{on}");
+        }
     }
 
     #[test]
@@ -808,6 +840,13 @@ mod tests {
             (
                 vec![("MODEL_API_KEY", KEY), ("CONSENSUS_PUBLIC_MODE", "maybe")],
                 "CONSENSUS_PUBLIC_MODE",
+            ),
+            (
+                vec![
+                    ("MODEL_API_KEY", KEY),
+                    ("CONSENSUS_META_RETRY_TRANSPORT_ONCE", "once"),
+                ],
+                "CONSENSUS_META_RETRY_TRANSPORT_ONCE",
             ),
         ] {
             let err = meta(&pairs).unwrap_err();

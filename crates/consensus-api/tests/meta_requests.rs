@@ -391,15 +391,99 @@ fn a_refused_connection_is_retried_and_a_dropped_one_is_not() {
     );
 
     // The server read the request and hung up: it may have been billed,
-    // so it is never sent again.
+    // so with the one post-send retry switched off it is never sent again.
     let server = serve(vec![Reply::hang_up()]);
     let mut cfg = config(&server.base_url);
     cfg.max_attempts = 3;
+    cfg.retry_transport_once = false;
     let mut c = MetaModelClient::new(cfg).unwrap();
     let err = c.propose(&task()).unwrap_err();
     assert_eq!(err.code(), Some("meta_transport"), "{err}");
     assert!(err.to_string().contains("after it was sent"), "{err}");
     assert_eq!(server.hits(), 1);
+}
+
+#[test]
+fn a_connection_dropped_after_the_request_is_retried_once_by_default() {
+    // Live R06 (2026-10-27): one transient "error sending request" after
+    // the request was sent failed the whole run. The connection is retried
+    // once, within the attempt budget, and the invocation records it.
+    let server = serve(vec![Reply::hang_up(), Reply::ok(envelope(DRAFT_PROPOSAL))]);
+    let mut c = MetaModelClient::new(config(&server.base_url)).unwrap();
+    let (_, inv) = c.propose(&task()).unwrap();
+    assert_eq!(inv.attempts, Some(2));
+    assert_eq!(server.hits(), 2);
+
+    // Through the orchestrator: one proposal, one invocation of 2 attempts.
+    let server = serve(vec![Reply::hang_up(), Reply::ok(envelope(DRAFT_PROPOSAL))]);
+    let (agg, log, _) = run_through_adapter("transport-retry", config(&server.base_url));
+    let proposals = log
+        .all_events()
+        .iter()
+        .filter(|e| matches!(e.payload, EventPayload::ProposalSubmitted { .. }))
+        .count();
+    assert_eq!(proposals, 1);
+    assert_eq!(agg.invocations[0].attempts, Some(2));
+    assert_eq!(
+        agg.invocations[0].schema_name.as_deref(),
+        Some("DraftProposal")
+    );
+    assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg);
+
+    // Two drops: the retry is one, never more, whatever the attempt budget.
+    let server = serve(vec![
+        Reply::hang_up(),
+        Reply::hang_up(),
+        Reply::ok(envelope(DRAFT_PROPOSAL)),
+    ]);
+    let mut cfg = config(&server.base_url);
+    cfg.max_attempts = 5;
+    let mut c = MetaModelClient::new(cfg).unwrap();
+    let err = c.propose(&task()).unwrap_err();
+    assert_eq!(err.code(), Some("meta_transport"), "{err}");
+    assert!(err.to_string().contains("after it was sent"), "{err}");
+    assert!(err.to_string().contains("2 attempt(s)"), "{err}");
+    assert_eq!(server.hits(), 2);
+    assert!(err.invocation().is_none(), "never answered");
+    assert!(c.take_failed_invocation().is_none());
+
+    // It shares the attempt budget with the status retries: a 429, then a
+    // drop, then the answer fit in three attempts ...
+    let server = serve(vec![
+        Reply::json(429, "{}"),
+        Reply::hang_up(),
+        Reply::ok(envelope(DRAFT_PROPOSAL)),
+    ]);
+    let mut cfg = config(&server.base_url);
+    cfg.max_attempts = 3;
+    let mut c = MetaModelClient::new(cfg).unwrap();
+    let (_, inv) = c.propose(&task()).unwrap();
+    assert_eq!(inv.attempts, Some(3));
+    assert_eq!(server.hits(), 3);
+    // ... and a single attempt allows no retry at all.
+    let server = serve(vec![Reply::hang_up(), Reply::ok(envelope(DRAFT_PROPOSAL))]);
+    let mut cfg = config(&server.base_url);
+    cfg.max_attempts = 1;
+    let mut c = MetaModelClient::new(cfg).unwrap();
+    let err = c.propose(&task()).unwrap_err();
+    assert_eq!(err.code(), Some("meta_transport"), "{err}");
+    assert_eq!(server.hits(), 1);
+
+    // Switched off (CONSENSUS_META_RETRY_TRANSPORT_ONCE=false): the first
+    // drop fails the call.
+    let server = serve(vec![Reply::hang_up(), Reply::ok(envelope(DRAFT_PROPOSAL))]);
+    let mut cfg = config(&server.base_url);
+    cfg.retry_transport_once = false;
+    let mut c = MetaModelClient::new(cfg).unwrap();
+    let err = c.propose(&task()).unwrap_err();
+    assert_eq!(err.code(), Some("meta_transport"), "{err}");
+    assert!(err.to_string().contains("1 attempt(s)"), "{err}");
+    assert_eq!(server.hits(), 1);
+    // reqwest's text without its URL (SEC-9), as for every transport error.
+    assert!(
+        !err.to_string().contains("127.0.0.1") && !err.to_string().contains("http"),
+        "{err}"
+    );
 }
 
 #[test]

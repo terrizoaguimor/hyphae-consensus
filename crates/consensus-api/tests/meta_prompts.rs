@@ -567,6 +567,26 @@ fn every_role_keeps_its_system_rules_and_protocol_instructions() {
     ] {
         assert!(evaluate.contains(rule), "{rule}");
     }
+    // The claims to assess are listed by id (the keys of the per-call
+    // schema, in the same order), on their own line after the proposal
+    // block and before the objections; the objections list is unchanged.
+    let keyed_line = evaluate
+        .lines()
+        .find(|l| l.starts_with("Assess these claims"))
+        .unwrap_or_else(|| panic!("no claim id line in {evaluate}"));
+    assert_eq!(
+        keyed_line,
+        "Assess these claims, one assessment each, keyed by claim id: claim-1"
+    );
+    let (_, proposal_end) = block_span(evaluate, "UNTRUSTED_PROPOSAL");
+    let keyed_at = evaluate.find("Assess these claims").unwrap();
+    let objections_at = evaluate
+        .find("Objections to judge, one verdict each")
+        .unwrap();
+    assert!(
+        proposal_end < keyed_at && keyed_at < objections_at,
+        "{evaluate}"
+    );
     assert!(evaluate.contains("id=item-5 [ConstraintConflict] claim=claim-1 (raised this round) No test covers the jitter requirement"));
     let revise = &seen[3].2;
     assert!(revise.contains(

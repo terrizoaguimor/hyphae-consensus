@@ -22,11 +22,17 @@
 //! id and cleared contradiction id must name, byte for byte, a claim of
 //! the proposal, a record of the round context, an objection under
 //! evaluation or a carried contradiction, and none may repeat; a missing
-//! verdict or a second assessment of one claim is malformed too. The
-//! error names the field and the value, quoted at most
+//! verdict, a missing assessment or a second assessment of one claim is
+//! malformed too. The error names the field and the value, quoted at most
 //! [`MAX_QUOTED_CHARS`](consensus_runtime::contract::MAX_QUOTED_CHARS)
-//! characters long, since the message is persisted. Only an omitted
-//! claim is still completed, as uncorroborated (fail-closed). Ids no
+//! characters long, since the message is persisted. Omission is made
+//! structurally impossible first: the Evaluator's strict schema is built
+//! per call ([`evaluation_schema`]), its `assessments` an object whose
+//! properties are exactly the proposal's claim ids and its `item_verdicts`
+//! one whose properties are exactly the objections under evaluation, every
+//! property required and no other allowed (live run R03 returned an empty
+//! `assessments` array under the list schema, and every claim was then
+//! completed as uncorroborated; nothing is completed any more). Ids no
 //! decision reads (the Critic's `claim_id`/`evidence_refs`, the reviser's
 //! `addressed_items`) are still filtered to known ids.
 //!
@@ -49,10 +55,15 @@
 //! call fails with that status at once, never with a timeout after a wait
 //! that could not pay off), else after a full-jitter exponential backoff
 //! from 500 ms; a connection that failed before the request was sent may
-//! be retried too. Nothing else is retried: a timeout, a transport error after
-//! the request was sent, or any other status could follow a generation
-//! that was already billed. `finish_reason` `length` is truncated output
-//! (code `model_output_truncated`); `message.refusal` is a refusal (code
+//! be retried too. A connection that broke after the request was sent
+//! (reset, or closed before any answer; no HTTP status) is retried exactly
+//! once, within the same attempt budget, backoff and headroom rules, when
+//! [`MetaConfig::retry_transport_once`] is set (the default): the lost
+//! generation may have been billed, so the duplicate is bounded to one
+//! (live run R06 failed on one such error). Nothing else is retried: a
+//! timeout or any other status could follow a generation that was already
+//! billed. `finish_reason` `length` is truncated output (code
+//! `model_output_truncated`); `message.refusal` is a refusal (code
 //! `model_refusal`).
 //!
 //! Errors (MA-4, SEC-9): every failure carries a stable code ([`codes`])
@@ -81,10 +92,12 @@ use consensus_runtime::orchestrator::codes as run_codes;
 use consensus_runtime::ports::{ModelClient, ModelError, RoleContext};
 use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER};
 use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, Deserializer, MapAccess, Visitor};
+use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
+use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
@@ -212,22 +225,27 @@ pub struct DraftChallengeItem {
 }
 
 // Protocol 1.3: the Evaluator judges each objection explicitly, and the
-// adapter derives `unresolved_items` from these verdicts. (Doc comments on
-// draft types reach the model through the schema; this note must not.)
+// adapter derives `unresolved_items` from these verdicts. The two keyed
+// fields are maps in the schemars output; [`evaluation_schema`] turns each
+// into an object with exactly the call's ids as properties, so neither a
+// claim nor an objection can be left out. (Doc comments on draft types
+// reach the model through the schema; this note must not.)
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftEvaluation {
-    pub assessments: Vec<DraftAssessment>,
-    /// One verdict per objection listed in the prompt, by ITEM id.
-    pub item_verdicts: Vec<DraftItemVerdict>,
+    /// One assessment per claim of the proposal, keyed by claim id.
+    pub assessments: Keyed<DraftAssessment>,
+    /// One verdict per objection listed in the prompt, keyed by ITEM id.
+    pub item_verdicts: Keyed<DraftItemVerdict>,
     /// Carried contradictions this evaluation clears, with reasons.
     pub cleared_contradictions: Vec<DraftClearedContradiction>,
     pub abstain: bool,
     pub abstain_reason: Option<String>,
 }
 
+/// A verdict on one objection; the objection's id is the key it sits
+/// under in `item_verdicts`.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftItemVerdict {
-    pub item_id: String,
     pub status: ItemStatus,
     pub reason: String,
 }
@@ -238,13 +256,61 @@ pub struct DraftClearedContradiction {
     pub reason: String,
 }
 
+/// An assessment of one claim; the claim's id is the key it sits under in
+/// `assessments`.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftAssessment {
-    pub claim_id: String,
     pub corroborated: bool,
     pub relevant_evidence: Vec<String>,
     pub contradicting_evidence: Vec<String>,
     pub note: String,
+}
+
+/// Draft entries keyed by an id this adapter minted (a claim id, an item
+/// id), kept in the order written and with every repeat: the adapter then
+/// names a key that is unknown or repeats (MA-1) instead of letting a map
+/// swallow it. Its schema is the map form (`additionalProperties` = the
+/// value's schema); the per-call rewrite ([`evaluation_schema`]) replaces
+/// that with one required property per expected id.
+#[derive(Debug)]
+pub struct Keyed<T>(pub Vec<(String, T)>);
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Keyed<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Entries<T>(PhantomData<T>);
+
+        impl<'de, T: Deserialize<'de>> Visitor<'de> for Entries<T> {
+            type Value = Keyed<T>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an object keyed by id")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut access: A) -> Result<Keyed<T>, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = access.next_entry::<String, T>()? {
+                    entries.push(entry);
+                }
+                Ok(Keyed(entries))
+            }
+        }
+
+        deserializer.deserialize_map(Entries(PhantomData))
+    }
+}
+
+impl<T: JsonSchema> JsonSchema for Keyed<T> {
+    fn schema_name() -> String {
+        format!("Keyed_{}", T::schema_name())
+    }
+
+    fn is_referenceable() -> bool {
+        false
+    }
+
+    fn json_schema(generator: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        <std::collections::BTreeMap<String, T>>::json_schema(generator)
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -286,7 +352,9 @@ struct ResponseFormat<'a> {
 #[derive(Debug, Serialize)]
 struct JsonSchemaFormat<'a> {
     name: &'static str,
-    schema: &'a serde_json::Value,
+    /// Serialized in the order built: the per-call Evaluator schema lists
+    /// claim ids in proposal order and item ids in prompt order.
+    schema: &'a OrderedJson,
     strict: bool,
 }
 
@@ -357,6 +425,167 @@ pub fn strict_schema(schema: &mut serde_json::Value) {
         serde_json::Value::Array(items) => items.iter_mut().for_each(strict_schema),
         _ => {}
     }
+}
+
+/// A JSON document whose object members keep the order they were given.
+/// `serde_json::Value` sorts object keys, and the per-call Evaluator
+/// schema must list claim ids in proposal order and item ids in prompt
+/// order (the model writes its keys in schema order), so every schema is
+/// serialized from this type: the digest recorded as `schema_sha256` and
+/// the request body are the same bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OrderedJson {
+    /// Members in order; keys are unique.
+    Object(Vec<(String, OrderedJson)>),
+    Array(Vec<OrderedJson>),
+    /// `null`, a boolean, a number or a string.
+    Scalar(serde_json::Value),
+}
+
+impl From<serde_json::Value> for OrderedJson {
+    /// Keeps the `Value`'s own (sorted) member order.
+    fn from(value: serde_json::Value) -> Self {
+        match value {
+            serde_json::Value::Object(map) => OrderedJson::Object(
+                map.into_iter()
+                    .map(|(key, value)| (key, value.into()))
+                    .collect(),
+            ),
+            serde_json::Value::Array(items) => {
+                OrderedJson::Array(items.into_iter().map(Into::into).collect())
+            }
+            scalar => OrderedJson::Scalar(scalar),
+        }
+    }
+}
+
+impl Serialize for OrderedJson {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            OrderedJson::Object(members) => {
+                let mut map = serializer.serialize_map(Some(members.len()))?;
+                for (key, value) in members {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+            OrderedJson::Array(items) => serializer.collect_seq(items),
+            OrderedJson::Scalar(value) => value.serialize(serializer),
+        }
+    }
+}
+
+impl OrderedJson {
+    /// The member `key` of an object; `None` for anything else.
+    pub fn get(&self, key: &str) -> Option<&OrderedJson> {
+        match self {
+            OrderedJson::Object(members) => members.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    fn get_mut(&mut self, key: &str) -> Option<&mut OrderedJson> {
+        match self {
+            OrderedJson::Object(members) => {
+                members.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v)
+            }
+            _ => None,
+        }
+    }
+
+    /// Sets member `key` of an object, replacing an existing one in place
+    /// or appending it.
+    fn set(&mut self, key: &str, value: OrderedJson) {
+        if let OrderedJson::Object(members) = self {
+            match members.iter_mut().find(|(k, _)| k == key) {
+                Some((_, slot)) => *slot = value,
+                None => members.push((key.to_string(), value)),
+            }
+        }
+    }
+
+    /// Removes member `key` of an object and returns it.
+    fn remove(&mut self, key: &str) -> Option<OrderedJson> {
+        match self {
+            OrderedJson::Object(members) => members
+                .iter()
+                .position(|(k, _)| k == key)
+                .map(|at| members.remove(at).1),
+            _ => None,
+        }
+    }
+
+    /// The same document as a `serde_json::Value` (keys sorted again), for
+    /// checks that do not care about order.
+    pub fn to_value(&self) -> serde_json::Value {
+        serde_json::to_value(self).unwrap_or(serde_json::Value::Null)
+    }
+}
+
+/// The strict schema of a draft type: the schemars output made strict
+/// ([`strict_schema`]), in the serializer's own key order.
+pub fn draft_schema<T: JsonSchema>() -> Result<OrderedJson, String> {
+    let mut schema = serde_json::to_value(schemars::schema_for!(T)).map_err(|e| e.to_string())?;
+    strict_schema(&mut schema);
+    Ok(schema.into())
+}
+
+/// The Evaluator's strict schema for one call: [`draft_schema`] of
+/// [`DraftEvaluation`] with `assessments` an object whose properties are
+/// exactly `claim_ids` (in that order, the proposal's) and `item_verdicts`
+/// one whose properties are exactly `item_ids` (in that order, the
+/// prompt's), each value the entry type's schema, every property required
+/// and no other allowed (`key_property`). With no claims or no objections
+/// the object is empty, and still strict. `cleared_contradictions` stays a
+/// list: clearing is optional per record by design. A repeated id is an
+/// error: the ids are this adapter's, so one would be a bug here.
+pub fn evaluation_schema(claim_ids: &[&str], item_ids: &[&str]) -> Result<OrderedJson, String> {
+    let mut schema = draft_schema::<DraftEvaluation>()?;
+    key_property(&mut schema, "assessments", claim_ids)?;
+    key_property(&mut schema, "item_verdicts", item_ids)?;
+    Ok(schema)
+}
+
+/// Rewrites property `field` of the object schema `schema`, a map schema
+/// (`additionalProperties` = the value schema), into an object with
+/// exactly `keys` as properties, in that order, each described by that
+/// value schema, all required and no other allowed. Other members of the
+/// property's schema (its `type`, its description) are kept.
+fn key_property(schema: &mut OrderedJson, field: &str, keys: &[&str]) -> Result<(), String> {
+    for (n, key) in keys.iter().enumerate() {
+        if keys[..n].contains(key) {
+            return Err(format!("{field}: id {} repeats", quote(key)));
+        }
+    }
+    let property = schema
+        .get_mut("properties")
+        .and_then(|p| p.get_mut(field))
+        .ok_or_else(|| format!("{field}: no such property in the schema"))?;
+    let value_schema = match property.remove("additionalProperties") {
+        Some(value @ OrderedJson::Object(_)) => value,
+        _ => return Err(format!("{field}: not a map schema")),
+    };
+    property.set(
+        "properties",
+        OrderedJson::Object(
+            keys.iter()
+                .map(|key| (key.to_string(), value_schema.clone()))
+                .collect(),
+        ),
+    );
+    property.set(
+        "required",
+        OrderedJson::Array(
+            keys.iter()
+                .map(|key| OrderedJson::Scalar(serde_json::Value::String(key.to_string())))
+                .collect(),
+        ),
+    );
+    property.set(
+        "additionalProperties",
+        OrderedJson::Scalar(serde_json::Value::Bool(false)),
+    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------
@@ -717,6 +946,8 @@ const EVALUATE_TEMPLATE: &str = "\
 Proposal:
 {proposal}
 
+Assess these claims, one assessment each, keyed by claim id: {claim_ids}
+
 Objections to judge, one verdict each (this round's challenge document id={challenge_id}; a carried objection was raised in an earlier round and is still open):
 {objections}
 
@@ -781,6 +1012,13 @@ fn critique_prompt(proposal: &Proposal, ctx: &RoleContext) -> String {
 }
 
 fn evaluate_prompt(proposal: &Proposal, challenge: &Challenge, ctx: &RoleContext) -> String {
+    // The claim ids the per-call schema keys `assessments` by, in the
+    // same (proposal) order, so the prompt and the schema agree.
+    let claim_ids: Vec<String> = proposal
+        .claims
+        .iter()
+        .map(|c| untrusted_line(c.id.as_str(), ID_MAX_CHARS))
+        .collect();
     let items: Vec<String> = under_evaluation(ctx, challenge)
         .iter()
         .map(|(item, raised)| item_line(item, *raised, &proposal.claims))
@@ -794,6 +1032,14 @@ fn evaluate_prompt(proposal: &Proposal, challenge: &Challenge, ctx: &RoleContext
         EVALUATE_TEMPLATE,
         &[
             ("proposal", &proposal_block(proposal)),
+            (
+                "claim_ids",
+                &if claim_ids.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    claim_ids.join(", ")
+                },
+            ),
             (
                 "challenge_id",
                 &untrusted_line(challenge.id.as_str(), ID_MAX_CHARS),
@@ -1266,6 +1512,20 @@ fn is_read_timeout(e: &std::io::Error) -> bool {
             .is_some_and(reqwest::Error::is_timeout)
 }
 
+/// A connection that broke after the request was sent: reset, or closed
+/// before any answer arrived (reqwest's "error sending request" carrying
+/// no HTTP status). Not a connect failure, a timeout or a builder error,
+/// which `send` classifies first and never retries this way.
+fn is_broken_connection(e: &reqwest::Error) -> bool {
+    e.status().is_none()
+        && !e.is_connect()
+        && !e.is_timeout()
+        && !e.is_builder()
+        && !e.is_redirect()
+        && !e.is_body()
+        && !e.is_decode()
+}
+
 fn provider(code: &'static str, message: impl Into<String>) -> ModelError {
     ModelError::Provider {
         code,
@@ -1408,6 +1668,9 @@ impl MetaModelClient {
             )
         };
         let mut attempt = 0u32;
+        // The one retry of a connection that broke after the request was
+        // sent (see the module doc); the attempt budget bounds it too.
+        let mut transport_retried = false;
         loop {
             attempt += 1;
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1484,13 +1747,32 @@ impl MetaModelClient {
                         format!("the request could not be built ({})", e.without_url()),
                     ));
                 }
-                // After the request may have been sent: never retried (it
-                // could have been billed already).
+                // The connection broke after the request was sent (live
+                // R06: one "error sending request" failed the run). The
+                // generation may have been billed, so the retry is one at
+                // most, opt-out, within the attempt budget, and only when
+                // the headroom rule leaves it time to be answered.
+                Err(e)
+                    if is_broken_connection(&e)
+                        && self.cfg.retry_transport_once
+                        && !transport_retried
+                        && can_retry
+                        && deadline.saturating_duration_since(Instant::now())
+                            > MIN_RETRY_HEADROOM =>
+                {
+                    transport_retried = true;
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    let budget = MAX_RETRY_WAIT.min(left.saturating_sub(MIN_RETRY_HEADROOM));
+                    std::thread::sleep(full_jitter(self.cfg.retry_base_delay, attempt).min(budget));
+                    continue;
+                }
+                // After the request may have been sent: not retried (again),
+                // since it could have been billed already.
                 Err(e) => {
                     return Err(provider(
                         codes::TRANSPORT,
                         format!(
-                            "the request to the Meta API failed after it was sent ({})",
+                            "the request to the Meta API failed after it was sent ({}); {attempt} attempt(s) made",
                             e.without_url()
                         ),
                     ));
@@ -1499,20 +1781,22 @@ impl MetaModelClient {
         }
     }
 
-    /// One schema-constrained call (see the module doc for retries, the
-    /// time budget and errors). Once the API has answered, a refused
-    /// answer carries the call's invocation ([`ModelError::after_call`]).
-    fn call<T: JsonSchema + DeserializeOwned>(
+    /// One call constrained to `schema`, the role's strict draft schema
+    /// (per call for the Evaluator) that `T` parses (see the module doc
+    /// for retries, the time budget and errors). Once the API has
+    /// answered, a refused answer carries the call's invocation
+    /// ([`ModelError::after_call`]).
+    fn call<T: DeserializeOwned>(
         &mut self,
         role: Role,
+        schema: OrderedJson,
         user: String,
     ) -> Result<(T, ModelInvocation), ModelError> {
         self.failed = None;
         self.calls += 1;
         let schema_name = role.schema_name();
-        let mut schema = serde_json::to_value(schemars::schema_for!(T))
-            .map_err(|e| ModelError::malformed(format!("schema build: {e}")))?;
-        strict_schema(&mut schema);
+        // The digest is of these bytes, and the request body embeds the
+        // same serialization of the same document.
         let schema_text = serde_json::to_string(&schema)
             .map_err(|e| ModelError::malformed(format!("schema build: {e}")))?;
         let request = ChatRequest {
@@ -1773,28 +2057,31 @@ impl MetaModelClient {
     }
 
     /// The draft's assessments, in proposal order. No id is dropped
-    /// (MA-1): an assessment of an unknown claim, a second assessment of
-    /// one claim, or a cited id that is not a record of the round context
-    /// (or is cited twice in one list) is malformed. A claim the draft
-    /// omits is completed as uncorroborated (fail-closed, as before).
+    /// (MA-1): a key that is not a claim of the proposal, a claim assessed
+    /// under two keys, or a cited id that is not a record of the round
+    /// context (or is cited twice in one list) is malformed, and so is a
+    /// claim without an assessment: the per-call schema requires every
+    /// claim id, so a missing one means the API did not enforce the
+    /// schema, and nothing is completed in its place.
     fn assessments_from_draft(
         proposal: &Proposal,
         ctx: &RoleContext,
-        drafts: Vec<DraftAssessment>,
+        drafts: Keyed<DraftAssessment>,
     ) -> Result<Vec<ClaimAssessment>, ModelError> {
-        let malformed = |m: String| Err(ModelError::malformed(m));
-        for (n, a) in drafts.iter().enumerate() {
-            if !proposal.claims.iter().any(|c| c.id.as_str() == a.claim_id) {
-                return malformed(format!(
+        let malformed = |m: String| ModelError::malformed(m);
+        let drafts = drafts.0;
+        for (n, (claim_id, a)) in drafts.iter().enumerate() {
+            if !proposal.claims.iter().any(|c| c.id.as_str() == claim_id) {
+                return Err(malformed(format!(
                     "assessments: claim_id {} is not a claim of the proposal",
-                    quote(&a.claim_id)
-                ));
+                    quote(claim_id)
+                )));
             }
-            if drafts[..n].iter().any(|b| b.claim_id == a.claim_id) {
-                return malformed(format!(
+            if drafts[..n].iter().any(|(b, _)| b == claim_id) {
+                return Err(malformed(format!(
                     "assessments: claim_id {} is assessed more than once",
-                    quote(&a.claim_id)
-                ));
+                    quote(claim_id)
+                )));
             }
             for (field, cited) in [
                 ("relevant_evidence", &a.relevant_evidence),
@@ -1802,28 +2089,30 @@ impl MetaModelClient {
             ] {
                 for (m, id) in cited.iter().enumerate() {
                     if !ctx.evidence.iter().any(|e| e.id.as_str() == id) {
-                        return malformed(format!(
+                        return Err(malformed(format!(
                             "assessments[{}].{field}: {} is not a retrieved record",
-                            quote(&a.claim_id),
+                            quote(claim_id),
                             quote(id)
-                        ));
+                        )));
                     }
                     if cited[..m].contains(id) {
-                        return malformed(format!(
+                        return Err(malformed(format!(
                             "assessments[{}].{field}: {} is listed more than once",
-                            quote(&a.claim_id),
+                            quote(claim_id),
                             quote(id)
-                        ));
+                        )));
                     }
                 }
             }
         }
-        Ok(proposal
+        proposal
             .claims
             .iter()
-            .map(
-                |claim| match drafts.iter().find(|a| a.claim_id == claim.id.as_str()) {
-                    Some(a) => ClaimAssessment {
+            .map(|claim| {
+                drafts
+                    .iter()
+                    .find(|(id, _)| id == claim.id.as_str())
+                    .map(|(_, a)| ClaimAssessment {
                         claim_id: claim.id.clone(),
                         corroborated: a.corroborated,
                         relevant_evidence: a
@@ -1839,40 +2128,38 @@ impl MetaModelClient {
                             .map(EvidenceId::new)
                             .collect(),
                         note: a.note.clone(),
-                    },
-                    // Conservative completion: an omitted claim is never
-                    // treated as corroborated.
-                    None => ClaimAssessment {
-                        claim_id: claim.id.clone(),
-                        corroborated: false,
-                        relevant_evidence: vec![],
-                        contradicting_evidence: vec![],
-                        note: "evaluator omitted this claim; treated as uncorroborated".into(),
-                    },
-                },
-            )
-            .collect())
+                    })
+                    .ok_or_else(|| {
+                        malformed(format!(
+                            "assessments: no assessment for claim_id {}",
+                            quote(claim.id.as_str())
+                        ))
+                    })
+            })
+            .collect()
     }
 
     /// One verdict per objection under evaluation, in the order they were
-    /// shown. A verdict for anything else, a second verdict for one item,
-    /// or an item without a verdict is malformed: none is ever inferred.
+    /// shown. A key that is not an objection under evaluation, an item
+    /// judged under two keys, or an item without a verdict is malformed:
+    /// none is ever inferred (the per-call schema requires every item id).
     fn verdicts_from_draft(
         expected: &[&str],
-        drafts: Vec<DraftItemVerdict>,
+        drafts: Keyed<DraftItemVerdict>,
     ) -> Result<Vec<ItemVerdict>, ModelError> {
         let malformed = |m: String| ModelError::malformed(m);
-        for (n, v) in drafts.iter().enumerate() {
-            if !expected.contains(&v.item_id.as_str()) {
+        let drafts = drafts.0;
+        for (n, (item_id, _)) in drafts.iter().enumerate() {
+            if !expected.contains(&item_id.as_str()) {
                 return Err(malformed(format!(
                     "item_verdicts: item_id {} is not an objection under evaluation",
-                    quote(&v.item_id)
+                    quote(item_id)
                 )));
             }
-            if drafts[..n].iter().any(|w| w.item_id == v.item_id) {
+            if drafts[..n].iter().any(|(w, _)| w == item_id) {
                 return Err(malformed(format!(
                     "item_verdicts: item_id {} has more than one verdict",
-                    quote(&v.item_id)
+                    quote(item_id)
                 )));
             }
         }
@@ -1881,9 +2168,9 @@ impl MetaModelClient {
             .map(|id| {
                 drafts
                     .iter()
-                    .find(|v| v.item_id == *id)
-                    .map(|v| ItemVerdict {
-                        item_id: v.item_id.clone(),
+                    .find(|(item_id, _)| item_id == *id)
+                    .map(|(item_id, v)| ItemVerdict {
+                        item_id: item_id.clone(),
                         status: v.status,
                         reason: v.reason.clone(),
                     })
@@ -1966,9 +2253,17 @@ impl MetaModelClient {
     }
 }
 
+/// A schema that could not be built: this adapter's own fault, before any
+/// call, so no invocation stands behind it.
+fn schema_error(e: String) -> ModelError {
+    ModelError::malformed(format!("schema build: {e}"))
+}
+
 impl ModelClient for MetaModelClient {
     fn propose(&mut self, task: &Task) -> Result<(Proposal, ModelInvocation), ModelError> {
-        let (draft, inv) = self.call::<DraftProposal>(Role::Propose, propose_prompt(task))?;
+        let schema = draft_schema::<DraftProposal>().map_err(schema_error)?;
+        let (draft, inv) =
+            self.call::<DraftProposal>(Role::Propose, schema, propose_prompt(task))?;
         let built = self.build_proposal(&task.run_id.clone(), draft);
         self.answered(built, inv)
     }
@@ -1978,8 +2273,9 @@ impl ModelClient for MetaModelClient {
         proposal: &Proposal,
         ctx: &RoleContext,
     ) -> Result<(Challenge, ModelInvocation), ModelError> {
+        let schema = draft_schema::<DraftChallenge>().map_err(schema_error)?;
         let (draft, inv) =
-            self.call::<DraftChallenge>(Role::Critique, critique_prompt(proposal, ctx))?;
+            self.call::<DraftChallenge>(Role::Critique, schema, critique_prompt(proposal, ctx))?;
         // Label-only items (live L02) passed schema validation but say
         // nothing; the whole document is rejected, never silently trimmed.
         if let Some((n, item)) = draft
@@ -2037,10 +2333,18 @@ impl ModelClient for MetaModelClient {
         challenge: &Challenge,
         ctx: &RoleContext,
     ) -> Result<(Evaluation, ModelInvocation), ModelError> {
-        let (draft, inv) = self
-            .call::<DraftEvaluation>(Role::Evaluate, evaluate_prompt(proposal, challenge, ctx))?;
+        // The schema is keyed by exactly the ids the prompt shows, in the
+        // order it shows them: the proposal's claims, then the objections
+        // under evaluation (carried first, then this round's).
         let expected = under_evaluation(ctx, challenge);
         let expected_ids: Vec<&str> = expected.iter().map(|(i, _)| i.id.as_str()).collect();
+        let claim_ids: Vec<&str> = proposal.claims.iter().map(|c| c.id.as_str()).collect();
+        let schema = evaluation_schema(&claim_ids, &expected_ids).map_err(schema_error)?;
+        let (draft, inv) = self.call::<DraftEvaluation>(
+            Role::Evaluate,
+            schema,
+            evaluate_prompt(proposal, challenge, ctx),
+        )?;
         let built = self.evaluation_from_draft(proposal, ctx, &expected_ids, draft);
         self.answered(built, inv)
     }
@@ -2052,8 +2356,10 @@ impl ModelClient for MetaModelClient {
         evaluation: &Evaluation,
         ctx: &RoleContext,
     ) -> Result<(Revision, ModelInvocation), ModelError> {
+        let schema = draft_schema::<DraftRevision>().map_err(schema_error)?;
         let (draft, inv) = self.call::<DraftRevision>(
             Role::Revise,
+            schema,
             revise_prompt(proposal, challenge, evaluation, ctx),
         )?;
         let expected = under_evaluation(ctx, challenge);
@@ -2091,6 +2397,7 @@ impl ModelClient for MetaModelClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     /// Every delimiter variant the audit named (MA-7, TC-9), each embedded
     /// in otherwise ordinary text.
@@ -2289,5 +2596,196 @@ mod tests {
         // Not constant: 200 draws in [0, 500] ms are never all equal.
         let draws: Vec<Duration> = (0..200).map(|_| full_jitter(base, 1)).collect();
         assert!(draws.iter().any(|d| *d != draws[0]));
+    }
+
+    /// The strict-schema invariants at every object schema of `schema`
+    /// (definitions included): `required` names every property exactly
+    /// once and nothing else, and no other property is allowed.
+    fn assert_strict(schema: &serde_json::Value) {
+        match schema {
+            serde_json::Value::Object(map) => {
+                if let Some(properties) = map.get("properties").and_then(|p| p.as_object()) {
+                    let names: Vec<&str> = properties.keys().map(String::as_str).collect();
+                    let mut required: Vec<&str> = map["required"]
+                        .as_array()
+                        .unwrap_or_else(|| panic!("no required list in {schema}"))
+                        .iter()
+                        .map(|v| v.as_str().expect("a property name"))
+                        .collect();
+                    required.sort_unstable();
+                    assert_eq!(required, names, "required = properties in {schema}");
+                    assert_eq!(map["additionalProperties"], json!(false), "{schema}");
+                }
+                map.values().for_each(assert_strict);
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(assert_strict),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_evaluator_schema_is_keyed_by_the_calls_ids_in_their_order() {
+        let claims = ["claim-14", "claim-9", "claim-15"];
+        let items = ["item-3", "item-12"];
+        let schema = evaluation_schema(&claims, &items).unwrap();
+        // Serialized in the order given: serde_json alone would sort
+        // "claim-15" before "claim-9" and "item-12" before "item-3".
+        let text = serde_json::to_string(&schema).unwrap();
+        let at = |needle: &str| {
+            text.find(needle)
+                .unwrap_or_else(|| panic!("{needle} missing in {text}"))
+        };
+        assert!(at("\"claim-14\":{") < at("\"claim-9\":{"), "{text}");
+        assert!(at("\"claim-9\":{") < at("\"claim-15\":{"), "{text}");
+        assert!(at("\"item-3\":{") < at("\"item-12\":{"), "{text}");
+
+        let value = schema.to_value();
+        let assessments = &value["properties"]["assessments"];
+        assert_eq!(assessments["type"], json!("object"));
+        assert_eq!(assessments["required"], json!(claims));
+        assert_eq!(assessments["additionalProperties"], json!(false));
+        assert!(assessments["description"].is_string(), "{assessments}");
+        for id in claims {
+            assert_eq!(
+                assessments["properties"][id],
+                json!({"$ref": "#/definitions/DraftAssessment"}),
+                "{id}"
+            );
+        }
+        let verdicts = &value["properties"]["item_verdicts"];
+        assert_eq!(verdicts["type"], json!("object"));
+        assert_eq!(verdicts["required"], json!(items));
+        assert_eq!(verdicts["additionalProperties"], json!(false));
+        for id in items {
+            assert_eq!(
+                verdicts["properties"][id],
+                json!({"$ref": "#/definitions/DraftItemVerdict"}),
+                "{id}"
+            );
+        }
+        // The entries carry no id field: the key is the id. Clearing a
+        // carried contradiction stays optional, so that is still a list.
+        let assessment = &value["definitions"]["DraftAssessment"];
+        assert_eq!(
+            assessment["required"],
+            json!([
+                "contradicting_evidence",
+                "corroborated",
+                "note",
+                "relevant_evidence"
+            ])
+        );
+        assert_eq!(
+            value["definitions"]["DraftItemVerdict"]["required"],
+            json!(["reason", "status"])
+        );
+        assert_eq!(
+            value["properties"]["cleared_contradictions"]["type"],
+            json!("array")
+        );
+        assert_eq!(
+            value["properties"]["abstain_reason"]["type"],
+            json!(["string", "null"]),
+            "optional values stay nullable"
+        );
+        assert_eq!(
+            value["required"],
+            json!([
+                "abstain",
+                "abstain_reason",
+                "assessments",
+                "cleared_contradictions",
+                "item_verdicts"
+            ])
+        );
+        assert_strict(&value);
+
+        // No claims and no objections: empty objects, still strict.
+        let empty = evaluation_schema(&[], &[]).unwrap().to_value();
+        for field in ["assessments", "item_verdicts"] {
+            assert_eq!(empty["properties"][field]["properties"], json!({}));
+            assert_eq!(empty["properties"][field]["required"], json!([]));
+            assert_eq!(
+                empty["properties"][field]["additionalProperties"],
+                json!(false)
+            );
+        }
+        assert_strict(&empty);
+
+        // A repeated id would be this adapter's bug: refused, named.
+        let err = evaluation_schema(&["claim-1", "claim-2", "claim-1"], &[]).unwrap_err();
+        assert!(
+            err.contains("assessments") && err.contains("\"claim-1\""),
+            "{err}"
+        );
+        let err = evaluation_schema(&["claim-1"], &["item-4", "item-4"]).unwrap_err();
+        assert!(
+            err.contains("item_verdicts") && err.contains("\"item-4\""),
+            "{err}"
+        );
+
+        // Every other role's schema is the plain strict schema.
+        for schema in [
+            draft_schema::<DraftProposal>().unwrap(),
+            draft_schema::<DraftChallenge>().unwrap(),
+            draft_schema::<DraftRevision>().unwrap(),
+        ] {
+            assert_strict(&schema.to_value());
+        }
+    }
+
+    #[test]
+    fn ordered_json_serializes_members_in_the_order_given() {
+        let doc = OrderedJson::Object(vec![
+            ("b".into(), OrderedJson::Scalar(json!(1))),
+            (
+                "a".into(),
+                OrderedJson::Array(vec![
+                    OrderedJson::Scalar(json!("x")),
+                    OrderedJson::Object(vec![("z".into(), OrderedJson::Scalar(json!(null)))]),
+                ]),
+            ),
+        ]);
+        assert_eq!(
+            serde_json::to_string(&doc).unwrap(),
+            r#"{"b":1,"a":["x",{"z":null}]}"#
+        );
+        assert_eq!(doc.get("b"), Some(&OrderedJson::Scalar(json!(1))));
+        assert_eq!(doc.get("missing"), None);
+        // From a Value: that Value's own order, and back without loss.
+        let value = json!({"z": {"y": 1.5, "x": [true, null, "s"]}, "a": "s"});
+        let ordered = OrderedJson::from(value.clone());
+        assert_eq!(ordered.to_value(), value);
+        assert_eq!(
+            serde_json::to_string(&ordered).unwrap(),
+            serde_json::to_string(&value).unwrap()
+        );
+    }
+
+    #[test]
+    fn keyed_entries_keep_their_order_and_their_repeats() {
+        let keyed: Keyed<u32> =
+            serde_json::from_str(r#"{"claim-2":1,"claim-1":2,"claim-2":3}"#).unwrap();
+        assert_eq!(
+            keyed.0,
+            vec![
+                ("claim-2".to_string(), 1),
+                ("claim-1".to_string(), 2),
+                ("claim-2".to_string(), 3)
+            ]
+        );
+        let empty: Keyed<u32> = serde_json::from_str("{}").unwrap();
+        assert!(empty.0.is_empty());
+        for not_an_object in ["[]", "[{\"claim-1\":1}]", "null", "\"claim-1\""] {
+            assert!(
+                serde_json::from_str::<Keyed<u32>>(not_an_object).is_err(),
+                "{not_an_object}"
+            );
+        }
+        // Its schema is the map form the per-call rewrite starts from.
+        let schema = serde_json::to_value(schemars::schema_for!(Keyed<u32>)).unwrap();
+        assert_eq!(schema["type"], json!("object"));
+        assert_eq!(schema["additionalProperties"]["type"], json!("integer"));
+        assert!(schema.get("properties").is_none());
     }
 }

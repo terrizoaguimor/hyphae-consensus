@@ -1,7 +1,9 @@
 # ADR-0007: Public live mode on the owner's key; no hosted BYOK
 
-Date: 2026-10-27 · Status: accepted; admission library in progress (lane S-b2,
-`crates/consensus-api/src/live/`) · Scope: the public portal
+Date: 2026-10-27 · Status: accepted; admission library (lane S-b2) and public wiring
+(plan B9, `crates/consensus-api/src/live/`) implemented; the sealed-snapshot evidence
+client (ADR-0008, lane D2) pending, so `serve-public` refuses to start with live mode
+enabled until it is plugged in · Scope: the public portal
 
 ## Context
 
@@ -72,6 +74,39 @@ and the account holder pays any overage.
    the host's processing; an AI disclosure and a limitations panel are shown. No Meta
    logo, no "Built with / Powered by Meta" badge, factual references only, and a visible
    "independent project, not affiliated with or endorsed by Meta" line.
+
+## Implementation (2026-10-27)
+
+- `POST /api/v1/live-runs` takes `{preset_id, attest_adult, judge_code?}` plus the
+  Turnstile token in `cf-turnstile-response`; the gate
+  (`crates/consensus-api/src/live/gate.rs`) checks, in order and stopping at the first
+  refusal: preset (`404 preset_unknown`), geography on the live surface (`451`), the
+  attestation (`422 attestation_required`), Turnstile fail-closed (`403
+  turnstile_required|turnstile_failed`, `503 turnstile_unavailable`), the lane (a hashed
+  judge code or the public lane, silently), then the ledger reservation (`429` with
+  `Retry-After` when the ledger gives a hint, `503` otherwise; stable codes
+  `live_budget_*`, `live_concurrency`, `live_hourly_admissions`, `live_tripped`,
+  `live_unavailable`; fixed sentences, never the ledger's text). The Siteverify
+  `idempotency_key` is the request's own `Idempotency-Key`, whose lookup runs first.
+- Every Meta HTTP attempt of a public run is drawn on the run's reservation and settled
+  once (`MetaModelClient::with_meter`); a refused draw fails the run at its stage with
+  `budget_refused`. The reservation is released when the run ends, when its
+  deliberation is dropped (a caught panic), or when the start fails; a release that
+  fails is logged with its id for `release_by_id`. `safety_identifier` is the session's
+  pseudonym (`visitor:<16 hex>`), not an HMAC; `max_completion_tokens` is the live bound.
+- The portal-wide block (duty 7) is a middleware on every public route reading
+  `CF-IPCountry` from a listener behind cloudflared: a listed country is `451
+  geo_blocked_portal`, a missing header `451 geo_unknown`; the live surface also refuses
+  South Korea and any unknown country (`451 geo_blocked_live`), which includes a
+  development bind that trusts no proxy header. `/capabilities` publishes the presets,
+  the public budget projection and the requirements (never the judge lane); `/ready`
+  is false while the ledger is tripped or the evidence source is not ok.
+- The server key may come from a file (`CONSENSUS_META_API_KEY_FILE`, systemd
+  `LoadCredential`), ahead of every key variable.
+- Follow-ups: the operator console's own live runs (`model=meta` on `serve-operator`)
+  do not go through the ledger yet, so their spend is not counted against the caps; the
+  per-client live limit (one per /64) is not enforced beyond the global slots; the
+  sealed-snapshot factory (ADR-0008) is the one missing part of the public live path.
 
 ## Consequences
 

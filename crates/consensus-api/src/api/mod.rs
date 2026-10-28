@@ -317,8 +317,8 @@ pub struct AppState {
     /// The store health `/ready` answered last, and when.
     pub ready_cache: Arc<Mutex<Option<(Instant, StoreHealth)>>>,
     /// The geographic policy (ADR-0007 duty 7): the portal-wide block is
-    /// applied to every public route by [`portal_geo`], the live-only
-    /// block by the live gate. Loaded from the `CONSENSUS_GEO_*` variables
+    /// applied to every public route by the `portal_geo` middleware, the
+    /// live-only block by the live gate. Loaded from the `CONSENSUS_GEO_*` variables
     /// with their defaults whether or not live mode is enabled.
     pub geo: Arc<GeoPolicy>,
 }

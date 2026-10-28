@@ -81,10 +81,47 @@ pub struct Showcase {
     dir: PathBuf,
     entries: Vec<ShowcaseEntryV1>,
     runs: HashMap<RunId, ArchivedRun>,
-    /// Served path -> pinned digest (None for unpinned files).
+    /// Served path -> digest: the manifest's for pinned files, the one
+    /// computed at load for the unpinned ones (so a conditional request is
+    /// answered without reading the file).
     files: BTreeMap<String, Option<String>>,
     manifest_sha256: String,
     errors: Vec<String>,
+}
+
+/// The outcome label of a run as its chained records say it: the
+/// recommendation kind, or `failed:<stage>`, or the state while neither
+/// exists.
+pub fn outcome_of(agg: &consensus_runtime::RunAggregate, events: &[ConsensusEvent]) -> String {
+    if agg.state == RunState::Failed {
+        let stage = events
+            .iter()
+            .rev()
+            .find_map(|e| match &e.payload {
+                EventPayload::RunFailed { stage, .. } => Some(stage.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "unknown".into());
+        return format!("failed:{stage}");
+    }
+    match &agg.recommendation {
+        Some(rec) => serde_json::to_value(rec.kind)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(|| format!("{:?}", rec.kind)),
+        None => serde_json::to_value(agg.state)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(|| format!("{:?}", agg.state)),
+    }
+}
+
+/// The authorization label of a run as its records say it.
+pub fn authorization_of(agg: &consensus_runtime::RunAggregate) -> String {
+    serde_json::to_value(agg.authorization)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{:?}", agg.authorization))
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -134,7 +171,13 @@ impl Showcase {
         let mut errors = Vec::new();
         let mut files: BTreeMap<String, Option<String>> = BTreeMap::new();
         for name in UNPINNED {
-            files.insert(name.to_string(), None);
+            // Not pinned by the manifest: the digest computed now serves
+            // conditional requests; a read still re-hashes the bytes.
+            let digest = match std::fs::read(dir.join(name)) {
+                Ok(bytes) => Some(sha256_hex(&bytes)),
+                Err(_) => None,
+            };
+            files.insert(name.to_string(), digest);
         }
         let mut logs: HashMap<String, Vec<ConsensusEvent>> = HashMap::new();
         for file in &manifest.files {
@@ -191,13 +234,32 @@ impl Showcase {
                 .last()
                 .map(|e| e.hash.clone())
                 .filter(|h| !h.is_empty());
+            // The list says what the chain says, like the detail and the
+            // receipt; the manifest's own labels are only checked against it.
+            let Some(agg) = public_view::aggregate_of(&run_events) else {
+                continue;
+            };
+            let outcome = outcome_of(&agg, &run_events);
+            let authorization = authorization_of(&agg);
+            if outcome != run.outcome {
+                errors.push(format!(
+                    "{}: MANIFEST.json says outcome {:?}, the records say {outcome:?}",
+                    run.label, run.outcome
+                ));
+            }
+            if authorization != run.authorization {
+                errors.push(format!(
+                    "{}: MANIFEST.json says authorization {:?}, the records say {authorization:?}",
+                    run.label, run.authorization
+                ));
+            }
             let entry = ShowcaseEntryV1 {
                 run_id: run_id.clone(),
                 label: run.label.clone(),
                 battery: run.battery.clone(),
                 title: run.task_title.clone(),
-                outcome: run.outcome.clone(),
-                authorization: run.authorization.clone(),
+                outcome,
+                authorization,
                 schema_version: run.schema_version.clone(),
                 provenance: public_view::provenance(&run_events, SourceProvenance::ResearchArchive),
                 file: run.file.clone(),
@@ -278,6 +340,17 @@ impl Showcase {
         Some(build_receipt_v2(events, generated_at))
     }
 
+    /// The digest a served path is known by (the manifest's for a pinned
+    /// file, the one computed at load otherwise), without reading the
+    /// file: what answers an `If-None-Match`. None for a path the archive
+    /// does not serve, or an unpinned file that was absent at load.
+    pub fn known_sha256(&self, path: &str) -> Option<&str> {
+        if !safe_archive_path(path) {
+            return None;
+        }
+        self.files.get(path).and_then(|d| d.as_deref())
+    }
+
     /// An archive file by its served path, verified against its pinned
     /// digest on every read.
     pub fn research_file(&self, path: &str) -> Result<ResearchFile, ResearchError> {
@@ -287,9 +360,13 @@ impl Showcase {
         }
         let bytes = std::fs::read(self.dir.join(path))?;
         let sha256 = sha256_hex(&bytes);
-        if let Some(expected) = pinned {
-            if *expected != sha256 {
-                return Err(ResearchError::Mismatch);
+        // Only the manifest's digests are a promise; an unpinned file's
+        // digest is whatever it hashes to now.
+        if !UNPINNED.contains(&path) {
+            if let Some(expected) = pinned {
+                if *expected != sha256 {
+                    return Err(ResearchError::Mismatch);
+                }
             }
         }
         Ok(ResearchFile {

@@ -20,7 +20,7 @@
 //! | `CONSENSUS_CSP_MANIFEST` | `<web root>/csp-manifest.json` | Per-page inline script and style hashes produced by the web build (`apps/web/scripts/csp-manifest.mjs`). A missing file means every page gets the base policy without hashes. |
 //! | `CONSENSUS_ALLOWED_ORIGINS` | derived from the bind address in TCP mode; required with the socket | Comma-separated `Origin` values accepted on state-changing requests, e.g. `https://demo.example.org`. |
 //! | `CONSENSUS_ALLOWED_HOSTS` | derived from the bind address in TCP mode; required with the socket | Comma-separated `Host` values accepted, e.g. `demo.example.org`. |
-//! | `CONSENSUS_TRUST_PROXY_HEADERS` | `true` with the socket, `false` with TCP | Whether `CF-Connecting-IP` names the client. When true, a request without it is refused (ABUSE-2). |
+//! | `CONSENSUS_TRUST_PROXY_HEADERS` | `true` with the socket, `false` with TCP | Whether `CF-Connecting-IP` names the client. When true, a request without it is refused (ABUSE-2). `false` is refused with the unix socket: a socket has no peer address, so every visitor would share one client key, one rate bucket and one stream cap. |
 //! | `CONSENSUS_RUN_STORE_DIR` | `consensus-store` | Root of the per-run store (`runs/`). |
 //! | `CONSENSUS_RESEARCH_DIR` | `research` | The read-only research archive served as the showcase. |
 //! | `CONSENSUS_SESSION_TTL_SECS` | `86400` | Visitor session lifetime. |
@@ -36,13 +36,20 @@
 //! | `CONSENSUS_RATE_RUNS_PER_MIN` | `6` | Runs one client key may create per minute. |
 //! | `CONSENSUS_RATE_SSE_PER_MIN` | `30` | Event streams one client key may open per minute. |
 //! | `CONSENSUS_RATE_TABLE_MAX` | `50000` | Bound of each per-client rate table (LRU eviction). |
-//! | `CONSENSUS_GUIDED_RING` | `2000` | Visitor runs kept in the store at once; beyond it run creation answers `503 storage_full` until retention frees space. |
-//! | `CONSENSUS_VISITOR_ACCESS_HOURS` | `24` | How long a visitor can reach a run. |
-//! | `CONSENSUS_VISITOR_DELETE_DAYS` | `7` | When a visitor run's files are deleted whole. |
-//! | `CONSENSUS_COOKIE_SECURE` | `true` | `Secure` on the session cookie. Only turn it off for plain-HTTP development. |
-//! | `CONSENSUS_OPERATOR_BIND` | `127.0.0.1:8787` | Loopback TCP address of `serve-operator`; non-loopback is refused. |
+//! | `CONSENSUS_GUIDED_RING` | `2000` | Visitor runs kept in the store at once, as a ring: when it is full, the oldest resting visitor runs (those past their access window first) are purged to admit a new one, so a visitor may lose a run before its access window ends under heavy load; only when nothing can be freed (every stored visitor run is deliberating or being read) does creation answer `503 storage_full`. Operator runs on a shared store neither count nor are purged. |
+//! | `CONSENSUS_VISITOR_ACCESS_HOURS` | `24` | How long a visitor can reach a run (at most; see the ring). |
+//! | `CONSENSUS_VISITOR_DELETE_DAYS` | `7` | When a visitor run's files are deleted whole (at the latest; see the ring). |
+//! | `CONSENSUS_COOKIE_SECURE` | `true` | `Secure` on the session cookie, named `__Host-hc_session`. `false` is for plain-HTTP development only: the `__Host-` prefix requires `Secure` (a browser drops the cookie otherwise), so the cookie is then named `hc_session`. Chrome and Firefox treat `http://localhost` as a secure context, so `true` works there too. |
+//! | `CONSENSUS_REQUEST_TIMEOUT_SECS` | `30` | How long a request may take to be handled, body read included; past it the answer is `408 request_timeout`. A stream's body is not covered once its headers are sent. Header-read timeouts and connection limits are cloudflared's (the socket's only client); `axum::serve` sets no timer, so hyper's own header timeout is inactive. |
+//! | `CONSENSUS_OPERATOR_BIND` | `127.0.0.1:8787` | Loopback TCP address of `serve-operator`; non-loopback is refused. The accepted `Host` values are the bound address, `127.0.0.1:<port>` and `localhost:<port>`. |
 //! | `CONSENSUS_OPERATOR_TOKEN_FILE` | unset | File holding the operator bearer token (at least 32 characters). Without it a token is generated and printed once. |
 //! | `CONSENSUS_MAX_RUN_TOKENS` | runtime default | Per-run token cap (see [`crate::config::run_limits_from_env`]). |
+//!
+//! The `CONSENSUS_RATE_*` and `CONSENSUS_SSE_MAX_PER_CLIENT` limits are
+//! visitor limits. The operator surface keys every request on its loopback
+//! peer, so it uses its own generous bounds ([`operator_limits`]): 120 runs
+//! and 600 streams per minute, and a per-client stream cap equal to the
+//! global one.
 
 use crate::config::parse_max_run_tokens;
 use consensus_runtime::RunLimits;
@@ -96,6 +103,26 @@ pub struct RuntimeConfig {
     pub sse: SseLimits,
     pub rates: RateLimits,
     pub max_run_tokens: RunLimits,
+    /// How long a request may take to be handled.
+    pub request_timeout: Duration,
+}
+
+/// The operator surface's own request limits: one operator on a loopback
+/// peer, so the visitor rates would only get in the console's way. Sessions
+/// are not minted there; the rate stays for the table's shape.
+pub fn operator_limits(rt: &RuntimeConfig) -> (RateLimits, SseLimits) {
+    (
+        RateLimits {
+            session_per_min: 60,
+            runs_per_min: 120,
+            sse_per_min: 600,
+            table_max: rt.rates.table_max,
+        },
+        SseLimits {
+            max_per_client: rt.sse.max_global,
+            ..rt.sse
+        },
+    )
 }
 
 /// `serve-public` configuration.
@@ -203,10 +230,21 @@ fn parse_loopback(name: &str, value: &str) -> Result<SocketAddr, String> {
     Ok(addr)
 }
 
-/// `Host` values and `Origin` values a loopback listener answers for.
+/// `Host` values and `Origin` values a loopback listener answers for: the
+/// bound address as a browser writes it (`[::1]:port` for IPv6), plus
+/// `127.0.0.1:port` and `localhost:port`.
 fn loopback_names(addr: &SocketAddr) -> (Vec<String>, Vec<String>) {
     let port = addr.port();
-    let hosts = vec![format!("127.0.0.1:{port}"), format!("localhost:{port}")];
+    let bound = match addr.ip() {
+        IpAddr::V4(ip) => format!("{ip}:{port}"),
+        IpAddr::V6(ip) => format!("[{ip}]:{port}"),
+    };
+    let mut hosts = vec![bound];
+    for name in [format!("127.0.0.1:{port}"), format!("localhost:{port}")] {
+        if !hosts.contains(&name) {
+            hosts.push(name);
+        }
+    }
     let origins = hosts.iter().map(|h| format!("http://{h}")).collect();
     (hosts, origins)
 }
@@ -270,6 +308,12 @@ impl RuntimeConfig {
                 table_max: parse_usize(env, "CONSENSUS_RATE_TABLE_MAX", 50_000, 16)?,
             },
             max_run_tokens,
+            request_timeout: Duration::from_secs(parse_u64(
+                env,
+                "CONSENSUS_REQUEST_TIMEOUT_SECS",
+                30,
+                1,
+            )?),
         })
     }
 }
@@ -295,6 +339,12 @@ impl PublicConfig {
         };
         let trust_default = matches!(listener, PublicListener::UnixSocket(_));
         let trust_proxy_headers = parse_bool(env, "CONSENSUS_TRUST_PROXY_HEADERS", trust_default)?;
+        if trust_default && !trust_proxy_headers {
+            return Err(
+                "CONSENSUS_TRUST_PROXY_HEADERS=false is refused with the unix socket: a socket connection has no peer address, so every visitor would share one client key (one rate bucket, one stream cap); keep it true behind cloudflared, or set CONSENSUS_PUBLIC_BIND for development"
+                    .into(),
+            );
+        }
 
         let mut allowed_origins = parse_list(env, "CONSENSUS_ALLOWED_ORIGINS");
         let mut allowed_hosts = parse_list(env, "CONSENSUS_ALLOWED_HOSTS");
@@ -381,8 +431,8 @@ impl OperatorConfig {
         })
     }
 
-    /// `Host` and `Origin` values the operator server accepts: exactly
-    /// `127.0.0.1:<port>` and `localhost:<port>`.
+    /// `Host` and `Origin` values the operator server accepts: the bound
+    /// address, `127.0.0.1:<port>` and `localhost:<port>`.
     pub fn allowed_names(&self) -> (Vec<String>, Vec<String>) {
         loopback_names(&self.bind)
     }
@@ -426,6 +476,37 @@ mod tests {
         assert!(cfg.cookie_secure);
         assert_eq!(cfg.guided_ring, 2000);
         assert_eq!(cfg.runtime.sse.heartbeat, Duration::from_secs(15));
+        assert_eq!(cfg.runtime.request_timeout, Duration::from_secs(30));
+        let map = env(&[
+            ("CONSENSUS_PUBLIC_BIND", "127.0.0.1:8788"),
+            ("CONSENSUS_REQUEST_TIMEOUT_SECS", "5"),
+        ]);
+        let cfg = PublicConfig::from_env(&lookup(&map)).unwrap();
+        assert_eq!(cfg.runtime.request_timeout, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn loopback_names_include_the_bound_address_bracketed_for_ipv6() {
+        let (hosts, origins) = loopback_names(&"[::1]:8787".parse().unwrap());
+        assert_eq!(hosts, ["[::1]:8787", "127.0.0.1:8787", "localhost:8787"]);
+        assert_eq!(origins[0], "http://[::1]:8787");
+        let (hosts, _) = loopback_names(&"127.0.0.1:8788".parse().unwrap());
+        assert_eq!(hosts, ["127.0.0.1:8788", "localhost:8788"], "no duplicate");
+        let map = env(&[("CONSENSUS_OPERATOR_BIND", "[::1]:8787")]);
+        let cfg = OperatorConfig::from_env(&lookup(&map)).unwrap();
+        assert!(cfg.allowed_names().0.contains(&"[::1]:8787".to_string()));
+    }
+
+    #[test]
+    fn the_operator_surface_has_its_own_generous_limits() {
+        let map = env(&[("CONSENSUS_SSE_MAX_GLOBAL", "64")]);
+        let cfg = OperatorConfig::from_env(&lookup(&map)).unwrap();
+        let (rates, sse) = operator_limits(&cfg.runtime);
+        assert_eq!(rates.runs_per_min, 120);
+        assert_eq!(rates.sse_per_min, 600);
+        assert_eq!(sse.max_per_client, 64);
+        assert_eq!(sse.max_global, 64);
+        assert_eq!(rates.table_max, cfg.runtime.rates.table_max);
     }
 
     #[test]
@@ -451,6 +532,7 @@ mod tests {
             ("CONSENSUS_COOKIE_SECURE", "maybe"),
             ("CONSENSUS_TRUST_PROXY_HEADERS", "2"),
             ("CONSENSUS_RATE_RUNS_PER_MIN", "many"),
+            ("CONSENSUS_REQUEST_TIMEOUT_SECS", "0"),
             ("CONSENSUS_MAX_RUN_TOKENS", "0"),
             ("CONSENSUS_ALLOWED_ORIGINS", "demo.example.org"),
             ("CONSENSUS_ALLOWED_HOSTS", "https://demo.example.org"),
@@ -484,6 +566,15 @@ mod tests {
             PublicListener::UnixSocket(PathBuf::from(DEFAULT_PUBLIC_SOCKET))
         );
         assert!(cfg.trust_proxy_headers);
+        // A socket has no peer address: refusing the proxy header would
+        // key every visitor alike, so that combination is refused.
+        let map = env(&[
+            ("CONSENSUS_ALLOWED_ORIGINS", "https://demo.example.org"),
+            ("CONSENSUS_ALLOWED_HOSTS", "demo.example.org"),
+            ("CONSENSUS_TRUST_PROXY_HEADERS", "false"),
+        ]);
+        let err = PublicConfig::from_env(&lookup(&map)).unwrap_err();
+        assert!(err.contains("CONSENSUS_TRUST_PROXY_HEADERS"), "{err}");
     }
 
     #[cfg(not(unix))]

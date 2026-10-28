@@ -7,16 +7,17 @@
 mod common;
 
 use axum::http::{header, StatusCode};
-use common::doubles::{gated_start, panicking_start};
+use common::doubles::{gated_start, panicking_start, unavailable_start, GateMode, TestGate};
 use common::{
     body_bytes, body_text, cookie_value, public_server, read_sse, sequences, Req, SseReader,
     INDEX_SCRIPT,
 };
+use consensus_api::runs::RunKind;
 use consensus_api::server::BuildOptions;
 use consensus_api::static_files::csp_hash;
 use consensus_domain::*;
 use consensus_runtime::event_log::verify_bytes;
-use consensus_runtime::{Owner, Retention};
+use consensus_runtime::{IndexKind, Owner, Retention};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,17 +64,14 @@ async fn sessions_are_minted_by_post_only_and_carry_the_right_attributes() {
         .to_str()
         .unwrap()
         .to_string();
-    for attr in [
-        "__Host-hc_session=",
-        "HttpOnly",
-        "SameSite=Strict",
-        "Path=/",
-    ] {
+    // cookie_secure=false in this test: the __Host- prefix requires Secure
+    // (a browser would drop the cookie), so the plain name is used.
+    for attr in ["hc_session=", "HttpOnly", "SameSite=Strict", "Path=/"] {
         assert!(set_cookie.contains(attr), "{set_cookie}");
     }
     assert!(
-        !set_cookie.contains("Secure"),
-        "cookie_secure=false in this test"
+        !set_cookie.contains("Secure") && !set_cookie.contains("__Host-"),
+        "{set_cookie}"
     );
     let cookie = cookie_value(response.headers()).unwrap();
     assert_eq!(cookie.len(), 64);
@@ -81,16 +79,23 @@ async fn sessions_are_minted_by_post_only_and_carry_the_right_attributes() {
     assert_eq!(body["created"], true);
     assert!(body["pseudonym"].as_str().unwrap().starts_with("visitor:"));
 
-    // The secure default sets Secure.
+    // The secure default sets Secure, with the host-locked name.
     let secure = public_server(
         &[("CONSENSUS_COOKIE_SECURE", "true")],
         BuildOptions::default(),
     );
     let response = secure.send(Req::post("/api/v1/session")).await;
-    assert!(response.headers()[header::SET_COOKIE]
+    let set_cookie = response.headers()[header::SET_COOKIE]
         .to_str()
         .unwrap()
-        .contains("; Secure"));
+        .to_string();
+    assert!(set_cookie.starts_with("__Host-hc_session="), "{set_cookie}");
+    assert!(set_cookie.contains("; Secure"), "{set_cookie}");
+    let secure_cookie = cookie_value(response.headers()).unwrap();
+    let (status, _, _) = secure
+        .json(Req::get("/api/v1/session").cookie(&secure_cookie))
+        .await;
+    assert_eq!(status, StatusCode::OK);
 
     // A second POST with a live cookie keeps the session.
     let (status, body, headers) = server
@@ -272,6 +277,19 @@ async fn security_headers_and_per_page_csp_are_present() {
     assert!(csp.contains("https://challenges.cloudflare.com"));
     assert!(!csp.contains("unsafe-eval") && !csp.contains("script-src 'self' 'unsafe-inline'"));
     assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+    // HTTP/2 style: the authority travels in the request target, with no
+    // Host header; it is checked the same way.
+    let response = server
+        .send(Req::get("http://localhost:8788/api/v1/health").without("host"))
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = server
+        .send(Req::get("http://evil.example/api/v1/health").without("host"))
+        .await;
+    assert_eq!(response.status(), StatusCode::MISDIRECTED_REQUEST);
+    // Every limit is reported, the request timeout included.
+    let (_, caps, _) = server.json(Req::get("/api/v1/capabilities")).await;
+    assert_eq!(caps["limits"]["request_timeout_secs"], 30);
     let response = server.send(Req::get("/en/")).await;
     assert_eq!(response.status(), StatusCode::OK);
     let csp = response.headers()[header::CONTENT_SECURITY_POLICY]
@@ -541,7 +559,8 @@ async fn a_guided_run_is_accepted_streamed_decided_and_receipted() {
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
     assert_eq!(body["code"], "run_not_cancellable");
 
-    // The stream of a decided run replays and ends as terminal.
+    // The stream of a decided run replays and ends as terminal, and no
+    // replayed frame of a resting run claims the deliberation is active.
     let response = server
         .send(Req::get(&format!("/api/v1/runs/{run_id}/events")).cookie(&cookie))
         .await;
@@ -550,6 +569,15 @@ async fn a_guided_run_is_accepted_streamed_decided_and_receipted() {
     assert_eq!(end["reason"], "terminal");
     assert_eq!(end["state"], "approved");
     assert_eq!(sequences(&frames).len() as u64, n + 1);
+    for frame in frames.iter().filter(|f| f.event == "consensus") {
+        let data = frame.json();
+        assert_eq!(data["delivery"], "replay");
+        assert_eq!(
+            data["summary"]["active"], false,
+            "replay of a finished run at sequence {}",
+            data["event"]["sequence"]
+        );
+    }
 
     // Receipt v2 and the verbatim ndjson agree with the detail.
     let response = server
@@ -958,6 +986,20 @@ async fn a_decision_during_deliberation_is_refused_and_live_frames_say_live() {
         rest.last().unwrap().json()["reason"],
         "awaiting_human_approval"
     );
+    // Live frames of a deliberating run say active; the frame whose record
+    // brings the run to its decision point does not.
+    let live: Vec<Value> = rest
+        .iter()
+        .filter(|f| f.event == "consensus" && f.json()["delivery"] == "live")
+        .map(|f| f.json())
+        .collect();
+    let (last, before) = live.split_last().unwrap();
+    assert!(
+        before.iter().all(|f| f["summary"]["active"] == true),
+        "{before:?}"
+    );
+    assert_eq!(last["summary"]["state"], "awaiting_human_approval");
+    assert_eq!(last["summary"]["active"], false);
 
     // What subscribers saw is exactly what is stored: a record is
     // published only after its fsync, so every frame's sequence and hash
@@ -1183,6 +1225,182 @@ async fn another_session_sees_nothing_of_a_run() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn public_ndjson_is_published_only_for_scripted_chains() {
+    const UPSTREAM: &str = "UPSTREAM-BODY-7f3e9c2a-never-public";
+    let server = public_server(&[], BuildOptions::default());
+    let cookie = server.new_session().await;
+    // A run declared live whose model call fails as the Meta adapter does:
+    // the recorded reason quotes the upstream response.
+    let start = unavailable_start(
+        owner_of(&server, &cookie),
+        visitor_retention(),
+        RunOrigin::Public,
+        &format!("meta api http 500: {UPSTREAM}"),
+    );
+    let snapshot = server.state.manager.start(start).await.unwrap();
+    let run_id = snapshot.aggregate.run_id.to_string();
+    let detail = server.wait_resting(&cookie, &run_id).await;
+    assert_eq!(detail["summary"]["state"], "failed", "{detail}");
+    assert_eq!(detail["summary"]["failure"]["code"], "model_unavailable");
+    assert_eq!(detail["summary"]["provenance"]["declared"]["model"], "meta");
+    assert!(
+        !detail.to_string().contains(UPSTREAM),
+        "the detail strips the reason"
+    );
+    // The stored chain commits to the text, so it cannot be sanitized:
+    // the public surface does not publish such a chain whole.
+    let stored = std::fs::read_to_string(
+        server
+            .dir
+            .path()
+            .join("store")
+            .join("runs")
+            .join(format!("{run_id}.jsonl")),
+    )
+    .unwrap();
+    assert!(stored.contains(UPSTREAM), "the record itself holds it");
+    let (status, body, _) = server
+        .json(Req::get(&format!("/api/v1/runs/{run_id}/events.ndjson")).cookie(&cookie))
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["code"], "ndjson_unavailable");
+    assert!(!body.to_string().contains(UPSTREAM));
+    // The sanitized views stay available and clean.
+    let response = server
+        .send(Req::get(&format!("/api/v1/runs/{run_id}/receipt")).cookie(&cookie))
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!body_text(response).await.contains(UPSTREAM));
+    let response = server
+        .send(Req::get(&format!("/api/v1/runs/{run_id}/events")).cookie(&cookie))
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let frames = read_sse(response.into_body(), 50).await;
+    assert_eq!(frames.last().unwrap().json()["reason"], "terminal");
+    for frame in &frames {
+        assert!(!frame.data.contains(UPSTREAM), "{frame:?}");
+    }
+    // A stranger still gets the plain 404 before any of this.
+    let other = server.new_session().await;
+    let (status, body, _) = server
+        .json(Req::get(&format!("/api/v1/runs/{run_id}/events.ndjson")).cookie(&other))
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["code"], "not_found");
+    // A guided run's chain, scripted end to end, is published verbatim.
+    let (_, created) = server.create_guided(&cookie, "retry").await;
+    let guided_id = created["run"]["run_id"].as_str().unwrap().to_string();
+    server.wait_resting(&cookie, &guided_id).await;
+    let response = server
+        .send(Req::get(&format!("/api/v1/runs/{guided_id}/events.ndjson")).cookie(&cookie))
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    verify_bytes(&body_bytes(response).await).expect("the published chain verifies");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_live_gate_is_asked_after_the_slot_and_refunded_when_the_start_fails() {
+    let gate = TestGate::new(GateMode::Refuse);
+    let server = public_server(
+        &[("CONSENSUS_LIVE_CONCURRENCY", "1")],
+        BuildOptions {
+            live_gate: Some(gate.clone()),
+            admission_wait: Duration::from_millis(100),
+            ..BuildOptions::default()
+        },
+    );
+    let cookie = server.new_session().await;
+    let (_, caps, _) = server.json(Req::get("/api/v1/capabilities")).await;
+    assert_eq!(caps["live_enabled"], true);
+    let submit = |token: Option<&str>| {
+        let req = Req::post("/api/v1/live-runs")
+            .cookie(&cookie)
+            .json(&json!({"preset_id": "retry-cap-3"}));
+        match token {
+            Some(token) => req.header("cf-turnstile-response", token),
+            None => req,
+        }
+    };
+
+    // Refused by the gate: its error is answered as is, nothing was
+    // created, and the gate saw only the preset, the pseudonym and the
+    // token.
+    let (status, body, _) = server.json(submit(Some("tok-1"))).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "too_many_runs");
+    assert_eq!(gate.admitted(), 1);
+    let (preset, pseudonym, token) = gate.last_request().unwrap();
+    assert_eq!(preset, "retry-cap-3");
+    assert!(pseudonym.starts_with("visitor:"), "{pseudonym}");
+    assert!(!pseudonym.contains(&cookie), "never the session id");
+    assert_eq!(token.as_deref(), Some("tok-1"));
+    let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 0);
+
+    // The slot comes before the gate: with the one live slot taken, the
+    // request is refused without the gate being asked (nothing charged).
+    gate.set_mode(GateMode::Grant);
+    let reservation = server.state.manager.reserve(RunKind::Live).await.unwrap();
+    assert_eq!(reservation.kind(), RunKind::Live);
+    let (status, body, _) = server.json(submit(None)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "too_many_runs");
+    assert_eq!(gate.admitted(), 1, "the gate was not asked");
+    drop(reservation);
+
+    // Granted, but the start fails: the grant is refunded and no run is
+    // left behind, not even an empty indexed one.
+    gate.set_mode(GateMode::GrantFailingStart);
+    let (status, body, _) = server.json(submit(None)).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert_eq!(gate.admitted(), 2);
+    assert_eq!(gate.refunded(), 1);
+    let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 0, "no orphan run");
+    assert_eq!(server.state.manager.session_run_count().unwrap(), 0);
+    let records = server.state.manager.store().index_records().unwrap();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|r| r.kind == IndexKind::Created)
+            .count(),
+        1,
+        "{records:?}"
+    );
+    assert_eq!(
+        records
+            .iter()
+            .filter(|r| r.kind == IndexKind::Purged)
+            .count(),
+        1,
+        "{records:?}"
+    );
+    assert_eq!(server.state.manager.broadcasts().active_channels(), 0);
+    let runs_dir = server.dir.path().join("store").join("runs");
+    assert_eq!(
+        std::fs::read_dir(&runs_dir).unwrap().count(),
+        2,
+        "the index and its lock only"
+    );
+
+    // Granted and started: 202, and the run deliberates like any other.
+    gate.set_mode(GateMode::Grant);
+    let (status, created, _) = server.json(submit(Some("tok-2"))).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    assert_eq!(
+        created["run"]["provenance"]["declared"]["preset"],
+        "live:retry-cap-3"
+    );
+    let run_id = created["run"]["run_id"].as_str().unwrap().to_string();
+    let detail = server.wait_resting(&cookie, &run_id).await;
+    assert_eq!(detail["summary"]["recommendation"], "supported");
+    assert_eq!(gate.admitted(), 3);
+    assert_eq!(gate.refunded(), 1, "a started run is never refunded");
+    let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_panicking_model_fails_only_its_run() {
     let server = public_server(&[], BuildOptions::default());
     let cookie = server.new_session().await;
@@ -1390,19 +1608,144 @@ async fn rates_streams_and_client_keys_are_enforced_per_slash_64() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_guided_ring_bounds_the_runs_a_deployment_stores() {
+async fn the_guided_ring_frees_the_oldest_resting_run_and_refuses_only_when_nothing_can_be_freed() {
     let server = public_server(&[("CONSENSUS_GUIDED_RING", "2")], BuildOptions::default());
     let cookie = server.new_session().await;
+    let mut ids = Vec::new();
     for _ in 0..2 {
         let (status, body) = server.create_guided(&cookie, "abstain").await;
         assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        let id = body["run"]["run_id"].as_str().unwrap().to_string();
+        server.wait_resting(&cookie, &id).await;
+        server.wait_released(&id).await;
+        ids.push(id);
     }
+    assert_eq!(server.state.manager.session_run_count().unwrap(), 2);
+
+    // Full: the next creation is admitted and the oldest run makes room.
+    let (status, body) = server.create_guided(&cookie, "abstain").await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let third = body["run"]["run_id"].as_str().unwrap().to_string();
+    server.wait_resting(&cookie, &third).await;
+    let (status, body) = server.detail(&cookie, &ids[0]).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the oldest run is gone: {body}"
+    );
+    assert_eq!(body["code"], "not_found");
+    let (status, _) = server.detail(&cookie, &ids[1]).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
+    let listed: Vec<&str> = list["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["run_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(listed, [third.as_str(), ids[1].as_str()]);
+    assert_eq!(server.state.manager.session_run_count().unwrap(), 2);
+    // The purge is on the record, like retention's.
+    let records = server.state.manager.store().index_records().unwrap();
+    assert!(
+        records
+            .iter()
+            .any(|r| r.kind == IndexKind::Purged && r.run_id.as_str() == ids[0]),
+        "{records:?}"
+    );
+    let (_, caps, _) = server.json(Req::get("/api/v1/capabilities")).await;
+    assert_eq!(caps["limits"]["guided_ring"], 2);
+
+    // Only when nothing can be freed is a creation refused: a ring of one
+    // whose single run is still deliberating.
+    let server = public_server(&[("CONSENSUS_GUIDED_RING", "1")], BuildOptions::default());
+    let cookie = server.new_session().await;
+    let (start, gate) = gated_start(owner_of(&server, &cookie), visitor_retention(), "critique");
+    let snapshot = server.state.manager.start(start).await.unwrap();
+    let run_id = snapshot.aggregate.run_id.to_string();
+    gate.wait_entered();
     let (status, body) = server.create_guided(&cookie, "abstain").await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
     assert_eq!(body["code"], "storage_full");
     assert!(body["retry_after_secs"].as_u64().unwrap() >= 1);
-    let (_, caps, _) = server.json(Req::get("/api/v1/capabilities")).await;
-    assert_eq!(caps["limits"]["guided_ring"], 2);
+    let (status, _) = server.detail(&cookie, &run_id).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the deliberating run was not touched"
+    );
+    // Once it rests, the ring turns.
+    gate.open();
+    server.wait_resting(&cookie, &run_id).await;
+    server.wait_released(&run_id).await;
+    let (status, body) = server.create_guided(&cookie, "abstain").await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let (status, _) = server.detail(&cookie, &run_id).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_retried_creation_with_the_same_key_returns_the_same_run() {
+    // One run per minute: the retry must be answered before admission, or
+    // it would be rate limited (and counted twice).
+    let server = public_server(
+        &[("CONSENSUS_RATE_RUNS_PER_MIN", "1")],
+        BuildOptions::default(),
+    );
+    let cookie = server.new_session().await;
+    let submit = || {
+        Req::post("/api/v1/runs")
+            .cookie(&cookie)
+            .header("idempotency-key", "submit-1")
+            .json(&json!({"scenario": "retry"}))
+    };
+    let (status, first, _) = server.json(submit()).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{first}");
+    let run_id = first["run"]["run_id"].as_str().unwrap().to_string();
+    let (status, again, headers) = server.json(submit()).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["run"]["run_id"], run_id);
+    assert_eq!(headers[header::LOCATION], format!("/api/v1/runs/{run_id}"));
+    let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 1, "one run");
+    // The same key with another body is refused.
+    let (status, body, _) = server
+        .json(
+            Req::post("/api/v1/runs")
+                .cookie(&cookie)
+                .header("idempotency-key", "submit-1")
+                .json(&json!({"scenario": "abstain"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["code"], "idempotency_key_reused");
+    // A malformed key is refused before anything else.
+    let (status, body, _) = server
+        .json(
+            Req::post("/api/v1/runs")
+                .cookie(&cookie)
+                .header("idempotency-key", "bad key!")
+                .json(&json!({"scenario": "retry"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "idempotency_key_required");
+    // Keys are scoped to the owner: another session's same key is its own.
+    let (status, other) = server.new_session_from("203.0.113.9:4000").await;
+    assert_eq!(status, StatusCode::CREATED);
+    let other = other.unwrap();
+    let (status, theirs, _) = server
+        .json(
+            Req::post("/api/v1/runs")
+                .cookie(&other)
+                .peer("203.0.113.9:4000")
+                .header("idempotency-key", "submit-1")
+                .json(&json!({"scenario": "retry"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{theirs}");
+    assert_ne!(theirs["run"]["run_id"], run_id);
+    assert_eq!(server.state.creation_keys.len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1454,4 +1797,26 @@ async fn a_damaged_stored_run_is_reported_never_served_as_if_whole() {
     }
     // The file was reported, never repaired.
     assert_eq!(std::fs::read(&path).unwrap(), tampered);
+
+    // A stranger's /events never reads the log: the damage is not even
+    // noticed, the answer is the 404 of any run not theirs, no stream slot
+    // is taken, and the probe counted against the stranger's client key.
+    let streams_before = server.state.rates.sse.len();
+    let (status, other) = server.new_session_from("198.51.100.9:5000").await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, body, headers) = server
+        .json(
+            Req::get(&format!("/api/v1/runs/{run_id}/events"))
+                .cookie(other.as_deref().unwrap())
+                .peer("198.51.100.9:5000"),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["code"], "not_found");
+    assert!(headers[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .starts_with("application/json"));
+    assert_eq!(server.state.stream_caps.open_streams(), 0);
+    assert_eq!(server.state.rates.sse.len(), streams_before + 1);
 }

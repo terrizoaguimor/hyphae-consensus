@@ -6,7 +6,10 @@
 
 use super::error::{ApiError, ErrorCode};
 use super::types::*;
-use super::{ApiJson, AppState, Client, Identity, LiveAdmissionRequest};
+use super::{
+    ApiJson, AppState, Client, CreationRecord, Identity, LiveAdmissionRequest, LiveGrant,
+    READY_CACHE_TTL, TURNSTILE_HEADER, TURNSTILE_TOKEN_MAX,
+};
 use crate::guided;
 use crate::public_config::BODY_LIMIT_BYTES;
 use crate::public_view::{self, Surface};
@@ -27,11 +30,13 @@ use consensus_runtime::clock::{SystemClock, UuidIdGen};
 use consensus_runtime::fakes::{FakeMemoryClient, FakeProofVerifier};
 use consensus_runtime::policy::PolicyVersion;
 use consensus_runtime::receipts::protocol_label;
+use consensus_runtime::run_store::StoreHealth;
 use consensus_runtime::scenarios::retry_constraint_scenario;
 use consensus_runtime::{
     build_receipt_v2, parse_run_id, Clock, Orchestrator, Owner, Retention, TaskInput,
 };
-use std::time::Duration;
+use sha2::{Digest, Sha256};
+use std::time::{Duration, Instant};
 
 /// Largest page of `GET /api/v1/runs`.
 pub const LIST_PAGE_MAX: u32 = 50;
@@ -118,6 +123,19 @@ async fn snapshot(state: &AppState, id: &str, owner: &Owner) -> Result<RunSnapsh
         .map_err(read_error)
 }
 
+/// Whether `owner` may reach the run, without reading its log: the active
+/// map, else the run index and the cached sidecar. 404 for anyone else.
+async fn owned(state: &AppState, id: &str, owner: &Owner) -> Result<(), ApiError> {
+    run_id_or_404(id)?;
+    let manager = state.manager.clone();
+    let id = id.to_string();
+    let owner = owner.clone();
+    blocking(move || manager.owned_meta(&id, &owner))
+        .await?
+        .map(|_| ())
+        .map_err(read_error)
+}
+
 fn created_response(state: &AppState, snapshot: &RunSnapshot) -> Response {
     let summary = summary_of(snapshot, state.surface());
     let location = format!("/api/v1/runs/{}", summary.run_id);
@@ -132,7 +150,9 @@ fn created_response(state: &AppState, snapshot: &RunSnapshot) -> Response {
     response
 }
 
-/// Admission shared by every run creation: rate, ring, shutdown.
+/// Admission shared by every run creation: shutdown, rate, and on the
+/// public surface the visitor-run ring, which purges the oldest resting
+/// visitor runs to make room and refuses only when nothing can be freed.
 async fn admit_creation(state: &AppState, client: &Client) -> Result<(), ApiError> {
     if state.manager.is_shutting_down() {
         return Err(
@@ -143,18 +163,93 @@ async fn admit_creation(state: &AppState, client: &Client) -> Result<(), ApiErro
     state.rates.runs.check(client.0).map_err(rate_limited)?;
     if state.surface() == Surface::Public {
         let manager = state.manager.clone();
-        let stored = blocking(move || manager.stored_run_count())
+        let cap = state.config.guided_ring;
+        let ring = blocking(move || manager.make_room(cap))
             .await?
             .map_err(ApiError::internal)?;
-        if stored >= state.config.guided_ring {
+        if !ring.purged.is_empty() {
+            eprintln!(
+                "[ring] {} visitor run(s) stored at the cap of {cap}: purged {} to admit a new one",
+                ring.stored,
+                ring.purged.len()
+            );
+        }
+        if !ring.admitted {
             return Err(ApiError::new(
                 ErrorCode::StorageFull,
-                "the server holds its maximum number of visitor runs; retention frees space over time",
+                "the server holds its maximum number of visitor runs and none can be freed right now; retry shortly",
             )
-            .with_retry_after(600));
+            .with_retry_after(30));
         }
     }
     Ok(())
+}
+
+/// `Idempotency-Key` on a creation is optional; when present it must be
+/// well formed, and a retried submit with it gets the run it already made.
+fn creation_key(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
+    if headers.get("idempotency-key").is_none() {
+        return Ok(None);
+    }
+    idempotency_key(headers).map(Some)
+}
+
+/// SHA-256 of a parsed request body, so the same key with another body is
+/// told apart.
+fn body_sha256<T: serde::Serialize>(body: &T) -> String {
+    let bytes = serde_json::to_vec(body).unwrap_or_default();
+    Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// The 202 of the creation this owner already made with `key`, if its run
+/// still exists; 409 when the key was used with another body; None when
+/// the key is new (or its run is gone), so the creation proceeds.
+async fn replayed_creation(
+    state: &AppState,
+    identity: &Identity,
+    key: Option<&str>,
+    body_sha256: &str,
+) -> Result<Option<Response>, ApiError> {
+    let Some(key) = key else {
+        return Ok(None);
+    };
+    let Some(record) = state.creation_keys.get(&identity.owner, key) else {
+        return Ok(None);
+    };
+    if record.body_sha256 != body_sha256 {
+        return Err(ApiError::new(
+            ErrorCode::IdempotencyKeyReused,
+            "this Idempotency-Key was already used to create a different run",
+        ));
+    }
+    match snapshot(state, record.run_id.as_str(), &identity.owner).await {
+        Ok(snapshot) => Ok(Some(created_response(state, &snapshot))),
+        // Purged meanwhile: the key is free again.
+        Err(e) if e.code == ErrorCode::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+fn remember_creation(
+    state: &AppState,
+    identity: &Identity,
+    key: Option<String>,
+    body_sha256: String,
+    snapshot: &RunSnapshot,
+) {
+    if let Some(key) = key {
+        state.creation_keys.insert(
+            &identity.owner,
+            &key,
+            CreationRecord {
+                run_id: snapshot.aggregate.run_id.clone(),
+                body_sha256,
+            },
+        );
+    }
 }
 
 fn guided_start(
@@ -245,14 +340,36 @@ pub async fn create_guided_run(
     State(state): State<AppState>,
     client: Client,
     identity: Identity,
+    headers: HeaderMap,
     ApiJson(req): ApiJson<CreateGuidedRunRequest>,
 ) -> Result<Response, ApiError> {
+    let key = creation_key(&headers)?;
+    let body_hash = body_sha256(&req);
+    if let Some(replayed) = replayed_creation(&state, &identity, key.as_deref(), &body_hash).await?
+    {
+        return Ok(replayed);
+    }
     admit_creation(&state, &client).await?;
     let start = guided_start(&state, &identity, req.scenario, RunOrigin::Public);
     let snapshot = state.manager.start(start).await.map_err(start_error)?;
+    remember_creation(&state, &identity, key, body_hash, &snapshot);
     Ok(created_response(&state, &snapshot))
 }
 
+/// The Turnstile token a request carries, bounded; a longer or empty
+/// header counts as none.
+fn turnstile_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(TURNSTILE_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && t.len() <= TURNSTILE_TOKEN_MAX)
+        .map(str::to_string)
+}
+
+/// See [`super::LiveGate`] for the order of admission: creation
+/// admission, the live slot, the gate, then the start; a start failure
+/// after the grant calls the grant's refund.
 pub async fn create_live_run(
     State(state): State<AppState>,
     client: Client,
@@ -266,33 +383,70 @@ pub async fn create_live_run(
             "the public live mode is not enabled on this server",
         ));
     };
+    let key = creation_key(&headers)?;
+    let body_hash = body_sha256(&req);
+    if let Some(replayed) = replayed_creation(&state, &identity, key.as_deref(), &body_hash).await?
+    {
+        return Ok(replayed);
+    }
     admit_creation(&state, &client).await?;
-    let grant = gate.admit(LiveAdmissionRequest {
-        preset: &req.preset_id,
-        client: client.0,
-        session_pseudonym: &identity.authorized_by,
-        headers: &headers,
-    })?;
-    let mut input = grant.input;
+    // The live slot before the gate: a refusal here charges nobody.
+    let reservation = state
+        .manager
+        .reserve(RunKind::Live)
+        .await
+        .map_err(start_error)?;
+    let grant = gate
+        .admit(LiveAdmissionRequest {
+            preset: req.preset_id.clone(),
+            client: client.0,
+            session_pseudonym: identity.authorized_by.clone(),
+            turnstile_token: turnstile_token(&headers),
+        })
+        .await?;
+    let LiveGrant {
+        mut input,
+        deliberation,
+        on_start_failed,
+    } = grant;
     input.submitted_by = identity.authorized_by.clone();
     let start = StartRequest {
         owner: identity.owner.clone(),
         retention: retention_for(&state),
         input,
         kind: RunKind::Live,
-        deliberation: grant.deliberation,
+        deliberation,
     };
-    let snapshot = state.manager.start(start).await.map_err(start_error)?;
-    Ok(created_response(&state, &snapshot))
+    match state.manager.start_reserved(reservation, start).await {
+        Ok(snapshot) => {
+            remember_creation(&state, &identity, key, body_hash, &snapshot);
+            Ok(created_response(&state, &snapshot))
+        }
+        Err(e) => {
+            // Nothing durable describes the run: whatever the gate charged
+            // is given back.
+            if let Some(undo) = on_start_failed {
+                undo();
+            }
+            Err(start_error(e))
+        }
+    }
 }
 
 pub async fn create_operator_run(
     State(state): State<AppState>,
     client: Client,
     identity: Identity,
+    headers: HeaderMap,
     ApiJson(req): ApiJson<CreateOperatorRunRequest>,
 ) -> Result<Response, ApiError> {
     req.validate().map_err(ApiError::invalid)?;
+    let key = creation_key(&headers)?;
+    let body_hash = body_sha256(&req);
+    if let Some(replayed) = replayed_creation(&state, &identity, key.as_deref(), &body_hash).await?
+    {
+        return Ok(replayed);
+    }
     admit_creation(&state, &client).await?;
     let start = match req.model {
         OperatorModel::Fake => {
@@ -309,6 +463,7 @@ pub async fn create_operator_run(
         }
     };
     let snapshot = state.manager.start(start).await.map_err(start_error)?;
+    remember_creation(&state, &identity, key, body_hash, &snapshot);
     Ok(created_response(&state, &snapshot))
 }
 
@@ -492,9 +647,11 @@ pub async fn run_events(
 ) -> Result<Response, ApiError> {
     let Query(query) = query.map_err(|e| ApiError::invalid(e.body_text()))?;
     let run_id = run_id_or_404(&id)?;
-    // Ownership and existence first: a 404 JSON, never a stream.
-    snapshot(&state, &id, &identity.owner).await?;
+    // The rate first, so the caller pays for the lookups that follow.
     state.rates.sse.check(client.0).map_err(rate_limited)?;
+    // Ownership and existence without reading the log: a 404 JSON, never
+    // a stream, and no file I/O for a run the caller does not own.
+    owned(&state, &id, &identity.owner).await?;
     let permit = state
         .stream_caps
         .acquire(run_id.as_str(), client.0)
@@ -505,6 +662,10 @@ pub async fn run_events(
             )
             .with_retry_after(5)
         })?;
+    // Subscribe, then the one full read of this request (a damaged log is
+    // an error here, never a stream of it); the stream replays that read.
+    let subscription = state.manager.broadcasts().subscribe(&run_id);
+    let first = snapshot(&state, &id, &identity.owner).await?;
     let after = resume_point(&headers, &query);
     let stream = run_stream(StreamParams {
         manager: state.manager.clone(),
@@ -515,6 +676,8 @@ pub async fn run_events(
         heartbeat: state.config.sse.heartbeat,
         after,
         permit: Some(permit),
+        subscription,
+        first,
     });
     let mut response = Sse::new(stream).into_response();
     response
@@ -523,12 +686,23 @@ pub async fn run_events(
     Ok(response)
 }
 
+/// The verbatim stored records, so the chain can be recomputed by the
+/// client. On the public surface only a chain that cannot carry upstream
+/// text is published ([`public_view::ndjson_publishable`]); the owner of
+/// a live run gets `404 ndjson_unavailable` and keeps the detail and the
+/// receipt.
 pub async fn run_events_ndjson(
     State(state): State<AppState>,
     identity: Identity,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
     let snapshot = snapshot(&state, &id, &identity.owner).await?;
+    if !public_view::ndjson_publishable(&snapshot.events, state.surface()) {
+        return Err(ApiError::new(
+            ErrorCode::NdjsonUnavailable,
+            "the verbatim event log of a live run is not published on the public surface; the detail and the receipt carry its sanitized view",
+        ));
+    }
     let mut body = String::new();
     for ev in &snapshot.events {
         let line = serde_json::to_string(ev).map_err(ApiError::internal)?;
@@ -733,6 +907,7 @@ pub fn capabilities_of(state: &AppState) -> CapabilitiesV1 {
             visitor_access_hours: c.visitor_access.as_secs() / 3600,
             visitor_delete_days: c.visitor_delete.as_secs() / 86_400,
             list_page_max: LIST_PAGE_MAX as u64,
+            request_timeout_secs: c.request_timeout.as_secs(),
         },
         schema_version: SCHEMA_VERSION.into(),
         policy_version: policy_version_label(),
@@ -764,9 +939,32 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthV1> {
     Json(health_of(&state))
 }
 
-pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyV1>, ApiError> {
+/// The store's health, re-verified at most once per [`READY_CACHE_TTL`]:
+/// verifying the whole run index per request would let an anonymous
+/// caller make the server re-hash it at will.
+async fn store_health(state: &AppState) -> Result<StoreHealth, ApiError> {
+    {
+        let cache = state
+            .ready_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((at, health)) = cache.as_ref() {
+            if at.elapsed() < READY_CACHE_TTL {
+                return Ok(health.clone());
+            }
+        }
+    }
     let manager = state.manager.clone();
     let health = blocking(move || manager.store().health()).await?;
+    *state
+        .ready_cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), health.clone()));
+    Ok(health)
+}
+
+pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyV1>, ApiError> {
+    let health = store_health(&state).await?;
     let stats = state.manager.stats();
     let store = RunStoreStatusV1 {
         ok: health.index_head.is_some() && !health.index_tampered,
@@ -825,11 +1023,35 @@ pub async fn showcase_receipt(
     ))
 }
 
+/// True when `If-None-Match` names `etag`.
+fn etag_matches(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim() == etag))
+}
+
+fn not_modified(etag: &str) -> Response {
+    let mut response = StatusCode::NOT_MODIFIED.into_response();
+    if let Ok(v) = HeaderValue::from_str(etag) {
+        response.headers_mut().insert(header::ETAG, v);
+    }
+    response
+}
+
 pub async fn research_file(
     State(state): State<AppState>,
     Path(path): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    // A conditional request is answered from the digest known at load,
+    // without reading or hashing the file.
+    if let Some(known) = state.showcase.known_sha256(&path) {
+        let etag = format!("\"{known}\"");
+        if etag_matches(&headers, &etag) {
+            return Ok(not_modified(&etag));
+        }
+    }
     let showcase = state.showcase.clone();
     let file = blocking(move || showcase.research_file(&path))
         .await?
@@ -838,16 +1060,8 @@ pub async fn research_file(
             other => ApiError::internal(other),
         })?;
     let etag = format!("\"{}\"", file.sha256);
-    if headers
-        .get(header::IF_NONE_MATCH)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.split(',').any(|t| t.trim() == etag))
-    {
-        let mut response = StatusCode::NOT_MODIFIED.into_response();
-        if let Ok(v) = HeaderValue::from_str(&etag) {
-            response.headers_mut().insert(header::ETAG, v);
-        }
-        return Ok(response);
+    if etag_matches(&headers, &etag) {
+        return Ok(not_modified(&etag));
     }
     let mut response = Response::builder()
         .status(StatusCode::OK)

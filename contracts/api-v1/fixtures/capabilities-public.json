@@ -11,6 +11,7 @@
     "rate_runs_per_min": 6,
     "rate_session_per_min": 10,
     "rate_sse_per_min": 30,
+    "request_timeout_secs": 30,
     "run_deadline_secs": 900,
     "session_max": 50000,
     "session_ttl_secs": 86400,

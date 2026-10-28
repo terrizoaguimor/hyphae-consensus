@@ -101,7 +101,10 @@ impl EventPublisher for Broadcasts {
     }
 }
 
-/// What one stream needs.
+/// What one stream needs. The route subscribes to the run's channel
+/// *before* it reads the first snapshot (so nothing published in between
+/// is missed) and hands both over: that read is the stream's only full
+/// read until a resync.
 pub struct StreamParams {
     pub manager: Arc<RunManager>,
     pub run_id: RunId,
@@ -113,6 +116,11 @@ pub struct StreamParams {
     pub after: u64,
     /// Released when the stream is dropped.
     pub permit: Option<StreamPermit>,
+    /// The run's channel, taken before `first` was read; None when the run
+    /// is not active on this server.
+    pub subscription: Option<broadcast::Receiver<Arc<ConsensusEvent>>>,
+    /// The durable log as the route read it, owner-checked.
+    pub first: RunSnapshot,
 }
 
 fn end_reason(agg: &RunAggregate) -> Option<StreamEndReason> {
@@ -131,11 +139,15 @@ fn json<T: serde::Serialize>(value: &T) -> String {
 }
 
 /// The `consensus` frame for one event, after applying it to `agg`.
+/// `active` is whether this server is deliberating the run as the frame
+/// is built (false for a finished run's replay); the summary bounds it by
+/// the records, so the frame that brings a run to rest never says active.
 pub fn consensus_frame(
     ev: &ConsensusEvent,
     agg: &mut RunAggregate,
     events_so_far: &[ConsensusEvent],
     delivery: Delivery,
+    active: bool,
     surface: Surface,
     source: SourceProvenance,
 ) -> ConsensusFrameV1 {
@@ -148,7 +160,7 @@ pub fn consensus_frame(
     ConsensusFrameV1 {
         event: public_view::event_v1(ev, surface),
         delivery,
-        summary: public_view::summary(events_so_far, agg, source, true, surface),
+        summary: public_view::summary(events_so_far, agg, source, active, surface),
     }
 }
 
@@ -187,6 +199,9 @@ struct Cursor {
     agg: RunAggregate,
     seen: Vec<ConsensusEvent>,
     last: u64,
+    /// Whether the server was deliberating the run when the log was last
+    /// read: what replayed frames say about `active`.
+    active: bool,
 }
 
 /// What one re-read of the durable log produced.
@@ -212,7 +227,9 @@ impl Cursor {
     }
 
     /// Applies one stored record, emitting a frame unless the client
-    /// already has it (sequence at or below `after`).
+    /// already has it (sequence at or below `after`). A live record comes
+    /// from the channel of a run this server is deliberating; a replayed
+    /// one says what the last read found.
     fn apply(&mut self, ev: &ConsensusEvent, delivery: Delivery, frames: &mut Vec<Event>) {
         self.seen.push(ev.clone());
         if ev.sequence <= self.after {
@@ -220,11 +237,16 @@ impl Cursor {
             self.last = ev.sequence;
             return;
         }
+        let active = match delivery {
+            Delivery::Live => true,
+            Delivery::Replay => self.active,
+        };
         let frame = consensus_frame(
             ev,
             &mut self.agg,
             &self.seen,
             delivery,
+            active,
             self.surface,
             self.source,
         );
@@ -234,17 +256,22 @@ impl Cursor {
 
     /// Re-reads the durable log and returns the frames after `last`.
     async fn replay(&mut self, reason: Option<ResyncReason>) -> Replay {
-        let snapshot = match self.load().await {
-            Ok(snapshot) => snapshot,
+        match self.load().await {
+            Ok(snapshot) => self.replay_snapshot(&snapshot, reason),
             Err(e) => {
                 eprintln!("[sse] run {}: cannot read: {e}", self.run_id);
-                return Replay {
+                Replay {
                     frames: Vec::new(),
                     ended: None,
                     unreadable: true,
-                };
+                }
             }
-        };
+        }
+    }
+
+    /// The frames after `last` from a snapshot already read.
+    fn replay_snapshot(&mut self, snapshot: &RunSnapshot, reason: Option<ResyncReason>) -> Replay {
+        self.active = snapshot.active;
         let mut frames = Vec::new();
         if let Some(reason) = reason {
             frames.push(resync_event(reason, self.last));
@@ -271,19 +298,22 @@ impl Cursor {
 }
 
 /// Builds the SSE stream of one run. The caller has already checked the
-/// id, the owner and the caps.
+/// id, the owner, the rate and the caps, subscribed to the run's channel
+/// and then read the log once (`first`); the stream replays that read and
+/// follows the channel, re-reading only on a lag, a gap or a close.
 pub fn run_stream(params: StreamParams) -> impl Stream<Item = Result<Event, Infallible>> + Send {
     async_stream::stream! {
-        let StreamParams { manager, run_id, owner, surface, source, heartbeat, after, permit } = params;
+        let StreamParams {
+            manager, run_id, owner, surface, source, heartbeat, after, permit, subscription, first,
+        } = params;
         let _permit = permit;
         yield Ok(Event::default().comment("stream-start").retry(Duration::from_millis(RETRY_MS)));
 
-        // Subscribe before reading, so nothing published meanwhile is missed.
-        let subscription = manager.broadcasts().subscribe(&run_id);
         let mut cursor = Cursor {
             agg: RunAggregate::new(run_id.clone()),
             seen: Vec::new(),
             last: 0,
+            active: first.active,
             manager,
             run_id,
             owner,
@@ -292,13 +322,10 @@ pub fn run_stream(params: StreamParams) -> impl Stream<Item = Result<Event, Infa
             after,
         };
 
-        let replay = cursor.replay(None).await;
+        let replay = cursor.replay_snapshot(&first, None);
+        drop(first);
         for frame in replay.frames {
             yield Ok(frame);
-        }
-        if replay.unreadable {
-            yield Ok(end_event(StreamEndReason::Terminal, cursor.agg.state, cursor.last));
-            return;
         }
         if let Some(reason) = replay.ended {
             yield Ok(end_event(reason, cursor.agg.state, cursor.last));
@@ -380,10 +407,12 @@ pub fn run_stream(params: StreamParams) -> impl Stream<Item = Result<Event, Infa
     }
 }
 
-/// Frames of a finished run as one array, for the contract fixtures and
-/// for tests: a full replay followed by `stream_end`.
+/// Frames of a run as one array, for the contract fixtures and for tests:
+/// a full replay followed by `stream_end`. `active` is whether the server
+/// is still deliberating the run (false for a finished one).
 pub fn replay_frames(
     events: &[ConsensusEvent],
+    active: bool,
     surface: Surface,
     source: SourceProvenance,
 ) -> Vec<SseFrameV1> {
@@ -396,7 +425,15 @@ pub fn replay_frames(
     let mut last = 0;
     for ev in events {
         seen.push(ev.clone());
-        let frame = consensus_frame(ev, &mut agg, &seen, Delivery::Replay, surface, source);
+        let frame = consensus_frame(
+            ev,
+            &mut agg,
+            &seen,
+            Delivery::Replay,
+            active,
+            surface,
+            source,
+        );
         last = ev.sequence;
         frames.push(SseFrameV1::Consensus(Box::new(frame)));
         if agg.state.is_terminal() {

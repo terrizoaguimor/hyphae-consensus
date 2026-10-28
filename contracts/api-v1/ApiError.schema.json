@@ -188,6 +188,20 @@
           "type": "string"
         },
         {
+          "description": "Public surface: the verbatim event log of this run is not published, because its chain may carry upstream text (a live model's failure reason); the detail and the receipt remain.",
+          "enum": [
+            "ndjson_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The request was not handled within the server's request timeout.",
+          "enum": [
+            "request_timeout"
+          ],
+          "type": "string"
+        },
+        {
           "description": "Something failed on the server; the detail is in its log.",
           "enum": [
             "internal"

@@ -24,10 +24,11 @@ uuid.workspace = true
 # Session ids and operator tokens: 256 bits straight from the OS. Already
 # in Cargo.lock through uuid.
 getrandom = "=0.4.3"
+# The request timeout layer (`timeout`), and `ServiceExt::oneshot` for the
+# HTTP-level tests (`util`). Already in Cargo.lock through axum.
+tower = { version = "=0.5.3", default-features = false, features = ["util", "timeout"] }
 
 [dev-dependencies]
-# HTTP-level tests drive the routers through `tower::ServiceExt::oneshot`
-# and read bodies with `http_body_util::BodyExt`; both are already in
+# HTTP-level tests read bodies with `http_body_util::BodyExt`; already in
 # Cargo.lock through axum.
-tower = { version = "=0.5.3", default-features = false, features = ["util"] }
 http-body-util = "=0.1.5"

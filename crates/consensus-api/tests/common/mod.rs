@@ -193,6 +193,10 @@ pub struct Req {
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
     pub peer: Option<SocketAddr>,
+    /// The session cookie's value; the header is written with the name
+    /// the server under test uses (`__Host-hc_session` with `Secure`,
+    /// `hc_session` without).
+    pub session: Option<String>,
 }
 
 impl Req {
@@ -203,6 +207,7 @@ impl Req {
             headers: Vec::new(),
             body: None,
             peer: None,
+            session: None,
         }
     }
 
@@ -239,8 +244,9 @@ impl Req {
         self
     }
 
-    pub fn cookie(self, session: &str) -> Self {
-        self.header("cookie", &format!("__Host-hc_session={session}"))
+    pub fn cookie(mut self, session: &str) -> Self {
+        self.session = Some(session.to_string());
+        self
     }
 
     pub fn peer(mut self, addr: &str) -> Self {
@@ -288,6 +294,12 @@ impl TestServer {
             if !name.starts_with('-') {
                 builder = builder.header(name.as_str(), value.as_str());
             }
+        }
+        if let Some(session) = &req.session {
+            builder = builder.header(
+                "cookie",
+                format!("{}={session}", self.state.sessions.cookie_name()),
+            );
         }
         let mut request = builder
             .body(match req.body {
@@ -376,14 +388,28 @@ impl TestServer {
         }
         panic!("run {run_id} never came to rest");
     }
+
+    /// Waits until the manager has let the run go (its writer dropped, the
+    /// run's lock free): what a purge or a decision needs.
+    pub async fn wait_released(&self, run_id: &str) {
+        let id = consensus_domain::RunId::new(run_id);
+        for _ in 0..600 {
+            if !self.state.manager.is_active(&id) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("run {run_id} is still active");
+    }
 }
 
-/// The session cookie value of a response, if it set one.
+/// The session cookie value of a response, if it set one, under either
+/// name the server may use.
 pub fn cookie_value(headers: &HeaderMap) -> Option<String> {
     headers.get_all(header::SET_COOKIE).iter().find_map(|v| {
         let text = v.to_str().ok()?;
         let (name, rest) = text.split_once('=')?;
-        if name != "__Host-hc_session" {
+        if name != "__Host-hc_session" && name != "hc_session" {
             return None;
         }
         let value = rest.split(';').next()?.to_string();

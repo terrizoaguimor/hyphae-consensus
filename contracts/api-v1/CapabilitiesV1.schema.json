@@ -34,6 +34,7 @@
           "type": "integer"
         },
         "guided_ring": {
+          "description": "Visitor runs the store keeps at once; when full, the oldest resting visitor runs are purged to admit a new one.",
           "format": "uint64",
           "minimum": 0.0,
           "type": "integer"
@@ -64,6 +65,12 @@
           "type": "integer"
         },
         "rate_sse_per_min": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "request_timeout_secs": {
+          "description": "Seconds a request may take to be handled (body read included; a stream's body is not covered once its headers are sent).",
           "format": "uint64",
           "minimum": 0.0,
           "type": "integer"
@@ -124,6 +131,7 @@
         "rate_runs_per_min",
         "rate_session_per_min",
         "rate_sse_per_min",
+        "request_timeout_secs",
         "run_deadline_secs",
         "session_max",
         "session_ttl_secs",

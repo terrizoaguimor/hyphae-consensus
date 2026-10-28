@@ -51,7 +51,15 @@
   },
   {
     "code": "storage_full",
-    "message": "the server holds its maximum number of visitor runs; retention frees space over time",
-    "retry_after_secs": 600
+    "message": "the server holds its maximum number of visitor runs and none can be freed right now; retry shortly",
+    "retry_after_secs": 30
+  },
+  {
+    "code": "ndjson_unavailable",
+    "message": "the verbatim event log of a live run is not published on the public surface; the detail and the receipt carry its sanitized view"
+  },
+  {
+    "code": "request_timeout",
+    "message": "the request was not handled within the server's request timeout"
   }
 ]

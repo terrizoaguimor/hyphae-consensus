@@ -232,7 +232,8 @@ fn fixtures_in(dir: &Path) -> Result<BTreeMap<String, Value>, String> {
                 .take_while(|e| !matches!(e.payload, EventPayload::HumanDecisionRecorded { .. }))
                 .cloned()
                 .collect();
-            let frames = replay_frames(&deliberation, Surface::Public, source);
+            // A finished run's replay: no frame says active.
+            let frames = replay_frames(&deliberation, false, Surface::Public, source);
             out.insert("sse-frames-retry".into(), to_value(&frames));
             // The 202 of creation: only the task exists.
             let created = public_view::aggregate_of(&run.events[..1]).ok_or("empty run")?;
@@ -274,7 +275,9 @@ fn fixtures_in(dir: &Path) -> Result<BTreeMap<String, Value>, String> {
             ApiError::new(ErrorCode::IdempotencyKeyReused, "this Idempotency-Key was already used with a different decision"),
             ApiError::new(ErrorCode::OverrideNoteRequired, "approving a blocked or abstained run is an override and requires a note"),
             ApiError::new(ErrorCode::RunNotCancellable, "only a run that is still deliberating can be cancelled"),
-            ApiError::new(ErrorCode::StorageFull, "the server holds its maximum number of visitor runs; retention frees space over time").with_retry_after(600),
+            ApiError::new(ErrorCode::StorageFull, "the server holds its maximum number of visitor runs and none can be freed right now; retry shortly").with_retry_after(30),
+            ApiError::new(ErrorCode::NdjsonUnavailable, "the verbatim event log of a live run is not published on the public surface; the detail and the receipt carry its sanitized view"),
+            ApiError::new(ErrorCode::RequestTimeout, "the request was not handled within the server's request timeout"),
         ]),
     );
     out.insert(
@@ -344,6 +347,7 @@ fn default_capabilities() -> CapabilitiesV1 {
             visitor_access_hours: 24,
             visitor_delete_days: 7,
             list_page_max: v1::LIST_PAGE_MAX as u64,
+            request_timeout_secs: 30,
         },
         schema_version: SCHEMA_VERSION.into(),
         policy_version: v1::policy_version_label(),

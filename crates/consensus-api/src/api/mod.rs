@@ -14,13 +14,14 @@ pub mod error;
 pub mod types;
 pub mod v1;
 
-use crate::limits::{ClientKey, ClientKeyPolicy, RateTable, StreamCaps};
+use crate::limits::{ClientKey, ClientKeyPolicy, LruMap, RateTable, StreamCaps};
 use crate::public_config::{RateLimits, SseLimits, BODY_LIMIT_BYTES};
 use crate::public_view::Surface;
 use crate::runs::{Deliberation, RunManager};
 use crate::session::{Session, SessionStore};
 use crate::showcase::Showcase;
 use crate::static_files::StaticSite;
+use axum::error_handling::HandleErrorLayer;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, FromRequest, FromRequestParts, Request, State};
 use axum::http::request::Parts;
@@ -28,13 +29,18 @@ use axum::http::{header, HeaderMap, HeaderValue, Method};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
-use consensus_domain::Authority;
+use axum::{BoxError, Router};
+use consensus_domain::{Authority, RunId};
+use consensus_runtime::run_store::StoreHealth;
 use consensus_runtime::{Owner, RunLimits, TaskInput};
 use error::{ApiError, ErrorCode};
+use std::future::Future;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tower::timeout::TimeoutLayer;
+use tower::ServiceBuilder;
 use types::PresetId;
 
 /// Everything the middleware, the extractors and `/capabilities` need to
@@ -62,6 +68,9 @@ pub struct ServeConfig {
     pub guided_concurrency: usize,
     pub live_concurrency: usize,
     pub run_deadline: Duration,
+    /// How long a request may take to be handled (`408 request_timeout`
+    /// past it).
+    pub request_timeout: Duration,
     /// Build identity reported by `/health`.
     pub version: String,
 }
@@ -104,27 +113,67 @@ pub struct ConsolePage {
     pub csp: String,
 }
 
-/// What a live-run request offers the admission layer.
-pub struct LiveAdmissionRequest<'a> {
-    pub preset: &'a PresetId,
+/// The request header carrying the Turnstile response token the public
+/// live route forwards to the gate (the widget's `cf-turnstile-response`
+/// value). Nothing else of the request reaches the gate.
+pub const TURNSTILE_HEADER: &str = "cf-turnstile-response";
+/// Longest Turnstile token forwarded; Cloudflare documents up to 2048
+/// characters. A longer header is treated as absent.
+pub const TURNSTILE_TOKEN_MAX: usize = 2048;
+
+/// What a live-run request offers the admission layer. Owned, so an
+/// implementation can move it into an outbound HTTP call or a blocking
+/// task. The session cookie and the other headers never reach the gate.
+pub struct LiveAdmissionRequest {
+    pub preset: PresetId,
     pub client: ClientKey,
-    pub session_pseudonym: &'a str,
-    pub headers: &'a HeaderMap,
+    /// The session's pseudonym (`visitor:<16 hex>`), for the ledger's
+    /// per-visitor budget; never the session id or its owner hash.
+    pub session_pseudonym: String,
+    /// The Turnstile response token, when the client sent one.
+    pub turnstile_token: Option<String>,
 }
 
-/// An admitted live run: its canned task and the ports to deliberate it.
+/// An admitted live run: its canned task, the ports to deliberate it, and
+/// how to undo the admission if the run cannot be started after all.
 pub struct LiveGrant {
     pub input: TaskInput,
     pub deliberation: Box<dyn Deliberation>,
+    /// Called exactly once if the run cannot be started after this grant
+    /// (the store refused, the server is draining): the gate refunds
+    /// whatever it charged or consumed (a ledger debit, a Turnstile
+    /// token). Never called once the run's `TaskCreated` is durable, and
+    /// never called twice. Must not block the async worker; spawn if the
+    /// refund does I/O.
+    pub on_start_failed: Option<Box<dyn FnOnce() + Send>>,
 }
+
+/// The future [`LiveGate::admit`] returns.
+pub type AdmitFuture<'a> = Pin<Box<dyn Future<Output = Result<LiveGrant, ApiError>> + Send + 'a>>;
 
 /// Extension point for the public live mode (plan B9, lane S-b2):
 /// Turnstile, the USD ledger, presets and the geographic policy decide
 /// whether a visitor may spend the operator's key. Until an
 /// implementation is wired into [`AppState::live_gate`], the public live
 /// route answers `503 live_disabled`.
+///
+/// Contract of the route (`POST /api/v1/live-runs`), in order:
+///
+/// 1. the request is admitted like every creation (session, rates, the
+///    visitor-run ring, not shutting down);
+/// 2. a live deliberation slot is reserved ([`RunManager::reserve`]):
+///    `429 too_many_runs` or `503 shutting_down` happen *before* the gate
+///    is asked, so a refusal there charges nobody;
+/// 3. `admit` runs, asynchronously (Turnstile siteverify is an outbound
+///    call; nothing here blocks a worker). An `Err` is answered as is and
+///    releases the slot;
+/// 4. the run is started with the reserved slot. If that fails,
+///    [`LiveGrant::on_start_failed`] is called and the error answered.
+///
+/// `admit` must be idempotent-safe against its own retries only: the
+/// route calls it once per request.
 pub trait LiveGate: Send + Sync {
-    fn admit(&self, request: LiveAdmissionRequest<'_>) -> Result<LiveGrant, ApiError>;
+    fn admit(&self, request: LiveAdmissionRequest) -> AdmitFuture<'_>;
 }
 
 /// Per-client request rate tables.
@@ -145,6 +194,71 @@ impl RateTables {
     }
 }
 
+/// A run creation remembered by its `Idempotency-Key`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreationRecord {
+    pub run_id: RunId,
+    /// SHA-256 of the request body as parsed, so the same key with another
+    /// body is refused.
+    pub body_sha256: String,
+}
+
+/// Run creations remembered by `Idempotency-Key`, per owner (UI-1): a
+/// retried submit returns the run it already made instead of a second
+/// one. A bounded LRU; the key is scoped to the owner, so one visitor's
+/// keys never meet another's.
+pub struct CreationKeys {
+    inner: Mutex<LruMap<String, CreationRecord>>,
+}
+
+impl CreationKeys {
+    pub fn new(cap: usize) -> Self {
+        Self {
+            inner: Mutex::new(LruMap::new(cap)),
+        }
+    }
+
+    fn scope(owner: &Owner, key: &str) -> String {
+        let owner = match owner {
+            Owner::Session { hash } => hash.as_str().to_string(),
+            Owner::Operator => "operator".into(),
+            Owner::Showcase => "showcase".into(),
+        };
+        format!("{owner}:{key}")
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, LruMap<String, CreationRecord>> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn get(&self, owner: &Owner, key: &str) -> Option<CreationRecord> {
+        self.lock()
+            .get_mut(&Self::scope(owner, key))
+            .map(|record| record.clone())
+    }
+
+    pub fn insert(&self, owner: &Owner, key: &str, record: CreationRecord) {
+        self.lock().insert(Self::scope(owner, key), record);
+    }
+
+    pub fn len(&self) -> usize {
+        self.lock().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// How long `/ready` reuses the store's health: [`RunStore::health`]
+/// re-verifies the whole run index, so it is asked at health-check rates,
+/// not per request.
+///
+/// [`RunStore::health`]: consensus_runtime::RunStore::health
+pub const READY_CACHE_TTL: Duration = Duration::from_secs(2);
+
 /// Shared state of one server.
 #[derive(Clone)]
 pub struct AppState {
@@ -159,6 +273,10 @@ pub struct AppState {
     pub live_gate: Option<Arc<dyn LiveGate>>,
     pub console: Option<Arc<ConsolePage>>,
     pub contract_sha256: Arc<String>,
+    /// Run creations by `Idempotency-Key`.
+    pub creation_keys: Arc<CreationKeys>,
+    /// The store health `/ready` answered last, and when.
+    pub ready_cache: Arc<Mutex<Option<(Instant, StoreHealth)>>>,
 }
 
 impl AppState {
@@ -314,13 +432,16 @@ async fn security_headers(req: Request, next: Next) -> Response {
     response
 }
 
-/// `Host` must be one this server answers for.
+/// `Host` must be one this server answers for. Over HTTP/2 the authority
+/// travels in the request target instead of a `Host` header, so that is
+/// what is checked when the header is absent.
 async fn host_check(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let host = req
         .headers()
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
-        .map(str::to_string);
+        .map(str::to_string)
+        .or_else(|| req.uri().authority().map(|a| a.as_str().to_string()));
     match host {
         Some(h) if header_eq_ignore_case(&h, &state.config.allowed_hosts) => next.run(req).await,
         _ => ApiError::new(
@@ -436,6 +557,15 @@ async fn method_not_allowed() -> Response {
     ApiError::new(ErrorCode::MethodNotAllowed, "method not allowed").into_response()
 }
 
+/// The request outlived the server's request timeout.
+async fn timed_out(_: BoxError) -> Response {
+    ApiError::new(
+        ErrorCode::RequestTimeout,
+        "the request was not handled within the server's request timeout",
+    )
+    .into_response()
+}
+
 /// Routes both surfaces share.
 fn common_routes() -> Router<AppState> {
     Router::new()
@@ -473,18 +603,26 @@ pub fn public_router(state: AppState) -> Router {
                 .delete(v1::delete_session),
         )
         .route("/api/v1/runs", post(v1::create_guided_run))
-        .route("/api/v1/live-runs", post(v1::create_live_run));
-    finish(api.fallback(v1::public_fallback), state)
+        .route("/api/v1/live-runs", post(v1::create_live_run))
+        // Both fallbacks are set once every route exists and before any
+        // layer, so the layers wrap them too.
+        .method_not_allowed_fallback(method_not_allowed)
+        .fallback(v1::public_fallback);
+    finish(api, state)
 }
 
 /// The operator server's router: the console at `/`, every common route
 /// plus `POST /api/v1/operator/runs`, all `/api` behind the bearer token.
 pub fn operator_router(state: AppState) -> Router {
-    // The fallback is attached before the bearer layer, so an unknown
-    // `/api` path is refused with 401 like every other one.
+    // Both fallbacks are attached before the bearer layer, so an unknown
+    // `/api` path and a wrong method on a known one are refused with 401
+    // like every other request: no route-existence oracle without the
+    // token. (A method-not-allowed fallback set after the layer would
+    // replace the layered default with an unlayered handler.)
     let api = common_routes()
         .route("/", get(v1::console))
         .route("/api/v1/operator/runs", post(v1::create_operator_run))
+        .method_not_allowed_fallback(method_not_allowed)
         .fallback(v1::operator_fallback)
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -493,13 +631,21 @@ pub fn operator_router(state: AppState) -> Router {
     finish(api, state)
 }
 
+/// The layers both surfaces share, outermost last: the request timeout
+/// covers the whole handling of a request, body read included (a
+/// stream's body is not covered once its headers are sent).
 fn finish(router: Router<AppState>, state: AppState) -> Router {
+    let timeout = state.config.request_timeout;
     router
-        .method_not_allowed_fallback(method_not_allowed)
         .layer(middleware::from_fn_with_state(state.clone(), csrf_check))
         .layer(middleware::from_fn_with_state(state.clone(), host_check))
         .layer(middleware::from_fn(security_headers))
         .layer(DefaultBodyLimit::max(BODY_LIMIT_BYTES))
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(timed_out))
+                .layer(TimeoutLayer::new(timeout)),
+        )
         .with_state(state)
 }
 
@@ -526,5 +672,24 @@ mod tests {
         assert!(bodyless_post("/api/v1/session"));
         assert!(bodyless_post("/api/v1/runs/run-x/cancel"));
         assert!(!bodyless_post("/api/v1/runs"));
+    }
+
+    #[test]
+    fn creation_keys_are_scoped_per_owner_and_bounded() {
+        let keys = CreationKeys::new(2);
+        let a = Owner::session(&[1; 32]);
+        let b = Owner::session(&[2; 32]);
+        let record = |n: u32| CreationRecord {
+            run_id: RunId::new(format!("run-00000000-0000-4000-8000-{n:012}")),
+            body_sha256: "x".repeat(64),
+        };
+        keys.insert(&a, "k", record(1));
+        assert_eq!(keys.get(&a, "k"), Some(record(1)));
+        assert_eq!(keys.get(&b, "k"), None, "another owner's key");
+        assert_eq!(keys.get(&Owner::Operator, "k"), None);
+        keys.insert(&b, "k", record(2));
+        keys.insert(&Owner::Operator, "k", record(3));
+        assert_eq!(keys.len(), 2, "bounded");
+        assert_eq!(keys.get(&a, "k"), None, "the oldest was evicted");
     }
 }

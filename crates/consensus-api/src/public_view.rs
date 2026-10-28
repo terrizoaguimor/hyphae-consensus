@@ -467,7 +467,16 @@ fn decision_of(events: &[ConsensusEvent]) -> Option<&HumanAuthorization> {
     })
 }
 
-/// The one-line view of a run.
+/// True while a run with this aggregate can still be deliberating: not at
+/// its decision point and not terminal. A server's "active" claim is
+/// bounded by it, so no view (and no replayed SSE frame) calls a resting
+/// run active.
+pub fn can_be_active(agg: &RunAggregate) -> bool {
+    agg.state != RunState::AwaitingHumanApproval && !agg.state.is_terminal()
+}
+
+/// The one-line view of a run. `active` says whether this server is
+/// deliberating the run; the records bound it (see [`can_be_active`]).
 pub fn summary(
     events: &[ConsensusEvent],
     agg: &RunAggregate,
@@ -481,6 +490,7 @@ pub fn summary(
             agg.recommendation.as_ref().map(|r| r.kind),
             Some(RecommendationKind::Blocked | RecommendationKind::Abstained)
         );
+    let active = active && can_be_active(agg);
     RunSummaryV1 {
         run_id: agg.run_id.clone(),
         state: agg.state,
@@ -701,8 +711,11 @@ pub fn detail(
 }
 
 /// A receipt as the surface may show it: on the public surface the
-/// recorded failure reason becomes the fixed statement for its code and
-/// a real verifier's output is dropped. The chain fields are untouched:
+/// recorded failure reason becomes the fixed statement for its code, a
+/// real verifier's output is dropped, and a model call keeps the same
+/// fields the public views show (provider, model, request id, latency,
+/// tokens, finish reason), never the prompt and schema digests, the
+/// output bound or the attempt count. The chain fields are untouched:
 /// they commit to the events, not to the receipt.
 pub fn sanitize_receipt(mut receipt: RunReceiptV2, surface: Surface) -> RunReceiptV2 {
     if surface == Surface::Operator {
@@ -716,7 +729,48 @@ pub fn sanitize_receipt(mut receipt: RunReceiptV2, surface: Surface) -> RunRecei
             rv.verification.detail = None;
         }
     }
+    for inv in &mut receipt.model_invocations {
+        inv.max_completion_tokens = None;
+        inv.schema_name = None;
+        inv.schema_sha256 = None;
+        inv.prompt_sha256 = None;
+        inv.attempts = None;
+    }
     receipt
+}
+
+/// Whether a run's verbatim stored records (`events.ndjson`) may be
+/// published on `surface`. The operator sees every chain. The public
+/// surface serves only a chain that cannot carry upstream text: the run
+/// was declared with a scripted model over simulated (or no) evidence,
+/// and its records prove nothing else. A live adapter's failure reason
+/// may quote the upstream response, and the chain commits to that text,
+/// so sanitizing it would break verification; such a run's detail and
+/// receipt, which strip the reason, stay available, and its chain is
+/// published whole only to the operator until the adapters record stable
+/// codes instead of upstream text (lane R-b), when this rule can be lifted
+/// here in one place.
+pub fn ndjson_publishable(events: &[ConsensusEvent], surface: Surface) -> bool {
+    if surface == Surface::Operator {
+        return true;
+    }
+    let p = provenance(events, SourceProvenance::ThisServer);
+    let declared_scripted = p.declared.as_ref().is_some_and(|mode| {
+        mode.model == ModelMode::Scripted
+            && matches!(
+                mode.evidence,
+                EvidenceMode::Simulated | EvidenceMode::Offline
+            )
+    });
+    declared_scripted
+        && matches!(
+            p.model,
+            ModelProvenance::Scripted | ModelProvenance::Undetermined
+        )
+        && matches!(
+            p.evidence,
+            EvidenceProvenance::Simulated | EvidenceProvenance::None
+        )
 }
 
 /// Replays `events` into an aggregate. Stops at the first event replay
@@ -868,5 +922,96 @@ mod tests {
             failure_message(None, "propose"),
             "The run failed at stage propose."
         );
+    }
+
+    #[test]
+    fn a_resting_run_is_never_active_whatever_the_server_claims() {
+        let events = guided_events(GuidedScenario::Retry, RunOrigin::Public);
+        let agg = aggregate_of(&events).unwrap();
+        assert_eq!(agg.state, RunState::AwaitingHumanApproval);
+        assert!(!can_be_active(&agg));
+        let s = summary(
+            &events,
+            &agg,
+            SourceProvenance::ThisServer,
+            true,
+            Surface::Public,
+        );
+        assert!(!s.active, "the claim is bounded by the records");
+        // Mid-deliberation the claim stands.
+        let created = aggregate_of(&events[..1]).unwrap();
+        assert!(can_be_active(&created));
+        let s = summary(
+            &events[..1],
+            &created,
+            SourceProvenance::ThisServer,
+            true,
+            Surface::Public,
+        );
+        assert!(s.active);
+        let s = summary(
+            &events[..1],
+            &created,
+            SourceProvenance::ThisServer,
+            false,
+            Surface::Public,
+        );
+        assert!(!s.active);
+    }
+
+    #[test]
+    fn ndjson_is_published_only_for_chains_that_cannot_carry_upstream_text() {
+        let scripted = guided_events(GuidedScenario::Retry, RunOrigin::Public);
+        assert!(ndjson_publishable(&scripted, Surface::Public));
+        assert!(ndjson_publishable(&scripted, Surface::Operator));
+        // Declared live: not on the public surface, even before any call.
+        let mut live = scripted.clone();
+        if let EventPayload::TaskCreated { task } = &mut live[0].payload {
+            task.mode = Some(TaskMode {
+                model: ModelMode::Meta,
+                evidence: EvidenceMode::Simulated,
+                origin: RunOrigin::Public,
+                preset: Some("live:retry-cap-3".into()),
+            });
+        }
+        assert!(!ndjson_publishable(&live, Surface::Public));
+        assert!(!ndjson_publishable(&live[..1], Surface::Public));
+        assert!(ndjson_publishable(&live, Surface::Operator));
+        // No declaration at all (pre-1.3 records): not published either.
+        let mut undeclared = scripted.clone();
+        if let EventPayload::TaskCreated { task } = &mut undeclared[0].payload {
+            task.mode = None;
+        }
+        assert!(!ndjson_publishable(&undeclared, Surface::Public));
+        // The scripted offline scenario declares simulated evidence and
+        // records none: published.
+        let offline = guided_events(GuidedScenario::Offline, RunOrigin::Public);
+        assert!(ndjson_publishable(&offline, Surface::Public));
+    }
+
+    #[test]
+    fn public_receipts_keep_only_the_public_invocation_fields() {
+        use consensus_runtime::build_receipt_v2;
+        let events = guided_events(GuidedScenario::Retry, RunOrigin::Public);
+        let mut receipt = build_receipt_v2(&events, TS.into()).unwrap();
+        for inv in &mut receipt.model_invocations {
+            inv.prompt_sha256 = Some("p".repeat(64));
+            inv.schema_sha256 = Some("s".repeat(64));
+            inv.schema_name = Some("proposal".into());
+            inv.max_completion_tokens = Some(4096);
+            inv.attempts = Some(2);
+        }
+        let operator = sanitize_receipt(receipt.clone(), Surface::Operator);
+        assert!(operator.model_invocations[0].prompt_sha256.is_some());
+        let public = sanitize_receipt(receipt, Surface::Public);
+        assert!(!public.model_invocations.is_empty());
+        for inv in &public.model_invocations {
+            assert!(inv.prompt_sha256.is_none());
+            assert!(inv.schema_sha256.is_none());
+            assert!(inv.schema_name.is_none());
+            assert!(inv.max_completion_tokens.is_none());
+            assert!(inv.attempts.is_none());
+            assert_eq!(inv.provider, "fake");
+        }
     }
 }

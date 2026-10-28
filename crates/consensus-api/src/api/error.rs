@@ -68,6 +68,12 @@ pub enum ErrorCode {
     MemoryNotConfigured,
     /// Operator surface: an upstream client could not be initialised.
     UpstreamUnavailable,
+    /// Public surface: the verbatim event log of this run is not
+    /// published, because its chain may carry upstream text (a live
+    /// model's failure reason); the detail and the receipt remain.
+    NdjsonUnavailable,
+    /// The request was not handled within the server's request timeout.
+    RequestTimeout,
     /// Something failed on the server; the detail is in its log.
     Internal,
 }
@@ -81,8 +87,9 @@ impl ErrorCode {
             ErrorCode::CsrfRejected => StatusCode::FORBIDDEN,
             ErrorCode::HostNotAllowed => StatusCode::MISDIRECTED_REQUEST,
             ErrorCode::SessionRequired | ErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
-            ErrorCode::NotFound => StatusCode::NOT_FOUND,
+            ErrorCode::NotFound | ErrorCode::NdjsonUnavailable => StatusCode::NOT_FOUND,
             ErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
+            ErrorCode::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
             ErrorCode::RateLimited | ErrorCode::TooManyRuns | ErrorCode::TooManyStreams => {
                 StatusCode::TOO_MANY_REQUESTS
             }

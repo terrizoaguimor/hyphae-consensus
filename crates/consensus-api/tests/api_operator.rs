@@ -6,12 +6,13 @@
 mod common;
 
 use axum::http::{header, StatusCode};
-use common::doubles::panicking_start;
+use common::doubles::{panicking_start, unavailable_start};
 use common::{body_text, operator_server, read_sse, sequences, Req, OPERATOR_TOKEN};
 use consensus_api::config::MetaConfig;
 use consensus_api::server::BuildOptions;
 use consensus_api::static_files::csp_hash;
 use consensus_domain::RunOrigin;
+use consensus_runtime::event_log::verify_bytes;
 use consensus_runtime::{Owner, Retention};
 use serde_json::json;
 
@@ -64,6 +65,34 @@ async fn every_api_route_needs_the_bearer_token() {
             .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {path}: {body}");
     }
+    // A wrong method on a known route is no route-existence oracle: 401,
+    // not 405, without the token.
+    for req in [
+        Req::delete("/api/v1/runs"),
+        Req::new(
+            axum::http::Method::PUT,
+            "/api/v1/runs/run-00000000-0000-4000-8000-000000000001/decision",
+        )
+        .json(&json!({})),
+        Req::delete("/api/v1/health"),
+    ] {
+        let path = req.path.clone();
+        let (status, body, _) = server.json(req.without("authorization")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}: {body}");
+        assert_eq!(body["code"], "unauthorized");
+    }
+    // With the token the method is what is wrong.
+    let (status, body, _) = server.json(Req::delete("/api/v1/runs")).await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{body}");
+    assert_eq!(body["code"], "method_not_allowed");
+    // The operator surface has its own generous limits.
+    let (_, caps, _) = server.json(Req::get("/api/v1/capabilities")).await;
+    assert_eq!(caps["limits"]["rate_runs_per_min"], 120);
+    assert_eq!(caps["limits"]["rate_sse_per_min"], 600);
+    assert_eq!(
+        caps["limits"]["sse_max_per_client"],
+        caps["limits"]["sse_max_global"]
+    );
     // The console itself needs no token: it holds no data.
     let response = server.send(Req::get("/").without("authorization")).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -308,4 +337,34 @@ async fn operator_views_keep_the_raw_failure_reason() {
         !detail.to_string().contains("boom:"),
         "panic text never reaches a record"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_operator_gets_the_whole_chain_of_a_live_run() {
+    const UPSTREAM: &str = "UPSTREAM-BODY-0b1d-operator-only";
+    let server = operator_server(&[], BuildOptions::default());
+    let start = unavailable_start(
+        Owner::Operator,
+        Retention::Keep,
+        RunOrigin::Operator,
+        &format!("meta api http 500: {UPSTREAM}"),
+    );
+    let snapshot = server.state.manager.start(start).await.unwrap();
+    let run_id = snapshot.aggregate.run_id.to_string();
+    let detail = server.wait_resting("", &run_id).await;
+    assert_eq!(detail["summary"]["state"], "failed", "{detail}");
+    assert_eq!(detail["summary"]["failure"]["code"], "model_unavailable");
+    // The operator surface keeps the raw reason and the verbatim chain,
+    // which the public surface withholds for such a run.
+    assert!(detail["summary"]["failure"]["reason"]
+        .as_str()
+        .unwrap()
+        .contains(UPSTREAM));
+    let response = server
+        .send(Req::get(&format!("/api/v1/runs/{run_id}/events.ndjson")))
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = body_text(response).await;
+    assert!(text.contains(UPSTREAM));
+    assert!(verify_bytes(text.as_bytes()).is_ok(), "the chain verifies");
 }

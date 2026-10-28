@@ -397,7 +397,9 @@ pub struct RunSummaryV1 {
     /// True when a human approved a `blocked` or `abstained` run.
     #[serde(rename = "override")]
     pub is_override: bool,
-    /// True while the deliberation is in progress on this server.
+    /// True while the deliberation is in progress on this server: never
+    /// for a run at its decision point or terminal, whatever frame or
+    /// view carries it (a replayed frame of a finished run says false).
     pub active: bool,
 }
 
@@ -881,10 +883,15 @@ pub struct LimitsV1 {
     pub rate_sse_per_min: u64,
     pub session_ttl_secs: u64,
     pub session_max: u64,
+    /// Visitor runs the store keeps at once; when full, the oldest
+    /// resting visitor runs are purged to admit a new one.
     pub guided_ring: u64,
     pub visitor_access_hours: u64,
     pub visitor_delete_days: u64,
     pub list_page_max: u64,
+    /// Seconds a request may take to be handled (body read included;
+    /// a stream's body is not covered once its headers are sent).
+    pub request_timeout_secs: u64,
 }
 
 /// `GET /api/v1/capabilities`.

@@ -24,12 +24,13 @@
 
 use crate::api::contract;
 use crate::api::{
-    operator_router, public_router, AppState, ConsolePage, LiveGate, OperatorAuth, RateTables,
-    ServeConfig,
+    operator_router, public_router, AppState, ConsolePage, CreationKeys, LiveGate, OperatorAuth,
+    RateTables, ServeConfig,
 };
 use crate::limits::{ClientKeyPolicy, StreamCaps};
 use crate::public_config::{
-    OperatorConfig, ProcessEnv, PublicConfig, PublicListener, RuntimeConfig, DEFAULT_OPERATOR_BIND,
+    operator_limits, OperatorConfig, ProcessEnv, PublicConfig, PublicListener, RuntimeConfig,
+    DEFAULT_OPERATOR_BIND,
 };
 use crate::public_view::Surface;
 use crate::runs::{ManagerSettings, RunManager};
@@ -41,7 +42,7 @@ use axum::Router;
 use consensus_runtime::{RecoveryReport, RunStore};
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const CONSOLE_HTML: &str = include_str!("console.html");
@@ -200,6 +201,7 @@ pub fn build_public(cfg: &PublicConfig, opts: BuildOptions) -> Result<Built, Str
         guided_concurrency: cfg.runtime.guided_concurrency,
         live_concurrency: cfg.runtime.live_concurrency,
         run_deadline: cfg.runtime.run_deadline,
+        request_timeout: cfg.runtime.request_timeout,
         version: VERSION.into(),
     };
     let state = AppState {
@@ -223,6 +225,8 @@ pub fn build_public(cfg: &PublicConfig, opts: BuildOptions) -> Result<Built, Str
         live_gate: opts.live_gate,
         console: None,
         contract_sha256: Arc::new(contract::contract_sha256()),
+        creation_keys: Arc::new(CreationKeys::new(cfg.runtime.rates.table_max)),
+        ready_cache: Arc::new(Mutex::new(None)),
     };
     let router = public_router(state.clone());
     Ok(Built {
@@ -245,6 +249,9 @@ pub fn build_operator(
         recovery,
     } = runtime_parts(&cfg.runtime, &opts)?;
     let (hosts, origins) = cfg.allowed_names();
+    // One operator on a loopback peer: the visitor rates would only get
+    // in the console's way.
+    let (rates, sse) = operator_limits(&cfg.runtime);
     let config = ServeConfig {
         surface: Surface::Operator,
         allowed_origins: origins,
@@ -252,8 +259,8 @@ pub fn build_operator(
         origin_required: false,
         client_key_policy: ClientKeyPolicy::PeerAddress,
         cookie_secure: false,
-        sse: cfg.runtime.sse,
-        rates: cfg.runtime.rates,
+        sse,
+        rates,
         session_ttl: Duration::from_secs(0),
         session_max: 0,
         guided_ring: 0,
@@ -263,16 +270,17 @@ pub fn build_operator(
         guided_concurrency: cfg.runtime.guided_concurrency,
         live_concurrency: cfg.runtime.live_concurrency,
         run_deadline: cfg.runtime.run_deadline,
+        request_timeout: cfg.runtime.request_timeout,
         version: VERSION.into(),
     };
     let state = AppState {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(60), 1, false)),
-        rates: Arc::new(RateTables::new(&cfg.runtime.rates)),
+        rates: Arc::new(RateTables::new(&rates)),
         stream_caps: Arc::new(StreamCaps::new(
-            cfg.runtime.sse.max_per_run,
-            cfg.runtime.sse.max_per_client,
-            cfg.runtime.sse.max_global,
-            cfg.runtime.rates.table_max,
+            sse.max_per_run,
+            sse.max_per_client,
+            sse.max_global,
+            rates.table_max,
         )),
         config: Arc::new(config),
         manager,
@@ -282,6 +290,8 @@ pub fn build_operator(
         live_gate: None,
         console: Some(Arc::new(console_page())),
         contract_sha256: Arc::new(contract::contract_sha256()),
+        creation_keys: Arc::new(CreationKeys::new(rates.table_max)),
+        ready_cache: Arc::new(Mutex::new(None)),
     };
     let router = operator_router(state.clone());
     Ok(Built {

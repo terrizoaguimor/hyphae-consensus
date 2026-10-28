@@ -293,7 +293,7 @@
       "description": "The one-line view of a run: list entries, the 202 of creation, every SSE frame.",
       "properties": {
         "active": {
-          "description": "True while the deliberation is in progress on this server.",
+          "description": "True while the deliberation is in progress on this server: never for a run at its decision point or terminal, whatever frame or view carries it (a replayed frame of a finished run says false).",
           "type": "boolean"
         },
         "authorization": {

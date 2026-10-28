@@ -5,10 +5,21 @@
 //!
 //! Order of a start (LC-07): the caller has already admitted the request
 //! (session, quotas, input); a deliberation permit is taken *before*
-//! anything durable exists, so a refusal never leaves an orphan run; the
-//! run's files are created; `TaskCreated` is appended through the run's
-//! [`SharedRunLog`] (validated, fsync'd, published); only then is the
-//! deliberation spawned and `202` returned with the run's summary.
+//! anything durable exists ([`RunManager::reserve`], so a live-mode
+//! admission that charges a visitor can run after the permit and before
+//! the run); the run's files are created; `TaskCreated` is appended
+//! through the run's [`SharedRunLog`] (validated, fsync'd, published);
+//! only then is the deliberation spawned and `202` returned with the
+//! run's summary. A creation that fails after the files exist discards
+//! them again ([`RunStore::discard_empty_run`]), so no indexed, empty run
+//! outlives its request.
+//!
+//! The public server bounds the visitor runs it stores as a ring
+//! ([`RunManager::make_room`]): when the configured number is reached,
+//! the oldest resting visitor runs are purged to make room, those past
+//! their access window first; only when nothing can be freed (every
+//! stored visitor run is deliberating or being read) is a creation
+//! refused.
 //!
 //! Each deliberation runs under `catch_unwind`: a panic becomes
 //! `RunFailed{stage: "panic", code: "panic"}` through the run's own sink
@@ -28,9 +39,9 @@ use consensus_domain::*;
 use consensus_runtime::orchestrator::OrchestratorError;
 use consensus_runtime::ports::{MemoryClient, ModelClient, ProofVerifier};
 use consensus_runtime::{
-    parse_run_id, CancelReason, Clock, EventLogError, EventPublisher, IdGen, IndexKind,
-    Orchestrator, Owner, PurgeReport, RecoveryReport, Retention, RunAggregate, RunControl, RunMeta,
-    RunStore, RunStoreError, SharedRunLog, SystemClock, TaskInput, TransitionError,
+    parse_run_id, CancelReason, Clock, EventLogError, EventPublisher, IdGen, Orchestrator, Owner,
+    PurgeReport, RecoveryReport, Retention, RunAggregate, RunControl, RunMeta, RunStore,
+    RunStoreError, SharedRunLog, SystemClock, TaskInput, TransitionError,
 };
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -228,6 +239,33 @@ pub struct ManagerStats {
     pub queued: usize,
 }
 
+/// A deliberation slot held for a run about to start: the permit is taken
+/// before anything is charged or stored, and released with the run (or
+/// with this value, if the start never happens).
+pub struct Reservation {
+    permit: OwnedSemaphorePermit,
+    kind: RunKind,
+}
+
+impl Reservation {
+    pub fn kind(&self) -> RunKind {
+        self.kind
+    }
+}
+
+/// What the visitor-run ring did to admit one more run.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RingReport {
+    /// Visitor runs stored before this call.
+    pub stored: usize,
+    /// Oldest resting visitor runs purged to make room.
+    pub purged: Vec<RunId>,
+    /// Candidates skipped because a deliberation or a reader holds them.
+    pub in_use: Vec<RunId>,
+    /// False only when the ring is full and nothing could be freed.
+    pub admitted: bool,
+}
+
 struct ActiveRun {
     log: SharedRunLog,
     control: RunControl,
@@ -334,27 +372,51 @@ impl RunManager {
         self.store.purge_expired(chrono::Utc::now())
     }
 
-    /// Runs the store holds (created, not purged), from the run index.
-    pub fn stored_run_count(&self) -> Result<usize, RunStoreError> {
-        let records = self.store.index_records()?;
-        let created = records
-            .iter()
-            .filter(|r| r.kind == IndexKind::Created)
-            .count();
-        let purged = records
-            .iter()
-            .filter(|r| r.kind == IndexKind::Purged)
-            .count();
-        Ok(created.saturating_sub(purged))
+    /// Visitor (session-owned) runs the store holds: what the ring counts.
+    pub fn session_run_count(&self) -> Result<usize, RunStoreError> {
+        self.store.session_run_count()
     }
 
-    /// Starts a run: permit, files, durable `TaskCreated`, then the
-    /// deliberation in the background. Returns once the task is durable.
-    pub async fn start(self: &Arc<Self>, req: StartRequest) -> Result<RunSnapshot, StartError> {
+    /// The visitor-run ring: with `cap` or more visitor runs stored, the
+    /// oldest resting ones are purged (those past their access window
+    /// first) so that one more fits. A run that is deliberating or being
+    /// read is skipped; `admitted` is false only when nothing could be
+    /// freed, which is the one case the caller refuses the creation.
+    /// Operator and showcase runs neither count nor are ever purged.
+    pub fn make_room(&self, cap: usize) -> Result<RingReport, RunStoreError> {
+        let stored = self.store.session_run_count()?;
+        let need = (stored + 1).saturating_sub(cap);
+        if need == 0 {
+            return Ok(RingReport {
+                stored,
+                admitted: true,
+                ..RingReport::default()
+            });
+        }
+        let report = self
+            .store
+            .purge_oldest_session_runs(chrono::Utc::now(), need)?;
+        for run_id in &report.purged {
+            self.broadcasts.unregister(run_id);
+        }
+        Ok(RingReport {
+            stored,
+            admitted: report.purged.len() >= need,
+            purged: report.purged,
+            in_use: report.in_use,
+        })
+    }
+
+    /// Takes a deliberation slot of `kind` before anything durable or
+    /// chargeable happens: `Busy` when every slot stays taken for the
+    /// admission wait (or too many starts already wait), `ShuttingDown`
+    /// when the server drains. Hand the reservation to
+    /// [`start_reserved`](Self::start_reserved); dropping it frees the slot.
+    pub async fn reserve(&self, kind: RunKind) -> Result<Reservation, StartError> {
         if self.is_shutting_down() {
             return Err(StartError::ShuttingDown);
         }
-        let semaphore = match req.kind {
+        let semaphore = match kind {
             RunKind::Guided => self.guided.clone(),
             RunKind::Live => self.live.clone(),
         };
@@ -384,8 +446,36 @@ impl RunManager {
         if self.is_shutting_down() {
             return Err(StartError::ShuttingDown);
         }
+        Ok(Reservation { permit, kind })
+    }
+
+    /// Starts a run: permit, files, durable `TaskCreated`, then the
+    /// deliberation in the background. Returns once the task is durable.
+    pub async fn start(self: &Arc<Self>, req: StartRequest) -> Result<RunSnapshot, StartError> {
+        let reservation = self.reserve(req.kind).await?;
+        self.start_reserved(reservation, req).await
+    }
+
+    /// [`start`](Self::start) with a slot already taken by
+    /// [`reserve`](Self::reserve): files, durable `TaskCreated`, then the
+    /// deliberation in the background. A failure after the run's files
+    /// exist discards them again and leaves no orphan run.
+    pub async fn start_reserved(
+        self: &Arc<Self>,
+        reservation: Reservation,
+        req: StartRequest,
+    ) -> Result<RunSnapshot, StartError> {
+        if reservation.kind != req.kind {
+            return Err(StartError::Internal(format!(
+                "a {:?} reservation cannot start a {:?} run",
+                reservation.kind, req.kind
+            )));
+        }
+        if self.is_shutting_down() {
+            return Err(StartError::ShuttingDown);
+        }
         let this = self.clone();
-        tokio::task::spawn_blocking(move || this.start_blocking(req, permit))
+        tokio::task::spawn_blocking(move || this.start_blocking(req, reservation.permit))
             .await
             .map_err(|e| StartError::Internal(format!("start task: {e}")))?
     }
@@ -412,11 +502,19 @@ impl RunManager {
         let (agg, task) = match deliberation.create_task(&mut log, run_id.clone(), input) {
             Ok(created) => created,
             Err(e) => {
-                self.broadcasts.unregister(&run_id);
+                // LC-07: nothing durable describes this run yet (or only a
+                // task nobody will deliberate); let it go whole.
+                self.abandon_start(&run_id, log, "task creation failed");
                 return Err(e.into());
             }
         };
-        let events = log.snapshot_from(0).map_err(RunStoreError::Log)?;
+        let events = match log.snapshot_from(0) {
+            Ok(events) => events,
+            Err(e) => {
+                self.abandon_start(&run_id, log, "the stored task could not be read back");
+                return Err(RunStoreError::Log(e).into());
+            }
+        };
         let control = RunControl::with_deadline(Instant::now() + self.settings.deadline);
         self.active_map().insert(
             run_id.clone(),
@@ -487,6 +585,26 @@ impl RunManager {
         }
     }
 
+    /// A start that failed after the run's files were created: closes the
+    /// run's channel, lets its writer go, and discards the files if no
+    /// record was stored. A run whose task did get stored is closed as
+    /// failed instead, so it never lingers in `created` until a restart.
+    fn abandon_start(&self, run_id: &RunId, log: SharedRunLog, why: &str) {
+        eprintln!("[runs] run {run_id} abandoned at start: {why}");
+        self.broadcasts.unregister(run_id);
+        let stored = log.snapshot_from(0).map(|e| e.len()).unwrap_or(0);
+        if stored > 0 {
+            self.try_fail(&log, "internal", "internal", "the run could not be started");
+        }
+        // The writer holds the run's lock; the discard needs it free.
+        drop(log);
+        match self.store.discard_empty_run(run_id.as_str()) {
+            Ok(true) => eprintln!("[runs] run {run_id} discarded: no record was stored"),
+            Ok(false) => {}
+            Err(e) => eprintln!("[runs] run {run_id} could not be discarded: {e}"),
+        }
+    }
+
     /// Appends a terminal `RunFailed` unless the run already ended. The
     /// reason is fixed text, never a panic message.
     fn try_fail(&self, log: &SharedRunLog, stage: &str, code: &str, reason: &str) {
@@ -522,6 +640,26 @@ impl RunManager {
         }
     }
 
+    /// Whether `owner` may reach the run, without reading its log: the
+    /// active map first, then the run's sidecar (cached after its first
+    /// read). This is the cheap check a route makes before it commits a
+    /// stream slot or a full read; anyone else gets `NotFound`, as from
+    /// [`snapshot`](Self::snapshot).
+    pub fn owned_meta(&self, id: &str, owner: &Owner) -> Result<RunMeta, ReadError> {
+        let run_id = parse_run_id(id).map_err(|_| ReadError::NotFound)?;
+        {
+            let active = self.active_map();
+            if let Some(run) = active.get(&run_id) {
+                return if run.owner == *owner {
+                    Ok(run.meta.clone())
+                } else {
+                    Err(ReadError::NotFound)
+                };
+            }
+        }
+        Ok(self.store.meta_for(id, owner)?)
+    }
+
     /// The run as `owner` may see it: from its writer while it is active,
     /// from the store otherwise. Anyone else gets `NotFound`.
     pub fn snapshot(&self, id: &str, owner: &Owner) -> Result<RunSnapshot, ReadError> {
@@ -551,8 +689,13 @@ impl RunManager {
                 None => return Ok(None),
             }
         };
-        let events = log.snapshot_from(0)?;
-        let aggregate = log.aggregate()?;
+        // One critical section for both: a record the writer appends between
+        // two reads would otherwise be in the aggregate and not in the
+        // events (a failed run with no failure record).
+        let (events, aggregate) = log.read(|stored| {
+            let events = stored.all_events().to_vec();
+            stored.rebuild(run_id).map(|aggregate| (events, aggregate))
+        })??;
         Ok(Some(RunSnapshot {
             meta,
             events,

@@ -8,6 +8,13 @@
 //! disk: a run's owner is `Owner::session(id)`, the SHA-256 of the id,
 //! and decisions are signed `visitor:<pseudonym>`, a second, truncated
 //! digest, so a receipt never reveals a session's owner hash either.
+//!
+//! The `__Host-` prefix is only valid with `Secure` (RFC 6265bis): a
+//! browser silently drops a `__Host-` cookie set without it. When the
+//! server is configured for plain-HTTP development
+//! (`CONSENSUS_COOKIE_SECURE=false`) the cookie is therefore named
+//! `hc_session`, without the prefix; a `__Host-` cookie is never emitted
+//! without `Secure`.
 
 use consensus_runtime::Owner;
 use sha2::{Digest, Sha256};
@@ -15,10 +22,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
-/// The cookie's name. The `__Host-` prefix pins it to this host, with no
-/// `Domain` and `Path=/`, so a sibling subdomain cannot plant or fixate
-/// one.
+/// The cookie's name with `Secure`. The `__Host-` prefix pins it to this
+/// host, with no `Domain` and `Path=/`, so a sibling subdomain cannot
+/// plant or fixate one.
 pub const COOKIE_NAME: &str = "__Host-hc_session";
+/// The cookie's name without `Secure` (plain-HTTP development only): the
+/// prefix would make a browser refuse the cookie.
+pub const PLAIN_COOKIE_NAME: &str = "hc_session";
 /// Hex length of a session id: 32 random bytes.
 pub const ID_HEX_LEN: usize = 64;
 
@@ -124,6 +134,16 @@ impl SessionStore {
         self.ttl
     }
 
+    /// The name this store sets and reads: [`COOKIE_NAME`] with `Secure`,
+    /// [`PLAIN_COOKIE_NAME`] without.
+    pub fn cookie_name(&self) -> &'static str {
+        if self.cookie_secure {
+            COOKIE_NAME
+        } else {
+            PLAIN_COOKIE_NAME
+        }
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Table> {
         // A poisoned table holds plain data; keep serving.
         self.inner
@@ -222,7 +242,7 @@ impl SessionStore {
     /// The session named by a `Cookie` header.
     pub fn from_cookie_header(&self, header: Option<&str>) -> Result<Session, SessionError> {
         let header = header.ok_or(SessionError::Missing)?;
-        let value = cookie_value(header, COOKIE_NAME).ok_or(SessionError::Missing)?;
+        let value = cookie_value(header, self.cookie_name()).ok_or(SessionError::Missing)?;
         self.lookup(value)
     }
 
@@ -234,7 +254,8 @@ impl SessionStore {
             .unwrap_or_default()
             .as_secs();
         format!(
-            "{COOKIE_NAME}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
+            "{}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
+            self.cookie_name(),
             session.id,
             if self.cookie_secure { "; Secure" } else { "" }
         )
@@ -243,7 +264,8 @@ impl SessionStore {
     /// `Set-Cookie` value removing the cookie.
     pub fn clear_cookie(&self) -> String {
         format!(
-            "{COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{}",
+            "{}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{}",
+            self.cookie_name(),
             if self.cookie_secure { "; Secure" } else { "" }
         )
     }
@@ -279,6 +301,31 @@ mod tests {
         }
         let plain = SessionStore::new(Duration::from_secs(60), 10, false);
         assert!(!plain.set_cookie(&s).contains("Secure"));
+    }
+
+    #[test]
+    fn a_host_prefixed_cookie_is_never_emitted_without_secure() {
+        let plain = SessionStore::new(Duration::from_secs(60), 10, false);
+        let s = plain.create().unwrap();
+        for cookie in [plain.set_cookie(&s), plain.clear_cookie()] {
+            assert!(!cookie.contains("__Host-"), "{cookie}");
+            assert!(!cookie.contains("Secure"), "{cookie}");
+            assert!(cookie.starts_with("hc_session="), "{cookie}");
+        }
+        assert_eq!(plain.cookie_name(), PLAIN_COOKIE_NAME);
+        // The plain store reads the plain name and ignores the prefixed one.
+        let header = format!("{PLAIN_COOKIE_NAME}={}", s.id());
+        assert!(plain.from_cookie_header(Some(&header)).is_ok());
+        let prefixed = format!("{COOKIE_NAME}={}", s.id());
+        assert_eq!(
+            plain.from_cookie_header(Some(&prefixed)),
+            Err(SessionError::Missing)
+        );
+        let secure = SessionStore::new(Duration::from_secs(60), 10, true);
+        assert_eq!(secure.cookie_name(), COOKIE_NAME);
+        for cookie in [secure.set_cookie(&s), secure.clear_cookie()] {
+            assert!(cookie.starts_with("__Host-hc_session=") && cookie.ends_with("; Secure"));
+        }
     }
 
     #[test]

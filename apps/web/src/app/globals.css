@@ -1807,6 +1807,25 @@
     margin: 0;
   }
 
+  /* Why the policy recommends what it did (Decision tab). */
+  .hc-explanation {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .hc-explanation p,
+  .hc-explanation > [data-explanation-plain] {
+    margin: 0;
+  }
+
+  .hc-explanation > [data-explanation-plain],
+  .hc-explanation [data-explanation-technical] {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
   /* A wide table scrolls inside its own focusable region. */
   .hc-table-scroll {
     max-width: 100%;

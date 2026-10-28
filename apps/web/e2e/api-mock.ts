@@ -296,6 +296,45 @@ export function failedDetail(code: string | null, message: string): { detail: Js
   return { detail, frames: [...frames, { frame: "stream_end", reason: "terminal", state: "failed", last_sequence: 5 }] };
 }
 
+/** A run served under its own id: its events replayed as frames, then stream_end. */
+export function storedRun(detail: Json): MockRun {
+  const summary = detail.summary as Json;
+  const frames: Json[] = (detail.events as Json[]).map((event) => ({
+    frame: "consensus",
+    event,
+    delivery: "replay",
+    summary,
+  }));
+  const last = (detail.events as Json[]).at(-1);
+  frames.push({
+    frame: "stream_end",
+    reason: summary.state === "awaiting_human_approval" ? "awaiting_human_approval" : "terminal",
+    state: summary.state,
+    last_sequence: last?.sequence ?? 0,
+  });
+  return { detail, frames };
+}
+
+/**
+ * The retry run as a run recorded before protocol 1.3 would read: every
+ * record of schema 1.2 and the two objections of round 1 never judged again
+ * (no later evaluation listed or resolved them). Built from the fixture.
+ */
+export function beforeCarryForwardDetail(): Json {
+  const detail = clone(fixture<Json>("run-detail-retry.json"));
+  for (const event of detail.events as Json[]) {
+    event.schema_version = "1.2";
+  }
+  (detail.task as Json).schema_version = "1.2";
+  (detail.recommendation as Json).protocol = "policy 1.2";
+  detail.challenge_items = (detail.challenge_items as Json[]).map((item) => ({
+    ...item,
+    status: "never_rejudged",
+    resolution_reason: null,
+  }));
+  return detail;
+}
+
 /** The live R01 run just created (declared Meta, nothing recorded but the task). */
 export function liveR01Run(): MockRun {
   const detail = clone(fixture<Json>("run-detail-live-R01-reference.json"));

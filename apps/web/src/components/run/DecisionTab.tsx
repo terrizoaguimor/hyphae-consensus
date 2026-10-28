@@ -27,6 +27,7 @@ import { ndjsonPublishable } from "@/lib/provenance";
 import { supersededProposal } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { Explanation } from "./Explanation";
 import { RecommendationLine } from "./StageTab";
 import type { RunData } from "./useRunData";
 
@@ -176,6 +177,7 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
                 </div>
               </div>
             )}
+            <Explanation recommendation={recommendation} detail={detail} />
             <h4>{t("rationale")}</h4>
             <p>{recommendation.rationale}</p>
             <p className="hc-supporting">

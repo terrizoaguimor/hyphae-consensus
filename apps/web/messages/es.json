@@ -751,6 +751,71 @@
       "requestIds": "Los id de solicitud son los que el entorno de ejecución registró para la API de Meta; los logs no están firmados, así que muestran lo que se registró, no que Meta lo haya devuelto.",
       "operatorOnly": "Ninguna fila contiene el límite de salida, el número de intentos ni los resúmenes del esquema y del prompt: la superficie pública no los publica.",
       "noCost": "No se muestra ningún costo: la API no publica precios."
+    },
+    "explain": {
+      "heading": "Por qué la política recomienda esto",
+      "noTrace": "Esta recomendación se registró antes del esquema 1.1: no lleva traza de la política, así que se muestra tal como se registró y no se explica a partir de una.",
+      "reasonsIntro": "Las comprobaciones que fallaron, en el orden de la política:",
+      "plain": {
+        "rules": {
+          "invalid_proof": "La comprobación de integridad de un registro dio inválida, y esa comprobación va antes que todas las demás: la política recomienda {kind}.",
+          "recorded_contradiction": "El evaluador registró evidencia que contradice una afirmación: la política recomienda {kind}.",
+          "abstention": "El evaluador se negó a juzgar las afirmaciones: la política recomienda {kind}.",
+          "unresolved_items": "Siguen abiertas objeciones después de la evaluación final: la política recomienda {kind}.",
+          "insufficient_evidence": "La evidencia no avala todas las afirmaciones: la política recomienda {kind}.",
+          "all_checks_passed": "Todas las comprobaciones de la política se superaron: recomienda {kind}."
+        },
+        "counts": {
+          "claims": "{claims, plural, =0 {La evaluación final no valoró ninguna afirmación} one {La evaluación final valoró # afirmación} many {La evaluación final valoró # de afirmaciones} other {La evaluación final valoró # afirmaciones}}; {corroborated, plural, =0 {ninguna se corroboró} one {# se corroboró} many {# de ellas se corroboraron} other {# se corroboraron}}.",
+          "proofs": "Pruebas de la ronda final: {valid, plural, =0 {ninguna válida} one {# válida} many {# de válidas} other {# válidas}}, {invalid, plural, =0 {ninguna inválida} one {# inválida} many {# de inválidas} other {# inválidas}}, {unavailable, plural, =0 {ninguna no disponible o fallida} one {# no disponible o fallida} many {# de no disponibles o fallidas} other {# no disponibles o fallidas}}.",
+          "open": "{unresolved, plural, =0 {La evaluación final no indicó ninguna objeción como no resuelta.} one {La evaluación final indicó # objeción como no resuelta.} many {La evaluación final indicó # de objeciones como no resueltas.} other {La evaluación final indicó # objeciones como no resueltas.}}"
+        },
+        "reasons": {
+          "invalid_proofs": "La prueba de un registro resultó inválida.",
+          "contradicted_evidence": "Se juzgó que una evidencia contradice una afirmación.",
+          "evaluator_abstained": "El evaluador se negó a juzgar.",
+          "open_items": "Siguen abiertas objeciones del crítico.",
+          "no_assessments": "El evaluador no valoró ninguna afirmación.",
+          "uncorroborated_claims": "No todas las afirmaciones se corroboraron.",
+          "claims_without_own_evidence": "Una afirmación corroborada no cita ninguna evidencia propia.",
+          "cited_evidence_not_valid": "Una evidencia citada no tiene prueba válida.",
+          "no_checked_evidence": "No se comprobó ninguna evidencia citada."
+        }
+      },
+      "context": {
+        "simulated": "Todos los estados de prueba de esta ejecución son SIMULADOS: los registró el verificador con guion y no se comprobó nada.",
+        "finalRoundOnly": "Esta ejecución se registró antes del protocolo 1.3: la evaluación de cada ronda juzgó solo las objeciones de esa ronda, y la política leyó solo la ronda final.",
+        "neverRejudged": "{count, plural, =0 {Objeciones de rondas anteriores nunca vueltas a juzgar: ninguna.} one {Objeciones de rondas anteriores nunca vueltas a juzgar: #.} many {Objeciones de rondas anteriores nunca vueltas a juzgar: #.} other {Objeciones de rondas anteriores nunca vueltas a juzgar: #.}}"
+      },
+      "technicalSummary": "Detalles técnicos de la traza de la política",
+      "technical": {
+        "noTrace": "Sin traza de la política: la recomendación se registró con {protocol}.",
+        "rule": "Regla decisiva: {rule} ({id}), reglas de la política {version}.",
+        "code": "Código de la justificación:",
+        "reasonsHeading": "{count, plural, =0 {Ninguna comprobación falló: la traza no indica ningún motivo.} one {# comprobación falló, en el orden de las reglas:} many {# de comprobaciones fallaron, en el orden de las reglas:} other {# comprobaciones fallaron, en el orden de las reglas:}}",
+        "ids": "ids: {ids}",
+        "rationale": "La justificación del servidor, tal como se registró:",
+        "protocol": "Protocolo: {protocol}"
+      },
+      "ruleNames": {
+        "invalid_proof": "prueba inválida",
+        "recorded_contradiction": "contradicción registrada",
+        "abstention": "abstención del evaluador",
+        "unresolved_items": "objeciones abiertas",
+        "insufficient_evidence": "evidencia insuficiente",
+        "all_checks_passed": "todas las comprobaciones superadas"
+      },
+      "reasonNames": {
+        "invalid_proofs": "pruebas inválidas",
+        "contradicted_evidence": "evidencia contradicha",
+        "evaluator_abstained": "el evaluador se abstuvo",
+        "open_items": "objeciones abiertas",
+        "no_assessments": "ninguna valoración",
+        "uncorroborated_claims": "afirmaciones no corroboradas",
+        "claims_without_own_evidence": "afirmaciones sin evidencia propia",
+        "cited_evidence_not_valid": "evidencia citada sin prueba válida",
+        "no_checked_evidence": "ninguna evidencia comprobada"
+      }
     }
   },
   "Showcase": {

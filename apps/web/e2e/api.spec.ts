@@ -21,6 +21,7 @@ import { localePath, runPath } from "../src/lib/site";
 import { AXE_TAGS, blocking, type ScanSummary, summarize, writeScans } from "./axe-results";
 import {
   awaitingDecisionDetail,
+  beforeCarryForwardDetail,
   failedDetail,
   framesWith,
   inProgressLiveRun,
@@ -32,6 +33,7 @@ import {
   RUN_ID,
   sealedSnapshotDetail,
   SNAPSHOT_ANCHOR,
+  storedRun,
 } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
@@ -882,6 +884,101 @@ test("recorded Meta calls: request ids, tokens and totals computed from the rows
   // A recorded request id is evidence of a recorded call, never of anything live.
   await expectNoLive(page, "en");
 });
+
+test("the Decision tab explains the recommendation from its policy trace @smoke", async ({ page }) => {
+  await mockApi(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const explanation = page.locator("[data-explanation]");
+  await expect(explanation.locator("[data-explain-lead]")).toHaveText(
+    t("en", "Run.explain.plain.rules.all_checks_passed", { kind: t("en", "Run.kinds.supported") }),
+  );
+  // The trace's counts, zeros in words (ICU plurals, rendered by the app).
+  await expect(explanation.locator("[data-explain-counts] li")).toHaveText([
+    "The final evaluation assessed 2 claims; 2 were corroborated.",
+    "Proofs of the final round: 2 valid, none invalid, none unavailable or failed.",
+    "The final evaluation listed no objection as unresolved.",
+  ]);
+  await expect(explanation.locator("[data-explain-reasons]")).toHaveCount(0);
+  // What the records add: these proof statuses are SIMULATED.
+  await expect(explanation.locator("[data-context='context.simulated']")).toHaveText(
+    t("en", "Run.explain.context.simulated"),
+  );
+  // Simple level: the technical details start collapsed, and open on request.
+  const details = explanation.locator("details.hc-details");
+  await expect(details).not.toHaveAttribute("open");
+  await details.locator("summary").click();
+  await expect(explanation.locator("[data-technical-rule='all_checks_passed']")).toHaveText(
+    t("en", "Run.explain.technical.rule", { rule: "all checks passed", id: "all_checks_passed", version: "1.2" }),
+  );
+  await expect(explanation.locator("[data-count-field='proofs_valid']")).toHaveText("2");
+  await expect(explanation.locator("figure[data-untrusted='server'] blockquote")).toHaveText(
+    "Supported: 2/2 claims corroborated; proofs: 2 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+  );
+  await expectNoLive(page, "en");
+});
+
+test("at the technical level the trace starts expanded, every failed check with its ids", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem("hc-explanation", "technical"));
+  const blocked = fixture<Record<string, unknown>>("run-detail-invalid_proof.json");
+  const runId = (blocked.summary as { run_id: string }).run_id;
+  await mockApi(page, { extraRuns: [storedRun(blocked)] });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en", runId);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const explanation = page.locator("[data-explanation]");
+  await expect(explanation.locator("[data-explain-lead]")).toHaveText(
+    t("en", "Run.explain.plain.rules.invalid_proof", { kind: t("en", "Run.kinds.blocked") }),
+  );
+  await expect(explanation.locator("[data-explain-reasons] li")).toHaveText([
+    t("en", "Run.explain.plain.reasons.invalid_proofs"),
+    t("en", "Run.explain.plain.reasons.contradicted_evidence"),
+    t("en", "Run.explain.plain.reasons.open_items"),
+    t("en", "Run.explain.plain.reasons.uncorroborated_claims"),
+    t("en", "Run.explain.plain.reasons.cited_evidence_not_valid"),
+  ]);
+  await expect(explanation.locator("details.hc-details")).toHaveAttribute("open");
+  const reasons = explanation.locator("[data-technical-reasons] li");
+  await expect(reasons).toHaveCount(5);
+  await expect(reasons.first()).toContainText("ev-constraint");
+  await expect(explanation.locator("[data-technical-reasons] [data-reason='open_items']")).toContainText(
+    "item-1, item-2",
+  );
+});
+
+test("a run before protocol 1.3 says how many earlier-round objections were never re-judged", async ({ page }) => {
+  await mockApi(page, { detail: beforeCarryForwardDetail() });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const context = page.locator("[data-explain-context]");
+  await expect(context.locator("[data-context='context.finalRoundOnly']")).toHaveText(
+    t("en", "Run.explain.context.finalRoundOnly"),
+  );
+  await expect(context.locator("[data-context='context.neverRejudged']")).toHaveText(
+    "Earlier-round objections never re-judged: 2.",
+  );
+});
+
+for (const locale of ["es", "pt-BR", "fr"] as const) {
+  test(`the explanation is translated, the kind in the locale's word (${locale})`, async ({ page }) => {
+    await mockApi(page);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openRun(page, locale);
+    await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+    await page.getByRole("tab", { name: t(locale, "Run.tabs.decision") }).click();
+    await expect(page.locator("[data-explain-lead]")).toHaveText(
+      t(locale, "Run.explain.plain.rules.all_checks_passed", { kind: t(locale, "Run.kinds.supported") }),
+    );
+    await expect(page.locator("[data-context='context.simulated']")).toHaveText(
+      t(locale, "Run.explain.context.simulated"),
+    );
+    await expectNoLive(page, locale);
+  });
+}
 
 test("the scope change sits under the recommendation it qualifies", async ({ page }) => {
   await mockApi(page, { detail: awaitingDecisionDetail() });

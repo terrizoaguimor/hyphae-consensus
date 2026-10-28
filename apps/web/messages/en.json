@@ -751,6 +751,71 @@
       "requestIds": "Request ids are the ones the runtime recorded for Meta’s API; the logs are unsigned, so they show what was recorded, not that Meta returned it.",
       "operatorOnly": "No row carries the output bound, the attempt count or the schema and prompt digests: the public surface does not publish them.",
       "noCost": "No cost is shown: the API publishes no prices."
+    },
+    "explain": {
+      "heading": "Why the policy recommends this",
+      "noTrace": "This recommendation was recorded before schema 1.1: it carries no policy trace, so it is shown as recorded and is not explained from one.",
+      "reasonsIntro": "The checks that failed, in the policy’s order:",
+      "plain": {
+        "rules": {
+          "invalid_proof": "A record’s integrity check came back invalid, and that check comes before every other one: the policy recommends {kind}.",
+          "recorded_contradiction": "The Evaluator recorded evidence that contradicts a claim: the policy recommends {kind}.",
+          "abstention": "The Evaluator declined to judge the claims: the policy recommends {kind}.",
+          "unresolved_items": "Objections are still open after the final evaluation: the policy recommends {kind}.",
+          "insufficient_evidence": "The evidence does not back every claim: the policy recommends {kind}.",
+          "all_checks_passed": "Every check of the policy passed: it recommends {kind}."
+        },
+        "counts": {
+          "claims": "{claims, plural, =0 {The final evaluation assessed no claim} one {The final evaluation assessed # claim} other {The final evaluation assessed # claims}}; {corroborated, plural, =0 {none was corroborated} one {# was corroborated} other {# were corroborated}}.",
+          "proofs": "Proofs of the final round: {valid, plural, =0 {none valid} one {# valid} other {# valid}}, {invalid, plural, =0 {none invalid} one {# invalid} other {# invalid}}, {unavailable, plural, =0 {none unavailable or failed} one {# unavailable or failed} other {# unavailable or failed}}.",
+          "open": "{unresolved, plural, =0 {The final evaluation listed no objection as unresolved.} one {The final evaluation listed # objection as unresolved.} other {The final evaluation listed # objections as unresolved.}}"
+        },
+        "reasons": {
+          "invalid_proofs": "A record’s proof was found invalid.",
+          "contradicted_evidence": "Evidence was judged to contradict a claim.",
+          "evaluator_abstained": "The Evaluator declined to judge.",
+          "open_items": "Objections of the Critic are still open.",
+          "no_assessments": "The Evaluator assessed no claim.",
+          "uncorroborated_claims": "Not every claim was corroborated.",
+          "claims_without_own_evidence": "A corroborated claim cites no evidence of its own.",
+          "cited_evidence_not_valid": "Cited evidence has no valid proof.",
+          "no_checked_evidence": "No cited evidence was checked."
+        }
+      },
+      "context": {
+        "simulated": "Every proof status of this run is SIMULATED: the scripted verifier recorded it, and nothing was checked.",
+        "finalRoundOnly": "This run was recorded before protocol 1.3: each round’s evaluation judged only that round’s objections, and the policy read the final round only.",
+        "neverRejudged": "{count, plural, =0 {Earlier-round objections never re-judged: none.} one {Earlier-round objections never re-judged: #.} other {Earlier-round objections never re-judged: #.}}"
+      },
+      "technicalSummary": "Technical details of the policy trace",
+      "technical": {
+        "noTrace": "No policy trace: the recommendation was recorded under {protocol}.",
+        "rule": "Deciding rule: {rule} ({id}), policy rules {version}.",
+        "code": "Rationale code:",
+        "reasonsHeading": "{count, plural, =0 {No check failed: the trace lists no reason.} one {# check failed, in the order of the rules:} other {# checks failed, in the order of the rules:}}",
+        "ids": "ids: {ids}",
+        "rationale": "The server’s rationale, as recorded:",
+        "protocol": "Protocol: {protocol}"
+      },
+      "ruleNames": {
+        "invalid_proof": "invalid proof",
+        "recorded_contradiction": "recorded contradiction",
+        "abstention": "abstention",
+        "unresolved_items": "open objections",
+        "insufficient_evidence": "insufficient evidence",
+        "all_checks_passed": "all checks passed"
+      },
+      "reasonNames": {
+        "invalid_proofs": "invalid proofs",
+        "contradicted_evidence": "contradicted evidence",
+        "evaluator_abstained": "the Evaluator abstained",
+        "open_items": "open objections",
+        "no_assessments": "no assessment",
+        "uncorroborated_claims": "uncorroborated claims",
+        "claims_without_own_evidence": "claims without their own evidence",
+        "cited_evidence_not_valid": "cited evidence without a valid proof",
+        "no_checked_evidence": "no checked evidence"
+      }
     }
   },
   "Showcase": {

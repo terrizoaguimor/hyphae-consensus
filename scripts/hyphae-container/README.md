@@ -116,8 +116,14 @@ docker exec hyphae-consensus sh /hyphae-home/capture-snapshot.sh --dry-run <id> 
 docker exec hyphae-consensus sh /hyphae-home/capture-snapshot.sh <id>             # the session
 docker cp hyphae-consensus:/hyphae-home/snapshots/<id> snapshots/
 python -I scripts/snapshot_manifest.py build snapshots/<id>
-python -I scripts/snapshot_manifest.py check snapshots/<id>
+python -I scripts/snapshot_manifest.py check snapshots/<id> --reverify scripts\hyphae-docker.cmd --verifier-dir /hyphae-home/snapshots/<id>
 ```
+
+`build` binds every file to its capture through the sha256 digests the
+session recorded the moment each file was written; `--reverify` runs
+`hyphae proof verify` again (here through the container wrapper, which sees
+the captures where the session left them) and requires the captured report
+to be reproduced field by field.
 
 Copy the current `*.sh` set in first (the script sources `hyphae-env.sh` and
 cross-checks the seed texts against `seed.sh` and `seed-demo-facts.sh`).

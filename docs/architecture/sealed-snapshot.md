@@ -48,7 +48,10 @@ container (debian:trixie-slim, `/bin/sh` is dash, `hyphae 4.0.0` at
   `mktemp`, `du`, `nohup` exist; `jq`, `python3`, `b3sum` and `ps` do not. The capture script
   therefore reads JSON with a small embedded awk tokenizer that fails closed, and digests with
   `sha256sum`. BLAKE3 digests (`proof_blake3`) are copied from Hyphae's own response, never
-  recomputed in the container; the host-side `check` compares them to the response as well.
+  recomputed: no BLAKE3 implementation is available anywhere in this project (no `b3sum` in the
+  container, none in the Python standard library, none in `Cargo.lock`, which has `sha2` only),
+  so the host-side `check` compares the value to the response and nothing else. The bindings
+  that can be recomputed are the sha256 digests the session records (section 6).
 - `hyphae agent setup --no-service` is the flag that created the demo and lab stores on
   2026-10-27 (`scripts/hyphae-container/README.md`, `docs/reviews/2026-10-27-claude-fix-report-2.md`).
   The script records `hyphae agent setup --help` in `capture.log` at the start of the session so
@@ -110,13 +113,13 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    | Step | Mutation in the container | Guard |
    |---|---|---|
    | 0 | creates `/hyphae-home/snapshots/<id>/captures/` and `capture.log`; records `hyphae --version`, `agent ui --help`, `agent setup --help`, `proof verify --help` | refuses if the instance HOME or the output directory exists; refuses the demo and lab HOMEs; requires the sibling scripts and the tools |
-   | 1 | `mkdir /hyphae-home/sealed/<id>`; `HOME=/hyphae-home/sealed/<id> hyphae agent setup --no-service` (its stdout stays in `<HOME>/setup.out`, inside the container, because whether it prints credential material is unverified) | the data directory and the credentials directory must appear where `hyphae-env.sh` derives them; the canonical socket printed by `hyphae agent configure` must lie outside the data directory |
+   | 1 | `mkdir /hyphae-home/sealed/<id>`; `HOME=/hyphae-home/sealed/<id> hyphae agent setup --no-service` (its stdout goes to the script's scratch directory under `/tmp`, which is removed at exit on every path, success or failure, because whether it prints credential material is unverified; only its byte count is logged); then `hyphae-env.sh` is sourced for the new HOME, which runs `hyphae agent configure opencode` to learn the canonical endpoint | the data directory and the credentials directory must appear where `hyphae-env.sh` derives them; every file `setup` and `configure` left under the HOME outside the data directory is listed (names and sizes); `configure` must not change the data directory; the canonical socket must be one plain absolute path outside the data directory, and no socket may already exist there (another daemon would answer the captures) |
    | 2 | `hyphae agent recover`, then `nohup hyphae serve --data-dir <data> --endpoint <socket> --native-api-key-auth` for the new HOME only (the two commands of `serve.sh`) | waits for the socket; the pid is kept so the daemon is stopped and reaped by the script |
    | 3 | 7 × `hyphae_store demo-repo <kind> "<text>"` (writer credential of the new instance, MCP writer path) | each text must appear verbatim in `seed.sh` or `seed-demo-facts.sh`; a store error or an empty response aborts; nothing is ever forgotten |
-   | 4 | two `hyphae agent ui` requests (below); the proof and witness files Hyphae writes under `<HOME>/.local/state/hyphae/proofs/` are copied verbatim to `captures/` and compared with `cmp` | `proof` must not be null; `proof.scope` must be `memory-snapshot-v1`; the list must hold exactly 7 records, all of project `demo-repo`; the `other-repo` recall must be empty; both proofs must carry the same `anchor_hex` |
-   | 5 | none (reads) | `hyphae proof verify --proof captures/<id>.proof --witness captures/<id>.witness --anchor <anchor_hex of the list response>`: exit 0 and a report with `status = verified`, `kind = memory`, `scope = semantic_reexecution`, `semantic_reexecution_performed = true`, `anchor_digest` equal to the anchor given |
+   | 4 | two `hyphae agent ui` requests (below); the proof and witness files Hyphae writes (under `<HOME>/.local/state/hyphae/proofs/` for the demo store) are copied verbatim to `captures/` and compared with `cmp`; the sha256 of the response, the proof copy and the witness copy is computed the moment they are written and goes into the log and `captures.index` | `proof` must not be null; `proof.scope` must be `memory-snapshot-v1`; the proof and witness paths must lie under the new HOME (and not inside its data directory), otherwise `agent ui` answered from another store; the list must hold exactly 7 records, all of project `demo-repo`; the `other-repo` recall must be empty; both proofs must carry the same `anchor_hex` and must not be byte-identical; an anchor equal to the demo store's `d91ac10d…` is logged as a warning |
+   | 5 | none (reads) | `hyphae proof verify --proof captures/<id>.proof --witness captures/<id>.witness --anchor <anchor_hex of the list response>`: exit 0 and a report with `status = verified`, `kind = memory`, `scope = semantic_reexecution`, `semantic_reexecution_performed = true`, `anchor_digest` equal to the anchor given; the report's own digests (`proof_digest`, `witness_digest`, `request_digest`, `result_digest`, …) and the sha256 of the report file are logged, the latter also recorded in `captures.index` |
    | 6 | none (reads) | `hyphae --version` and `sha256sum` of `readlink -f $(command -v hyphae)` |
-   | 7 | `kill -INT <daemon pid>` (waits for the socket to vanish, reaps the process); `rm -rf <HOME>/.config/hyphae/credentials` after listing every file in it (names and sizes only, never contents); `chmod -R a-w <data directory>` | the credentials directory must be gone afterwards |
+   | 7 | `kill -INT <daemon pid>` (waits for the socket to vanish, reaps the process); `rm -rf <HOME>/.config/hyphae/credentials` after listing every file in it (names and sizes only, never contents); `chmod -R a-w <data directory>` | the credentials directory must be gone afterwards; the files left under the HOME are listed again (the original proofs and witnesses, `serve.log`) |
    | 8 | writes `captures.index` and `session.json` into the output directory | |
 
    The two requests (`id` is any string; the response is written verbatim):
@@ -142,12 +145,24 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    docker cp hyphae-consensus:/hyphae-home/snapshots/<id> snapshots/
    ```
 
-5. **Build and check the manifest** (standard-library Python, always with `-I`):
+5. **Build and check the manifest** (standard-library Python, always with `-I`; PowerShell, because
+   the `--verifier-dir` argument is a container path that Git Bash would rewrite):
 
    ```powershell
    python -I scripts/snapshot_manifest.py build snapshots/<id> --expect-ids research-ids.txt
-   python -I scripts/snapshot_manifest.py check snapshots/<id>
+   python -I scripts/snapshot_manifest.py check snapshots/<id> --reverify scripts\hyphae-docker.cmd --verifier-dir /hyphae-home/snapshots/<id>
    ```
+
+   `build` refuses any capture file whose sha256 differs from the digest the session recorded in
+   `captures.index` the moment the file was written (section 6: the only binding of a proof, a
+   witness or a report to its capture once the directory has left the container), and requires
+   the two required captures to carry different proofs. `--reverify` runs `hyphae proof verify`
+   again on every capture, exactly as the runtime does (`hyphae proof verify --proof F --witness F
+   --anchor HEX`, Meta key variables stripped from the child's environment), and requires the
+   fresh report to equal the captured `captures/<id>.verify.json` field by field; on the dev
+   machine the verifier is the container wrapper, which sees the captures where the session left
+   them, hence `--verifier-dir`. A report the verifier does not reproduce means the proof or
+   witness in hand is not the pair verified at capture time.
 
    `--expect-ids` is optional but recommended: save the list below as `research-ids.txt` (a
    scratch file, not committed). It holds the 7 memory ids every recorded `demo-repo` run
@@ -192,7 +207,8 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` as today; `CONSENSUS_SNAPSHOT_VERIFIER_DIR` unset (the
    native binary sees the same path). No daemon, no credentials, no writer path on the server
    (release checklist G9). If Python 3 is on the server, `python3 -I scripts/snapshot_manifest.py
-   check /var/lib/hyphae-consensus/snapshots/<id>` is the deployment review step.
+   check /var/lib/hyphae-consensus/snapshots/<id> --reverify /usr/local/bin/hyphae` is the
+   deployment review step (no `--verifier-dir`: the native binary sees the directory itself).
 
 8. **What gets committed.** `git add snapshots/<id>`: the `.proof` and `.witness` files are
    already ignored (`.gitignore`), everything else (`manifest.json`, `SHA256SUMS`, the
@@ -219,7 +235,8 @@ captures/<capture id>.verify.json     (the exact stdout of "hyphae proof verify"
 
 The session also leaves `captures.index`, `session.json`, `capture.log`, `hyphae-version.txt`
 and `hyphae-binary.sha256` in the directory (section 5); they are ordinary files listed in
-`SHA256SUMS`. `captures/<id>.response.json` is the exact stdout of `hyphae agent ui`: if that
+`SHA256SUMS`, and `captures.index` is required by `check` because it holds the capture-time
+digests (the runtime does not read it). `captures/<id>.response.json` is the exact stdout of `hyphae agent ui`: if that
 stdout wraps the result in an envelope (`{"schema": …, "id": …, "result": {…}}`), the file keeps
 the envelope and every reader (the manifest builder, the runtime) takes the result from
 `result`; the help text does not say which shape is printed (section 8).
@@ -266,13 +283,18 @@ anchor everywhere, and recomputes every digest.
 `captures.index`: one JSON object per line, one line per capture, in capture order:
 
 ```json
-{"id":"list-demo-repo","operation":"list","arguments":{"project":"demo-repo","query":"","limit":64,"prove":true},"files":{"response":"captures/list-demo-repo.response.json","proof":"captures/list-demo-repo.proof","witness":"captures/list-demo-repo.witness","verify":"captures/list-demo-repo.verify.json"},"proof_blake3":"<hex>","anchor_hex":"<hex>","memory_ids":["<decimal id>","..."],"captured_at":"<RFC 3339 UTC>","verified_at":"<RFC 3339 UTC>"}
+{"id":"list-demo-repo","operation":"list","arguments":{"project":"demo-repo","query":"","limit":64,"prove":true},"files":{"response":"captures/list-demo-repo.response.json","proof":"captures/list-demo-repo.proof","witness":"captures/list-demo-repo.witness","verify":"captures/list-demo-repo.verify.json"},"sha256":{"response":"<hex>","proof":"<hex>","witness":"<hex>","verify":"<hex>"},"proof_blake3":"<hex>","anchor_hex":"<hex>","memory_ids":["<decimal id>","..."],"captured_at":"<RFC 3339 UTC>","verified_at":"<RFC 3339 UTC>"}
 ```
 
-`arguments` is the exact object sent to `hyphae agent ui`; `memory_ids` are the ids the script
-extracted from the response, in order; `captured_at` is the time the request was sent and
-`verified_at` the time `hyphae proof verify` was started. The builder trusts none of it: every
-value is compared with the response file and the verifier report, and a mismatch aborts.
+`arguments` is the exact object sent to `hyphae agent ui`; `sha256` holds the digests of the
+four capture files computed in the container the moment each was written (the response as
+`agent ui` printed it; the proof and witness copies right after `cmp` confirmed them equal to the
+files the response names; the verifier report as `proof verify` printed it), also printed in
+`capture.log`; `memory_ids` are the ids the script extracted from the response, in order;
+`captured_at` is the time the request was sent and `verified_at` the time `hyphae proof verify`
+was started (both required: the manifest's `verification.verified_at` is this value, never a
+substitute). The builder trusts none of it: every value is compared with the response file and
+the verifier report, every file's sha256 must equal the recorded one, and a mismatch aborts.
 
 `session.json`: `{"schema":"hyphae-consensus-capture-session-v1","snapshot_id","project",
 "captured_at" (session start),"finished_at","anchor_hex","record_count","hyphae_version",
@@ -282,9 +304,10 @@ value is compared with the response file and the verifier report, and a mismatch
 
 `capture.log`: the complete session transcript with UTC timestamps, including the help texts
 recorded at the start, every `+ <command>` line, every store response, every memory id, the
-anchor, the verifier fields, the names and sizes of the credential files that were removed, and
+anchor, the verifier fields, the capture-time sha256 of every capture file, the names and sizes
+of the files `setup` and `configure` created and of the credential files that were removed, and
 the list of output files. It contains paths inside the container and no key material (the
-`agent setup` output stays in the container, see section 3 step 1).
+`agent setup` output is discarded with the scratch directory, see section 3 step 1).
 
 ## 6. Verification semantics: what "verified" proves and does not prove
 
@@ -312,6 +335,24 @@ Verification is rerun by the runtime (same binary, same arguments) at boot and f
 run, so each receipt carries its own verification time; a snapshot that fails its boot check
 disables the mode instead of falling back silently.
 
+**What binds which file to which capture.** Every proof of one session carries the same anchor
+and verifies against the same witness contents, so the verifier alone cannot tell whether
+`captures/list-demo-repo.proof` is the proof of the list capture or of the isolation capture.
+The bindings, and who checks them:
+
+| Binding | Established by | Checked by |
+|---|---|---|
+| response ↔ proof and witness copies | the session: the copies are made from the paths the response names, compared with `cmp`, and the sha256 of the response, the proof copy and the witness copy is recorded at once in `captures.index` and `capture.log` | `build` and `check`: every file's sha256 must equal the recorded one (a swapped pair, a swapped report or an altered file is refused even though it would verify); the two required captures must carry different proofs (`proof_sha256`, `proof_blake3`, and the report's `proof_digest`/`request_digest`/`result_digest` when present) |
+| proof and witness ↔ verifier report | `hyphae proof verify` at capture time; the report's `proof_digest`, `witness_digest`, `request_digest`, `result_digest` are deterministic functions of the two files | `check --reverify` (the fresh report must equal the captured one field by field) and the runtime's boot check (section 7) |
+| proof ↔ anchor | the proof itself; `anchor_digest` in the report | the verifier, every time |
+| `proof_blake3` ↔ proof bytes | Hyphae's response | nobody here: no BLAKE3 implementation is available (section 2); the value is carried as an opaque identifier and compared only with the response it came from |
+
+What stays beyond offline checking: a rewrite of the whole directory that keeps every file
+consistent with every other, `captures.index` included, can only be caught by the shape checks
+(the list capture holds exactly 7 `demo-repo` records, the isolation recall is empty, one anchor),
+by the anchor and binary digest published out of band (ADR-0008), and by the committed
+`manifest.json`/`SHA256SUMS` in git history.
+
 ## 7. Runtime behaviour (lane B implements; this is the documented contract)
 
 - **Evidence mode `sealed_snapshot`** is fixed server-side for the public live route; `simulated`
@@ -334,6 +375,10 @@ disables the mode instead of falling back silently.
   verifier's own view of the directory (`CONSENSUS_SNAPSHOT_VERIFIER_DIR` when set, else
   `CONSENSUS_SNAPSHOT_DIR`), requiring the same report fields as section 6. Per run it re-verifies
   (cached by content digest per the existing verifier, HY-13) and stamps the verification time.
+  Recommended in the boot check: compare the fresh report with the captured
+  `captures/<id>.verify.json` on every field (its digests are deterministic, section 6), which
+  binds the proof and witness in hand to the pair verified at capture time; `proof_blake3` cannot
+  be recomputed (no BLAKE3 in the workspace) and is an opaque value from the response.
 - **Configuration.** `CONSENSUS_SNAPSHOT_DIR` = path of the snapshot directory (`manifest.json`
   inside); `CONSENSUS_SNAPSHOT_VERIFIER_DIR` (optional) = the same directory as the verifier
   binary sees it (Windows dev machine: the container path, because `CONSENSUS_HYPHAE_BIN` is
@@ -359,8 +404,12 @@ Proofs are private for the same reason. What the public sees: the manifest's dig
 record ids and texts (synthetic), the anchor prefix, the verification status and time.
 
 The capture script never prints or reads the content of a credential file (it lists names and
-sizes with `find` and `stat` before removing the directory), never copies `agent setup`'s stdout
-out of the container, and never carries the Meta key (none is set in the container).
+sizes with `find` and `stat` before removing the directory), discards `agent setup`'s stdout
+with its scratch directory at exit (success or failure; only the byte count is logged), and
+never carries the Meta key (none is set in the container). What the sealed HOME keeps after the
+session: the read-only data directory, the original proof and witness files, the daemon log
+`serve.log`, and whatever `agent setup`/`agent configure` wrote under it (listed in
+`capture.log`); no credential file and no copy of the setup output.
 
 ## 9. Unverified until the capture session (2026-10-29)
 
@@ -377,13 +426,21 @@ assumed silently.
    with `project`, `query`, `limit`, `prove`), honours `prove` for `list`, and returns `proof`
    with `scope = memory-snapshot-v1`, `proof_path`, `witness_path`, `proof_blake3` (64 hex) and
    `anchor_hex` (64 hex) exactly as the MCP recall response does; `query = ""` for `list`.
-4. Whether `hyphae agent setup --no-service` prints credential material on stdout (kept in the
-   container either way) and whether `hyphae agent remove` would be a cleaner credential
-   destruction than removing `<HOME>/.config/hyphae/credentials` (the layout `hyphae-env.sh`
-   documents; the script asserts the directory exists before and is gone after).
+4. Whether `hyphae agent setup --no-service` prints credential material on stdout (discarded
+   either way, section 3 step 1), what `hyphae agent configure opencode` writes under the new
+   HOME (listed by the script; it must not change the data directory), and whether `hyphae agent
+   remove` would be a cleaner credential destruction than removing
+   `<HOME>/.config/hyphae/credentials` (the layout `hyphae-env.sh` documents; the script asserts
+   the directory exists before and is gone after).
 5. Whether the ids of the 7 re-seeded records equal the recorded research ids (section 3 step 5;
    `--expect-ids`).
 6. The proof and witness sizes of a fresh 7-record store (expected about 3.3 MB for the witness)
    and the time `hyphae proof verify` takes on the server.
-7. The behaviour of `/health` and the receipt wording are lane B's implementation; section 7
+7. Whether `proof_blake3` is the BLAKE3 of the proof file's bytes (it cannot be recomputed here,
+   section 2) and whether the verifier report is reproduced field by field by a second run on
+   the same files (expected: its digests are deterministic; `check --reverify` and the runtime's
+   boot check depend on it, and the 2026-10-27 live report had no time-dependent field).
+8. Whether the sealed instance's anchor differs from the demo store's `d91ac10d…` (expected: a
+   fresh store with its own catalog and key verifiers; the script warns if they are equal).
+9. The behaviour of `/health` and the receipt wording are lane B's implementation; section 7
    is the contract they are written against.

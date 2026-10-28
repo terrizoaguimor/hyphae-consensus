@@ -88,8 +88,12 @@ the recorded batteries cannot sit behind a public server:
 
 - `scripts/hyphae-container/capture-snapshot.sh` is the session script of decision 2
   (POSIX sh, runs inside the container, `--dry-run`, every mutation printed and logged,
-  credentials destroyed at the end). `scripts/snapshot_manifest.py` (`build`, `check`,
-  `selftest`; standard library) writes and validates `manifest.json` and `SHA256SUMS`.
+  credentials destroyed at the end, the sha256 of every capture file recorded the moment it
+  is written). `scripts/snapshot_manifest.py` (`build`, `check`, `selftest`; standard
+  library) writes and validates `manifest.json` and `SHA256SUMS`, binds every file to its
+  capture through those recorded digests (every proof of a session shares the anchor, so
+  the verifier alone cannot tell a swapped pair) and, with `--reverify`, runs
+  `hyphae proof verify` again and requires the captured report to be reproduced.
 - The artifact layout, the manifest schema (`hyphae-consensus-snapshot-manifest-v1`), the
   host-side procedure, the verification semantics, the runtime contract of decision 4
   and the list of points that stay unverified until the session are in

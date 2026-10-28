@@ -274,13 +274,32 @@ def reverify_capture(root, cid, anchor, captured, reverify):
         )
 
 
+# The layout is flat: files in the root and in one directory level (captures/).
+# The runtime refuses anything deeper (layout_too_deep) and every symbolic
+# link (symlink_refused); this tool refuses the same, so a directory that
+# passes `check` also boots.
+MAX_DEPTH = 2
+
+
 def relative_files(root):
-    """Every regular file under root, as sorted forward-slash relative paths, except SHA256SUMS."""
+    """Every regular file under root, as sorted forward-slash relative paths, except SHA256SUMS.
+
+    Symbolic links (files or directories) and directories nested below the
+    first level are refused with the runtime's codes.
+    """
     found = []
-    for dirpath, dirnames, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        rel_dir = os.path.relpath(dirpath, root)
+        depth = 0 if rel_dir == "." else rel_dir.count(os.sep) + 1
         dirnames.sort()
-        for name in filenames:
+        for name in dirnames:
             rel = os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, "/")
+            require(not os.path.islink(os.path.join(dirpath, name)), f"symlink_refused: {rel} is a symbolic link")
+            require(depth + 1 < MAX_DEPTH, f"layout_too_deep: {rel} is nested below the first directory level")
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            require(not os.path.islink(full), f"symlink_refused: {rel} is a symbolic link")
             if rel != SUMS_NAME:
                 found.append(rel)
     return sorted(found)
@@ -1113,6 +1132,27 @@ def selftest():
         swap(copy, ".response.json")
         if expect_failure("swapped responses accepted", lambda: check(copy), failures):
             passed.append("swapped responses refused")
+        copy = fresh_copy("nested-dir")
+        deep = os.path.join(copy, "captures", "deep")
+        os.makedirs(deep)
+        write_text(os.path.join(deep, "x.txt"), "x\n")
+        detail = expect_failure("nested directory accepted", lambda: check(copy), failures)
+        if detail and "layout_too_deep" in detail:
+            passed.append(f"nested directory refused as the runtime does: {detail[:70]}")
+        elif detail:
+            failures.append(f"nested directory refused for another reason: {detail[:70]}")
+        copy = fresh_copy("symlinked-file")
+        link = os.path.join(copy, "captures", "link.response.json")
+        try:
+            os.symlink(os.path.join(copy, "captures", "list-demo-repo.response.json"), link)
+        except (OSError, NotImplementedError) as exc:
+            passed.append(f"symbolic link case SKIPPED: the OS refused to create a link ({exc.__class__.__name__})")
+        else:
+            detail = expect_failure("symbolic link accepted", lambda: check(copy), failures)
+            if detail and "symlink_refused" in detail:
+                passed.append(f"symbolic link refused as the runtime does: {detail[:70]}")
+            elif detail:
+                failures.append(f"symbolic link refused for another reason: {detail[:70]}")
         copy = fresh_copy("no-index")
         os.remove(os.path.join(copy, INDEX_NAME))
         detail = expect_failure("missing captures.index accepted", lambda: check(copy), failures)

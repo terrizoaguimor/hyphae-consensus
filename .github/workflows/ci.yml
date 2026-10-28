@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The same gates the owner runs locally (scripts/linux-gates.sh and the
+# Docker-isolated web checks), on GitHub-hosted Ubuntu 24.04. Actions are
+# pinned by commit SHA (resolved 2026-10-27 from their v4 tags). The repo
+# is private until the owner publishes it; only the owner pushes.
+name: ci
+
+on:
+  push:
+    branches: [main, feat/public-portal]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: rust gates (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install 1.99.1 --profile default && rustup show
+      - name: fmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: test
+        run: cargo test --workspace --locked
+      - name: evaluate (scripted protocol conformance)
+        run: cargo run -q -p consensus-tests --example evaluate
+      - name: demo crate
+        run: cargo test --manifest-path demo-repo/payment-client/Cargo.toml --locked
+
+  web:
+    name: web checks (apps/web)
+    runs-on: ubuntu-24.04
+    # Browsers come only from this image, pinned by digest (Playwright 1.64.1).
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Enable the pinned pnpm (package.json packageManager)
+        run: corepack enable pnpm && pnpm --version
+      - name: Install (frozen lockfile, build scripts denied by policy)
+        run: pnpm install --frozen-lockfile
+      - name: Theme, typecheck, lint, unit tests, static export, CSP manifest
+        run: pnpm check
+      - name: Playwright + axe
+        if: ${{ hashFiles('apps/web/playwright.config.ts') != '' }}
+        run: pnpm exec playwright test
+      - name: Keep the Playwright report
+        if: ${{ always() && hashFiles('apps/web/playwright.config.ts') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7

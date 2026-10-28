@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Harness for the public live gate: the gate assembled as the server
 //! assembles it, over a temporary ledger, a scripted Siteverify, a judge
-//! digest file and a scripted evidence factory built on the runtime's
-//! fakes (the production factory is the sealed snapshot, lane D2). The
-//! Meta configuration points at the test's fake Chat Completions server.
+//! digest file and an evidence factory: a scripted one built on the
+//! runtime's fakes, or the production [`SnapshotFactory`] over a fixture
+//! snapshot and the fake `hyphae` binary ([`FactoryMode::Snapshot`]), or
+//! whatever `serve-public`'s own entry point makes of a set of snapshot
+//! variables ([`FactoryMode::SnapshotFromVars`]: the booted factory, or the
+//! unavailable evidence of a snapshot that does not boot). The Meta
+//! configuration points at the test's fake Chat Completions server.
 
 use super::doubles::{FailingDeliberation, PanickingModel};
 use super::{public_server, TestServer};
 use chrono::Utc;
-use consensus_api::config::MetaConfig;
+use consensus_api::config::{MetaConfig, SnapshotConfig};
+use consensus_api::hyphae::SystemCommandRunner;
 use consensus_api::live::budget::{Ledger, LedgerOptions};
 use consensus_api::live::config::{vars, Exposure, LiveConfig};
 use consensus_api::live::gate::{
     DeliberationFactory, FactoryError, FactoryStatus, GateParts, LiveGate as BudgetedGate,
 };
 use consensus_api::live::judge::JudgeCodes;
+use consensus_api::live::snapshot_factory::{LogSink, SnapshotFactory};
 use consensus_api::live::turnstile::{
     passing_answer, FakeSiteverify, Siteverify, SiteverifyResponse, TurnstileError,
     TurnstileVerifier,
@@ -22,6 +28,7 @@ use consensus_api::live::turnstile::{
 use consensus_api::meta::MetaModelClient;
 use consensus_api::runs::Deliberation;
 use consensus_api::server::BuildOptions;
+use consensus_api::snapshot::verifier_from_config;
 use consensus_domain::{EvidenceMode, IntegrityStatus};
 use consensus_runtime::clock::{SystemClock, UuidIdGen};
 use consensus_runtime::fakes::FakeProofVerifier;
@@ -44,8 +51,8 @@ pub const LIVE_MAX_COMPLETION_TOKENS: u64 = 12_000;
 /// The visitor's client address and country the harness sends by default.
 pub const VISITOR_IP: &str = "203.0.113.7";
 
-/// What the scripted factory builds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the harness's evidence factory builds.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FactoryMode {
     /// The reference records with every proof Valid, over the metered
     /// Meta client the gate made.
@@ -56,6 +63,25 @@ pub enum FactoryMode {
     /// A deliberation whose first model call panics (the metered client
     /// is dropped unused).
     Panicking,
+    /// The production factory ([`SnapshotFactory`]) over a fixture snapshot
+    /// directory (`super::snapshot::build`) and the fake `hyphae` binary
+    /// (`super::snapshot::fake_hyphae`), boot-verified when the harness is
+    /// built: sealed-snapshot evidence end to end.
+    Snapshot {
+        dir: PathBuf,
+        /// `CONSENSUS_SNAPSHOT_VERIFIER_DIR`, when the artifact paths handed
+        /// to the binary differ from the local ones.
+        verifier_dir: Option<String>,
+        /// `CONSENSUS_HYPHAE_BIN`.
+        hyphae_bin: String,
+        /// `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`: must be the manifest's.
+        anchor: String,
+    },
+    /// What `serve-public` makes of these snapshot variables with live mode
+    /// enabled ([`SnapshotFactory::live_evidence_from_vars`]): a factory
+    /// over a snapshot that boots, the unavailable evidence of one that
+    /// does not. The variables must be a usable configuration.
+    SnapshotFromVars(Vec<(&'static str, String)>),
 }
 
 /// Test-only [`DeliberationFactory`] over `consensus_runtime::fakes`,
@@ -100,6 +126,11 @@ impl DeliberationFactory for ScriptedEvidenceFactory {
                 ids: UuidIdGen,
                 limits,
             }),
+            FactoryMode::Snapshot { .. } | FactoryMode::SnapshotFromVars(_) => {
+                return Err(FactoryError(
+                    "the scripted factory builds no snapshot deliberation; the harness uses SnapshotFactory for that mode".into(),
+                ))
+            }
         })
     }
 
@@ -200,6 +231,11 @@ pub struct LiveOptions {
     /// Whether the listener trusts `CF-*` headers (the harness then sends
     /// `CF-Connecting-IP` on session requests).
     pub trust_proxy: bool,
+    /// How long the snapshot factory ([`FactoryMode::Snapshot`]) reuses a
+    /// status read: zero by default, so `/ready`, `/capabilities` and the
+    /// gate see a change to the files at once (production:
+    /// `READY_CACHE_TTL`).
+    pub snapshot_status_ttl: Duration,
 }
 
 impl Default for LiveOptions {
@@ -209,6 +245,7 @@ impl Default for LiveOptions {
             live_env: Vec::new(),
             server_env: Vec::new(),
             trust_proxy: true,
+            snapshot_status_ttl: Duration::ZERO,
         }
     }
 }
@@ -222,21 +259,65 @@ pub struct LiveHarness {
     pub ledger_dir: PathBuf,
     pub siteverify_mode: Arc<Mutex<SiteverifyMode>>,
     pub siteverify: Arc<FakeSiteverify>,
-    pub factory: Arc<ScriptedEvidenceFactory>,
+    /// The gate's evidence factory: the scripted one, or the snapshot
+    /// factory also held in `snapshot`.
+    pub factory: Arc<dyn DeliberationFactory>,
+    /// The production factory, with [`FactoryMode::Snapshot`].
+    pub snapshot: Option<Arc<SnapshotFactory>>,
+    /// The `[snapshot]` lines the evidence factory logged.
+    pub evidence_log: Arc<Mutex<Vec<String>>>,
+}
+
+/// The production factory over a snapshot directory, as `serve-public`
+/// would boot it from the four variables: loaded, checked and verified
+/// with the binary at `hyphae_bin` (the fake one in tests). Panics when the
+/// snapshot does not open: a boot failure is tested through
+/// [`SnapshotFactory::open`] directly.
+pub fn snapshot_factory(
+    dir: &Path,
+    verifier_dir: Option<&str>,
+    hyphae_bin: &str,
+    anchor: &str,
+) -> SnapshotFactory {
+    let vars = [
+        (
+            "CONSENSUS_SNAPSHOT_DIR",
+            Some(dir.to_string_lossy().into_owned()),
+        ),
+        ("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", Some(anchor.to_string())),
+        ("CONSENSUS_HYPHAE_BIN", Some(hyphae_bin.to_string())),
+        (
+            "CONSENSUS_SNAPSHOT_VERIFIER_DIR",
+            verifier_dir.map(str::to_string),
+        ),
+    ];
+    let cfg = SnapshotConfig::from_vars(|name| {
+        vars.iter()
+            .find(|(k, _)| *k == name)
+            .and_then(|(_, v)| v.clone())
+    })
+    .expect("a usable snapshot configuration")
+    .expect("a snapshot configuration");
+    let mut verifier = verifier_from_config(&cfg, SystemCommandRunner);
+    SnapshotFactory::open(cfg, &mut verifier).expect("the fixture snapshot boots")
 }
 
 /// Builds the live server. `meta` is the configuration of the fake Chat
 /// Completions server (see `tests/support`); the gate forces nothing on
 /// it but the per-run pseudonym and the live output bound.
 pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
+    let LiveOptions {
+        factory: mode,
+        live_env,
+        server_env,
+        trust_proxy,
+        snapshot_status_ttl,
+    } = opts;
     // The ledger and the codes file live next to the store, so they go
     // with the server's temporary directory.
     let scratch = super::TempDir::new("live-cfg");
-    let live_env: Vec<(&'static str, &str)> = opts
-        .live_env
-        .iter()
-        .map(|(k, v)| (*k, v.as_str()))
-        .collect();
+    let live_env: Vec<(&'static str, &str)> =
+        live_env.iter().map(|(k, v)| (*k, v.as_str())).collect();
     let config = live_config(scratch.path(), &live_env);
     let ledger_dir = config.ledger_dir.clone().expect("ledger dir");
     let ledger = Ledger::open_with(
@@ -251,7 +332,37 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
     .expect("ledger opens");
     let siteverify_mode = Arc::new(Mutex::new(SiteverifyMode::Pass));
     let (verifier, siteverify) = scripted_siteverify(siteverify_mode.clone());
-    let factory = ScriptedEvidenceFactory::new(opts.factory);
+    let mut snapshot = None;
+    let evidence_log: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = evidence_log.clone();
+    let log: LogSink = Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string()));
+    let factory: Arc<dyn DeliberationFactory> = match mode {
+        FactoryMode::Snapshot {
+            dir,
+            verifier_dir,
+            hyphae_bin,
+            anchor,
+        } => {
+            let factory = Arc::new(
+                snapshot_factory(&dir, verifier_dir.as_deref(), &hyphae_bin, &anchor)
+                    .with_status_ttl(snapshot_status_ttl)
+                    .with_log(log),
+            );
+            snapshot = Some(factory.clone());
+            factory
+        }
+        FactoryMode::SnapshotFromVars(vars) => SnapshotFactory::live_evidence_from_vars(
+            |name| {
+                vars.iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.clone())
+            },
+            log,
+        )
+        .expect("a usable snapshot configuration")
+        .expect("a snapshot directory"),
+        scripted => ScriptedEvidenceFactory::new(scripted),
+    };
     meta.public_mode = true;
     let gate = Arc::new(BudgetedGate::new(GateParts {
         ledger: ledger.clone(),
@@ -269,9 +380,9 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
         config: config.clone(),
     }));
     let mut env: Vec<(&str, &str)> = vec![("CONSENSUS_LIVE_CONCURRENCY", "1")];
-    let trust = if opts.trust_proxy { "true" } else { "false" };
+    let trust = if trust_proxy { "true" } else { "false" };
     env.push(("CONSENSUS_TRUST_PROXY_HEADERS", trust));
-    env.extend(opts.server_env.iter().map(|(k, v)| (*k, v.as_str())));
+    env.extend(server_env.iter().map(|(k, v)| (*k, v.as_str())));
     let mut server = public_server(
         &env,
         BuildOptions {
@@ -291,12 +402,19 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
         siteverify_mode,
         siteverify,
         factory,
+        snapshot,
+        evidence_log,
     }
 }
 
 impl LiveHarness {
     pub fn set_siteverify(&self, mode: SiteverifyMode) {
         *self.siteverify_mode.lock().unwrap() = mode;
+    }
+
+    /// The `[snapshot]` lines logged so far.
+    pub fn evidence_lines(&self) -> Vec<String> {
+        self.evidence_log.lock().unwrap().clone()
     }
 
     /// Records of one `type` across every day file of the ledger.

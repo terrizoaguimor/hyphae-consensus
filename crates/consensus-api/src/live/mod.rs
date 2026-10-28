@@ -25,14 +25,24 @@
 //! - [`gate`]: the admission itself ([`gate::LiveGate`]), the evidence
 //!   factory seam for the sealed snapshot ([`gate::DeliberationFactory`])
 //!   and the reservation's lifetime ([`gate::MeteredDeliberation`]).
+//! - [`snapshot_factory`]: the production evidence factory
+//!   ([`snapshot_factory::SnapshotFactory`]): the sealed snapshot client
+//!   (ADR-0008) boot-verified from `CONSENSUS_SNAPSHOT_DIR` with live mode
+//!   enabled, its served files re-checked at every admission and (cached)
+//!   for `/ready`, a copy per run with a fresh verifier bound to the boot
+//!   check; [`snapshot_factory::UnavailableEvidence`] when the snapshot
+//!   does not boot (the portal stays up, live mode says why).
 //!
 //! How the pieces are wired (implemented; see each item's code):
 //! - Check order per ABUSE-9 ([`gate::LiveGate`]): the route's
 //!   owner-scoped idempotency lookup first, then the preset, geo
 //!   ([`geo::GeoPolicy::decide`] with [`geo::Surface::Live`]), the 18+
-//!   and territory acknowledgment, Turnstile, the lane, then
-//!   [`budget::Ledger::reserve`], and only then the model client and
-//!   `create_task`. Nothing is spent before the reservation exists.
+//!   and territory acknowledgment, the evidence source's status (`503
+//!   live_unavailable` while it is not ok, before any token is spent),
+//!   Turnstile, the lane, then [`budget::Ledger::reserve`], and only then
+//!   the model client, the deliberation (whose factory re-checks the
+//!   evidence in full) and `create_task`. Nothing is spent before the
+//!   reservation exists.
 //! - The `idempotency_key` given to [`turnstile::Siteverify::verify`] is a
 //!   fresh UUID on every call, never the request's `Idempotency-Key`:
 //!   Cloudflare's idempotency is global and immediate, the route's replay
@@ -103,4 +113,5 @@ pub mod geo;
 pub mod judge;
 pub mod money;
 pub mod presets;
+pub mod snapshot_factory;
 pub mod turnstile;

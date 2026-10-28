@@ -8,6 +8,7 @@
 
 pub mod doubles;
 pub mod live;
+pub mod snapshot;
 
 use axum::body::{Body, Bytes};
 use axum::extract::ConnectInfo;

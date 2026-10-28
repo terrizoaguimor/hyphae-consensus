@@ -394,37 +394,63 @@ by the anchor and binary digest published out of band (ADR-0008), and by the com
   receipt say "proof covers: complete record list of `demo-repo` at anchor <prefix>", never
   "recall of <claim>". A proof is attached to a record only if that record is in the proof's
   captured result (tested).
-- **Boot check.** At start the runtime reads `manifest.json`, requires
-  `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` to be set and equal to `manifest.anchor_hex` (otherwise boot
-  fails), checks the digests, and runs `hyphae proof verify` on both required captures with the
-  verifier's own view of the directory (`CONSENSUS_SNAPSHOT_VERIFIER_DIR` when set, else
-  `CONSENSUS_SNAPSHOT_DIR`), requiring the same report fields as section 6. Per run it re-verifies
-  (cached by content digest per the existing verifier, HY-13) and stamps the verification time.
-  Recommended in the boot check: compare the fresh report with the captured
-  `captures/<id>.verify.json` on every field (its digests are deterministic, section 6), which
-  binds the proof and witness in hand to the pair verified at capture time; `proof_blake3` cannot
-  be recomputed (no BLAKE3 in the workspace) and is an opaque value from the response.
+- **Boot check.** At start, with public live mode enabled (with it disabled the snapshot is not
+  read at all), the runtime reads `manifest.json`, requires `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` to
+  be set and equal to `manifest.anchor_hex`, checks the digests, requires the manifest's project
+  to be the presets' `demo-repo` (`project_mismatch`), and runs `hyphae proof verify` on both
+  required captures with the verifier's own view of the directory
+  (`CONSENSUS_SNAPSHOT_VERIFIER_DIR` when set, else `CONSENSUS_SNAPSHOT_DIR`), requiring the same
+  report fields as section 6 and the `proof_digest` and `result_digest` of the captured
+  `captures/<id>.verify.json` (its digests are deterministic, section 6), which binds the proof
+  and witness in hand to the pair verified at capture time; `proof_blake3` cannot be recomputed
+  (no BLAKE3 in the workspace) and is an opaque value from the response. A snapshot that fails
+  any of this does not stop the server: live mode is unavailable with the stable code (see
+  "Status" below). Per run the runtime re-verifies (cached by content digest within the run,
+  HY-13), stamps the verification time, and lets a `Valid` stand only when the report's
+  `proof_digest` and `result_digest` are the ones boot accepted for the record's `proof_ref`
+  (`BootBoundVerifier`): every proof of a session shares the anchor, so the verifier alone
+  would accept the isolation capture's pair copied over the list capture's.
 - **Configuration.** `CONSENSUS_SNAPSHOT_DIR` = path of the snapshot directory (`manifest.json`
   inside); `CONSENSUS_SNAPSHOT_VERIFIER_DIR` (optional) = the same directory as the verifier
   binary sees it (Windows dev machine: the container path, because `CONSENSUS_HYPHAE_BIN` is
   `scripts/hyphae-docker.cmd`; Linux server: unset); `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` mandatory
-  and equal to the manifest anchor: with the directory set, a missing or malformed anchor is a
-  configuration error naming the variable and boot aborts (`SnapshotConfig::try_from_env` /
+  and equal to the manifest anchor: with live mode enabled and the directory set, a missing or
+  malformed anchor is a configuration error naming the variable and startup aborts, and so does
+  live mode enabled without `CONSENSUS_SNAPSHOT_DIR` (`SnapshotConfig::try_from_env` /
   `from_vars` are the only readers; none folds that error into "snapshot mode not configured");
-  `CONSENSUS_HYPHAE_BIN` and `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` as today
+  with live mode disabled none of these is read (a set `CONSENSUS_SNAPSHOT_DIR` earns one
+  `[snapshot]` notice); `CONSENSUS_HYPHAE_BIN` and `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` as today
   (`crates/consensus-api/src/config.rs`, `hyphae.rs`). The directory is read without following
   symbolic links (a link anywhere under it, or a directory nested deeper than `captures/`, is
   refused with `symlink_refused` / `layout_too_deep`).
-- **`/health`** reports the evidence mode, the snapshot id, `captured_at`, the anchor prefix, the
-  Hyphae version from the manifest, the time and result of the last verification, and, when the
-  boot check failed, the mode as disabled with a stable reason code (digest mismatch, verifier
-  rejection, verifier error, anchor mismatch, manifest invalid). Every status call re-hashes
-  `manifest.json` and the served captures' proof and witness files against the digests the boot
-  check accepted (`SnapshotMemoryClient::check_artifacts`), so a file deleted, truncated or
-  replaced after boot makes the report unhealthy at once, with the code and the artifact's name
-  relative to the snapshot directory (`captures/<id>.witness`), while the boot summary stays in
-  the detail. It never reports filesystem paths, witness contents or container details (G9: no
-  witness or container path in any public response).
+- **Status: `/health` versus `/ready` and the log.** `/api/v1/health` stays static facts
+  (version, schema, policy, contract digest, executor). The evidence state lives in three
+  places. The server log carries the startup line of a snapshot that booted (snapshot id,
+  project, record count, anchor prefix, capture and verification times) or, for one that did
+  not, `[snapshot] live evidence unavailable: <code>` (`snapshot_dir_missing`,
+  `checksums_mismatch`, `digest_mismatch`, `pinned_anchor_mismatch`, `boot_verification_failed`,
+  `project_mismatch`, ...), and the same line, or `[snapshot] live evidence ok again`, on every
+  later change between ok and not ok. `/api/v1/ready` carries the boolean: `ready: false` with
+  `live.evidence_ok: false` while the evidence is not ok. `/api/v1/capabilities` then reports
+  `live_enabled: false` without a live section, so the web app shows live mode as disabled; live
+  admissions are `503 live_unavailable`, while guided mode, the showcase and the static site keep
+  serving. After boot the status re-hashes `manifest.json` and the served captures' proof and
+  witness files against the digests the boot check accepted
+  (`SnapshotMemoryClient::check_artifacts`), at most once per two seconds (`READY_CACHE_TTL`) for
+  the routes and in full at every admission, so a file deleted, truncated or replaced after boot
+  makes live mode unavailable at once (`file_unreadable`, `digest_mismatch`, `file_too_large`,
+  `symlink_refused`) and restoring it makes it ok again. No public response carries the code, a
+  filesystem path, witness contents or container details (G9: no witness or container path in
+  any public response); the snapshot errors name files relative to the snapshot directory, and
+  only the error of the strict entry point `SnapshotFactory::from_env`, which `serve-public`
+  does not use, quotes the verifier's own message, which may name the paths it was given.
+- **Wiring.** `SnapshotFactory` (`crates/consensus-api/src/live/snapshot_factory.rs`) is the
+  public live gate's evidence factory: with live mode enabled `serve-public` boots the client
+  from `CONSENSUS_SNAPSHOT_DIR` through `SnapshotFactory::live_evidence_from_env` before it
+  listens (a snapshot that does not boot becomes `UnavailableEvidence`, which builds nothing),
+  refuses admissions before Turnstile while the status is not ok, re-checks the files in full
+  at every admission, and hands each admitted run a copy of the client with a fresh, pinned
+  verifier bound to the boot check (ADR-0008, "Wiring").
 
 ## 8. Privacy
 
@@ -479,5 +505,5 @@ assumed silently.
    boot check depend on it, and the 2026-10-27 live report had no time-dependent field).
 8. Whether the sealed instance's anchor differs from the demo store's `d91ac10d…` (expected: a
    fresh store with its own catalog and key verifiers; the script warns if they are equal).
-9. The behaviour of `/health` and the receipt wording are lane B's implementation; section 7
-   is the contract they are written against.
+9. The receipt wording is lane B's implementation; section 7 is the contract it is written
+   against (the evidence status itself is implemented: section 7, "Status").

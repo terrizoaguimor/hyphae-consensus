@@ -72,9 +72,12 @@ fn usd(text: &str) -> Usd {
     Usd::parse(text).unwrap()
 }
 
-/// The owner's defaults: $10/day, $60 lifetime, $15 judge slice (and the
-/// same per day), one slot, 6 admissions per hour, 25% burst, 70k/16k/8k
-/// tokens, $4/$20 per million.
+/// The owner's caps and prices: $10/day, $60 lifetime, $15 judge slice (and
+/// the same per day), one slot, 6 admissions per hour, 25% burst, 70k/16k
+/// tokens, $4/$20 per million, with an explicit 8k per-call input cap (the
+/// production default is 32k since 2026-10-28; the ledger rules under test
+/// do not depend on it, and the figures below are for 8k: a $1.88 worst
+/// case).
 fn owner_cfg() -> BudgetConfig {
     BudgetConfig {
         daily_cap: usd("10.00"),

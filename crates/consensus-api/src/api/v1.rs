@@ -902,12 +902,26 @@ pub fn policy_version_label() -> String {
     }
 }
 
-/// The live section of `/capabilities`, read from the gate off the async
-/// workers (it may read the ledger's files).
-async fn live_capabilities(state: &AppState) -> Result<Option<LiveCapabilitiesV1>, ApiError> {
+/// Whether live mode is available, and its section of `/capabilities`,
+/// read from the gate off the async workers (it may read the ledger's
+/// files and re-hash the evidence). A gate whose evidence source is not ok
+/// publishes neither: the page shows live mode as disabled, and `/ready`
+/// says why (`live.evidence_ok: false`).
+async fn live_capabilities(
+    state: &AppState,
+) -> Result<(bool, Option<LiveCapabilitiesV1>), ApiError> {
     match state.live_gate.clone() {
-        Some(gate) => blocking(move || gate.capabilities()).await,
-        None => Ok(None),
+        Some(gate) => {
+            blocking(move || {
+                if gate.available() {
+                    (true, gate.capabilities())
+                } else {
+                    (false, None)
+                }
+            })
+            .await
+        }
+        None => Ok((false, None)),
     }
 }
 
@@ -919,11 +933,18 @@ async fn live_readiness(state: &AppState) -> Result<Option<LiveReadyV1>, ApiErro
     }
 }
 
-pub fn capabilities_of(state: &AppState, live: Option<LiveCapabilitiesV1>) -> CapabilitiesV1 {
+/// `/capabilities` of this server. `live_enabled` is true when a live gate
+/// is wired and available ([`super::LiveGate::available`]); `live` is its
+/// section then, `None` otherwise.
+pub fn capabilities_of(
+    state: &AppState,
+    live_enabled: bool,
+    live: Option<LiveCapabilitiesV1>,
+) -> CapabilitiesV1 {
     let c = &state.config;
     CapabilitiesV1 {
         surface: c.surface.v1(),
-        live_enabled: state.live_gate.is_some(),
+        live_enabled: live_enabled && state.live_gate.is_some(),
         live,
         guided_enabled: true,
         showcase_enabled: state.showcase.is_enabled(),
@@ -959,8 +980,8 @@ pub fn capabilities_of(state: &AppState, live: Option<LiveCapabilitiesV1>) -> Ca
 }
 
 pub async fn capabilities(State(state): State<AppState>) -> Result<Json<CapabilitiesV1>, ApiError> {
-    let live = live_capabilities(&state).await?;
-    Ok(Json(capabilities_of(&state, live)))
+    let (live_enabled, live) = live_capabilities(&state).await?;
+    Ok(Json(capabilities_of(&state, live_enabled, live)))
 }
 
 pub fn health_of(state: &AppState) -> HealthV1 {
@@ -1016,9 +1037,13 @@ pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyV1>, ApiEr
     };
     let showcase = state.showcase.status();
     let live = live_readiness(&state).await?;
-    // A tripped or unreadable ledger, or an evidence source that failed
-    // its check, makes the server not ready: live mode would refuse
-    // every admission.
+    // A tripped or unreadable ledger, or an evidence source that is not
+    // ok (a sealed snapshot that failed its boot check, or whose served
+    // files changed since), makes the server not ready, and the gate
+    // refuses every admission meanwhile: the evidence before Turnstile
+    // (`503 live_unavailable`), the ledger at the reservation
+    // (`live_tripped`, `live_unavailable`). Guided runs and the showcase
+    // are unaffected.
     let live_ok = live
         .as_ref()
         .is_none_or(|l| l.ledger_ok && !l.tripped && l.evidence_ok);

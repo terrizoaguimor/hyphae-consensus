@@ -21,6 +21,7 @@ use common::live::{
 use common::{body_text, public_server, read_sse, Req, COUNTRY_HEADER};
 use consensus_api::live::config::vars;
 use consensus_api::live::money::Usd;
+use consensus_api::live::snapshot_factory::SnapshotFactory;
 use consensus_api::server::{build_live_gate, BuildOptions};
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -421,10 +422,10 @@ async fn ledger_refusals_answer_with_their_codes_and_the_kill_switch_trips() {
     let meta = serve(one_run(Duration::ZERO));
     let h = live_server(LiveOptions::default(), meta_config(&meta.base_url));
     let cookie = h.session().await;
-    // Five $1.80 reservations spend the $10 day; the visitor's would be
-    // the sixth.
+    // Four $2.28 reservations ($9.12) spend the $10 day; the visitor's
+    // would be the fifth.
     let mut held = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..4 {
         held.push(
             h.ledger
                 .reserve(consensus_api::live::budget::Lane::Public)
@@ -441,15 +442,15 @@ async fn ledger_refusals_answer_with_their_codes_and_the_kill_switch_trips() {
     assert!(body["retry_after_secs"].as_u64().unwrap() >= 1);
     let text = body.to_string();
     assert!(
-        !text.contains("1.88") && !text.contains('$'),
+        !text.contains("1.88") && !text.contains("2.28") && !text.contains('$'),
         "no amounts: {text}"
     );
-    assert_eq!(h.ledger_records("reservation").len(), 5, "nothing written");
+    assert_eq!(h.ledger_records("reservation").len(), 4, "nothing written");
     let (_, caps, _) = h.server.json(Req::get("/api/v1/capabilities")).await;
-    // With the harness's 12k output bound a run's worst case is
-    // (70,000 + 12,000 + 8,000) × $20/M = $1.80: five leave $1.00, which
-    // holds no sixth.
-    assert_eq!(caps["live"]["budget"]["daily_remaining"], "1.000000");
+    // With the harness's 12k output bound and the default 32k input cap a
+    // run's worst case is (70,000 + 12,000 + 32,000) × $20/M = $2.28: four
+    // leave $0.88, which holds no fifth.
+    assert_eq!(caps["live"]["budget"]["daily_remaining"], "0.880000");
     assert_eq!(caps["live"]["budget"]["tripped"], false);
     for r in held {
         h.ledger.release(&r).unwrap();
@@ -602,8 +603,9 @@ async fn a_live_run_is_metered_streamed_and_published_without_the_key() {
     let reservations = h.ledger_records("reservation");
     assert_eq!(reservations.len(), 1);
     assert_eq!(reservations[0]["lane"], "public");
-    // (70,000 + 12,000 + 8,000) tokens × $20/M with the 12k output bound.
-    assert_eq!(reservations[0]["worst_case_usd"], "1.800000");
+    // (70,000 + 12,000 + 32,000) tokens × $20/M with the 12k output bound
+    // and the default input cap.
+    assert_eq!(reservations[0]["worst_case_usd"], "2.280000");
     assert_eq!(releases[0]["reservation"], reservations[0]["id"]);
     let draws = h.ledger_records("draw");
     assert_eq!(draws.len(), 3);
@@ -1147,4 +1149,33 @@ fn startup_refuses_live_mode_until_the_snapshot_client_is_wired() {
     assert_eq!(budget.lifetime_remaining, "60.000000");
     let ready = gate.readiness().expect("live readiness");
     assert!(ready.ledger_ok && ready.evidence_ok && !ready.tripped);
+}
+
+/// What `serve-public` gets from `SnapshotFactory::from_env`, over a
+/// variable map instead of the process environment: no factory without
+/// the directory (so `build_live_gate` refuses live mode as above), and a
+/// configuration error naming its variable for a directory without the
+/// pinned anchor, before any file is read.
+#[test]
+fn the_snapshot_factory_is_absent_without_its_directory_and_fails_closed_without_the_anchor() {
+    let none = SnapshotFactory::from_vars(|_| None).expect("no directory is not an error");
+    assert!(none.is_none(), "no directory, no factory");
+    let empty = SnapshotFactory::from_vars(|name| {
+        (name == "CONSENSUS_SNAPSHOT_DIR").then(|| "   ".to_string())
+    })
+    .expect("an empty value is unset");
+    assert!(empty.is_none());
+
+    let dir = common::TempDir::new("live-snapshot-vars");
+    let only_dir = dir.path().display().to_string();
+    let err = SnapshotFactory::from_vars(|name| {
+        (name == "CONSENSUS_SNAPSHOT_DIR").then(|| only_dir.clone())
+    })
+    .err()
+    .expect("a directory without the pinned anchor fails closed");
+    assert!(err.starts_with("CONSENSUS_HYPHAE_EXPECTED_ANCHOR"), "{err}");
+    assert!(err.contains("required"), "{err}");
+    assert!(err.contains("CONSENSUS_SNAPSHOT_DIR"), "{err}");
+    assert!(!err.contains(&only_dir), "no path: {err}");
+    assert!(!err.contains(TEST_KEY));
 }

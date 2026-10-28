@@ -2,8 +2,10 @@
 
 Date: 2026-10-27 · Status: accepted; admission library (lane S-b2) and public wiring
 (plan B9, `crates/consensus-api/src/live/`) implemented; the sealed-snapshot evidence
-client (ADR-0008, lane D2) pending, so `serve-public` refuses to start with live mode
-enabled until it is plugged in · Scope: the public portal
+client (ADR-0008) plugged in as the evidence factory (`SnapshotFactory`, configured by
+`CONSENSUS_SNAPSHOT_DIR`); `serve-public` refuses to start with live mode enabled and no
+snapshot configured, and keeps the portal up with live mode unavailable when a configured
+snapshot does not boot · Scope: the public portal
 
 ## Context
 
@@ -81,8 +83,10 @@ and the account holder pays any overage.
   Turnstile token in `cf-turnstile-response`; the gate
   (`crates/consensus-api/src/live/gate.rs`) checks, in order and stopping at the first
   refusal: preset (`404 preset_unknown`), geography on the live surface (`451`), the
-  attestation (`422 attestation_required`), Turnstile fail-closed (`403
-  turnstile_required|turnstile_failed`, `503 turnstile_unavailable`), the lane (a hashed
+  attestation (`422 attestation_required`), the evidence source (`503 live_unavailable`
+  while the sealed snapshot is not ok, before Turnstile, so the refused visitor spends no
+  token), Turnstile fail-closed (`403 turnstile_required|turnstile_failed`, `503
+  turnstile_unavailable`), the lane (a hashed
   judge code or the public lane, silently), then the ledger reservation (`429` with
   `Retry-After` when the ledger gives a hint, `503` otherwise; stable codes
   `live_budget_*`, `live_concurrency`, `live_hourly_admissions`, `live_tripped`,
@@ -110,15 +114,35 @@ and the account holder pays any overage.
   South Korea and any unknown country (`451 geo_blocked_live`), which includes a
   development bind that trusts no proxy header. `/capabilities` publishes the presets,
   the public budget projection and the requirements (never the judge lane; no budget
-  at all when the ledger cannot be read); `/ready` is false while the ledger is
+  at all when the ledger cannot be read; `live_enabled: false` and no live section at all
+  while the evidence source is not ok); `/ready` is false while the ledger is
   tripped, unreadable, or the evidence source is not ok. Both report the kill-switch
   file as a trip the moment it exists, before the next admission records it.
 - The server key may come from a file (`CONSENSUS_META_API_KEY_FILE`, systemd
   `LoadCredential`), ahead of every key variable.
+- The evidence factory is the sealed snapshot (ADR-0008, lane D2, closed; its "Wiring"
+  section): with live mode enabled, `SnapshotFactory::live_evidence_from_env` boots the
+  client from `CONSENSUS_SNAPSHOT_DIR` before the server listens. An unset directory or an
+  unusable snapshot setting stops startup naming the variable; a snapshot that does not
+  boot leaves the portal up with live mode unavailable and its stable code in the log
+  (ADR-0008 decision 1). Every admission re-checks the served files in full and refuses a
+  changed snapshot before any model call; every admitted run gets a copy of the client
+  with a fresh, pinned `hyphae proof verify` verifier whose `Valid` stands only for the
+  digests boot accepted; `/ready`'s `evidence_ok` and `/capabilities`'s `live_enabled` read
+  the factory's status (cached two seconds). With live mode disabled the snapshot is not
+  read at all. Every public live run is declared `{meta, sealed_snapshot, public,
+  <preset>}`.
+- The per-call input cap (`CONSENSUS_LIVE_INPUT_CAP_TOKENS`) defaults to 32,000 tokens
+  since 2026-10-28: the ledger bounds a call's input at `request bytes + 1024` (a token
+  count never exceeds the UTF-8 byte count; over-bounding costs reservation headroom,
+  never money), and the Evaluator's request over the seven snapshot records exceeds 8,000
+  under it, so the former default refused every snapshot-backed run at its first
+  evaluation after two paid calls. A run's worst case is then (70,000 + 16,000 + 32,000) ×
+  $20/M = $2.36, inside the $2.50 the day offers at 00:00 UTC (25% burst).
 - Follow-ups: the operator console's own live runs (`model=meta` on `serve-operator`)
   do not go through the ledger yet, so their spend is not counted against the caps; the
   per-client live limit (one per /64) is not enforced beyond the global slots; the
-  sealed-snapshot factory (ADR-0008) is the one missing part of the public live path.
+  public snapshot itself is to be captured on 2026-10-29.
 
 ## Consequences
 

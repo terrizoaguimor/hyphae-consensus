@@ -39,9 +39,12 @@
 //! walked without following symbolic links (a link anywhere under it is
 //! refused, so a loop cannot recurse and a link cannot stand for an
 //! artifact) and no deeper than the flat layout ([`MAX_DEPTH`]). After
-//! boot, [`MemoryClient::status`] re-hashes the served artifacts on every
-//! call ([`SnapshotMemoryClient::check_artifacts`]), so `/health` stops
-//! saying "valid" as soon as a file on disk is not the one verified.
+//! boot, [`SnapshotMemoryClient::check_artifacts`] re-hashes the served
+//! artifacts against the digests the boot check accepted (and
+//! [`MemoryClient::status`] calls it on every call), so the public live
+//! mode's evidence factory stops reporting the evidence ok (`/ready`'s
+//! `evidence_ok`) and refuses admissions as soon as a file on disk is not
+//! the one verified (`crate::live::snapshot_factory`).
 //!
 //! # What a recall returns
 //!
@@ -106,6 +109,12 @@
 //!   swap of ALL files of one capture with another's is therefore caught
 //!   through the responses (record count, project attribution, memory
 //!   ids), not through the proofs.
+//! - Every proof of a session shares the anchor, so after boot the
+//!   verifier alone cannot tell the list capture's artifacts from the
+//!   isolation capture's either. A run's verifier is therefore bound to
+//!   the boot check ([`BootBoundVerifier`]): its `Valid` stands only when
+//!   the report's `proof_digest` and `result_digest` are the ones boot
+//!   accepted for the record's `proof_ref`.
 //!
 //! The record texts are never byte-compared with the proof; the verifier's
 //! own detail says so, and the honest label of ADR-0008 applies ("this
@@ -117,7 +126,7 @@ use crate::hyphae::{CommandRunner, HyphaeProofVerifier, VERIFIED_KIND, VERIFIED_
 use consensus_domain::*;
 use consensus_runtime::contract::quote;
 use consensus_runtime::ports::{
-    MemoryClient, MemoryError, MemoryStatus, ProofVerifier, Recall, RecallProof,
+    MemoryClient, MemoryError, MemoryStatus, ProofCheck, ProofVerifier, Recall, RecallProof,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -214,6 +223,11 @@ pub mod codes {
     /// The verifier did not accept a required capture at boot, or its
     /// report's digests are not the capture-time record's.
     pub const BOOT_VERIFICATION_FAILED: &str = "boot_verification_failed";
+    /// The snapshot serves a project other than the one its user requires
+    /// (the public live presets all run against `demo-repo`,
+    /// `crate::live::presets::PRESET_PROJECT`); raised by the live mode's
+    /// evidence factory before anything is verified.
+    pub const PROJECT_MISMATCH: &str = "project_mismatch";
 }
 
 /// Why a snapshot cannot be served. `message` names files by their path
@@ -226,7 +240,9 @@ pub struct SnapshotError {
 }
 
 impl SnapshotError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    /// An error with one of the [`codes`]; `message` must follow the rule
+    /// above (relative file names, no contents).
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -1243,7 +1259,8 @@ pub fn verifier_from_config<R: CommandRunner>(
     verifier
 }
 
-/// What `/health` and `/ready` may say about the served snapshot: plain
+/// What the boot verification established about the served snapshot, for
+/// the operator's startup line and the live mode's evidence factory: plain
 /// data, no path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotStatus {
@@ -1484,6 +1501,82 @@ impl SnapshotMemoryClient {
     pub fn isolation_project(&self) -> &ProjectId {
         &self.isolation_project
     }
+
+    /// `inner` (a run's own `hyphae proof verify` verifier) bound to what
+    /// this client's boot check accepted: see [`BootBoundVerifier`].
+    pub fn boot_bound_verifier<V: ProofVerifier>(&self, inner: V) -> BootBoundVerifier<V> {
+        BootBoundVerifier {
+            inner,
+            accepted: self
+                .status
+                .captures
+                .iter()
+                .filter_map(|c| c.report.clone().map(|report| (c.id.clone(), report)))
+                .collect(),
+        }
+    }
+}
+
+/// The fixed `detail` of a record [`BootBoundVerifier`] refuses.
+pub const NOT_THE_BOOT_ARTIFACTS: &str = "the verifier accepted proof artifacts whose proof or result digest is not the one the boot check accepted for this record's proof_ref: the snapshot's files changed after boot, so the record is not proven by the sealed snapshot";
+
+/// A run's proof verifier bound to the boot check of its snapshot.
+///
+/// Every proof of a capture session shares the anchor, so `hyphae proof
+/// verify` accepts the isolation capture's proof and witness as readily
+/// as the list capture's: a pair copied over the served files after boot
+/// would verify `Valid` (kind, scope and pinned anchor all hold). This
+/// wrapper lets a `Valid` result stand only when the verifier's report
+/// names the `proof_digest` and `result_digest` of the boot-accepted report
+/// of the record's `proof_ref` (the verifier's parsed report carries no
+/// request digest to compare). Anything else (another digest, a record
+/// without a `proof_ref`, a report without digests) is `Invalid` with
+/// [`NOT_THE_BOOT_ARTIFACTS`] as its detail; the verifier's own report is
+/// kept on the record. Results other than `Valid` pass through unchanged.
+pub struct BootBoundVerifier<V> {
+    inner: V,
+    /// `(capture id, report)` of every capture boot verified.
+    accepted: Vec<(String, VerifierReport)>,
+}
+
+impl<V> BootBoundVerifier<V> {
+    /// The wrapped verifier (tests read its configuration).
+    pub fn inner(&self) -> &V {
+        &self.inner
+    }
+}
+
+impl<V: ProofVerifier> ProofVerifier for BootBoundVerifier<V> {
+    fn verify(&mut self, evidence: &EvidenceReference) -> ProofCheck {
+        let check = self.inner.verify(evidence);
+        if check.status != IntegrityStatus::Valid {
+            return check;
+        }
+        let same = |now: &Option<String>, then: &Option<String>| match (now, then) {
+            (Some(now), Some(then)) => now.trim().eq_ignore_ascii_case(then.trim()),
+            _ => false,
+        };
+        let boot = evidence
+            .proof_ref
+            .as_deref()
+            .and_then(|r| self.accepted.iter().find(|(id, _)| id == r))
+            .map(|(_, report)| report);
+        let bound = match (boot, check.report.as_ref()) {
+            (Some(then), Some(now)) => {
+                same(&now.proof_digest, &then.proof_digest)
+                    && same(&now.result_digest, &then.result_digest)
+            }
+            _ => false,
+        };
+        if bound {
+            return check;
+        }
+        ProofCheck {
+            status: IntegrityStatus::Invalid,
+            detail: Some(NOT_THE_BOOT_ARTIFACTS.into()),
+            ..check
+        }
+    }
 }
 
 /// Runs the verifier on one capture's artifacts and requires `Valid` as a
@@ -1638,9 +1731,11 @@ impl MemoryClient for SnapshotMemoryClient {
     /// `healthy` is established on every call, not at boot: the served
     /// artifacts are re-hashed ([`check_artifacts`](Self::check_artifacts)),
     /// so a proof, witness or manifest deleted, truncated or replaced on disk
-    /// turns `/health` unhealthy before the next run would notice. The
-    /// detail then starts with the error (its code and the artifact's
-    /// relative path) and keeps the boot summary after it.
+    /// reads as unhealthy before the next run would notice. The detail then
+    /// starts with the error (its code and the artifact's relative path)
+    /// and keeps the boot summary after it. (The public live mode reads
+    /// [`check_artifacts`](Self::check_artifacts) itself, without a clone:
+    /// `crate::live::snapshot_factory`.)
     fn status(&mut self) -> std::result::Result<MemoryStatus, MemoryError> {
         let summary = self.status.summary();
         Ok(match self.check_artifacts() {

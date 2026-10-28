@@ -26,8 +26,9 @@ approves (the executor is deferred: approval records a decision only).
 > deterministic `PolicyTrace`. Runs now have one hash-chained log each plus a run index,
 > start asynchronously and stream live over SSE (ADR-0005). A public API v1 with visitor
 > sessions, owner-scoped `404`s and a listener split exists (ADR-0006), as does the
-> live-mode admission library (USD ledger, Turnstile, presets, geo; ADR-0007), whose
-> wiring into the public route is in progress; the Meta and Hyphae adapters are hardened
+> live-mode admission library (USD ledger, Turnstile, presets, geo; ADR-0007), wired into
+> the public route with the sealed-snapshot client (ADR-0008) as its evidence factory,
+> the public snapshot itself still to be captured; the Meta and Hyphae adapters are hardened
 > (ADR-0002 note). Two smoke runs on tag `prompt-freeze-2` (K03, K04;
 > `docs/evaluation.md` §6.2) confirmed the keyed schema live; both ended `supported`
 > **for a revised proposal that departs from the task text**, and the counted protocol

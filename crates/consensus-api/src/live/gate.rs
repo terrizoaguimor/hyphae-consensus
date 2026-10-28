@@ -11,7 +11,11 @@
 //!    the live-only list (South Korea) and an unknown country all refuse
 //!    (`451` with the geo module's code);
 //! 3. the 18+ and territory acknowledgment (`422 attestation_required`);
-//! 4. Turnstile: a token is required (`403 turnstile_required`) and
+//! 4. the evidence source ([`DeliberationFactory::status`]): one that is
+//!    not ok (a sealed snapshot that failed its boot check, or whose served
+//!    files changed since) is `503 live_unavailable`, before Turnstile, so
+//!    the refused visitor keeps their token and nothing is reserved;
+//! 5. Turnstile: a token is required (`403 turnstile_required`) and
 //!    verified server-side, fail closed: an outage is `503
 //!    turnstile_unavailable`, anything else `403 turnstile_failed`, the
 //!    one public code for every refusal. `remoteip` is not sent (the
@@ -19,23 +23,26 @@
 //!    `idempotency_key` is a fresh UUID for every call, never the
 //!    request's `Idempotency-Key`, so a token is single-use at Siteverify
 //!    and one solved challenge admits at most one run (the note below);
-//! 5. the lane: a judge code the digest file knows enters
+//! 6. the lane: a judge code the digest file knows enters
 //!    [`Lane::Judge`]; anything else is the public lane, never an error,
 //!    and nothing in the response says whether codes exist;
-//! 6. the reservation ([`Ledger::reserve`]): a refusal is answered with a
+//! 7. the reservation ([`Ledger::reserve`]): a refusal is answered with a
 //!    stable code ([`refusal_code`]), `429` and `Retry-After` when the
 //!    ledger gives a hint, `503` otherwise, and a fixed sentence, never the
 //!    refusal's own text (it names amounts, trip details and files);
-//! 7. the model client for this run: the server's Meta configuration with
+//! 8. the model client for this run: the server's Meta configuration with
 //!    the session pseudonym as `safety_identifier` and the live
 //!    `max_completion_tokens`, metered against the reservation
 //!    ([`Ledger::meter`]);
-//! 8. the deliberation, built by the [`DeliberationFactory`] (the sealed
-//!    snapshot in production, ADR-0008) and wrapped so the reservation is
-//!    released when the run ends, however it ends;
-//! 9. the grant: the preset's canned task declared `{meta, <the factory's
-//!    evidence mode>, public, <preset>}`, the deliberation, and a refund
-//!    closure for a start that fails after admission.
+//! 9. the deliberation, built by the [`DeliberationFactory`] (the sealed
+//!    snapshot in production, ADR-0008, which re-checks its served files
+//!    first and refuses when they changed: the reservation is released and
+//!    the answer is `503 live_unavailable`, before any model call) and
+//!    wrapped so the reservation is released when the run ends, however it
+//!    ends;
+//! 10. the grant: the preset's canned task declared `{meta, <the
+//!     factory's evidence mode>, public, <preset>}`, the deliberation, and
+//!     a refund closure for a start that fails after admission.
 //!
 //! Everything blocking (the ledger, Siteverify, building the HTTP client)
 //! runs on the blocking pool with owned data; the gate's future never
@@ -95,8 +102,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use thiserror::Error;
 
-/// The variable the sealed-snapshot client (lane D2) is configured by.
-/// Named by the startup error until that client is wired in.
+/// The variable the sealed-snapshot client is configured by
+/// ([`crate::config::SnapshotConfig`],
+/// [`super::snapshot_factory::SnapshotFactory::from_env`]); named by the
+/// startup error when live mode is enabled without it.
 pub const SNAPSHOT_DIR_VAR: &str = "CONSENSUS_SNAPSHOT_DIR";
 /// How old the ledger view behind `/capabilities` and `/ready` may be
 /// ([`Ledger::snapshot_cached`]).
@@ -119,45 +128,59 @@ pub const RELEASE_BACKOFF: [Duration; 3] = [
 #[error("{0}")]
 pub struct FactoryError(pub String);
 
-/// The evidence source as `/ready` sees it: plain data.
+/// The evidence source as `/ready`, `/capabilities` and the gate see it:
+/// plain data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FactoryStatus {
     /// False when the source failed its check (a snapshot that did not
-    /// verify at boot, say): `/ready` then says not ready.
+    /// verify at boot, or whose served files changed since): `/ready` then
+    /// says not ready, `/capabilities` says live mode is not enabled, and
+    /// the gate refuses every admission with `503 live_unavailable`.
     pub ok: bool,
     /// The evidence mode the factory declares.
     pub kind: EvidenceMode,
-    /// A short stable code describing the state (`ok`, `boot_check_failed`,
-    /// ...), never a path.
+    /// A short stable code describing the state (`ok`, or the snapshot
+    /// error code: `digest_mismatch`, `file_unreadable`,
+    /// `boot_verification_failed`, ...), never a path. For the operator
+    /// (the factory logs it); no public response carries it.
     pub detail: Option<String>,
 }
 
 /// Builds the deliberation of one admitted live run around the metered
 /// model client the gate made for it.
 ///
-/// The production factory is the sealed Hyphae snapshot (ADR-0008, plan
-/// item D2): a `SnapshotMemoryClient` serving the proven `demo-repo`
-/// record list with the pinned anchor, and the hardened proof verifier,
-/// declaring [`EvidenceMode::SealedSnapshot`]. Until it lands,
-/// `serve-public` refuses to start with live mode enabled (see
-/// [`crate::server::build_live_gate`]); tests plug in a scripted factory
-/// over the runtime's fakes. There is no fallback to simulated evidence
-/// in production: the mode a factory declares is the one every run it
-/// builds is labelled with.
+/// The production factory is the sealed Hyphae snapshot (ADR-0008,
+/// [`super::snapshot_factory::SnapshotFactory`]): a `SnapshotMemoryClient`
+/// serving the proven `demo-repo` record list with the pinned anchor, and
+/// the hardened proof verifier bound to the boot check, declaring
+/// [`EvidenceMode::SealedSnapshot`]. `serve-public` builds it with live
+/// mode enabled only; without `CONSENSUS_SNAPSHOT_DIR` (or with an unusable
+/// snapshot setting) it refuses to start (see
+/// [`crate::server::build_live_gate`]), and a snapshot that does not boot
+/// is [`super::snapshot_factory::UnavailableEvidence`], whose status says
+/// why and which builds nothing. Tests plug in a scripted factory over the
+/// runtime's fakes. There is no fallback to simulated evidence in
+/// production: the mode a factory declares is the one every run it builds
+/// is labelled with.
 pub trait DeliberationFactory: Send + Sync {
     /// The evidence mode every deliberation this factory builds runs in;
     /// recorded as `Task.mode.evidence` and published by `/capabilities`.
     fn evidence_mode(&self) -> EvidenceMode;
 
     /// One run's deliberation over `model` (already metered) with the
-    /// live run limits.
+    /// live run limits. An `Err` (the evidence is not usable) makes the
+    /// gate release the reservation and answer `503 live_unavailable`
+    /// before any model call.
     fn build(
         &self,
         model: MetaModelClient,
         limits: RunLimits,
     ) -> Result<Box<dyn Deliberation>, FactoryError>;
 
-    /// The source's state, for `/ready`.
+    /// The source's state, for `/ready`, `/capabilities` and the gate's
+    /// check before Turnstile. May be cached briefly (the snapshot factory
+    /// re-hashes at most once per [`crate::api::READY_CACHE_TTL`]);
+    /// [`build`](Self::build) never relies on it.
     fn status(&self) -> FactoryStatus;
 }
 
@@ -529,6 +552,17 @@ impl Inner {
             ));
         }
 
+        // (c') The evidence, before Turnstile: while the source is not ok
+        // nothing could be admitted, so the visitor's token is not spent
+        // and nothing is reserved. The factory logs the code once per
+        // change between ok and not ok; this line does not repeat it.
+        if !self.factory.status().ok {
+            eprintln!(
+                "[live-gate] refused a live run: the evidence source is not ok (the [snapshot] line says why)"
+            );
+            return Err(unavailable());
+        }
+
         // (d) Turnstile, fail closed. A fresh key for every verification:
         // the token is single-use at Siteverify, whatever the request's
         // own Idempotency-Key was (see the module doc).
@@ -590,7 +624,9 @@ impl Inner {
         };
 
         // (h) The deliberation over the factory's evidence, wrapped so the
-        // reservation is released when the run ends.
+        // reservation is released when the run ends. The factory re-checks
+        // its evidence here in full (the status above may be a cached
+        // read); a refusal releases the reservation before any model call.
         let inner = match self.factory.build(model, self.run_limits) {
             Ok(deliberation) => deliberation,
             Err(e) => {
@@ -693,6 +729,13 @@ impl crate::api::LiveGate for LiveGate {
                 .await
                 .map_err(|e| ApiError::internal(format!("live admission task: {e}")))?
         })
+    }
+
+    /// Not while the evidence source is not ok: `/capabilities` then
+    /// publishes live mode as disabled (the gate refuses every admission
+    /// anyway), and `/ready` says why.
+    fn available(&self) -> bool {
+        self.inner.factory.status().ok
     }
 
     fn capabilities(&self) -> Option<LiveCapabilitiesV1> {

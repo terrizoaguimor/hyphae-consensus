@@ -1,0 +1,31 @@
+{
+  "decision_authority": "public_demo",
+  "guided_enabled": true,
+  "limits": {
+    "body_limit_bytes": 16384,
+    "guided_concurrency": 4,
+    "guided_ring": 2000,
+    "list_page_max": 50,
+    "live_concurrency": 1,
+    "max_run_tokens": 150000,
+    "rate_runs_per_min": 6,
+    "rate_session_per_min": 10,
+    "rate_sse_per_min": 30,
+    "request_timeout_secs": 30,
+    "run_deadline_secs": 900,
+    "session_max": 50000,
+    "session_ttl_secs": 86400,
+    "sse_heartbeat_secs": 15,
+    "sse_max_global": 512,
+    "sse_max_per_client": 8,
+    "sse_max_per_run": 8,
+    "visitor_access_hours": 24,
+    "visitor_delete_days": 7
+  },
+  "live_enabled": false,
+  "policy_version": "1.2",
+  "protocol": "protocol 1.3 · policy rules 1.2",
+  "schema_version": "1.3",
+  "showcase_enabled": true,
+  "surface": "public"
+}

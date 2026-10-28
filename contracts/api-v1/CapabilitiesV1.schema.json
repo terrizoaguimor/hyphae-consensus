@@ -1,0 +1,204 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Authority": {
+      "description": "Under whose authority a human decision was recorded (schema 1.3).",
+      "oneOf": [
+        {
+          "description": "The operator of this deployment.",
+          "enum": [
+            "operator"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A public visitor deciding on their own simulated run: the record carries no operational authority.",
+          "enum": [
+            "public_demo"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "LimitsV1": {
+      "description": "Every limit the server enforces.",
+      "properties": {
+        "body_limit_bytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "guided_concurrency": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "guided_ring": {
+          "description": "Visitor runs the store keeps at once; when full, the oldest resting visitor runs are purged to admit a new one.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "list_page_max": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "live_concurrency": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "max_run_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "rate_runs_per_min": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "rate_session_per_min": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "rate_sse_per_min": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "request_timeout_secs": {
+          "description": "Seconds a request may take to be handled (body read included; a stream's body is not covered once its headers are sent).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "run_deadline_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session_max": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session_ttl_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sse_heartbeat_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sse_max_global": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sse_max_per_client": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sse_max_per_run": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "visitor_access_hours": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "visitor_delete_days": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "body_limit_bytes",
+        "guided_concurrency",
+        "guided_ring",
+        "list_page_max",
+        "live_concurrency",
+        "max_run_tokens",
+        "rate_runs_per_min",
+        "rate_session_per_min",
+        "rate_sse_per_min",
+        "request_timeout_secs",
+        "run_deadline_secs",
+        "session_max",
+        "session_ttl_secs",
+        "sse_heartbeat_secs",
+        "sse_max_global",
+        "sse_max_per_client",
+        "sse_max_per_run",
+        "visitor_access_hours",
+        "visitor_delete_days"
+      ],
+      "type": "object"
+    },
+    "SurfaceV1": {
+      "description": "Which server answered.",
+      "enum": [
+        "public",
+        "operator"
+      ],
+      "type": "string"
+    }
+  },
+  "description": "`GET /api/v1/capabilities`.",
+  "properties": {
+    "decision_authority": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Authority"
+        }
+      ],
+      "description": "Authority recorded on this surface's decisions."
+    },
+    "guided_enabled": {
+      "type": "boolean"
+    },
+    "limits": {
+      "$ref": "#/definitions/LimitsV1"
+    },
+    "live_enabled": {
+      "type": "boolean"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "protocol": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "showcase_enabled": {
+      "type": "boolean"
+    },
+    "surface": {
+      "$ref": "#/definitions/SurfaceV1"
+    }
+  },
+  "required": [
+    "decision_authority",
+    "guided_enabled",
+    "limits",
+    "live_enabled",
+    "policy_version",
+    "protocol",
+    "schema_version",
+    "showcase_enabled",
+    "surface"
+  ],
+  "title": "CapabilitiesV1",
+  "type": "object"
+}

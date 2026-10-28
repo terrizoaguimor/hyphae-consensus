@@ -1,0 +1,348 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "PolicyRule": {
+      "description": "The policy rule that decided a recommendation kind. Listed in the 1.2 priority order; 1.1 ranks `abstention` above `recorded_contradiction`.",
+      "oneOf": [
+        {
+          "description": "An integrity proof failed somewhere in the retrieved set: `blocked`.",
+          "enum": [
+            "invalid_proof"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Cited or contradicting evidence is recorded as contradicted: `contested`.",
+          "enum": [
+            "recorded_contradiction"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The Evaluator abstained: `abstained`.",
+          "enum": [
+            "abstention"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Challenge items remain unresolved: `contested`.",
+          "enum": [
+            "unresolved_items"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A claim, or the evidence it cites, falls short: `insufficient_evidence`.",
+          "enum": [
+            "insufficient_evidence"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No check failed: `supported`.",
+          "enum": [
+            "all_checks_passed"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PolicyRules": {
+      "description": "Policy rule order a [`PolicyTrace`] was derived under, serialized as its version string.",
+      "oneOf": [
+        {
+          "description": "Schema 1.1: abstention outranks every contradiction.",
+          "enum": [
+            "1.1"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Schema 1.2: a recorded contradiction outranks abstention.",
+          "enum": [
+            "1.2"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RecommendationKind": {
+      "description": "Runtime-derived assessment of a run. Never written by a model.",
+      "enum": [
+        "supported",
+        "contested",
+        "insufficient_evidence",
+        "abstained",
+        "blocked"
+      ],
+      "type": "string"
+    },
+    "TraceCounts": {
+      "description": "The counts `rationale_for` reports, from the same inputs.",
+      "properties": {
+        "claims": {
+          "description": "Claim assessments in the evaluation.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "corroborated": {
+          "description": "Of those, the ones judged corroborated.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proofs_invalid": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proofs_unavailable_or_error": {
+          "description": "Integrity `unavailable` or `verification_error`.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proofs_valid": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unresolved_items": {
+          "description": "Entries in the evaluation's `unresolved_items`.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "claims",
+        "corroborated",
+        "proofs_invalid",
+        "proofs_unavailable_or_error",
+        "proofs_valid",
+        "unresolved_items"
+      ],
+      "type": "object"
+    },
+    "TraceReason": {
+      "description": "One policy check that keeps a run from `supported`, with the ids it concerns. Evidence and claim ids are listed once each, in the order the evaluation and verification records first name them; `OpenItems` is the exception and lists item ids exactly as recorded, duplicates included.",
+      "oneOf": [
+        {
+          "description": "Evidence whose integrity proof is `invalid`, cited or not.",
+          "properties": {
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "invalid_proofs"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cited or contradicting evidence recorded as `contradicted`.",
+          "properties": {
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "contradicted_evidence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The Evaluator abstained, with its stated reason when it gave one.",
+          "properties": {
+            "abstain_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "enum": [
+                "evaluator_abstained"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Challenge item ids the evaluation lists as unresolved, exactly as recorded: in its order, and an id listed twice appears twice.",
+          "properties": {
+            "item_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "open_items"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "item_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The evaluation assesses no claim at all.",
+          "properties": {
+            "reason": {
+              "enum": [
+                "no_assessments"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Claims the evaluation does not judge corroborated.",
+          "properties": {
+            "claim_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "uncorroborated_claims"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "claim_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Claims judged corroborated that cite no evidence of their own.",
+          "properties": {
+            "claim_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "claims_without_own_evidence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "claim_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cited supporting evidence with no `valid` integrity record (invalid, unavailable, error, unchecked, or never retrieved).",
+          "properties": {
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "cited_evidence_not_valid"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No claim cites any supporting evidence, so nothing checked backs the run.",
+          "properties": {
+            "reason": {
+              "enum": [
+                "no_checked_evidence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "description": "Why the policy derived the kind it did, from one evaluation and the verification records of its round. `rule` is the rule that decided `kind`; `reasons` lists every check that failed, in the priority order of `version`, so its first entry belongs to `rule`. `reasons` is empty exactly when the run is `supported`.",
+  "properties": {
+    "counts": {
+      "$ref": "#/definitions/TraceCounts"
+    },
+    "kind": {
+      "$ref": "#/definitions/RecommendationKind"
+    },
+    "reasons": {
+      "items": {
+        "$ref": "#/definitions/TraceReason"
+      },
+      "type": "array"
+    },
+    "rule": {
+      "$ref": "#/definitions/PolicyRule"
+    },
+    "version": {
+      "$ref": "#/definitions/PolicyRules"
+    }
+  },
+  "required": [
+    "counts",
+    "kind",
+    "reasons",
+    "rule",
+    "version"
+  ],
+  "title": "PolicyTrace",
+  "type": "object"
+}

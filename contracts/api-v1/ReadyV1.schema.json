@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "RunStoreStatusV1": {
+      "description": "The run store as `/ready` reports it.",
+      "properties": {
+        "index_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index_head": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index_seq": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "index_tail_repaired": {
+          "type": "boolean"
+        },
+        "index_tampered": {
+          "type": "boolean"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "index_tail_repaired",
+        "index_tampered",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "ShowcaseStatusV1": {
+      "description": "The showcase as `/ready` reports it.",
+      "properties": {
+        "entries": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "entries",
+        "ok"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "`GET /api/v1/ready`.",
+  "properties": {
+    "active_runs": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "queued_runs": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "ready": {
+      "type": "boolean"
+    },
+    "run_store": {
+      "$ref": "#/definitions/RunStoreStatusV1"
+    },
+    "showcase": {
+      "$ref": "#/definitions/ShowcaseStatusV1"
+    },
+    "shutting_down": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "active_runs",
+    "queued_runs",
+    "ready",
+    "run_store",
+    "showcase",
+    "shutting_down"
+  ],
+  "title": "ReadyV1",
+  "type": "object"
+}

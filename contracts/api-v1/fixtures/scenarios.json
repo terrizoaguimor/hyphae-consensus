@@ -1,0 +1,49 @@
+{
+  "scenarios": [
+    {
+      "description": "The Proposer raises the payment client's retry limit; the Critic finds the documented cap; the Evaluator confirms the contradiction from the retrieved constraint; the revision complies.",
+      "evidence": "simulated",
+      "expected_outcome": "supported",
+      "id": "retry",
+      "model": "scripted",
+      "simulated": true,
+      "title": "Reference: retry budget"
+    },
+    {
+      "description": "The memory backend is unreachable: nothing can be retrieved or cited, the run degrades and no claim can be corroborated.",
+      "evidence": "simulated",
+      "expected_outcome": "insufficient_evidence",
+      "id": "offline",
+      "model": "scripted",
+      "simulated": true,
+      "title": "Memory offline"
+    },
+    {
+      "description": "A retrieved record's integrity proof fails verification; the policy blocks the run whatever the Evaluator concluded.",
+      "evidence": "simulated",
+      "expected_outcome": "blocked",
+      "id": "invalid_proof",
+      "model": "scripted",
+      "simulated": true,
+      "title": "Invalid proof blocks the run"
+    },
+    {
+      "description": "A retrieved note tries to order the system to approve; the text is data, never an instruction, and the uncorroborated claim leaves the evidence insufficient.",
+      "evidence": "simulated",
+      "expected_outcome": "insufficient_evidence",
+      "id": "injection",
+      "model": "scripted",
+      "simulated": true,
+      "title": "Hostile memory record"
+    },
+    {
+      "description": "No evidence exists for the claim; the Evaluator abstains instead of guessing.",
+      "evidence": "simulated",
+      "expected_outcome": "abstained",
+      "id": "abstain",
+      "model": "scripted",
+      "simulated": true,
+      "title": "Evaluator abstains"
+    }
+  ]
+}

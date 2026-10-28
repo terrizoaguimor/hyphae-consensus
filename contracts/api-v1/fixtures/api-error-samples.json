@@ -1,0 +1,65 @@
+[
+  {
+    "code": "invalid_request",
+    "message": "invalid request: unknown field `title`"
+  },
+  {
+    "code": "csrf_rejected",
+    "message": "the Origin header is not allowed"
+  },
+  {
+    "code": "session_required",
+    "message": "a session is required: POST /api/v1/session first"
+  },
+  {
+    "code": "not_found",
+    "message": "not found"
+  },
+  {
+    "code": "rate_limited",
+    "message": "too many requests from this client",
+    "retry_after_secs": 30
+  },
+  {
+    "code": "too_many_runs",
+    "message": "every deliberation slot is busy; retry later",
+    "retry_after_secs": 5
+  },
+  {
+    "code": "live_disabled",
+    "message": "the public live mode is not enabled on this server"
+  },
+  {
+    "code": "run_not_awaiting_decision",
+    "message": "the run is not awaiting a human decision"
+  },
+  {
+    "code": "decision_conflict",
+    "message": "expected last sequence 14, the run is at 15"
+  },
+  {
+    "code": "idempotency_key_reused",
+    "message": "this Idempotency-Key was already used with a different decision"
+  },
+  {
+    "code": "override_note_required",
+    "message": "approving a blocked or abstained run is an override and requires a note"
+  },
+  {
+    "code": "run_not_cancellable",
+    "message": "only a run that is still deliberating can be cancelled"
+  },
+  {
+    "code": "storage_full",
+    "message": "the server holds its maximum number of visitor runs and none can be freed right now; retry shortly",
+    "retry_after_secs": 30
+  },
+  {
+    "code": "ndjson_unavailable",
+    "message": "the verbatim event log of a live run is not published on the public surface; the detail and the receipt carry its sanitized view"
+  },
+  {
+    "code": "request_timeout",
+    "message": "the request was not handled within the server's request timeout"
+  }
+]

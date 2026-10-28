@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "ExpectedRunState": {
+      "additionalProperties": false,
+      "description": "What the human saw when deciding; the server refuses the decision (`409 decision_conflict`) if the run no longer matches.",
+      "properties": {
+        "last_sequence": {
+          "description": "The sequence of the run's last event as shown to the human.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "recommendation": {
+          "$ref": "#/definitions/RecommendationKind"
+        }
+      },
+      "required": [
+        "last_sequence",
+        "recommendation"
+      ],
+      "type": "object"
+    },
+    "RecommendationKind": {
+      "description": "Runtime-derived assessment of a run. Never written by a model.",
+      "enum": [
+        "supported",
+        "contested",
+        "insufficient_evidence",
+        "abstained",
+        "blocked"
+      ],
+      "type": "string"
+    }
+  },
+  "description": "`POST /api/v1/runs/{id}/decision`, with an `Idempotency-Key` header.",
+  "properties": {
+    "approved": {
+      "type": "boolean"
+    },
+    "expected": {
+      "$ref": "#/definitions/ExpectedRunState"
+    },
+    "note": {
+      "description": "At most 2000 characters. Required to approve a `blocked` or `abstained` run (an override).",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "approved",
+    "expected"
+  ],
+  "title": "DecisionRequest",
+  "type": "object"
+}

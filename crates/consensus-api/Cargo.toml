@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Operator entry point: Meta and Hyphae adapters, Axum/SSE console, scripted demo."
+description = "Public API, operator surface, Meta and Hyphae adapters, SSE streaming, verify CLI."
 
 [dependencies]
 consensus-domain = { path = "../consensus-domain" }
@@ -23,3 +23,14 @@ sha2.workspace = true
 uuid.workspace = true
 # Pinned: the Meta key is zeroized on drop (already in the lock through rustls).
 zeroize = "=1.9.1"
+# Session ids and operator tokens: 256 bits straight from the OS. Already
+# in Cargo.lock through uuid.
+getrandom = "=0.4.3"
+# The request timeout layer (`timeout`), and `ServiceExt::oneshot` for the
+# HTTP-level tests (`util`). Already in Cargo.lock through axum.
+tower = { version = "=0.5.3", default-features = false, features = ["util", "timeout"] }
+
+[dev-dependencies]
+# HTTP-level tests read bodies with `http_body_util::BodyExt`; already in
+# Cargo.lock through axum.
+http-body-util = "=0.1.5"

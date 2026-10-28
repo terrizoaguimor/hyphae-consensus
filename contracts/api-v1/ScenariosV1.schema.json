@@ -1,0 +1,179 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "EvidenceProvenance": {
+      "description": "Where the evidence came from, read from the verification and retrieval records.",
+      "oneOf": [
+        {
+          "description": "Seeded records checked by the scripted verifier: SIMULATED.",
+          "enum": [
+            "simulated"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records of a sealed Hyphae snapshot, verified with `hyphae proof verify`.",
+          "enum": [
+            "hyphae_snapshot"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records recalled from a running Hyphae deployment.",
+          "enum": [
+            "hyphae_live"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No evidence record in the run.",
+          "enum": [
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records of more than one kind.",
+          "enum": [
+            "mixed"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "GuidedScenario": {
+      "description": "The five guided scenarios: scripted model doubles over seeded records with simulated proofs. Each reaches a documented outcome.",
+      "oneOf": [
+        {
+          "description": "Reference: a proposal violates a stored constraint, the critic catches it, the revision complies. Expected `supported`.",
+          "enum": [
+            "retry"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Memory offline: nothing can be retrieved. Expected `insufficient_evidence`.",
+          "enum": [
+            "offline"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A proof fails verification. Expected `blocked`.",
+          "enum": [
+            "invalid_proof"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A hostile memory record tries to force approval. Expected `insufficient_evidence`.",
+          "enum": [
+            "injection"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No evidence exists; the evaluator abstains. Expected `abstained`.",
+          "enum": [
+            "abstain"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ModelProvenance": {
+      "description": "Which model answered the roles, read from the chained `ModelInvocation` records (provider and request id), never from the request or the declared mode.",
+      "oneOf": [
+        {
+          "description": "Every recorded call came from a scripted double (`provider=fake`): no model was called.",
+          "enum": [
+            "scripted"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Every recorded call went to the Meta Model API (`provider=meta` with a request id).",
+          "enum": [
+            "live_meta"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Calls from more than one provider, or Meta calls without request ids: shown with a flag, never as LIVE.",
+          "enum": [
+            "mixed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No model call recorded yet.",
+          "enum": [
+            "undetermined"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RecommendationKind": {
+      "description": "Runtime-derived assessment of a run. Never written by a model.",
+      "enum": [
+        "supported",
+        "contested",
+        "insufficient_evidence",
+        "abstained",
+        "blocked"
+      ],
+      "type": "string"
+    },
+    "ScenarioV1": {
+      "description": "One guided scenario, as `GET /api/v1/scenarios` lists it.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/definitions/EvidenceProvenance"
+        },
+        "expected_outcome": {
+          "$ref": "#/definitions/RecommendationKind"
+        },
+        "id": {
+          "$ref": "#/definitions/GuidedScenario"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelProvenance"
+        },
+        "simulated": {
+          "description": "Always true: scripted model, simulated proofs.",
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "evidence",
+        "expected_outcome",
+        "id",
+        "model",
+        "simulated",
+        "title"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "scenarios": {
+      "items": {
+        "$ref": "#/definitions/ScenarioV1"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "scenarios"
+  ],
+  "title": "ScenariosV1",
+  "type": "object"
+}

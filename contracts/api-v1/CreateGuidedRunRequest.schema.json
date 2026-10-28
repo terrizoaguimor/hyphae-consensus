@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "GuidedScenario": {
+      "description": "The five guided scenarios: scripted model doubles over seeded records with simulated proofs. Each reaches a documented outcome.",
+      "oneOf": [
+        {
+          "description": "Reference: a proposal violates a stored constraint, the critic catches it, the revision complies. Expected `supported`.",
+          "enum": [
+            "retry"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Memory offline: nothing can be retrieved. Expected `insufficient_evidence`.",
+          "enum": [
+            "offline"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A proof fails verification. Expected `blocked`.",
+          "enum": [
+            "invalid_proof"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A hostile memory record tries to force approval. Expected `insufficient_evidence`.",
+          "enum": [
+            "injection"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No evidence exists; the evaluator abstains. Expected `abstained`.",
+          "enum": [
+            "abstain"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "description": "`POST /api/v1/runs` (public): start a guided run.",
+  "properties": {
+    "scenario": {
+      "$ref": "#/definitions/GuidedScenario"
+    }
+  },
+  "required": [
+    "scenario"
+  ],
+  "title": "CreateGuidedRunRequest",
+  "type": "object"
+}

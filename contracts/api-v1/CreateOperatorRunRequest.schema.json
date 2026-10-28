@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "GuidedScenario": {
+      "description": "The five guided scenarios: scripted model doubles over seeded records with simulated proofs. Each reaches a documented outcome.",
+      "oneOf": [
+        {
+          "description": "Reference: a proposal violates a stored constraint, the critic catches it, the revision complies. Expected `supported`.",
+          "enum": [
+            "retry"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Memory offline: nothing can be retrieved. Expected `insufficient_evidence`.",
+          "enum": [
+            "offline"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A proof fails verification. Expected `blocked`.",
+          "enum": [
+            "invalid_proof"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A hostile memory record tries to force approval. Expected `insufficient_evidence`.",
+          "enum": [
+            "injection"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No evidence exists; the evaluator abstains. Expected `abstained`.",
+          "enum": [
+            "abstain"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "OperatorMemory": {
+      "description": "Operator surface: which memory backend serves evidence.",
+      "oneOf": [
+        {
+          "description": "Seeded records with simulated proofs.",
+          "enum": [
+            "fake"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No backend: retrieval fails and the run degrades.",
+          "enum": [
+            "offline"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A running Hyphae deployment (operator lab only).",
+          "enum": [
+            "hyphae"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "OperatorModel": {
+      "description": "Operator surface: which model answers the roles.",
+      "oneOf": [
+        {
+          "description": "Scripted doubles; a `scenario` is required.",
+          "enum": [
+            "fake"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The Meta Model API, with the server's credentials.",
+          "enum": [
+            "meta"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "description": "`POST /api/v1/operator/runs` (operator): start a run in any mode. `model=fake` needs a `scenario` and `memory=fake`; `model=meta` takes a bounded title and description for the Proposer and a project id for `memory=hyphae`.",
+  "properties": {
+    "description": {
+      "description": "At most 4000 characters.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "memory": {
+      "$ref": "#/definitions/OperatorMemory"
+    },
+    "model": {
+      "$ref": "#/definitions/OperatorModel"
+    },
+    "project_id": {
+      "description": "Hyphae project, `[A-Za-z0-9._-]{1,64}`. Default `demo-repo`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "scenario": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/GuidedScenario"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "title": {
+      "description": "At most 200 characters.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "memory",
+    "model"
+  ],
+  "title": "CreateOperatorRunRequest",
+  "type": "object"
+}

@@ -80,7 +80,12 @@
 //!   what anchors it.
 //! - **Retention.** [`RunStore::purge_expired`] deletes an expired visitor
 //!   run's files whole and records the purge. Operator and showcase runs
-//!   are never purged.
+//!   are never purged. A public server also bounds the visitor runs it
+//!   stores as a ring: [`RunStore::session_run_count`] says how many there
+//!   are and [`RunStore::purge_oldest_session_runs`] frees the oldest ones
+//!   (those whose owner's access has ended first) when it is full, with
+//!   the same `purged` record each. [`RunStore::discard_empty_run`] removes
+//!   a run whose creation did not get as far as recording its task.
 
 use crate::clock::{Clock, IdGen, SystemClock, UuidIdGen};
 use crate::event_log::{EventLog, EventLogError};
@@ -786,6 +791,20 @@ impl RunStore {
         self.load_meta(&run_id, &indexed)
     }
 
+    /// The sidecar of a live run that `owner` owns and may still reach,
+    /// without opening, locking or reading the run's log: the cheap
+    /// ownership check a server makes before a rate-limited or streaming
+    /// path commits a stream slot or a full read. Anyone else, an unknown
+    /// or malformed id, a purged run and an ended access window are all
+    /// [`RunStoreError::UnknownRun`], exactly as in
+    /// [`read_run`](Self::read_run). The sidecar is read once and cached,
+    /// so after the first call this touches the run index only.
+    pub fn meta_for(&self, id: &str, owner: &Owner) -> Result<RunMeta, RunStoreError> {
+        let run_id = parse_run_id(id)?;
+        let indexed = self.live_run(&run_id)?;
+        self.owned_meta(&run_id, &indexed, owner)
+    }
+
     /// The live runs (created, not purged) that `owner` owns, oldest
     /// first, whether or not the owner's access has ended
     /// ([`RunMeta::access_open_at`] tells). A run whose sidecar fails its
@@ -941,6 +960,113 @@ impl RunStore {
             }
         }
         Ok(report)
+    }
+
+    /// The live runs (created, not purged) that sessions own, however
+    /// their access stands: what a public server's ring counts. Operator
+    /// and showcase runs are not counted; a run whose sidecar fails its
+    /// checks is left out, as in [`list_for`](Self::list_for).
+    pub fn session_run_count(&self) -> Result<usize, RunStoreError> {
+        Ok(self.live_session_runs()?.len())
+    }
+
+    /// Deletes up to `count` live session-owned runs whole, whatever their
+    /// `delete_after` says: a public server bounds the visitor runs it
+    /// stores as a ring, and when the ring is full the oldest visitor runs
+    /// make room for a new one instead of the server refusing it.
+    /// Candidates are taken oldest first (creation order), those whose
+    /// owner's access has already ended ([`RunMeta::access_open_at`])
+    /// before any still inside its window. Each purge records its `purged`
+    /// index record before deleting, exactly as
+    /// [`purge_expired`](Self::purge_expired) does. A run another handle
+    /// holds (a deliberation in progress, a reader) is skipped, reported
+    /// `in_use`, and the next candidate is tried; operator and showcase
+    /// runs are never candidates.
+    pub fn purge_oldest_session_runs(
+        &self,
+        now: DateTime<Utc>,
+        count: usize,
+    ) -> Result<PurgeReport, RunStoreError> {
+        let at = stamp(now);
+        let mut report = PurgeReport::default();
+        if count == 0 {
+            return Ok(report);
+        }
+        let mut candidates: Vec<(bool, RunId)> = self
+            .live_session_runs()?
+            .into_iter()
+            .map(|meta| (meta.access_open_at(now), meta.run_id))
+            .collect();
+        // Ended access first; the sort is stable, so creation order holds
+        // within each group.
+        candidates.sort_by_key(|(access_open, _)| *access_open);
+        for (_, run_id) in candidates {
+            if report.purged.len() >= count {
+                break;
+            }
+            let paths = RunPaths::new(&self.shared.dir, &run_id)?;
+            match self.purge_run(&run_id, &paths, &at) {
+                Ok(()) => report.purged.push(run_id),
+                Err(RunStoreError::InUse(_)) => report.in_use.push(run_id),
+                Err(RunStoreError::UnknownRun(_)) => {}
+                Err(e) => report.failed.push((run_id, e.to_string())),
+            }
+        }
+        Ok(report)
+    }
+
+    /// Deletes a live run whose log holds no record yet: the files a
+    /// creation leaves when the run's task could not be recorded, so no
+    /// indexed, empty run outlives the request that made it (LC-07). The
+    /// `purged` index record is written first, like every purge. `Ok(false)`
+    /// and nothing done for a run with records (its task is durable, so the
+    /// run stands and recovery closes it if need be) or one another handle
+    /// holds; unknown and malformed ids are refused as in
+    /// [`open_run`](Self::open_run), without any file access.
+    pub fn discard_empty_run(&self, id: &str) -> Result<bool, RunStoreError> {
+        let run_id = parse_run_id(id)?;
+        self.live_run(&run_id)?;
+        let paths = RunPaths::new(&self.shared.dir, &run_id)?;
+        let lock = open_lock_for_known_run(&paths)?;
+        match acquire_run_lock(&lock, &run_id) {
+            Ok(()) => {}
+            Err(RunStoreError::InUse(_)) => return Ok(false),
+            Err(e) => return Err(e),
+        }
+        // Read again under the lock: another process may have purged it.
+        if self.live_run(&run_id).is_err() {
+            return Ok(false);
+        }
+        let empty = match is_regular_file(&paths.log)? {
+            true => std::fs::read(&paths.log)?
+                .iter()
+                .all(|b| b.is_ascii_whitespace()),
+            false => true,
+        };
+        if !empty {
+            return Ok(false);
+        }
+        let at = stamp(self.shared.now()?);
+        self.purge_locked(&run_id, &paths, &at, None)?;
+        Ok(true)
+    }
+
+    /// Live session-owned runs with their sidecars, in creation order.
+    fn live_session_runs(&self) -> Result<Vec<RunMeta>, RunStoreError> {
+        let mut runs = Vec::new();
+        for (run_id, run) in self.index_view()? {
+            if run.purged {
+                continue;
+            }
+            match self.load_meta(&run_id, &run) {
+                Ok(meta) if matches!(meta.owner, Owner::Session { .. }) => runs.push(meta),
+                Ok(_)
+                | Err(RunStoreError::Inconsistent { .. })
+                | Err(RunStoreError::UnknownRun(_)) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(runs)
     }
 
     /// The run index's head, after reading other processes' appends.
@@ -1237,6 +1363,18 @@ impl RunStore {
             .filter(|bytes| check_recorded_head(bytes, &indexed).is_ok())
             .and_then(|bytes| verify_log_bytes(&bytes).ok())
             .and_then(|events| events.last().and_then(Head::of));
+        self.purge_locked(run_id, paths, at, head)
+    }
+
+    /// The purge proper, with the run's lock held by the caller: the
+    /// `purged` index record first, then the files.
+    fn purge_locked(
+        &self,
+        run_id: &RunId,
+        paths: &RunPaths,
+        at: &str,
+        head: Option<Head>,
+    ) -> Result<(), RunStoreError> {
         // Recorded before anything is deleted: a crash in between leaves a
         // recorded purge, which the next purge or recovery finishes, never
         // a run that looks deleted by hand.
@@ -3492,6 +3630,147 @@ mod tests {
         for suffix in [".jsonl", ".meta.json", ".lock"] {
             assert!(!root.file(&run_id, suffix).exists(), "{suffix}");
         }
+    }
+
+    #[test]
+    fn the_ring_frees_the_oldest_session_runs_ended_access_first_and_skips_held_ones() {
+        let root = TempRoot::new("ring");
+        let clock = TestClock::at(T0);
+        let store = RunStore::open_with_clock(root.path(), Box::new(clock.clone())).unwrap();
+        // The oldest run, still inside its access window when the ring turns.
+        let (oldest, _) = ended_run(&store, visitor(1), Retention::VISITOR);
+        // Operator and showcase runs count for nothing and are never freed.
+        let (operator, _) = ended_run(&store, Owner::Operator, Retention::VISITOR);
+        let (showcase, _) = ended_run(&store, Owner::Showcase, Retention::Keep);
+        clock.set("2026-10-27T01:00:00Z");
+        // Younger, but with a short access window that has ended.
+        let short = Retention::Expiring {
+            access_for: Duration::from_secs(60),
+            delete_after: Duration::from_secs(7 * 24 * 3600),
+        };
+        let (ended, ended_head) = ended_run(&store, visitor(2), short);
+        clock.set("2026-10-27T02:00:00Z");
+        let held = store.create_run(visitor(3), Retention::VISITOR).unwrap();
+        let busy = held.run_id().clone();
+        assert_eq!(store.session_run_count().unwrap(), 3);
+
+        // One slot: the run whose access ended goes first, though younger.
+        let now = time("2026-10-27T03:00:00Z");
+        let report = store.purge_oldest_session_runs(now, 1).unwrap();
+        assert_eq!(report.purged, vec![ended.clone()]);
+        assert!(report.in_use.is_empty() && report.failed.is_empty());
+        let last = store.index_records().unwrap().pop().unwrap();
+        assert_eq!(
+            (last.kind, &last.run_id, last.head_hash.as_deref()),
+            (IndexKind::Purged, &ended, Some(ended_head.as_str()))
+        );
+        assert_eq!(store.session_run_count().unwrap(), 2);
+
+        // Two more: the oldest in-window run goes; the held one is skipped.
+        let report = store.purge_oldest_session_runs(now, 2).unwrap();
+        assert_eq!(report.purged, vec![oldest.clone()]);
+        assert_eq!(report.in_use, vec![busy.clone()]);
+        for suffix in [".jsonl", ".meta.json", ".lock"] {
+            assert!(!root.file(&oldest, suffix).exists(), "{suffix}");
+        }
+        for run_id in [&operator, &showcase, &busy] {
+            assert!(root.file(run_id, ".jsonl").exists());
+        }
+        assert_eq!(store.session_run_count().unwrap(), 1);
+        assert_eq!(
+            store.purge_oldest_session_runs(now, 0).unwrap(),
+            PurgeReport::default()
+        );
+        assert_eq!(store.list_for(&Owner::Operator).unwrap().len(), 1);
+        assert_eq!(store.list_for(&Owner::Showcase).unwrap().len(), 1);
+
+        // Released, the held run is the next candidate, and the index still
+        // verifies after a restart.
+        drop(held);
+        let store = RunStore::open_with_clock(root.path(), Box::new(clock)).unwrap();
+        let report = store.recover().unwrap();
+        assert!(
+            report.missing.is_empty() && report.unindexed.is_empty(),
+            "{report:?}"
+        );
+        assert_eq!(
+            store.purge_oldest_session_runs(now, 1).unwrap().purged,
+            vec![busy]
+        );
+        assert_eq!(store.session_run_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn meta_for_checks_owner_and_access_without_touching_the_log() {
+        let root = TempRoot::new("meta-for");
+        let clock = TestClock::at(T0);
+        let store = RunStore::open_with_clock(root.path(), Box::new(clock.clone())).unwrap();
+        let (run_id, _) = ended_run(&store, visitor(1), Retention::VISITOR);
+        assert_eq!(
+            store.meta_for(run_id.as_str(), &visitor(1)).unwrap().run_id,
+            run_id
+        );
+        assert!(matches!(
+            store.meta_for(run_id.as_str(), &visitor(2)),
+            Err(RunStoreError::UnknownRun(_))
+        ));
+        assert!(matches!(
+            store.meta_for("run-../x", &visitor(1)),
+            Err(RunStoreError::InvalidId(_))
+        ));
+        // The log is not read here: a damaged one still answers ownership,
+        // while a full read refuses it.
+        std::fs::write(root.file(&run_id, ".jsonl"), b"garbage\n").unwrap();
+        assert!(store.meta_for(run_id.as_str(), &visitor(1)).is_ok());
+        assert!(store.read_run(run_id.as_str(), &visitor(1)).is_err());
+        // Ended access: unknown, as for read_run.
+        clock.set("2026-10-28T00:00:00Z");
+        assert!(matches!(
+            store.meta_for(run_id.as_str(), &visitor(1)),
+            Err(RunStoreError::UnknownRun(_))
+        ));
+    }
+
+    #[test]
+    fn discard_empty_run_removes_only_an_empty_unheld_run_and_records_the_purge() {
+        let root = TempRoot::new("discard");
+        let store = open_store(&root);
+        let handle = store.create_run(visitor(1), Retention::VISITOR).unwrap();
+        let empty = handle.run_id().clone();
+        // Held: nothing happens.
+        assert!(!store.discard_empty_run(empty.as_str()).unwrap());
+        drop(handle);
+        let (recorded, _) = ended_run(&store, visitor(1), Retention::VISITOR);
+        // A run with records stands.
+        assert!(!store.discard_empty_run(recorded.as_str()).unwrap());
+        assert!(root.file(&recorded, ".jsonl").exists());
+
+        assert!(store.discard_empty_run(empty.as_str()).unwrap());
+        for suffix in [".jsonl", ".meta.json", ".lock"] {
+            assert!(!root.file(&empty, suffix).exists(), "{suffix}");
+        }
+        let last = store.index_records().unwrap().pop().unwrap();
+        assert_eq!(
+            (last.kind, &last.run_id, last.head_hash.is_none()),
+            (IndexKind::Purged, &empty, true)
+        );
+        assert!(matches!(
+            store.discard_empty_run(empty.as_str()),
+            Err(RunStoreError::UnknownRun(_))
+        ));
+        assert!(matches!(
+            store.discard_empty_run("nope"),
+            Err(RunStoreError::InvalidId(_))
+        ));
+        assert_eq!(
+            run_ids(store.list_for(&visitor(1)).unwrap()),
+            vec![recorded.clone()]
+        );
+        let report = store.recover().unwrap();
+        assert!(
+            report.missing.is_empty() && report.unindexed.is_empty(),
+            "{report:?}"
+        );
     }
 
     #[test]

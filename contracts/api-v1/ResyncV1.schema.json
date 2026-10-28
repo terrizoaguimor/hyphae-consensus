@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ResyncReason": {
+      "description": "Why the server re-read the log.",
+      "oneOf": [
+        {
+          "description": "The subscriber fell behind the broadcast buffer.",
+          "enum": [
+            "lagged"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A published sequence skipped one or more records.",
+          "enum": [
+            "gap"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The run's live channel closed; the durable tail follows.",
+          "enum": [
+            "closed"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "description": "`event: resync`: the frames that follow were re-read from the durable log (delivery `replay`), starting after `from_sequence`.",
+  "properties": {
+    "from_sequence": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "reason": {
+      "$ref": "#/definitions/ResyncReason"
+    }
+  },
+  "required": [
+    "from_sequence",
+    "reason"
+  ],
+  "title": "ResyncV1",
+  "type": "object"
+}

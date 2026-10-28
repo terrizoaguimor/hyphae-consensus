@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+# cloudflared configuration for the Hyphae Consensus public portal: a NAMED,
+# locally-managed tunnel whose only origin is the public unix socket.
+# Install as /etc/cloudflared/config.yml (root:cloudflared 0640); the tunnel
+# credentials file sits next to it. Runbook: docs/deployment/runbook.md,
+# section 6. Check with:
+#   cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
+#   cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule https://<hostname>/api/v1/health
+
+# The tunnel UUID printed by `cloudflared tunnel create <NAME>` and the
+# credentials file it generated (copied here with scp; it only allows running
+# this one tunnel). The account certificate cert.pem never lives on the server.
+tunnel: <TUNNEL-UUID>
+credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
+
+# `protocol` is left unset: the default `auto` uses quic (UDP 7844) and falls
+# back to http2 (TCP 7844); the firewall allows both.
+
+ingress:
+  # Production hostname -> the public server's unix socket, plain HTTP over
+  # the socket. originRequest: only connectTimeout is set; noTLSVerify and
+  # http2Origin stay unset (they apply to TLS / HTTP/2 origins, not to a
+  # plain socket), httpHostHeader stays unset so the origin sees the public
+  # hostname in Host (the server checks it against CONSENSUS_ALLOWED_HOSTS).
+  - hostname: <hostname>
+    service: unix:/run/consensus/public.sock
+    originRequest:
+      connectTimeout: 10s
+
+  # Staging hostname (behind Cloudflare Access, owner only): the same socket.
+  # Remove this rule at teardown, or earlier if staging is no longer needed.
+  - hostname: staging.<hostname>
+    service: unix:/run/consensus/public.sock
+    originRequest:
+      connectTimeout: 10s
+
+  # Gate G1: every other hostname that reaches this tunnel is answered 404 by
+  # cloudflared itself and never touches the origin. cloudflared refuses a
+  # configuration whose last rule is not such a catch-all.
+  - service: http_status:404

@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: Apache-2.0
+# Hyphae Consensus operator console: `consensus-api serve-operator` on
+# 127.0.0.1:8787 with a bearer token read from a file. Started ON DEMAND
+# over SSH (`sudo systemctl start consensus-operator.service`) and stopped
+# afterwards. There is deliberately no [Install] section: the unit cannot be
+# enabled, so it never starts at boot, and no ingress rule ever points at it
+# (gate G1). Install as /etc/systemd/system/consensus-operator.service
+# (root:root 0644). Runbook: docs/deployment/runbook.md, sections 5 and 9.
+
+[Unit]
+Description=Hyphae Consensus operator console (serve-operator, loopback, on demand)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=consensus
+Group=consensus
+UMask=0027
+
+# The public server's non-secret configuration first, then the operator
+# overrides (token path, this unit's own credential paths). Later files win.
+EnvironmentFile=/etc/consensus/public.env
+EnvironmentFile=/etc/consensus/operator.env
+
+# The console consults the same dedicated key (an operator live run debits
+# the same ledger, gate G3) and the same Turnstile secret, from this unit's
+# own credentials directory /run/credentials/consensus-operator.service/.
+# The bearer token travels the same way: root:root 0600 on disk, readable
+# by the service user only while the console runs, never by any other
+# account (operator.env points CONSENSUS_OPERATOR_TOKEN_FILE at it).
+LoadCredential=meta.key:/etc/consensus/credentials/meta.key
+LoadCredential=turnstile.secret:/etc/consensus/credentials/turnstile.secret
+LoadCredential=operator.token:/etc/consensus/credentials/operator.token
+
+ExecStart=/usr/local/bin/consensus-api serve-operator
+
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=90
+# No Restart=: the operator starts and stops this unit by hand.
+
+# --- Sandbox (as consensus-public.service, minus the socket directory) -----
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/consensus/runs /var/lib/consensus/ledger
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+
+# --- Resources -------------------------------------------------------------
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=512
+LimitNOFILE=16384

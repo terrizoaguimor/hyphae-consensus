@@ -23,7 +23,7 @@ import { mockApi, recordedRun } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
 import { expectNoLive, takeProblem } from "./helpers";
-import { archiveEntry, manifestRun, metaRequestIds } from "./research";
+import { archiveEntry, logSegment, manifestRun, metaRequestIds, researchBytes } from "./research";
 
 type Json = Record<string, unknown>;
 
@@ -162,6 +162,64 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
   expect(mock.calls.filter((c) => c.path === `/api/v1/showcase/${runId}`)).toHaveLength(1);
 });
 
+test("a recorded run's archived log is checked in this browser against the pinned digest and the receipt's head @smoke", async ({
+  page,
+}) => {
+  const { r06, list } = entries();
+  const runId = String(r06.run_id);
+  const segment = logSegment(String(r06.file), runId);
+  await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })] });
+  await openRecorded(page, "en", runId);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const verdict = page.locator("[data-chain-verdict='pass']");
+  await expect(verdict).toBeVisible();
+  const result = (name: string) => verdict.locator(`[data-chain-result='${name}']`);
+  await expect(result("sha256")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(result("sha256")).toContainText(String(r06.sha256));
+  await expect(result("chain")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(result("range")).toContainText(`sequences ${segment.first} to ${segment.last}`);
+  await expect(result("head")).toContainText(String(r06.head_hash));
+  await expect(result("head")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(result("count")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(verdict).toContainText(t("en", "Run.chain.limits"));
+  await expectNoLive(page, "en");
+});
+
+test("a flipped byte in the archived log fails at the record that holds it", async ({ page }) => {
+  const { r06, list } = entries();
+  const runId = String(r06.run_id);
+  const file = String(r06.file);
+  const target = logSegment(file, runId).first + 3;
+  // Flip the case of one letter inside that record's payload: still UTF-8, still JSON.
+  const original = researchBytes(file);
+  const text = original.toString("utf8");
+  const lineStart = text.split("\n").slice(0, target - 1).reduce((n, line) => n + Buffer.byteLength(line) + 1, 0);
+  const line = text.split("\n")[target - 1] ?? "";
+  expect(line).toContain(`"sequence":${target},`);
+  // The first letter of the payload's first string value (its "type").
+  const payloadAt = line.indexOf('"payload":');
+  const letter = /"[a-z_]+":"([a-z])/.exec(line.slice(payloadAt));
+  expect(letter).not.toBeNull();
+  const charIndex = payloadAt + (letter?.index ?? 0) + (letter?.[0].length ?? 1) - 1;
+  const offset = lineStart + Buffer.byteLength(line.slice(0, charIndex));
+  expect(String.fromCharCode(original[offset] ?? 0)).toBe(letter?.[1]);
+  const tampered = Buffer.from(original);
+  tampered[offset] = (tampered[offset] ?? 0) ^ 0x20;
+  await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })], research: { [file]: tampered } });
+  await openRecorded(page, "en", runId);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const verdict = page.locator("[data-chain-verdict='fail']");
+  await expect(verdict).toBeVisible();
+  await expect(verdict.locator(`[data-chain-failure='hash_mismatch'][data-chain-failure-sequence='${target}']`)).toContainText(
+    `The check stops at record ${target} (line ${target})`,
+  );
+  await expect(verdict.locator("[data-chain-result='sha256']")).toContainText(t("en", "Run.chain.verdicts.fail"));
+});
+
 test("a run blocked because no proof could be generated reads so, with the archive's own note", async ({ page }) => {
   const { l01, list } = entries();
   await mockApi(page, {
@@ -278,6 +336,12 @@ for (const locale of locales) {
       for (const tab of ["explorer", "evidence", "proofs", "audit", "meta"] as const) {
         await page.getByRole("tab", { name: t(locale, `Run.tabs.${tab}`) }).click();
         await expect(page.locator(`[data-tab='${tab}']`)).toBeVisible();
+        if (tab === "audit") {
+          // The chain checked in this browser, with its result on screen.
+          await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+          await page.getByRole("button", { name: t(locale, "Run.chain.run") }).click();
+          await expect(page.locator("[data-chain-verdict='pass']")).toBeVisible();
+        }
         scans.push(await scan(page, `${locale} ${theme} /run recorded ${tab}`));
       }
       await writeScans(`showcase-${locale}-${theme}`, scans);

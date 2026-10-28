@@ -22,6 +22,7 @@ import type { Page, Request } from "@playwright/test";
 
 import { capabilitiesSchema, receiptSchema, runDetailSchema, showcaseSchema } from "../src/lib/api/schemas";
 import type { LiveCapabilitiesV1, PresetV1, PublicBudgetV1 } from "../src/lib/api/types";
+import { recordHash } from "../src/lib/chain/verify";
 
 import { fixture } from "./contract";
 import { logSegment, researchBytes, researchDir } from "./research";
@@ -87,6 +88,8 @@ export type ApiMockOptions = {
   recordedRuns?: Array<{ detail: Json; receipt: Json }>;
   /** Archive files served at /research/<path> instead of the archive's own bytes. */
   research?: Record<string, Buffer>;
+  /** What GET /runs/{id}/events.ndjson serves, by run id; default 404 ndjson_unavailable. */
+  ndjson?: Record<string, Buffer>;
 };
 
 export const RUN_ID = "run-00000000-0000-4000-8000-000000000001";
@@ -295,6 +298,40 @@ export function recordedRun(entry: Json, options: RecordedOptions): { detail: Js
     return call;
   });
   return { detail, receipt };
+}
+
+/**
+ * A run of this server with a verbatim log: its events written as JSON lines
+ * and chained with the textual recipe of event_log.rs (SHA-256 of prev_hash
+ * followed by the line with its hash blanked, src/lib/chain/verify.ts, here
+ * through Node's WebCrypto), and the detail's hashes and chain and the
+ * receipt's head and record count set to match. The bytes are test bytes:
+ * the guided fixtures carry public views of their records, display copies
+ * whose own hashes cannot be recomputed.
+ */
+export async function chainedRun(source: Json): Promise<{ detail: Json; receipt: Json; ndjson: Buffer }> {
+  const detail = clone(source);
+  const events = detail.events as Json[];
+  const lines: string[] = [];
+  let prev = "genesis";
+  for (const event of events) {
+    event.prev_hash = prev;
+    event.hash = "";
+    const hash = await recordHash(prev, JSON.stringify(event));
+    if (hash === null) {
+      throw new Error("no hash field in the record");
+    }
+    event.hash = hash;
+    lines.push(JSON.stringify(event));
+    prev = hash;
+  }
+  const first = (events[0]?.sequence as number | undefined) ?? 0;
+  const last = (events.at(-1)?.sequence as number | undefined) ?? 0;
+  detail.chain = { scope: "run", first_sequence: first, last_sequence: last, head_hash: prev };
+  const receipt = clone(fixture<Json>("receipt-v2-retry.json"));
+  receipt.event_count = events.length;
+  receipt.chain = { ...(receipt.chain as Json), first_sequence: first, last_sequence: last, head_hash: prev };
+  return { detail, receipt, ndjson: Buffer.from(`${lines.join("\n")}\n`) };
 }
 
 /** Test values of a sealed-snapshot capture (ADR-0008), in the record format. */
@@ -726,6 +763,20 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
         contentType: "text/event-stream",
         headers: { "cache-control": "no-store" },
         body: sseBody(run.frames ?? []),
+      });
+    }
+    if (run !== undefined && method === "GET" && suffix === "/events.ndjson") {
+      const ndjson = options.ndjson?.[match?.[1] ?? ""];
+      if (ndjson === undefined) {
+        return route.fulfill(
+          error(404, "ndjson_unavailable", "the verbatim event log of a live run is not published on the public surface"),
+        );
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/x-ndjson",
+        headers: { "cache-control": "no-store" },
+        body: ndjson,
       });
     }
     if (run !== undefined && method === "GET" && suffix === "/receipt") {

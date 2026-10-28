@@ -1826,6 +1826,24 @@
     gap: var(--spacing-2);
   }
 
+  /* The chain checked in this browser: the verdict, then each comparison. */
+  .hc-chain-verdict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-2);
+    margin: 0;
+    font-weight: 600;
+  }
+
+  [data-chain-results] > li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-2);
+    overflow-wrap: anywhere;
+  }
+
   /* A wide table scrolls inside its own focusable region. */
   .hc-table-scroll {
     max-width: 100%;

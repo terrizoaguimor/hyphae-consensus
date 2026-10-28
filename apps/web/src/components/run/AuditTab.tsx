@@ -8,7 +8,8 @@
 // where the public surface publishes it (a guided run's events.ndjson; for a
 // recorded run, the research file its showcase entry names, with the SHA-256
 // the archive's manifest pins), and the exact command a third party runs to
-// check a downloaded log against the receipt. The records and the receipt
+// check a downloaded log against the receipt, and the same check run in this
+// browser over the verbatim log (ChainCheck). The records and the receipt
 // shown here are display copies (the public view drops operator-only fields
 // and the browser re-serializes), so every one of them says it is not the
 // hashed bytes; only the verbatim log is.
@@ -32,6 +33,7 @@ import { baseName, ownLogFileName, receiptFileName, verifyCommand } from "@/lib/
 import { mergeEvents } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { ChainCheck } from "./ChainCheck";
 import type { RunReceipt } from "./useReceipt";
 
 type AuditTabProps = {
@@ -178,6 +180,15 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
           {command}
         </pre>
       </section>
+
+      {log === null ? null : (
+        <ChainCheck
+          runId={runId}
+          source={{ url: log.href, name: log.name, sha256: log.sha256 }}
+          chain={chain}
+          receipt={state.status === "ready" ? state.receipt : null}
+        />
+      )}
 
       <section className="hc-section" aria-labelledby="audit-receipt" data-audit-receipt={state.status}>
         <h4 id="audit-receipt">{t("receiptHeading")}</h4>

@@ -22,6 +22,7 @@ import { AXE_TAGS, blocking, type ScanSummary, summarize, writeScans } from "./a
 import {
   awaitingDecisionDetail,
   beforeCarryForwardDetail,
+  chainedRun,
   failedDetail,
   framesWith,
   inProgressLiveRun,
@@ -774,6 +775,44 @@ test("the Audit trail shows the chain, the receipt, the verbatim log and the rea
   await expect(receipt.locator("details [data-display-copy]")).toHaveText(t("en", "Run.audit.displayCopy"));
   await expect(receipt.locator("details pre")).toContainText('"format": "hyphae-consensus-run-receipt-v2"');
   await expectNoLive(page, "en");
+});
+
+test("a guided run's verbatim log is checked in this browser; a changed record fails at its sequence", async ({
+  page,
+}) => {
+  const chained = await chainedRun(awaitingDecisionDetail());
+  const head = (chained.detail.chain as { head_hash: string }).head_hash;
+  await mockApi(page, { detail: chained.detail, receipt: chained.receipt, ndjson: { [RUN_ID]: chained.ndjson } });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const verdict = page.locator("[data-chain-verdict='pass']");
+  await expect(verdict).toBeVisible();
+  const result = (name: string) => verdict.locator(`[data-chain-result='${name}']`);
+  // This server's log has no pinned digest; its head and count are the receipt's.
+  await expect(result("sha256")).toContainText(t("en", "Run.chain.verdicts.not_compared"));
+  await expect(result("head")).toContainText(head);
+  await expect(result("head")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(result("count")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(result("range")).toContainText("sequences 1 to 14");
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+
+  // The same log with one record's text changed (the fact record, sequence 4).
+  const lines = chained.ndjson.toString("utf8").split("\n");
+  expect(lines[3]).toContain('"sequence":4}');
+  const tampered = Buffer.from(lines.map((line, i) => (i === 3 ? line.replace("Fact:", "Fake:") : line)).join("\n"));
+  await mockApi(page, { detail: chained.detail, receipt: chained.receipt, ndjson: { [RUN_ID]: tampered } });
+  await openRun(page, "en");
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const failed = page.locator("[data-chain-verdict='fail']");
+  await expect(failed.locator("[data-chain-failure='hash_mismatch'][data-chain-failure-sequence='4']")).toContainText(
+    "The check stops at record 4 (line 4)",
+  );
 });
 
 test("a live-declared run's Audit trail names the operator's log for the check", async ({ page }) => {

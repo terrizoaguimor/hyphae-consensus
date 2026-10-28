@@ -819,6 +819,55 @@
         "cited_evidence_not_valid": "evidência citada sem prova válida",
         "no_checked_evidence": "nenhuma evidência verificada"
       }
+    },
+    "chain": {
+      "heading": "Verificar a cadeia neste navegador",
+      "intro": "Baixa {name} e recalcula aqui o SHA-256 de cada registro, como faz a própria verificação do ambiente de execução (cada linha com o hash em branco, sem ser serializada de novo), segue cada vínculo e compara os registros desta execução com o recibo e o detalhe.",
+      "run": "Verificar a cadeia",
+      "again": "Verificar de novo",
+      "running": "Baixando {name} e recalculando cada hash…",
+      "unsupported": "Este navegador não oferece WebCrypto aqui (ele precisa de uma conexão segura), então não consegue verificar a cadeia.",
+      "pass": "A cadeia confere",
+      "fail": "A verificação da cadeia falhou",
+      "passSentence": "{count, plural, =0 {O arquivo não contém nenhum registro.} one {O # registro tem o hash e o vínculo registrados, e o trecho desta execução corresponde ao que as visões mostram.} many {Os # de registros têm o hash e o vínculo registrados, e o trecho desta execução corresponde ao que as visões mostram.} other {Os # registros têm o hash e o vínculo registrados, e o trecho desta execução corresponde ao que as visões mostram.}}",
+      "failSentence": "Algo não corresponde; a primeira falha é nomeada abaixo.",
+      "failureAt": "A verificação para no registro {sequence} (linha {line}): {problem}.",
+      "failureAtLine": "A verificação para na linha {line}: {problem}.",
+      "problems": {
+        "not_utf8": "a linha não é UTF-8 válido",
+        "empty_line": "uma linha vazia dentro do log",
+        "not_json": "a linha não é um registro JSON",
+        "torn_tail": "o último registro está incompleto (uma gravação interrompida)",
+        "not_a_record": "faltam à linha os campos de um registro de evento",
+        "schema_version": "a versão de esquema {found} não é uma que esta versão lê",
+        "sequence_gap": "a sequência {found} onde se esperava {expected}",
+        "duplicate_id": "o id de evento {eventId} aparece pela segunda vez",
+        "legacy_not_1_0": "um registro de esquema {found} não traz hash",
+        "legacy_with_prev": "um registro sem hash traz um prev_hash",
+        "legacy_after_chain": "um registro sem hash vem depois do início da cadeia",
+        "chained_1_0": "um registro de esquema 1.0 traz um hash",
+        "prev_mismatch": "o prev_hash {stored} dele não é o esperado, {expected}",
+        "no_hash_field": "o campo hash dele não está onde o formato do registro o coloca",
+        "hash_mismatch": "o hash {stored} dele não é o SHA-256 recalculado aqui, {computed}",
+        "schema_downgrade": "o esquema {found} é anterior a {earlier}, registrado antes para a execução {runId}"
+      },
+      "verdicts": {
+        "pass": "corresponde",
+        "fail": "difere",
+        "not_compared": "não comparado"
+      },
+      "sha256": "SHA-256 do arquivo {sha256} ({bytes} bytes), em relação ao resumo que o manifesto do arquivo fixa.",
+      "sha256Own": "SHA-256 do arquivo {sha256} ({bytes} bytes); o log deste servidor não tem nenhum resumo fixado para comparar.",
+      "records": "{count, plural, =0 {Nenhum registro do arquivo verificado.} one {# registro do arquivo verificado: o hash recalculado, o vínculo seguido.} many {# de registros do arquivo verificados: cada hash recalculado, cada vínculo seguido.} other {# registros do arquivo verificados: cada hash recalculado, cada vínculo seguido.}}",
+      "unchained": "{count, plural, =0 {Esta execução não tem nenhum registro no arquivo.} one {O # registro desta execução não traz hash (anterior à 1.1): não há nada a recalcular.} many {Os # de registros desta execução não trazem hash (anteriores à 1.1): não há nada a recalcular.} other {Os # registros desta execução não trazem hash (anteriores à 1.1): não há nada a recalcular.}}",
+      "segment": "Os registros desta execução no arquivo: sequências {first} a {last} ({count, plural, =0 {nenhum} one {# registro} many {# de registros} other {# registros}}), em relação à cadeia do detalhe.",
+      "noSegment": "O arquivo não contém nenhum registro desta execução.",
+      "head": "Hash final desta execução, o hash do último registro dela: {head}, em relação ao hash final do recibo.",
+      "headNoReceipt": "Hash final desta execução, o hash do último registro dela: {head}; o recibo não foi lido, então ele não é comparado.",
+      "noHead": "O último registro desta execução não traz hash, então não há hash final a comparar.",
+      "count": "Número de registros em relação ao do recibo ({count}).",
+      "countNoReceipt": "O recibo não foi lido, então o número de registros não é comparado.",
+      "limits": "Uma cadeia que confere mostra que estes bytes são coerentes entre si e com as cópias comparadas acima. A cadeia não é assinada: um log reescrito e com os hashes recalculados por inteiro também conferiria, a menos que um resumo obtido antes (um manifesto num commit com tag, um recibo guardado antes) diga o contrário; e ela não diz nada sobre se os registros são verdadeiros."
     }
   },
   "Showcase": {

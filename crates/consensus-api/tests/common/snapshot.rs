@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The fixture snapshot shared by the test binaries: a complete ADR-0008
-//! snapshot directory assembled in a temporary directory from
-//! `tests/fixtures/snapshot/` with synthetic proof and witness bytes, the
-//! configuration that points at it, and a FAKE `hyphae` binary that logs
-//! every invocation and answers `proof verify` with the capture-time report
-//! of the capture whose proof it was given (digests follow content, as
-//! Hyphae's do). No Hyphae runs here.
-//!
-//! This is the builder of `tests/snapshot_client.rs`, kept in step with it
-//! (same constants, same artifact bytes); that file stays self-contained
-//! while another lane edits it and switches to this module afterwards.
+//! The fixture snapshot shared by the test binaries (`tests/snapshot_client.rs`,
+//! `tests/live_snapshot.rs`): a complete ADR-0008 snapshot directory
+//! assembled in a temporary directory from `tests/fixtures/snapshot/` with
+//! synthetic proof and witness bytes ([`SnapshotDir`], removed with
+//! everything next to it when dropped), the configuration that points at
+//! it, and a FAKE `hyphae` binary that logs every invocation and answers
+//! `proof verify` with the capture-time report of the capture whose proof
+//! it was given (digests follow content, as Hyphae's do). No Hyphae runs
+//! here.
 
 use consensus_api::config::SnapshotConfig;
 use consensus_api::snapshot::MANIFEST_SCHEMA;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 pub const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/snapshot");
@@ -39,12 +38,75 @@ pub const RECORD_IDS: [&str; 7] = [
 ];
 
 /// A fresh `hyphae-consensus-<name>-<pid>` directory under the system
-/// temporary directory, emptied first (the same as `tests/support`).
+/// temporary directory, emptied first (the same as `tests/support`). Not
+/// removed afterwards: [`TempRoot`] is the guarded form.
 pub fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("hyphae-consensus-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+/// A [`temp_dir`] removed, with everything in it, when dropped.
+pub struct TempRoot(PathBuf);
+
+impl TempRoot {
+    pub fn new(name: &str) -> Self {
+        Self(temp_dir(name))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Deref for TempRoot {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A fixture snapshot directory, `<root>/<SNAPSHOT_ID>`. It derefs to the
+/// snapshot directory's path. Its root (a [`TempRoot`]) also holds whatever
+/// a test put next to the snapshot (the fake binary, its log, a backup)
+/// and is removed with the snapshot when this is dropped.
+pub struct SnapshotDir {
+    dir: PathBuf,
+    root: TempRoot,
+}
+
+impl SnapshotDir {
+    /// The snapshot directory itself.
+    pub fn path(&self) -> &Path {
+        &self.dir
+    }
+
+    /// The directory the snapshot sits in.
+    pub fn root(&self) -> &Path {
+        self.root.path()
+    }
+}
+
+impl Deref for SnapshotDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.dir
+    }
+}
+
+impl AsRef<Path> for SnapshotDir {
+    fn as_ref(&self) -> &Path {
+        &self.dir
+    }
 }
 
 pub fn fixture(name: &str) -> String {
@@ -194,8 +256,8 @@ pub fn capture_entry(spec: &Spec, dir: &Path) -> Value {
 /// Assembles a complete snapshot directory `<temp>/<SNAPSHOT_ID>` from the
 /// fixtures and synthetic artifacts, lets `edit` change the manifest, then
 /// writes `SHA256SUMS` over the result.
-pub fn build_with(test: &str, specs: &[Spec], edit: impl FnOnce(&mut Value)) -> PathBuf {
-    let root = temp_dir(&format!("snapshot-{test}"));
+pub fn build_with(test: &str, specs: &[Spec], edit: impl FnOnce(&mut Value)) -> SnapshotDir {
+    let root = TempRoot::new(&format!("snapshot-{test}"));
     let dir = root.join(SNAPSHOT_ID);
     std::fs::create_dir_all(dir.join("captures")).unwrap();
     for spec in specs {
@@ -235,12 +297,50 @@ pub fn build_with(test: &str, specs: &[Spec], edit: impl FnOnce(&mut Value)) -> 
     )
     .unwrap();
     write_checksums(&dir);
-    dir
+    SnapshotDir { dir, root }
 }
 
 /// The well-formed snapshot with the two required captures.
-pub fn build(test: &str) -> PathBuf {
+pub fn build(test: &str) -> SnapshotDir {
     build_with(test, &[list_spec(), isolation_spec()], |_| {})
+}
+
+/// Copies the directory tree `from` to `to` (which must not exist):
+/// plain files and directories, as a fixture holds.
+pub fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+/// Replaces the snapshot directory `dir` with the tree `backup`, as an
+/// operator restoring a copy would.
+pub fn restore_dir(dir: &Path, backup: &Path) {
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    copy_dir(backup, dir);
+}
+
+/// Copies the isolation capture's proof and witness over the list
+/// capture's: an operator re-copy gone wrong. Every proof of a session
+/// shares the anchor, so the verifier alone accepts the pair.
+pub fn swap_list_with_isolation(dir: &Path) {
+    let captures = dir.join("captures");
+    for ext in ["proof", "witness"] {
+        std::fs::copy(
+            captures.join(format!("{ISOLATION_ID}.{ext}")),
+            captures.join(format!("{LIST_ID}.{ext}")),
+        )
+        .unwrap();
+    }
 }
 
 /// The snapshot configuration for `dir` with the fixture anchor pinned and
@@ -299,17 +399,30 @@ pub fn edit_manifest(dir: &Path, edit: impl FnOnce(&mut Value)) {
 
 /// A fake `hyphae` binary under `root`: appends its arguments to the
 /// returned log file and prints the capture-time verify report of the
-/// capture whose synthetic proof bytes the `--proof` file holds (digests
-/// follow content, as Hyphae's do). Windows: a `.cmd` script
-/// (`std::process::Command` runs it through `cmd.exe`); elsewhere a `sh`
-/// script. Returns the binary's path (for `CONSENSUS_HYPHAE_BIN`) and the
-/// log file.
+/// capture whose synthetic proof bytes the `--proof` file holds, keyed by
+/// the file's whole content (digests follow content, as Hyphae's do): a
+/// proof with any byte changed has no report, whatever else was regenerated
+/// around it, and the verifier fails. Windows: a `.cmd` script
+/// (`std::process::Command` runs it through `cmd.exe`) that looks the
+/// report up by the proof's SHA-256 (`certutil -hashfile`); elsewhere a
+/// `sh` script that requires the proof to be exactly the one line
+/// `synthetic proof bytes of <id>`. Returns the binary's path (for
+/// `CONSENSUS_HYPHAE_BIN`) and the log file.
 pub fn fake_hyphae(root: &Path) -> (String, PathBuf) {
     let log = root.join("hyphae-calls.log");
     let reports = root.join("reports");
     std::fs::create_dir_all(&reports).unwrap();
     for id in [LIST_ID, ISOLATION_ID] {
-        std::fs::write(reports.join(format!("{id}.verify.json")), verify_report(id)).unwrap();
+        let key = if cfg!(windows) {
+            sha256_hex(&proof_bytes(id))
+        } else {
+            id.to_string()
+        };
+        std::fs::write(
+            reports.join(format!("{key}.verify.json")),
+            verify_report(id),
+        )
+        .unwrap();
     }
     let (name, script) = if cfg!(windows) {
         (
@@ -324,9 +437,12 @@ pub fn fake_hyphae(root: &Path) -> (String, PathBuf) {
                 "shift".into(),
                 "goto loop".into(),
                 ":done".into(),
-                // "synthetic proof bytes of <id>": the fifth token.
-                "for /f \"tokens=5\" %%a in ('type \"%proof%\"') do set \"id=%%a\"".into(),
-                format!("type \"{}\\%id%.verify.json\"", reports.display()),
+                // The proof's SHA-256: the second line certutil prints
+                // (older versions space the bytes apart).
+                "set \"hash=\"".into(),
+                "for /f \"skip=1 delims=\" %%h in ('certutil -hashfile \"%proof%\" SHA256') do if not defined hash set \"hash=%%h\"".into(),
+                "set \"hash=%hash: =%\"".into(),
+                format!("type \"{}\\%hash%.verify.json\"", reports.display()),
                 String::new(),
             ]
             .join("\r\n"),

@@ -3,8 +3,11 @@
 //! assembles it, over a temporary ledger, a scripted Siteverify, a judge
 //! digest file and an evidence factory: a scripted one built on the
 //! runtime's fakes, or the production [`SnapshotFactory`] over a fixture
-//! snapshot and the fake `hyphae` binary ([`FactoryMode::Snapshot`]). The
-//! Meta configuration points at the test's fake Chat Completions server.
+//! snapshot and the fake `hyphae` binary ([`FactoryMode::Snapshot`]), or
+//! whatever `serve-public`'s own entry point makes of a set of snapshot
+//! variables ([`FactoryMode::SnapshotFromVars`]: the booted factory, or the
+//! unavailable evidence of a snapshot that does not boot). The Meta
+//! configuration points at the test's fake Chat Completions server.
 
 use super::doubles::{FailingDeliberation, PanickingModel};
 use super::{public_server, TestServer};
@@ -17,7 +20,7 @@ use consensus_api::live::gate::{
     DeliberationFactory, FactoryError, FactoryStatus, GateParts, LiveGate as BudgetedGate,
 };
 use consensus_api::live::judge::JudgeCodes;
-use consensus_api::live::snapshot_factory::SnapshotFactory;
+use consensus_api::live::snapshot_factory::{LogSink, SnapshotFactory};
 use consensus_api::live::turnstile::{
     passing_answer, FakeSiteverify, Siteverify, SiteverifyResponse, TurnstileError,
     TurnstileVerifier,
@@ -74,6 +77,11 @@ pub enum FactoryMode {
         /// `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`: must be the manifest's.
         anchor: String,
     },
+    /// What `serve-public` makes of these snapshot variables with live mode
+    /// enabled ([`SnapshotFactory::live_evidence_from_vars`]): a factory
+    /// over a snapshot that boots, the unavailable evidence of one that
+    /// does not. The variables must be a usable configuration.
+    SnapshotFromVars(Vec<(&'static str, String)>),
 }
 
 /// Test-only [`DeliberationFactory`] over `consensus_runtime::fakes`,
@@ -118,7 +126,7 @@ impl DeliberationFactory for ScriptedEvidenceFactory {
                 ids: UuidIdGen,
                 limits,
             }),
-            FactoryMode::Snapshot { .. } => {
+            FactoryMode::Snapshot { .. } | FactoryMode::SnapshotFromVars(_) => {
                 return Err(FactoryError(
                     "the scripted factory builds no snapshot deliberation; the harness uses SnapshotFactory for that mode".into(),
                 ))
@@ -223,6 +231,11 @@ pub struct LiveOptions {
     /// Whether the listener trusts `CF-*` headers (the harness then sends
     /// `CF-Connecting-IP` on session requests).
     pub trust_proxy: bool,
+    /// How long the snapshot factory ([`FactoryMode::Snapshot`]) reuses a
+    /// status read: zero by default, so `/ready`, `/capabilities` and the
+    /// gate see a change to the files at once (production:
+    /// `READY_CACHE_TTL`).
+    pub snapshot_status_ttl: Duration,
 }
 
 impl Default for LiveOptions {
@@ -232,6 +245,7 @@ impl Default for LiveOptions {
             live_env: Vec::new(),
             server_env: Vec::new(),
             trust_proxy: true,
+            snapshot_status_ttl: Duration::ZERO,
         }
     }
 }
@@ -250,6 +264,8 @@ pub struct LiveHarness {
     pub factory: Arc<dyn DeliberationFactory>,
     /// The production factory, with [`FactoryMode::Snapshot`].
     pub snapshot: Option<Arc<SnapshotFactory>>,
+    /// The `[snapshot]` lines the evidence factory logged.
+    pub evidence_log: Arc<Mutex<Vec<String>>>,
 }
 
 /// The production factory over a snapshot directory, as `serve-public`
@@ -295,6 +311,7 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
         live_env,
         server_env,
         trust_proxy,
+        snapshot_status_ttl,
     } = opts;
     // The ledger and the codes file live next to the store, so they go
     // with the server's temporary directory.
@@ -316,6 +333,9 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
     let siteverify_mode = Arc::new(Mutex::new(SiteverifyMode::Pass));
     let (verifier, siteverify) = scripted_siteverify(siteverify_mode.clone());
     let mut snapshot = None;
+    let evidence_log: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = evidence_log.clone();
+    let log: LogSink = Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string()));
     let factory: Arc<dyn DeliberationFactory> = match mode {
         FactoryMode::Snapshot {
             dir,
@@ -323,15 +343,24 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
             hyphae_bin,
             anchor,
         } => {
-            let factory = Arc::new(snapshot_factory(
-                &dir,
-                verifier_dir.as_deref(),
-                &hyphae_bin,
-                &anchor,
-            ));
+            let factory = Arc::new(
+                snapshot_factory(&dir, verifier_dir.as_deref(), &hyphae_bin, &anchor)
+                    .with_status_ttl(snapshot_status_ttl)
+                    .with_log(log),
+            );
             snapshot = Some(factory.clone());
             factory
         }
+        FactoryMode::SnapshotFromVars(vars) => SnapshotFactory::live_evidence_from_vars(
+            |name| {
+                vars.iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.clone())
+            },
+            log,
+        )
+        .expect("a usable snapshot configuration")
+        .expect("a snapshot directory"),
         scripted => ScriptedEvidenceFactory::new(scripted),
     };
     meta.public_mode = true;
@@ -374,12 +403,18 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
         siteverify,
         factory,
         snapshot,
+        evidence_log,
     }
 }
 
 impl LiveHarness {
     pub fn set_siteverify(&self, mode: SiteverifyMode) {
         *self.siteverify_mode.lock().unwrap() = mode;
+    }
+
+    /// The `[snapshot]` lines logged so far.
+    pub fn evidence_lines(&self) -> Vec<String> {
+        self.evidence_log.lock().unwrap().clone()
     }
 
     /// Records of one `type` across every day file of the ledger.

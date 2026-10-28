@@ -361,7 +361,10 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
             )));
         }
         ("meta", mem) => {
-            let cfg = MetaConfig::from_env()
+            // An unusable setting names its variable (never the key);
+            // only an absent key reads as "not configured".
+            let cfg = MetaConfig::try_from_env()
+                .map_err(|e| bad(&format!("model=meta: {e}")))?
                 .ok_or_else(|| bad("model=meta requires META_API_KEY (or MODEL_API_KEY) in the server environment"))?;
             let model = MetaModelClient::new(cfg)
                 .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
@@ -400,14 +403,17 @@ fn execute_run(state: &AppState, req: CreateRunRequest) -> Result<RunDetail, (St
                     orch.run(&mut *log, input)
                 }
                 "hyphae" => {
-                    let hcfg = HyphaeConfig::from_env().ok_or_else(|| {
-                        bad("memory=hyphae requires HYPHAE_NATIVE_API_KEY_FILE and HYPHAE_NATIVE_ENDPOINT or HYPHAE_BASE_URL")
-                    })?;
+                    // An unusable pinned anchor or deadline names its
+                    // variable (HY-10) instead of reading as "not configured".
+                    let hcfg = HyphaeConfig::try_from_env()
+                        .map_err(|e| bad(&format!("memory=hyphae: {e}")))?
+                        .ok_or_else(|| {
+                            bad("memory=hyphae requires HYPHAE_NATIVE_API_KEY_FILE and HYPHAE_NATIVE_ENDPOINT or HYPHAE_BASE_URL")
+                        })?;
                     let memory = connect_from_config(&hcfg)
                         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("hyphae connect: {e}")))?;
-                    let mut verifier =
-                        HyphaeProofVerifier::new(hcfg.binary.clone(), SystemCommandRunner);
-                    verifier.expected_anchor = hcfg.expected_anchor.clone();
+                    // Pinned anchor and verifier deadline, as configured.
+                    let verifier = HyphaeProofVerifier::from_config(&hcfg, SystemCommandRunner);
                     let mut orch = Orchestrator {
                         model,
                         memory,

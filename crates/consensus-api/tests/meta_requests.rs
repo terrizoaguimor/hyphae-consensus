@@ -306,6 +306,31 @@ fn a_retry_after_beyond_the_budget_fails_at_once() {
 }
 
 #[test]
+fn a_retry_after_that_leaves_no_time_for_the_retry_fails_at_once() {
+    // Retry-After fits under 30 s but would consume the whole call budget:
+    // the rate limit is reported, not a timeout after a wait that could
+    // not pay off.
+    let server = serve(vec![
+        Reply::json(429, "{}").header("retry-after", "2"),
+        Reply::ok(envelope(DRAFT_PROPOSAL)),
+    ]);
+    let mut cfg = config(&server.base_url);
+    cfg.timeout = Duration::from_secs(2);
+    let mut c = MetaModelClient::new(cfg).unwrap();
+    let started = Instant::now();
+    let err = c.propose(&task()).unwrap_err();
+    assert_eq!(err.code(), Some("meta_rate_limited"), "{err}");
+    assert!(err.to_string().contains("retry after 2 s"), "{err}");
+    assert_eq!(server.hits(), 1, "never retried into a timeout");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(c.take_failed_invocation().is_none(), "no 2xx, no call kept");
+}
+
+#[test]
 fn only_429_and_503_are_retried() {
     for (status, code) in [
         (400, "meta_bad_request"),

@@ -889,22 +889,27 @@ type ArtifactKey = (String, String, String);
 ///
 /// `Valid` requires exit 0 AND the verifier's own report saying
 /// `status: verified` with semantic re-execution (`scope:
-/// semantic_reexecution`) of a memory proof (`kind: memory`) bound to the
-/// anchor it was given (`anchor_digest`, when the report names one): the
-/// recall was re-run against the witness and reproduced the sealed result
-/// (HY-1). A verified proof of another kind, or bound to another anchor, is
-/// `Invalid`: it does not prove this record. A report that falls short in
-/// any other way (no re-execution, another scope, no kind) is a
-/// `VerificationError`. The report's fields are kept in
-/// `ProofCheck::report`.
+/// semantic_reexecution`) of a memory proof (`kind: memory`) whose
+/// `anchor_digest` is the anchor it was given: the recall was re-run
+/// against the witness and reproduced the sealed result (HY-1). A verified
+/// proof of another kind, or bound to another anchor, is `Invalid`: it does
+/// not prove this record. A report that falls short in any other way (no
+/// re-execution, another scope, no kind, no anchor digest) is a
+/// `VerificationError`: nothing is inferred from an absent field. The
+/// report's fields are kept in `ProofCheck::report`, and the detail says
+/// whether the anchor was pinned by the operator or reported by the
+/// backend itself.
 ///
 /// Failures are classified from the structured error's `category`:
 /// `corruption` (tampered or inconsistent artifacts) and `invalid-request`
 /// (e.g. an anchor the proof does not match) are `Invalid`; without a
 /// structured error the stderr keywords decide as before; everything else
-/// is a `VerificationError`. A verifier that outlives its deadline
-/// ([`timeout`](Self::timeout), 60 s by default) is killed and the record
-/// is a `VerificationError` whose detail starts with `verifier_timeout`.
+/// is a `VerificationError`. The persisted detail carries the structured
+/// error's category and message (one bounded line each) or, without one,
+/// the first 300 characters of stderr on one line (SEC-9). A verifier that
+/// outlives its deadline ([`timeout`](Self::timeout), 60 s by default) is
+/// killed and the record is a `VerificationError` whose detail starts with
+/// `verifier_timeout`.
 ///
 /// Results are reused for the same artifact bytes and anchor (SHA-256 of
 /// the proof and of the witness, read here), never by path, and only when
@@ -948,20 +953,37 @@ impl<R: CommandRunner> HyphaeProofVerifier<R> {
         verifier
     }
 
-    /// `error.category` of the verifier's structured failure report,
-    /// e.g. `{"error":{"category":"corruption",...},"exit_class":9}`.
-    fn failure_category(stderr: &str) -> Option<String> {
-        stderr.lines().find_map(|line| {
-            serde_json::from_str::<Value>(line.trim())
-                .ok()?
-                .get("error")?
-                .get("category")?
-                .as_str()
-                .map(str::to_string)
-        })
+    /// `error.category` and `error.message` of the verifier's structured
+    /// failure report, e.g. `{"error":{"category":"corruption","message":
+    /// "native durable state is invalid",...},"exit_class":9}`; `(None,
+    /// None)` when stderr holds no such line.
+    fn failure_report(stderr: &str) -> (Option<String>, Option<String>) {
+        stderr
+            .lines()
+            .find_map(|line| {
+                let parsed = serde_json::from_str::<Value>(line.trim()).ok()?;
+                let error = parsed.get("error")?;
+                let field = |key: &str| {
+                    error
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .map(|v| one_line(v, 200))
+                };
+                let category = field("category")?;
+                Some((Some(category), field("message")))
+            })
+            .unwrap_or((None, None))
     }
 
-    fn check_artifacts(&mut self, proof: &str, witness: &str, anchor: &str) -> ProofCheck {
+    /// Runs the verifier on the artifacts against `anchor` (`pinned`: the
+    /// operator pinned it; else the backend reported it with the proof).
+    fn check_artifacts(
+        &mut self,
+        proof: &str,
+        witness: &str,
+        anchor: &str,
+        pinned: bool,
+    ) -> ProofCheck {
         let argv: Vec<String> = vec![
             self.binary.clone(),
             "proof".into(),
@@ -1062,17 +1084,32 @@ impl<R: CommandRunner> HyphaeProofVerifier<R> {
                     return checked(IntegrityStatus::VerificationError, detail, Some(structured));
                 }
             }
-            if let Some(digest) = &structured.anchor_digest {
-                if !digest.trim().eq_ignore_ascii_case(anchor) {
+            // The report must name the anchor it verified against, and it
+            // must be the one given: an absent digest binds the proof to
+            // nothing this record claims.
+            match &structured.anchor_digest {
+                Some(digest) if digest.trim().eq_ignore_ascii_case(anchor) => {}
+                Some(_) => {
                     let detail = format!(
                         "the verifier checked anchor {}, not the anchor it was given ({anchor})",
                         shown(&structured.anchor_digest)
                     );
                     return checked(IntegrityStatus::Invalid, detail, Some(structured));
                 }
+                None => {
+                    let detail = format!(
+                        "the verifier report names no anchor digest, so it does not show the proof bound to anchor {anchor}"
+                    );
+                    return checked(IntegrityStatus::VerificationError, detail, Some(structured));
+                }
             }
+            let provenance = if pinned {
+                "the anchor is the operator-pinned one"
+            } else {
+                "the anchor is the one the backend reported with the proof (none pinned: this shows self-consistency, not independent trust)"
+            };
             let detail = format!(
-                "offline verifier re-executed the recall against the witness and accepted the proof (scope {}, kind {}, result digest {}); the proof covers the whole recall result this record belongs to; the record's text is not byte-compared with the proof",
+                "offline verifier re-executed the recall against the witness and accepted the proof (scope {}, kind {}, anchor {anchor}, result digest {}); {provenance}; the proof covers the whole recall result this record belongs to; the record's text is not byte-compared with the proof",
                 shown(&structured.scope),
                 shown(&structured.kind),
                 shown(&structured.result_digest)
@@ -1083,7 +1120,7 @@ impl<R: CommandRunner> HyphaeProofVerifier<R> {
         // (docker 125-127, missing files, I/O) are infrastructure errors,
         // never proof that a record was tampered with. Without a structured
         // error the keyword rule stays as wide as it always was (LC-10).
-        let category = Self::failure_category(&out.stderr);
+        let (category, message) = Self::failure_report(&out.stderr);
         let rejection = match category.as_deref() {
             Some(c) => c == "corruption" || c == "invalid-request",
             None => {
@@ -1099,13 +1136,15 @@ impl<R: CommandRunner> HyphaeProofVerifier<R> {
         } else {
             IntegrityStatus::VerificationError
         };
+        // Hyphae's own message when it gave one; otherwise the text came
+        // from a wrapper or the OS, kept bounded on one line.
+        let said = message.unwrap_or_else(|| one_line(&out.stderr, 300));
         checked(
             status,
             format!(
-                "verifier exited {} (category {}): {}",
+                "verifier exited {} (category {}): {said}",
                 out.code,
                 category.as_deref().unwrap_or("unknown"),
-                one_line(&out.stderr, 300)
             ),
             None,
         )
@@ -1128,6 +1167,7 @@ impl<R: CommandRunner> ProofVerifier for HyphaeProofVerifier<R> {
             };
         };
         let record_anchor = anchor.trim().to_ascii_lowercase();
+        let pinned = self.expected_anchor.is_some();
         let anchor = match &self.expected_anchor {
             Some(expected) => {
                 let expected = expected.trim().to_ascii_lowercase();
@@ -1153,7 +1193,7 @@ impl<R: CommandRunner> ProofVerifier for HyphaeProofVerifier<R> {
         if let Some(done) = key.as_ref().and_then(|k| self.verified.get(k)) {
             return done.clone();
         }
-        let check = self.check_artifacts(proof, witness, &anchor);
+        let check = self.check_artifacts(proof, witness, &anchor, pinned);
         if let Some(key) = key {
             if check.status != IntegrityStatus::VerificationError {
                 self.verified.insert(key, check.clone());

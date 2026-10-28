@@ -45,9 +45,11 @@
 //! ([`MetaConfig::timeout`]) shared by its attempts, the waits between
 //! them and the response body read. Only 429 and 503 are retried, after
 //! `Retry-After` (seconds or an HTTP date) when it fits within 30 s and
-//! the remaining budget, else after a full-jitter exponential backoff from
-//! 500 ms; a connection that failed before the request was sent may be
-//! retried too. Nothing else is retried: a timeout, a transport error after
+//! leaves the retry at least a second of the remaining budget (else the
+//! call fails with that status at once, never with a timeout after a wait
+//! that could not pay off), else after a full-jitter exponential backoff
+//! from 500 ms; a connection that failed before the request was sent may
+//! be retried too. Nothing else is retried: a timeout, a transport error after
 //! the request was sent, or any other status could follow a generation
 //! that was already billed. `finish_reason` `length` is truncated output
 //! (code `model_output_truncated`); `message.refusal` is a refusal (code
@@ -170,6 +172,9 @@ const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 /// Longest wait before a retry, `Retry-After` included.
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
+/// What a retry must have left of the call's budget after its wait: a
+/// wait that would consume the budget is never taken.
+const MIN_RETRY_HEADROOM: Duration = Duration::from_secs(1);
 
 // Every list field in these drafts is REQUIRED (no serde default): the
 // live model renames or drops optional fields (e.g. `refs` or
@@ -1425,7 +1430,8 @@ impl MetaModelClient {
                     let (code, message) = http_failure(status);
                     if (status == 429 || status == 503) && can_retry {
                         let left = deadline.saturating_duration_since(Instant::now());
-                        let budget = MAX_RETRY_WAIT.min(left);
+                        // The retry itself needs time after the wait.
+                        let budget = MAX_RETRY_WAIT.min(left.saturating_sub(MIN_RETRY_HEADROOM));
                         let jitter = full_jitter(self.cfg.retry_base_delay, attempt);
                         let wait = match retry_after(&resp) {
                             // Honor Retry-After when it fits; never retry

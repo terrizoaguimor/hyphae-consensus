@@ -550,11 +550,12 @@ fn valid_requires_a_reexecuted_memory_proof_bound_to_the_anchor_given() {
             ),
         })
     );
-    assert!(check
-        .detail
-        .as_deref()
-        .unwrap()
-        .contains("not byte-compared"));
+    let detail = check.detail.as_deref().unwrap();
+    assert!(detail.contains("not byte-compared"), "{detail}");
+    assert!(
+        detail.contains("none pinned") && detail.contains(ANCHOR),
+        "an unpinned anchor is named as the backend's: {detail}"
+    );
 
     for (label, report, expected) in [
         (
@@ -582,14 +583,19 @@ fn valid_requires_a_reexecuted_memory_proof_bound_to_the_anchor_given() {
             report_with("semantic_reexecution_performed", json!(false)),
             IntegrityStatus::VerificationError,
         ),
+        // Valid requires anchor_digest == the anchor given; a report that
+        // names none cannot meet it, and nothing is inferred from an
+        // absent field.
+        (
+            "no anchor digest",
+            report_with("anchor_digest", Value::Null),
+            IntegrityStatus::VerificationError,
+        ),
     ] {
         let check = verifier(exited(0, &report, "")).verify(&record);
         assert_eq!(check.status, expected, "{label}: {:?}", check.detail);
         assert!(check.report.is_some(), "{label}: the report is kept");
     }
-    // A report without an anchor digest is checked on the rest.
-    let check = verifier(exited(0, &report_with("anchor_digest", Value::Null), "")).verify(&record);
-    assert_eq!(check.status, IntegrityStatus::Valid);
 }
 
 #[test]
@@ -598,7 +604,13 @@ fn the_pinned_anchor_is_normalized_and_handed_to_the_verifier() {
     record.anchor = Some(ANCHOR.to_ascii_uppercase());
     let mut v = verifier(exited(0, VERIFIED_REPORT, ""));
     v.expected_anchor = Some(format!("  {}\r\n", ANCHOR.to_ascii_uppercase()));
-    assert_eq!(v.verify(&record).status, IntegrityStatus::Valid);
+    let check = v.verify(&record);
+    assert_eq!(check.status, IntegrityStatus::Valid);
+    assert!(
+        check.detail.as_deref().unwrap().contains("operator-pinned"),
+        "{:?}",
+        check.detail
+    );
     let argv = &v.runner.1[0];
     let at = argv.iter().position(|a| a == "--anchor").unwrap();
     assert_eq!(argv[at + 1], ANCHOR, "lowercase, as Hyphae's CLI requires");

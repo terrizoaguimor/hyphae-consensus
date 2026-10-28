@@ -46,7 +46,71 @@
     "badge": "Not connected",
     "message": "This view connects to the Hyphae Consensus API; it is not connected in this build.",
     "plannedHeading": "Once connected, this view will:",
-    "related": "Related"
+    "related": "Related",
+    "unreachable": "The API did not answer: the request to /api/v1/health failed ({code}).",
+    "retry": "Try again"
+  },
+  "ApiGate": {
+    "checking": "Checking the connection to the Hyphae Consensus API…",
+    "connected": "Connected to the API: schema {schema}, policy {policy}, contract {contract}.",
+    "contractMismatch": "This build was made for API contract {build}, and the server reports contract {server}: every answer is still checked against this build’s contract, but what is new on the server may not be shown."
+  },
+  "Api": {
+    "errorTitle": "The server refused the request",
+    "errorDetail": "Code {code}, HTTP {status}.",
+    "retryAfter": "{seconds, plural, =0 {You can retry now.} one {Retry in # second.} other {Retry in # seconds.}}",
+    "retry": "Try again",
+    "errors": {
+      "invalid_request": "The server did not accept the request as sent (an unknown field, a bad value or a missing field).",
+      "payload_too_large": "The request was larger than the server accepts.",
+      "unsupported_media_type": "The server expects JSON on this request.",
+      "csrf_rejected": "The server refused the request's origin.",
+      "host_not_allowed": "The server does not answer for this host name.",
+      "client_unidentified": "The server could not identify this client.",
+      "session_required": "A session is needed first; it starts when you run a guided example.",
+      "unauthorized": "This route needs the operator's credentials.",
+      "not_found": "Nothing exists at this address, or the run belongs to another session.",
+      "method_not_allowed": "The server does not allow this method on this route.",
+      "rate_limited": "Too many requests from this connection; the server asks you to wait.",
+      "too_many_runs": "Every deliberation slot is busy; the server asks you to retry later.",
+      "too_many_streams": "Too many open streams for this run or this connection.",
+      "storage_full": "The server holds its maximum number of visitor runs and could not free one; retry shortly.",
+      "live_disabled": "Live mode is not enabled on this server.",
+      "shutting_down": "The server is shutting down and admits no new run.",
+      "run_not_awaiting_decision": "The run is not awaiting a human decision.",
+      "decision_conflict": "The run changed since you saw it; it was re-read, check it again before deciding.",
+      "idempotency_key_reused": "This request key was already used with a different request.",
+      "idempotency_key_required": "The request needs an idempotency key.",
+      "override_note_required": "Approving a blocked or abstained run is an override and requires a note.",
+      "run_not_cancellable": "Only a run that is still deliberating can be cancelled.",
+      "run_busy": "The run is held by another operation; retry shortly.",
+      "model_not_configured": "The server has no model credentials for this mode.",
+      "memory_not_configured": "The server has no memory backend for this mode.",
+      "upstream_unavailable": "An upstream service the server needs could not be reached.",
+      "ndjson_unavailable": "The verbatim event log of a live run is not published on the public surface; the detail and the receipt carry its sanitized view.",
+      "request_timeout": "The server did not handle the request within its time limit.",
+      "live_budget_daily": "Today’s live budget cannot hold another run right now; the server says when to try again.",
+      "live_budget_lifetime": "The lifetime live budget is used up: live mode admits no more runs.",
+      "live_budget_judge_daily": "The invite-code lane’s budget for today is used up; it renews on the next UTC day.",
+      "live_budget_judge_slice": "The invite-code lane’s budget is used up.",
+      "live_concurrency": "Every live slot is busy; try again shortly.",
+      "live_hourly_admissions": "The hourly limit on live runs was reached; the server says when to try again.",
+      "live_tripped": "Live mode is paused until the operator resets it.",
+      "live_unavailable": "Live mode is unavailable right now; nothing was charged.",
+      "turnstile_required": "Live mode needs the human check (Cloudflare Turnstile) to be completed first.",
+      "turnstile_failed": "Cloudflare did not accept the human check; complete a new one and try again.",
+      "turnstile_unavailable": "The human check could not be verified because Cloudflare could not be reached; try again shortly.",
+      "attestation_required": "Live mode needs your confirmation that you are 18 or older and not using it from a restricted territory.",
+      "geo_blocked_portal": "This portal is not available from your country.",
+      "geo_blocked_live": "Live mode is not available from your country.",
+      "geo_unknown": "Your country could not be determined, so the server refused the request.",
+      "preset_unknown": "The server does not know this preset.",
+      "internal": "Something failed on the server.",
+      "unreachable": "The server could not be reached.",
+      "unexpected_status": "The server answered with a status this client does not understand.",
+      "bad_response": "The server's answer does not match the API contract this build was made for.",
+      "unknown": "The server refused the request with a code this build does not know."
+    }
   },
   "NotFound": {
     "title": "Page not found",
@@ -55,6 +119,7 @@
   },
   "Overview": {
     "primaryAction": "Run a guided example",
+    "primaryActionNeutral": "Go to New deliberation",
     "primaryActionPlanned": "How guided examples will work",
     "primaryActionNote": "Guided runs need the Hyphae Consensus API, which is not connected in this build.",
     "secondaryAction": "How it works",
@@ -84,12 +149,72 @@
     }
   },
   "NewDeliberation": {
-    "lead": "Here you will start a deliberation in one of two modes.",
+    "lead": "Start a deliberation in one of two modes.",
     "planned": {
       "guided": "offer a guided example that starts instantly, with scripted roles and simulated evidence, labeled SIMULATED and calling no model;",
       "live": "offer the curated presets of the Live Meta mode, which call Meta’s muse-wonder-1.0 with evidence from a sealed Hyphae snapshot (presets only, no free text; runs of the final recorded battery took about 4 to 7 minutes);",
       "fallback": "offer a recorded run instead when live mode is busy or its daily budget is used up;",
       "return": "let you leave and come back to your run through My runs."
+    },
+    "guided": {
+      "heading": "Guided examples",
+      "intro": "The roles are scripted doubles and the evidence is simulated: no model is called and no proof is real. Each scenario reaches its documented outcome in milliseconds; the run page then plays it back.",
+      "count": "{count, plural, =0 {The server lists no guided scenario.} one {The server lists # guided scenario.} other {The server lists # guided scenarios.}}",
+      "modelBadge": "SIMULATED model",
+      "evidenceBadge": "SIMULATED evidence",
+      "expected": "Expected outcome",
+      "run": "Run",
+      "runScenario": "Run {title}",
+      "starting": "Starting…",
+      "disabled": "Guided examples are not enabled on this server."
+    },
+    "live": {
+      "heading": "Live presets",
+      "intro": "Curated tasks deliberated by Meta’s model on the owner’s key. Presets only: no free text reaches a model. Each preset shows where its evidence comes from on this server.",
+      "disabled": "Live mode is not enabled on this server.",
+      "disabledHint": "The recorded runs of the research showcase show what a live run looks like.",
+      "showcaseLink": "Open the research showcase",
+      "noPresets": "Live mode is enabled, but the server lists no preset yet.",
+      "presetLegend": "Preset",
+      "budget": {
+        "heading": "Public live budget",
+        "availableNow": "Available now",
+        "dailyRemaining": "Left today (UTC)",
+        "lifetimeRemaining": "Left in total",
+        "note": "In US dollars, as the server’s budget ledger reports them. Each live run reserves its worst-case cost before it starts, so a run can be refused while some budget is left."
+      },
+      "attest": "I confirm that I am 18 or older and that I am not using live mode from a restricted territory.",
+      "attestDescription": "Live mode calls Meta’s model on the owner’s key; the server starts a live run only with this confirmation.",
+      "attestTerms": "The restricted territories and the age rule are in the <terms>Terms of use</terms>.",
+      "inviteSummary": "I have an invite code",
+      "inviteLabel": "Invite code",
+      "inviteDescription": "Optional, up to {max} characters. A judge code admits a run outside the public budget.",
+      "turnstileHeading": "Human check",
+      "turnstileMissing": "Live mode needs the Cloudflare Turnstile challenge, and this build was made without a Turnstile site key, so no live run can be started from it.",
+      "turnstileLoading": "Loading the Cloudflare Turnstile challenge…",
+      "turnstilePassed": "Challenge passed.",
+      "turnstileFailed": "The challenge did not complete; try it again, or reload the page.",
+      "turnstileRetry": "Try the challenge again",
+      "turnstileClosed": "The human check appears when live mode can start a run.",
+      "start": "Start live run",
+      "starting": "Starting…",
+      "needsPreset": "Choose a preset first.",
+      "needsAttestation": "Confirm the statement above first.",
+      "needsShorterCode": "The invite code can have at most {max} characters.",
+      "needsTurnstile": "Complete the human check first.",
+      "closed": {
+        "tripped": "Live mode is paused: its budget ledger refuses every live run until the operator resets it.",
+        "budgetUnknown": "The live budget could not be read, so no live run can start right now."
+      },
+      "trip": {
+        "kill_switch": "The operator switched live mode off.",
+        "lifetime_cap": "The lifetime live budget is used up.",
+        "output_bound": "A model call returned more output than its bound allowed, so the ledger stopped itself.",
+        "charge_bound": "A model call cost more than its reserved estimate, so the ledger stopped itself.",
+        "provider_refused_key": "Meta’s Model API refused the server’s key, so the ledger stopped itself.",
+        "inconsistent": "The ledger’s records disagree, so it stopped itself.",
+        "other": "The ledger stopped itself (code {code})."
+      }
     }
   },
   "Runs": {
@@ -99,6 +224,298 @@
       "own": "list only the runs started in this browser session; there is no list of other visitors’ runs;",
       "expiry": "keep each run reachable for 24 hours and delete its files after 7 days;",
       "status": "show whether a run is still deliberating, awaiting your decision or finished."
+    },
+    "noSession": "This browser has no session, so there is nothing to list. A session starts when you run a guided example.",
+    "empty": "No runs in this session yet.",
+    "startOne": "Start a deliberation",
+    "refresh": "Refresh",
+    "loadMore": "Load more",
+    "untitled": "Untitled run",
+    "open": "Open run {title}",
+    "state": "State",
+    "outcome": "Outcome",
+    "created": "Created {date}",
+    "updated": "Updated {date}",
+    "accessEnds": "Access ends {date}",
+    "deletedAfter": "Deleted after {date}",
+    "active": "Deliberating"
+  },
+  "Run": {
+    "title": "Run workspace",
+    "noId": "No run selected.",
+    "noIdHint": "Open a run from My runs, or start one from New deliberation.",
+    "invalidId": "This address does not name a run.",
+    "loading": "Loading the run…",
+    "goToRuns": "Go to My runs",
+    "detailError": "The server’s copy of this run could not be read; what is shown comes from the stream and from the last read that succeeded.",
+    "tabs": {
+      "label": "Run views",
+      "live": "Live",
+      "playback": "Playback",
+      "explorer": "Explorer",
+      "decision": "Decision"
+    },
+    "header": {
+      "state": "State",
+      "outcome": "Outcome",
+      "noOutcome": "No recommendation yet",
+      "noOutcomeFailed": "None: the run failed",
+      "recordsLabel": "Records",
+      "revision": "Revision round",
+      "runId": "Run id",
+      "forRevision": "for revised proposal {id}",
+      "records": "{count, plural, =0 {No records} one {# record} other {# records}}",
+      "provenance": "Provenance",
+      "flags": "Flags",
+      "task": "Task",
+      "latestDelivery": "Latest record"
+    },
+    "outcome": "{kind} — on {evidence} evidence",
+    "kinds": {
+      "supported": "supported",
+      "contested": "contested",
+      "insufficient_evidence": "insufficient evidence",
+      "abstained": "abstained",
+      "blocked": "blocked"
+    },
+    "states": {
+      "created": "created",
+      "proposed": "proposed",
+      "evidence_review": "evidence review",
+      "evaluated": "evaluated",
+      "revised": "revised",
+      "abstained": "abstained",
+      "awaiting_human_approval": "awaiting your decision",
+      "approved": "approved",
+      "rejected": "rejected",
+      "failed": "failed"
+    },
+    "stream": {
+      "heading": "Stream",
+      "connecting": "Connecting to the stream…",
+      "open": "Connected; waiting for records.",
+      "replaying": "Replaying stored records.",
+      "live": "Receiving records as they are published.",
+      "reconnecting": "Connection lost; the browser is reconnecting.",
+      "ended": "Stream ended: {reason}.",
+      "error": "The stream could not be opened.",
+      "closed": "Stream closed.",
+      "endReasons": {
+        "awaiting_human_approval": "the run awaits a human decision",
+        "terminal": "the run reached its final state"
+      },
+      "gap": "Records were missing from the stream; the run was re-read from the server.",
+      "resync": "The server re-read its log; the run was re-read from the server.",
+      "invalid": "{count, plural, =0 {Every frame matched the contract.} one {# frame did not match the contract and was dropped.} other {# frames did not match the contract and were dropped.}}",
+      "storedRecords": "The stream could not be opened; the stage shows the records stored on the server.",
+      "noStoredRecords": "The stream could not be opened, and the run’s stored records could not be read either.",
+      "reconnect": "Reconnect"
+    },
+    "pacing": {
+      "label": "simulated · paced for readability",
+      "skip": "Skip pacing",
+      "pending": "{count, plural, =0 {All records shown.} one {# record waiting.} other {# records waiting.}}",
+      "off": "Pacing is off: reduced motion.",
+      "started": "Pacing on: the stored records of this scripted run are shown one at a time.",
+      "done": "All records shown.",
+      "skipped": "Pacing skipped: every record is shown."
+    },
+    "stage": {
+      "heading": "Deliberation stage",
+      "proposer": "Proposer",
+      "critic": "Critic",
+      "evaluator": "Evidence Evaluator",
+      "runtime": "Runtime",
+      "waiting": "Nothing from this role yet.",
+      "proposal": "Proposal {id}",
+      "revision": "Revision {id}, supersedes {supersedes}",
+      "claims": "Claims",
+      "assumptions": "Assumptions",
+      "uncertainties": "Uncertainties",
+      "plan": "Plan",
+      "challenge": "Challenge {id} on {target}",
+      "noObjections": "No objections raised.",
+      "objection": "{kind} on {claim}",
+      "objectionNoClaim": "{kind}",
+      "kinds": {
+        "contradictory_evidence": "contradictory evidence",
+        "missing_test": "missing test",
+        "unsupported_claim": "unsupported claim",
+        "regression_risk": "regression risk",
+        "security_risk": "security risk",
+        "constraint_conflict": "constraint conflict"
+      },
+      "evaluation": "Evaluation of {id}",
+      "abstained": "The Evaluator abstained: {reason}",
+      "abstainedNoReason": "The Evaluator abstained.",
+      "corroborated": "corroborated",
+      "notCorroborated": "not corroborated",
+      "contradictedBy": "contradicted by {ids}",
+      "verdicts": "Verdicts",
+      "verdict": "{item}: {status}. {reason}",
+      "resolved": "resolved",
+      "unresolved": "unresolved",
+      "lane": "Runtime lane",
+      "retrieved": "{count, plural, =0 {No evidence retrieved} one {# record retrieved} other {# records retrieved}}",
+      "verified": "{count, plural, =0 {No proof checked} one {# proof checked} other {# proofs checked}}",
+      "proven": "{count, plural, =0 {No recall proven} one {# recall proven} other {# recalls proven}}",
+      "unavailable": "{count, plural, =0 {No retrieval failed} one {# retrieval failed} other {# retrievals failed}}",
+      "simulatedProof": "SIMULATED proof: scripted outcome “{status}”, no cryptography checked",
+      "simulatedProofShort": "SIMULATED proof (scripted outcome “{status}”)",
+      "proofStatus": "proof {status}",
+      "recommendation": "Recommendation",
+      "noRecommendation": "No recommendation issued yet.",
+      "noRecommendationFailed": "No recommendation was issued: the run failed.",
+      "model": "{model} via {provider}"
+    },
+    "explorer": {
+      "heading": "Event timeline",
+      "filter": "Filter by type",
+      "all": "All types",
+      "sequence": "Seq.",
+      "type": "Type",
+      "actor": "Actor",
+      "time": "Time",
+      "summary": "Summary",
+      "json": "Public event (JSON)",
+      "empty": "No records match this filter.",
+      "count": "{shown, plural, =0 {0 records} one {# record} other {# records}} of {total}",
+      "partial": "The server’s copy of this run could not be read: the timeline shows only the records the stream delivered.",
+      "actors": {
+        "runtime": "runtime",
+        "human": "human {id}"
+      },
+      "roles": {
+        "proposer": "Proposer",
+        "critic": "Critic",
+        "evidence_evaluator": "Evidence Evaluator"
+      },
+      "types": {
+        "task_created": "task created",
+        "proposal_submitted": "proposal submitted",
+        "evidence_retrieved": "evidence retrieved",
+        "evidence_unavailable": "evidence unavailable",
+        "recall_proven": "recall proven",
+        "evidence_verified": "evidence verified",
+        "challenge_submitted": "challenge submitted",
+        "evaluation_submitted": "evaluation submitted",
+        "revision_submitted": "revision submitted",
+        "recommendation_issued": "recommendation issued",
+        "human_decision_recorded": "human decision recorded",
+        "run_failed": "run failed"
+      },
+      "factual": {
+        "corroborated": "corroborated",
+        "uncorroborated": "uncorroborated",
+        "contradicted": "contradicted",
+        "not_assessed": "not assessed"
+      },
+      "relevance": {
+        "relevant": "relevant",
+        "irrelevant": "irrelevant",
+        "not_assessed": "not assessed"
+      },
+      "authority": {
+        "operator": "operator",
+        "public_demo": "public demo, no operational authority",
+        "unspecified": "unspecified (pre-1.3)",
+        "other": "authority {authority}"
+      },
+      "summaries": {
+        "task_created": "{title}",
+        "proposal_submitted": "{id}: {summary}",
+        "evidence_retrieved": "{id} ({kind})",
+        "evidence_unavailable": "{message}",
+        "recall_proven": "{count, plural, =0 {no record} one {# record} other {# records}} under anchor {anchor}",
+        "evidence_verified": "{id}: {proof}; factual: {factual}; relevance: {relevance}",
+        "challenge_submitted": "{count, plural, =0 {no objection} one {# objection} other {# objections}} on {target}",
+        "evaluation_submitted": "claims corroborated: {corroborated} of {claims}; unresolved: {unresolved}",
+        "revision_submitted": "{id} supersedes {supersedes}: {summary}",
+        "recommendation_issued": "{kind}",
+        "human_decision_recorded": "{decision} by {by} ({authority})",
+        "run_failed": "{stage}: {message}"
+      }
+    },
+    "decision": {
+      "heading": "Decision",
+      "recommendation": "Recommendation",
+      "rationale": "Rationale",
+      "protocol": "Protocol",
+      "assumptions": "Unresolved assumptions",
+      "uncertainties": "Uncertainties",
+      "objections": "Open objections",
+      "noObjections": "No open objection.",
+      "pending": "No recommendation yet: the run is still deliberating.",
+      "failedNoRecommendation": "No recommendation was issued: the run failed (see above).",
+      "superseded": "This recommendation is for revised proposal {revised}, which replaced the original proposal {original}.",
+      "supersededTask": "Task: {title}",
+      "original": "Original proposal {id}",
+      "revised": "Revised proposal {id}",
+      "publicDemo": "Decisions on this public portal carry no operational authority: approving or rejecting records your choice on this run and executes nothing.",
+      "formHeading": "Your decision",
+      "approve": "Approve",
+      "reject": "Reject",
+      "note": "Note",
+      "noteDescription": "Optional, up to 2000 characters. Required to approve a blocked or abstained run (an override).",
+      "overrideRequired": "Approving a {kind} run is an override: write a note first.",
+      "notAwaiting": "The run is not awaiting a decision.",
+      "detailUnavailable": "The decision needs the server’s copy of this run, which could not be read; use Try again above.",
+      "submitting": "Recording…",
+      "recorded": "Decision recorded: {decision} by {by} on {date}.",
+      "approved": "approved",
+      "rejected": "rejected",
+      "withNote": "Note: {note}",
+      "receipt": "Open the receipt (JSON)",
+      "ndjson": "Download the verbatim event log",
+      "ndjsonUnavailable": "The verbatim event log of this run is not published on the public surface: a live model’s records may quote upstream text. The receipt carries its sanitized view.",
+      "cancel": "Cancel this run",
+      "cancelling": "Cancellation requested: the run stops at its next checkpoint.",
+      "cancelHint": "Only a run that is still deliberating can be cancelled."
+    },
+    "failure": {
+      "title": "The run failed",
+      "detail": "Stage {stage}, code {code}.",
+      "detailNoCode": "Stage {stage}.",
+      "unknownCode": "The run failed (code {code}).",
+      "noCode": "The run failed at stage {stage}.",
+      "codes": {
+        "cancelled": "The run was cancelled by its owner.",
+        "shutdown": "The server shut down before the run completed.",
+        "deadline": "The run’s deadline passed.",
+        "interrupted": "The server restarted before the run completed.",
+        "panic": "The run stopped because of an internal error.",
+        "model_timeout": "A model call timed out.",
+        "model_unavailable": "The model service was unavailable.",
+        "model_malformed_output": "The model returned output that was refused.",
+        "evaluation_contract": "A model document broke the deliberation protocol and was refused.",
+        "challenge_contract": "A model document broke the deliberation protocol and was refused.",
+        "proposal_contract": "A model document broke the deliberation protocol and was refused.",
+        "token_budget_exceeded": "The run crossed its token budget.",
+        "token_usage_missing": "A model call reported no token usage, so the budget could not be enforced.",
+        "persistence": "The run’s record could not be written.",
+        "budget_refused": "The live budget refused to fund the next model call, so nothing more was sent.",
+        "budget_unsettled": "The live budget could not record what a model call cost, so the run stopped; the call stays counted at its estimate.",
+        "meta_unauthorized": "Meta’s Model API refused the server’s key.",
+        "meta_billing": "Meta’s Model API reported a billing problem on the owner’s account.",
+        "meta_forbidden": "Meta’s Model API did not allow this call with the server’s key.",
+        "meta_bad_request": "Meta’s Model API refused the request.",
+        "meta_rate_limited": "Meta’s Model API rate limit was reached.",
+        "meta_unavailable": "Meta’s Model API was unavailable.",
+        "meta_timeout": "A call to Meta’s Model API did not complete in time.",
+        "meta_transport": "The connection to Meta’s Model API failed.",
+        "meta_config": "The server’s Model API configuration could not be used.",
+        "model_output_truncated": "The model’s output reached its length limit before the document was complete.",
+        "model_refusal": "The model declined to produce the document."
+      }
+    },
+    "unavailable": {
+      "noCode": "Evidence could not be retrieved.",
+      "unknownCode": "Evidence could not be retrieved (code {code}).",
+      "codes": {
+        "memory_unavailable": "The memory backend was unreachable.",
+        "memory_error": "The memory backend answered with an error.",
+        "evidence_cap": "Records past the per-run evidence cap were not processed."
+      }
     }
   },
   "Showcase": {
@@ -200,14 +617,48 @@
   "Provenance": {
     "heading": "Provenance labels",
     "intro": "Once connected, the portal will mark every run and event with where it comes from, on separate axes: the model (scripted or live Meta), the evidence (simulated or a sealed snapshot), the source (this server or the research archive) and the delivery of each event (live or replay). Labels will come from recorded data, never from the request. What they will mean:",
+    "axes": {
+      "model": "Model",
+      "evidence": "Evidence",
+      "source": "Source",
+      "delivery": "Delivery"
+    },
     "simulated": {
       "label": "SIMULATED",
       "description": "Simulated evidence: its proofs are not real. In guided runs the roles are scripted too and no model is called."
     },
+    "scripted": {
+      "label": "SCRIPTED",
+      "note": "scripted double, no model call"
+    },
+    "mixedModel": {
+      "label": "MIXED MODEL"
+    },
+    "undetermined": {
+      "label": "MODEL UNDETERMINED"
+    },
     "liveMeta": {
       "label": "LIVE META",
       "evidence": "SEALED SNAPSHOT",
+      "recorded": "Meta model · recorded {date}",
+      "live": "Meta model · live",
       "description": "A run in progress: live calls to Meta’s muse-wonder-1.0, with evidence from a sealed Hyphae snapshot whose proofs are re-verified for every run. LIVE META never stands alone; the evidence label is always next to it."
+    },
+    "metaModel": {
+      "label": "META MODEL",
+      "description": "Records of a run of Meta’s model shown afterwards (replayed, listed or archived): real model calls, but not happening now. LIVE META is shown only for records that arrive while you watch."
+    },
+    "hyphaeLive": {
+      "label": "HYPHAE LIVE"
+    },
+    "noEvidence": {
+      "label": "NO EVIDENCE"
+    },
+    "mixedEvidence": {
+      "label": "MIXED EVIDENCE"
+    },
+    "thisServer": {
+      "label": "THIS SERVER"
     },
     "hybrid": {
       "description": "A live model with simulated evidence: real model calls, but proofs that are not real. Some runs in the research archive are of this kind, and their labels say so."
@@ -219,6 +670,29 @@
     "replay": {
       "label": "REPLAY",
       "description": "Stored events played back, not as they happen. A recorded run always plays as a replay."
+    },
+    "live": {
+      "label": "LIVE"
+    },
+    "streaming": {
+      "label": "STREAMING"
+    },
+    "flags": {
+      "provenance_inconsistent": "PROVENANCE INCONSISTENT",
+      "unchained": "UNCHAINED",
+      "mode_undeclared": "MODE UNDECLARED"
+    },
+    "flagNotes": {
+      "provenance_inconsistent": "The mode this run was declared with disagrees with what its records prove; it is never shown as live.",
+      "unchained": "Records before schema 1.1 carry no hash chain.",
+      "mode_undeclared": "The run was recorded before schema 1.3 and declares no mode."
+    },
+    "proof": {
+      "valid": "valid",
+      "invalid": "invalid",
+      "unavailable": "unavailable",
+      "verification_error": "verification error",
+      "not_checked": "not checked"
     },
     "note": "A valid proof shows that Hyphae can reproduce the sealed recall a record came from, not that the record is true, relevant or complete, or that a model used it."
   },

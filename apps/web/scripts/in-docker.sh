@@ -6,10 +6,13 @@
 # host environment holds the owner's Meta key, and dependency code runs with
 # the caller's full environment during install, build, lint and test.
 #
-# What reaches the container: apps/web mounted at /app, nothing else. No -e
-# variables, no host home directory, no credentials, no TTY (so pnpm runs
-# non-interactively and never edits pnpm-workspace.yaml on its own). Inside
-# the container, Next.js telemetry is switched off before the command runs.
+# What reaches the container: apps/web mounted at /app, and the API contract
+# (the repository's contracts/ directory: JSON Schemas and fixtures the Rust
+# server exports) mounted read-only at /contracts, so the type generator and
+# the tests can read it. Nothing else. No -e variables, no host home
+# directory, no credentials, no TTY (so pnpm runs non-interactively and never
+# edits pnpm-workspace.yaml on its own). Inside the container, Next.js
+# telemetry is switched off before the command runs.
 #
 # Two parts of the mount are read-only, so code running in the container can
 # never rewrite what the host runs or trusts (red-team finding ABUSE-3):
@@ -41,11 +44,13 @@ if [ "$#" -eq 0 ]; then
 fi
 
 app_dir=$(cd "$(dirname "$0")/.." && pwd)
+contract_dir=$(cd "$app_dir/../../contracts" && pwd)
 
-# Git Bash: give Docker the Windows form of the path, and stop MSYS from
+# Git Bash: give Docker the Windows form of the paths, and stop MSYS from
 # rewriting /app and the other container paths in the arguments.
 if windows_dir=$(cd "$app_dir" && pwd -W 2>/dev/null); then
   app_dir=$windows_dir
+  contract_dir=$(cd "$contract_dir" && pwd -W)
   export MSYS_NO_PATHCONV=1
 fi
 
@@ -53,6 +58,7 @@ exec docker run --rm \
   --volume "$app_dir:/app" \
   --volume "$app_dir/scripts:/app/scripts:ro" \
   --volume "$app_dir/pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro" \
+  --volume "$contract_dir:/contracts:ro" \
   --workdir /app \
   "$IMAGE" \
   sh -c 'corepack enable pnpm && export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 NEXT_TELEMETRY_DISABLED=1 && exec "$@"' \

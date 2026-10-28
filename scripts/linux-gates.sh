@@ -50,7 +50,7 @@ exec docker run --rm \
     . /etc/os-release
     echo \"== \$PRETTY_NAME, \$(ldd --version | head -1)\"
     apt-get update -qq >/dev/null
-    apt-get install -y -qq --no-install-recommends curl ca-certificates build-essential pkg-config >/dev/null
+    apt-get install -y -qq --no-install-recommends curl ca-certificates build-essential pkg-config python3 >/dev/null
     if [ ! -x /cargo/bin/cargo ]; then
       curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain $TOOLCHAIN --profile default >/dev/null
     fi
@@ -59,5 +59,6 @@ exec docker run --rm \
     echo '== clippy';  cargo clippy --workspace --all-targets --locked -- -D warnings 2>&1 | tail -1
     echo '== test';    cargo test --workspace --locked 2>&1 | grep -E '^test result|FAILED|panicked at'
     echo '== evaluate'; cargo run -q -p consensus-tests --example evaluate 2>&1 | tail -2
+    echo '== selftests'; python3 -I scripts/snapshot_manifest.py selftest 2>&1 | tail -1; sh scripts/hyphae-container/capture-snapshot.sh --selftest 2>&1 | tail -1
     echo '== DONE'
   "

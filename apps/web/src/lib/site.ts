@@ -55,7 +55,7 @@ export type LegalPage = (typeof legalPages)[number];
 export const LEGAL_TEXT_STATUS: "draft" | "final" = "draft";
 
 /** Date the legal texts were last changed; shown on every legal page. */
-export const LEGAL_TEXT_UPDATED = new Date("2026-10-27T00:00:00Z");
+export const LEGAL_TEXT_UPDATED = new Date("2026-10-28T00:00:00Z");
 
 /**
  * Whether the portal talks to the Hyphae Consensus API is no longer a build

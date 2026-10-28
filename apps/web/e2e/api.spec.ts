@@ -42,7 +42,7 @@ import { dropProblems, expectNoLive, liveBadge, openRun, takeProblem } from "./h
 
 const LIVE_RUN_ID = "run-00000000-0000-4000-8000-000000000006";
 
-test("new -> run -> frames -> decision -> receipt link", async ({ page, pageProblems }) => {
+test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, pageProblems }) => {
   const mock = await mockApi(page, { detail: awaitingDecisionDetail() });
   await page.goto("/en/new/");
   await hydrated(page);
@@ -124,7 +124,7 @@ test("new -> run -> frames -> decision -> receipt link", async ({ page, pageProb
   expect(pageProblems).toEqual([]);
 });
 
-test("a replayed finished run never shows LIVE and is named Playback", async ({ page }) => {
+test("a replayed finished run never shows LIVE and is named Playback @smoke", async ({ page }) => {
   await mockApi(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openRun(page, "en");

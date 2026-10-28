@@ -189,7 +189,7 @@
         },
         "technical": {
           "axes": "Les étiquettes proviendront des données enregistrées, jamais de la requête : le modèle (scénarisé ou Meta en direct), les éléments probants (simulés, instantané scellé ou Hyphae en direct), la source (ce serveur ou l’archive de recherche) et la diffusion de chaque événement (en direct ou rejeu).",
-          "live-label": "META EN DIRECT n’apparaîtra que pour des événements diffusés en direct depuis le modèle Meta en direct, et toujours à côté de l’étiquette des éléments probants : INSTANTANÉ SCELLÉ dans le mode public en direct, SIMULÉ pour les exécutions archivées d’un modèle en direct avec des preuves simulées (C03, S01 à S03).",
+          "live-label": "META EN DIRECT n’apparaîtra que pour des événements diffusés en direct depuis le modèle Meta en direct, et toujours à côté de l’étiquette des éléments probants (INSTANTANÉ SCELLÉ dans le mode public en direct). Les exécutions archivées d’un modèle Meta avec des preuves simulées (C03, S01 à S03) portent MODÈLE META à côté de SIMULÉ, jamais META EN DIRECT.",
           "language": "Les tâches prédéfinies et la conversation avec le modèle restent en anglais, afin que les affirmations correspondent aux enregistrements probants en anglais. Les vues traduites signalent le texte du modèle comme sortie originale en anglais."
         }
       }

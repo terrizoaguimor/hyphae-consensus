@@ -189,7 +189,7 @@
         },
         "technical": {
           "axes": "Os rótulos virão dos dados registrados, nunca da solicitação: o modelo (roteirizado ou Meta ao vivo), as evidências (simuladas, snapshot selado ou Hyphae ao vivo), a origem (este servidor ou o arquivo de pesquisa) e a entrega de cada evento (ao vivo ou reprodução).",
-          "live-label": "META AO VIVO só será exibido para eventos entregues ao vivo pelo modelo da Meta ao vivo, e sempre ao lado do rótulo das evidências: SNAPSHOT SELADO no modo público ao vivo, SIMULADO nas execuções arquivadas de um modelo ao vivo com provas simuladas (C03, S01 a S03).",
+          "live-label": "META AO VIVO só será exibido para eventos entregues ao vivo pelo modelo da Meta ao vivo, e sempre ao lado do rótulo das evidências (SNAPSHOT SELADO no modo público ao vivo). As execuções arquivadas de um modelo da Meta com provas simuladas (C03, S01 a S03) trazem MODELO META ao lado de SIMULADO, nunca META AO VIVO.",
           "language": "As tarefas predefinidas e a conversa com o modelo ficam em inglês, para que as afirmações correspondam aos registros de evidência em inglês. As telas traduzidas marcam o texto do modelo como saída original em inglês."
         }
       }

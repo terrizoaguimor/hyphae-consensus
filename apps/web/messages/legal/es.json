@@ -147,7 +147,7 @@
         },
         "labels": {
           "heading": "Las ejecuciones simuladas y grabadas están identificadas",
-          "body": "Las ejecuciones guiadas usan roles con guion y evidencia simulada, y llevan la etiqueta SIMULADO; una prueba simulada nunca se muestra como real. Las ejecuciones archivadas conservan las etiquetas con las que se grabaron: una ejecución con guion sigue siendo SIMULADO, y una ejecución con modelo en vivo y pruebas simuladas lo indica junto a META EN VIVO. En la vitrina se muestran como GRABADO, nunca como EN VIVO."
+          "body": "Las ejecuciones guiadas usan roles con guion y evidencia simulada, y llevan la etiqueta SIMULADO; una prueba simulada nunca se muestra como real. Las ejecuciones archivadas conservan las etiquetas con las que se grabaron: una ejecución con guion sigue siendo SIMULADO, y una ejecución con modelo en vivo y pruebas simuladas lo indica junto a MODELO META. En la vitrina se muestran como GRABADO, nunca como EN VIVO."
         },
         "showcase": {
           "heading": "Qué te permite volver a comprobar la vitrina",

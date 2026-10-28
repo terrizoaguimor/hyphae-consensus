@@ -189,7 +189,7 @@
         },
         "technical": {
           "axes": "Labels will come from recorded data, never from the request: the model (scripted or live Meta), the evidence (simulated, sealed snapshot or live Hyphae), the source (this server or the research archive) and the delivery of each event (live or replay).",
-          "live-label": "LIVE META will be shown only for events delivered live from the live Meta model, and always next to the evidence label: SEALED SNAPSHOT in the public live mode, SIMULATED for the archived runs of a live model with simulated proofs (C03, S01 to S03).",
+          "live-label": "LIVE META will be shown only for events delivered live from the live Meta model, and always next to the evidence label (SEALED SNAPSHOT in the public live mode). The archived runs of a live model with simulated proofs (C03, S01 to S03) read META MODEL next to SIMULATED, never LIVE META.",
           "language": "Presets and the model conversation stay in English, so claims match the English evidence records. Translated views mark model text as original English output."
         }
       }

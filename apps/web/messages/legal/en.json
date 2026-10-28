@@ -147,7 +147,7 @@
         },
         "labels": {
           "heading": "Simulated and recorded runs are labeled",
-          "body": "Guided runs use scripted roles and simulated evidence and are labeled SIMULATED; a simulated proof is never shown as a real one. Archived runs keep the labels they were recorded with: a scripted run stays SIMULATED, and a live-model run with simulated proofs says so next to LIVE META. In the showcase they are shown as RECORDED, never as LIVE."
+          "body": "Guided runs use scripted roles and simulated evidence and are labeled SIMULATED; a simulated proof is never shown as a real one. Archived runs keep the labels they were recorded with: a scripted run stays SIMULATED, and a live-model run with simulated proofs says so next to META MODEL. In the showcase they are shown as RECORDED, never as LIVE."
         },
         "showcase": {
           "heading": "What the showcase lets you re-check",

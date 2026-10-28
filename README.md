@@ -233,25 +233,23 @@ server's own variables are documented in `crates/consensus-api/src/public_config
 
 The scripted CLI demo is the same binary without a subcommand: with no arguments it runs
 the reference scenario to `AwaitingHumanApproval`, and `--approve` or `--reject`
-also records a decision (no execution occurs). It always uses `demo-run/events.jsonl`
-under the current working directory, and replays the first run it finds there
-instead of calling models again. Run it from an empty scratch directory: build once
-with `cargo build -p consensus-api`, then, from that directory, start the
-repository's `target\debug\consensus-api.exe` by its full path. For a fresh run,
-use a new empty directory.
+also records a decision (no execution occurs). It keeps its log in
+`scripted-demo/events.jsonl` under the current working directory (git-ignored) and
+replays the run it finds there instead of re-running; for a fresh run, delete
+`scripted-demo/` and nothing else. It refuses to run inside `demo-run/` or
+`research/`, and any other argument (`--help` included) prints the usage instead of
+starting it.
 
 **Never delete `demo-run/`.** The git-ignored `demo-run/` in the repository root
 holds the original live research data behind `docs/evaluation.md`: the battery
 logs, the run records with their receipts, the raw model drafts and the Hyphae
 recovery files. `research/` holds byte-identical copies of its event logs and run
 records (`research/README.md`); the raw drafts and the recovery files exist only in
-`demo-run/`. Never point the CLI demo at a log in either place: `EventLog::open` opens
-a log read-write and can repair a torn tail. The CLI demo's default log,
-`demo-run/events.jsonl`, already holds the 2026-10-26 evening runs of
-`docs/evaluation.md` §4 (and the binary replays it when it finds a completed run
-there), so run the demo from a scratch directory as described above. The servers use
-the per-run store and open archived logs read-only (`consensus-api verify`, the
-showcase).
+`demo-run/`. Never open a log in either place with a writing tool: `EventLog::open`
+opens a log read-write and can repair a torn tail. Earlier builds kept the CLI demo's
+log in `demo-run/events.jsonl`, which therefore holds the 2026-10-26 evening runs of
+`docs/evaluation.md` §4; the demo no longer opens it. The servers use the per-run store
+and open archived logs read-only (`consensus-api verify`, the showcase).
 
 No credentials are needed for M1. From M2 onward, copy `.env.example` to your
 environment configuration; secrets must come from environment variables, never files

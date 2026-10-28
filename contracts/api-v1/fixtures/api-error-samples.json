@@ -61,5 +61,66 @@
   {
     "code": "request_timeout",
     "message": "the request was not handled within the server's request timeout"
+  },
+  {
+    "code": "preset_unknown",
+    "message": "unknown preset"
+  },
+  {
+    "code": "geo_blocked_portal",
+    "message": "this service is not available in your country"
+  },
+  {
+    "code": "geo_blocked_live",
+    "message": "live mode is not available in your country"
+  },
+  {
+    "code": "geo_unknown",
+    "message": "your country could not be determined, so the request was refused"
+  },
+  {
+    "code": "attestation_required",
+    "message": "live mode requires the 18+ and territory acknowledgment (attest_adult: true)"
+  },
+  {
+    "code": "turnstile_required",
+    "message": "a Turnstile token is required (cf-turnstile-response header)"
+  },
+  {
+    "code": "turnstile_failed",
+    "message": "the Turnstile verification failed"
+  },
+  {
+    "code": "turnstile_unavailable",
+    "message": "the Turnstile verification service could not be reached; retry shortly",
+    "retry_after_secs": 5
+  },
+  {
+    "code": "live_budget_daily",
+    "message": "the daily live budget cannot hold another run right now; retry after the given delay",
+    "retry_after_secs": 1800
+  },
+  {
+    "code": "live_budget_lifetime",
+    "message": "the lifetime live budget is exhausted"
+  },
+  {
+    "code": "live_concurrency",
+    "message": "every live slot is busy; retry shortly",
+    "retry_after_secs": 30
+  },
+  {
+    "code": "live_hourly_admissions",
+    "message": "the hourly cap on live runs was reached; retry after the given delay",
+    "retry_after_secs": 600
+  },
+  {
+    "code": "live_tripped",
+    "message": "live mode is paused"
+  },
+  {
+    "code": "live_unavailable",
+    "message": "live mode is unavailable right now",
+    "retry_after_secs": 30
   }
 ]

@@ -13,6 +13,7 @@ use super::error::{ApiError, ErrorCode};
 use super::types::*;
 use super::v1;
 use crate::guided;
+use crate::live::gate;
 use crate::public_view::{self, Surface};
 use crate::showcase::Showcase;
 use crate::stream::replay_frames;
@@ -260,6 +261,32 @@ fn fixtures_in(dir: &Path) -> Result<BTreeMap<String, Value>, String> {
         }
     }
 
+    // A public live run at creation: mode {meta, sealed_snapshot, public,
+    // preset}, model undetermined until the first recorded Meta call.
+    {
+        let run = live_created(dir)?;
+        let created = public_view::aggregate_of(&run.events).ok_or("empty run")?;
+        let summary = public_view::summary(&run.events, &created, source, true, Surface::Public);
+        out.insert(
+            "run-created-live-R01-reference".into(),
+            to_value(&RunCreatedV1 {
+                links: RunLinksV1::for_run(&summary.run_id),
+                run: summary.clone(),
+            }),
+        );
+        out.insert("run-summary-live-R01-reference".into(), to_value(&summary));
+        out.insert(
+            "run-detail-live-R01-reference".into(),
+            to_value(&public_view::detail(
+                &run.events,
+                &created,
+                source,
+                true,
+                Surface::Public,
+            )),
+        );
+    }
+
     out.insert(
         "api-error-samples".into(),
         to_value(&vec![
@@ -278,6 +305,20 @@ fn fixtures_in(dir: &Path) -> Result<BTreeMap<String, Value>, String> {
             ApiError::new(ErrorCode::StorageFull, "the server holds its maximum number of visitor runs and none can be freed right now; retry shortly").with_retry_after(30),
             ApiError::new(ErrorCode::NdjsonUnavailable, "the verbatim event log of a live run is not published on the public surface; the detail and the receipt carry its sanitized view"),
             ApiError::new(ErrorCode::RequestTimeout, "the request was not handled within the server's request timeout"),
+            ApiError::new(ErrorCode::PresetUnknown, gate::refusal_message(ErrorCode::PresetUnknown)),
+            ApiError::new(ErrorCode::GeoBlockedPortal, crate::api::geo_message(ErrorCode::GeoBlockedPortal)),
+            ApiError::new(ErrorCode::GeoBlockedLive, crate::api::geo_message(ErrorCode::GeoBlockedLive)),
+            ApiError::new(ErrorCode::GeoUnknown, crate::api::geo_message(ErrorCode::GeoUnknown)),
+            ApiError::new(ErrorCode::AttestationRequired, gate::refusal_message(ErrorCode::AttestationRequired)),
+            ApiError::new(ErrorCode::TurnstileRequired, gate::refusal_message(ErrorCode::TurnstileRequired)),
+            ApiError::new(ErrorCode::TurnstileFailed, gate::refusal_message(ErrorCode::TurnstileFailed)),
+            ApiError::new(ErrorCode::TurnstileUnavailable, gate::refusal_message(ErrorCode::TurnstileUnavailable)).with_retry_after(5),
+            ApiError::new(ErrorCode::LiveBudgetDaily, gate::refusal_message(ErrorCode::LiveBudgetDaily)).with_retry_after(1800),
+            ApiError::new(ErrorCode::LiveBudgetLifetime, gate::refusal_message(ErrorCode::LiveBudgetLifetime)),
+            ApiError::new(ErrorCode::LiveConcurrency, gate::refusal_message(ErrorCode::LiveConcurrency)).with_retry_after(30),
+            ApiError::new(ErrorCode::LiveHourlyAdmissions, gate::refusal_message(ErrorCode::LiveHourlyAdmissions)).with_retry_after(600),
+            ApiError::new(ErrorCode::LiveTripped, gate::refusal_message(ErrorCode::LiveTripped)),
+            ApiError::new(ErrorCode::LiveUnavailable, gate::refusal_message(ErrorCode::LiveUnavailable)).with_retry_after(30),
         ]),
     );
     out.insert(
@@ -353,7 +394,35 @@ fn default_capabilities() -> CapabilitiesV1 {
         policy_version: v1::policy_version_label(),
         protocol: protocol_label(SCHEMA_VERSION),
         decision_authority: Authority::PublicDemo,
+        live: None,
     }
+}
+
+/// The 202 of a public live run: only its task exists, declared with the
+/// production live mode (the owner's Meta key, the sealed snapshot, the
+/// public origin, the preset). Deterministic: the task is created with
+/// the fixed clock and no model is called.
+fn live_created(dir: &Path) -> Result<FixtureRun, String> {
+    let preset = crate::live::presets::PresetId::R01Reference.preset();
+    let path = dir.join("live-R01-reference.jsonl");
+    let mut log = EventLog::open(&path).map_err(|e| e.to_string())?;
+    // Any ports do for task creation; nothing is called.
+    let s = guided::build(GuidedScenario::Retry);
+    let mut orch = Orchestrator {
+        model: s.model,
+        memory: s.memory,
+        verifier: s.verifier,
+        clock: FixedClock::new(TS),
+        ids: SequentialIdGen::new(),
+        limits: RunLimits::default(),
+    };
+    let mut input = preset.task_input();
+    input.submitted_by = "visitor:fixture0000000".into();
+    orch.create_task(&mut log, fixture_run_id(6), input)
+        .map_err(|e| e.to_string())?;
+    Ok(FixtureRun {
+        events: log.all_events().to_vec(),
+    })
 }
 
 /// Type-erased serialization helper so one closure handles every fixture.

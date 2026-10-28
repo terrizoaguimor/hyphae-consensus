@@ -82,6 +82,7 @@
 
 pub mod budget;
 pub mod config;
+pub mod gate;
 pub mod geo;
 pub mod judge;
 pub mod money;

@@ -202,6 +202,118 @@
           "type": "string"
         },
         {
+          "description": "Public live mode: the daily USD budget cannot hold one more run; `retry_after_secs` says when the paced budget admits again.",
+          "enum": [
+            "live_budget_daily"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: the lifetime USD budget is exhausted.",
+          "enum": [
+            "live_budget_lifetime"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Judge lane: its daily budget is exhausted until the next UTC day.",
+          "enum": [
+            "live_budget_judge_daily"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Judge lane: its lifetime slice is exhausted.",
+          "enum": [
+            "live_budget_judge_slice"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: every live slot is busy; see `retry_after_secs`.",
+          "enum": [
+            "live_concurrency"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: the rolling-hour admission cap is reached.",
+          "enum": [
+            "live_hourly_admissions"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: the ledger is tripped (kill switch, a cap, a provider refusal of the key); an operator must reset it.",
+          "enum": [
+            "live_tripped"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: the ledger could not be consulted or the run could not be assembled; nothing was charged.",
+          "enum": [
+            "live_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: the request carries no Turnstile token (`cf-turnstile-response` header).",
+          "enum": [
+            "turnstile_required"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: Cloudflare did not accept the Turnstile token.",
+          "enum": [
+            "turnstile_failed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: Turnstile could not be asked; retry shortly.",
+          "enum": [
+            "turnstile_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: `attest_adult` must be true.",
+          "enum": [
+            "attestation_required"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The whole portal is unavailable from the visitor's country.",
+          "enum": [
+            "geo_blocked_portal"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Live mode is unavailable from the visitor's country.",
+          "enum": [
+            "geo_blocked_live"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The visitor's country could not be determined (no `CF-IPCountry`); a listener behind Cloudflare refuses rather than guesses.",
+          "enum": [
+            "geo_unknown"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Public live mode: the preset id names no curated preset.",
+          "enum": [
+            "preset_unknown"
+          ],
+          "type": "string"
+        },
+        {
           "description": "Something failed on the server; the detail is in its log.",
           "enum": [
             "internal"

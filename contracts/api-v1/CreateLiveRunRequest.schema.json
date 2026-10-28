@@ -1,8 +1,20 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
-  "description": "`POST /api/v1/live-runs` (public): start a live run from a preset. Answered `503 live_disabled` until the live admission is wired.",
+  "description": "`POST /api/v1/live-runs` (public): start a live run from a preset, on the owner's key (ADR-0007). Admission needs a Turnstile token in the `cf-turnstile-response` header, `attest_adult: true`, and a country Cloudflare reports; `503 live_disabled` when live mode is off.",
   "properties": {
+    "attest_adult": {
+      "default": false,
+      "description": "The visitor's 18+ and territory acknowledgment. Absent reads as false, which the gate refuses (`422 attestation_required`).",
+      "type": "boolean"
+    },
+    "judge_code": {
+      "description": "A judge-lane invite code, 1 to 256 characters once trimmed. An unknown code is not an error: the run takes the public lane, and nothing in the response says whether codes exist.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "preset_id": {
       "type": "string"
     }

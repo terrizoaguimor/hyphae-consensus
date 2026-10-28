@@ -92,9 +92,10 @@
 //! usually invisible, challenge.
 //!
 //! **Reservation lifetime.** One [`ReservationHolder`] per admitted run
-//! ([`MeteredReservation`], which the operator console's metered runs use
-//! too), shared by the wrapped deliberation and the refund closure, releases
-//! the reservation exactly once, always with the bounded retries of
+//! ([`MeteredReservation`], through which the operator console's metered
+//! `model=meta` runs spend too), shared by the wrapped deliberation and the
+//! refund closure, releases the reservation exactly once, always with the
+//! bounded retries of
 //! [`RELEASE_BACKOFF`] (100/300/900 ms): when `deliberate` returns; when
 //! the deliberation is dropped without having done so (a panic caught by
 //! the run manager, a task creation that failed inside the start task, a

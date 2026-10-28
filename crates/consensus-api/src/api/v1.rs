@@ -541,39 +541,65 @@ pub async fn create_operator_run(
         Creation::New(claim) => claim,
     };
     admit_creation(&state, &client).await?;
-    let start = match req.model {
+    let snapshot = match req.model {
         OperatorModel::Fake => {
             let scenario = req
                 .scenario
                 .ok_or_else(|| ApiError::invalid("model=fake requires a scenario"))?;
-            guided_start(&state, &identity, scenario, RunOrigin::Operator)
+            let start = guided_start(&state, &identity, scenario, RunOrigin::Operator);
+            state.manager.start(start).await.map_err(start_error)?
         }
         OperatorModel::Meta => {
-            // Client construction may spawn threads and read files: off
-            // the async workers.
+            // The live slot first, then (metered) the ledger reservation,
+            // as on the public route: a run refused for want of a slot
+            // charges nothing.
+            let slot = state
+                .manager
+                .reserve(RunKind::Live)
+                .await
+                .map_err(start_error)?;
+            // Client construction may spawn threads and read files, and the
+            // ledger does file I/O: off the async workers.
             let (state2, identity2, req2) = (state.clone(), identity.clone(), req.clone());
-            blocking(move || operator_meta_start(&state2, &identity2, &req2)).await??
+            let start = blocking(move || operator_meta_start(&state2, &identity2, &req2)).await??;
+            // A start that fails drops the deliberation, whose drop
+            // releases a metered run's reservation.
+            state
+                .manager
+                .start_reserved(slot, start)
+                .await
+                .map_err(start_error)?
         }
     };
-    let snapshot = state.manager.start(start).await.map_err(start_error)?;
     complete_creation(claim, &snapshot);
     Ok(created_response(&state, &snapshot))
 }
 
 /// Builds a live Meta deliberation on the operator surface: the only
-/// place the Meta credentials are consulted.
+/// place the operator's Meta configuration is consulted
+/// ([`super::AppState::operator_meta`]). When the server holds the live
+/// ledger ([`super::AppState::operator_ledger`]) the run is metered on its
+/// operator lane through the public gate's own machinery
+/// ([`MeteredReservation`]): its worst case reserved last, once everything
+/// else is ready (a refusal is answered with the ledger's stable code and
+/// fixed sentence), every HTTP attempt drawn and settled, the reservation
+/// released when the run ends, so the caps, every trip and the kill switch
+/// stop operator runs too. Without a ledger the run is unmetered.
 fn operator_meta_start(
     state: &AppState,
     identity: &Identity,
     req: &CreateOperatorRunRequest,
 ) -> Result<StartRequest, ApiError> {
-    use crate::config::{HyphaeConfig, MetaConfig};
+    use crate::config::HyphaeConfig;
     use crate::hyphae::{connect_from_config, HyphaeProofVerifier, SystemCommandRunner};
+    use crate::live::budget::Lane;
+    use crate::live::config::vars as live_vars;
+    use crate::live::gate::{refusal_error, MeteredReservation};
     use crate::meta::MetaModelClient;
 
     // An unusable setting names its variable (never the key); only an
     // absent key reads as "not configured".
-    let cfg = MetaConfig::try_from_env()
+    let cfg = (state.operator_meta)()
         .map_err(|e| ApiError::new(ErrorCode::ModelNotConfigured, format!("model=meta: {e}")))?
         .ok_or_else(|| {
             ApiError::new(
@@ -581,6 +607,22 @@ fn operator_meta_start(
                 "model=meta requires META_API_KEY (or MODEL_API_KEY) in the server environment",
             )
         })?;
+    // A metered run's calls must fit the ledger's per-call output bound,
+    // or the ledger would refuse every one of them: refused here, before
+    // anything is reserved, rather than sent with another bound.
+    if let Some(ledger) = &state.operator_ledger {
+        let bound = ledger.config().max_completion_tokens;
+        if cfg.max_completion_tokens > bound {
+            return Err(ApiError::new(
+                ErrorCode::ModelNotConfigured,
+                format!(
+                    "model=meta: CONSENSUS_META_MAX_COMPLETION_TOKENS ({}) exceeds the live ledger's per-call output bound {} ({bound}); a metered run could make no call",
+                    cfg.max_completion_tokens,
+                    live_vars::MAX_COMPLETION_TOKENS
+                ),
+            ));
+        }
+    }
     let model = MetaModelClient::new(cfg).map_err(|e| {
         eprintln!("[operator] meta client init failed: {e}");
         ApiError::new(
@@ -611,26 +653,37 @@ fn operator_meta_start(
         }),
     };
     let limits = state.config.run_limits;
-    let deliberation: Box<dyn crate::runs::Deliberation> = match req.memory {
+    // The evidence side first (a Hyphae connect can fail): the deliberation
+    // over the model client, built once the client is (or is not) metered.
+    type Build = Box<dyn FnOnce(MetaModelClient) -> Box<dyn crate::runs::Deliberation>>;
+    let build: Build = match req.memory {
         OperatorMemory::Fake => {
             let s = retry_constraint_scenario();
-            Box::new(Orchestrator {
-                model,
-                memory: s.memory,
-                verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
-                clock: SystemClock,
-                ids: UuidIdGen,
-                limits,
-            })
+            Box::new(
+                move |model: MetaModelClient| -> Box<dyn crate::runs::Deliberation> {
+                    Box::new(Orchestrator {
+                        model,
+                        memory: s.memory,
+                        verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
+                        clock: SystemClock,
+                        ids: UuidIdGen,
+                        limits,
+                    })
+                },
+            )
         }
-        OperatorMemory::Offline => Box::new(Orchestrator {
-            model,
-            memory: FakeMemoryClient::offline(),
-            verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
-            clock: SystemClock,
-            ids: UuidIdGen,
-            limits,
-        }),
+        OperatorMemory::Offline => Box::new(
+            move |model: MetaModelClient| -> Box<dyn crate::runs::Deliberation> {
+                Box::new(Orchestrator {
+                    model,
+                    memory: FakeMemoryClient::offline(),
+                    verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
+                    clock: SystemClock,
+                    ids: UuidIdGen,
+                    limits,
+                })
+            },
+        ),
         OperatorMemory::Hyphae => {
             // An unusable pinned anchor or deadline names its variable
             // (HY-10) instead of reading as "not configured".
@@ -653,15 +706,32 @@ fn operator_meta_start(
             })?;
             // Pinned anchor and verifier deadline, as configured.
             let verifier = HyphaeProofVerifier::from_config(&hcfg, SystemCommandRunner);
-            Box::new(Orchestrator {
-                model,
-                memory,
-                verifier,
-                clock: SystemClock,
-                ids: UuidIdGen,
-                limits,
-            })
+            Box::new(
+                move |model: MetaModelClient| -> Box<dyn crate::runs::Deliberation> {
+                    Box::new(Orchestrator {
+                        model,
+                        memory,
+                        verifier,
+                        clock: SystemClock,
+                        ids: UuidIdGen,
+                        limits,
+                    })
+                },
+            )
         }
+    };
+    let deliberation: Box<dyn crate::runs::Deliberation> = match &state.operator_ledger {
+        // Metered: the run's worst case on the operator lane, the first and
+        // only thing that commits money.
+        Some(ledger) => {
+            let metered =
+                MeteredReservation::reserve(ledger, Lane::Operator).map_err(|refusal| {
+                    eprintln!("[operator] the ledger refused a model=meta run: {refusal}");
+                    refusal_error(&refusal)
+                })?;
+            Box::new(metered.wrap(build(metered.meter_model(model))))
+        }
+        None => build(model),
     };
     Ok(StartRequest {
         owner: identity.owner.clone(),

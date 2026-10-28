@@ -65,7 +65,8 @@
 //!   start refused before the start task. A release that still fails is
 //!   logged with its id; the reservation then keeps counting at its worst
 //!   case until an operator reconciles it with
-//!   [`budget::Ledger::release_by_id`] (operator console only).
+//!   [`budget::Ledger::release_by_id`] (the `consensus-api ledger release`
+//!   subcommand, [`crate::ledger_cli`]).
 //! - The Meta adapter gets [`budget::Ledger::meter`]
 //!   ([`crate::meta::MetaModelClient::with_meter`]): one draw before every
 //!   HTTP attempt, one settlement after it, a 2xx settled with
@@ -115,8 +116,15 @@
 //!   from the public listener.
 //! - The portal-wide geographic block is applied to every public route by
 //!   the API router (`CONSENSUS_GEO_*` are read whether or not live mode
-//!   is enabled); the operator's own live runs do not go through the
-//!   ledger yet (ADR-0007 follow-up).
+//!   is enabled).
+//! - The operator console's `model=meta` runs are metered on the same
+//!   ledger, on the operator lane, when `CONSENSUS_LIVE_LEDGER_DIR` is set
+//!   ([`crate::server::operator_ledger`], read credential-free like the
+//!   `ledger` subcommand): the run's worst case reserved before it starts,
+//!   every HTTP attempt drawn and settled, the reservation released when it
+//!   ends, through [`gate::MeteredReservation`], so the caps, every trip and
+//!   the kill switch stop them too. Without the variable they are
+//!   unmetered, and `serve-operator`'s startup line says so.
 
 pub mod budget;
 pub mod config;

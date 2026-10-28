@@ -512,6 +512,21 @@ impl Drop for CreationClaim {
 /// [`RunStore::health`]: consensus_runtime::RunStore::health
 pub const READY_CACHE_TTL: Duration = Duration::from_secs(2);
 
+/// Where the operator surface reads the Meta configuration of a
+/// `model=meta` run, at the run's creation: [`MetaConfig::try_from_env`]
+/// in production (the process environment, the key file first); a test
+/// points it at its fake Chat Completions server.
+///
+/// [`MetaConfig::try_from_env`]: crate::config::MetaConfig::try_from_env
+pub type MetaSource = Arc<
+    dyn Fn() -> Result<Option<crate::config::MetaConfig>, crate::config::ConfigError> + Send + Sync,
+>;
+
+/// The production [`MetaSource`]: the process environment.
+pub fn meta_from_env() -> MetaSource {
+    Arc::new(crate::config::MetaConfig::try_from_env)
+}
+
 /// Shared state of one server.
 #[derive(Clone)]
 pub struct AppState {
@@ -535,6 +550,14 @@ pub struct AppState {
     /// live-only block by the live gate. Loaded from the `CONSENSUS_GEO_*` variables
     /// with their defaults whether or not live mode is enabled.
     pub geo: Arc<GeoPolicy>,
+    /// Operator surface: the live ledger every `model=meta` run is metered
+    /// on (the operator lane), when `CONSENSUS_LIVE_LEDGER_DIR` is set; with
+    /// `None` those runs are unmetered. Unused on the public surface, whose
+    /// live runs go through [`AppState::live_gate`].
+    pub operator_ledger: Option<crate::live::budget::Ledger>,
+    /// Operator surface: where a `model=meta` run's Meta configuration
+    /// comes from.
+    pub operator_meta: MetaSource,
 }
 
 impl AppState {

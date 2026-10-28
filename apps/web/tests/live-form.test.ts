@@ -140,9 +140,12 @@ describe("startBlocker", () => {
 });
 
 describe("budget amounts and trip codes", () => {
-  it("parses the ledger's six-decimal USD strings, and nothing else", () => {
+  it("reads the ledger's six-decimal USD strings cut to cents, and nothing else", () => {
     expect(parseUsd("4.250000")).toBe(4.25);
-    expect(parseUsd("0.000024")).toBe(0.000024);
+    expect(parseUsd("9.120000")).toBe(9.12);
+    // Never rounded up: what remains is shown at most as it is.
+    expect(parseUsd("9.129999")).toBe(9.12);
+    expect(parseUsd("0.000024")).toBe(0);
     expect(parseUsd("60")).toBe(60);
     expect(parseUsd("-1.000000")).toBeNull();
     expect(parseUsd("4,25")).toBeNull();

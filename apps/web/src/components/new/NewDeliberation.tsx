@@ -257,8 +257,8 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
     }
   };
 
-  const disabled = closed !== null || starting;
-
+  // A closed form lists the presets for reading and offers no control that
+  // could not be used; an open one is the request form.
   return (
     <form
       className="hc-form"
@@ -270,48 +270,61 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
       }}
     >
       {closed === null ? null : <ClosedNotice locale={locale} reason={closed} budget={budget} />}
-      <RadioList
-        label={t("presetLegend")}
-        value={presetId}
-        onChange={setPresetId}
-        isDisabled={disabled}
-      >
-        {live.presets.map((preset) => (
-          <RadioListItem
-            key={preset.id}
-            value={preset.id}
-            label={preset.title}
-            description={<PresetDescription preset={preset} />}
-          />
-        ))}
-      </RadioList>
+      {closed === null ? (
+        <RadioList
+          label={t("presetLegend")}
+          value={presetId}
+          onChange={setPresetId}
+          isDisabled={starting}
+        >
+          {live.presets.map((preset) => (
+            <RadioListItem
+              key={preset.id}
+              value={preset.id}
+              label={preset.title}
+              description={<PresetDescription preset={preset} />}
+            />
+          ))}
+        </RadioList>
+      ) : (
+        <ul className="hc-preset-list" role="list" aria-label={t("presetLegend")}>
+          {live.presets.map((preset) => (
+            <li key={preset.id} className="hc-preset-item">
+              <p className="hc-card-title">{preset.title}</p>
+              <PresetDescription preset={preset} />
+            </li>
+          ))}
+        </ul>
+      )}
       {budget === null ? null : <BudgetPanel budget={budget} />}
-      {live.requires_adult_attestation ? (
+      {closed === null && live.requires_adult_attestation ? (
         <div className="hc-field" data-live-attestation>
           <CheckboxInput
             label={t("attest")}
             description={t("attestDescription")}
             value={attested}
             onChange={(checked) => setAttested(checked)}
-            isDisabled={disabled}
+            isDisabled={starting}
           />
           <p className="hc-supporting">{t.rich("attestTerms", richTags(locale))}</p>
         </div>
       ) : null}
-      <details className="hc-details">
-        <summary>{t("inviteSummary")}</summary>
-        <div className="hc-details-body">
-          <TextInput
-            label={t("inviteLabel")}
-            description={t("inviteDescription", { max: JUDGE_CODE_MAX_CHARS })}
-            value={judgeCode}
-            onChange={(value) => setJudgeCode(value)}
-            isOptional
-            isDisabled={disabled}
-            autoComplete="off"
-          />
-        </div>
-      </details>
+      {closed === null ? (
+        <details className="hc-details">
+          <summary>{t("inviteSummary")}</summary>
+          <div className="hc-details-body">
+            <TextInput
+              label={t("inviteLabel")}
+              description={t("inviteDescription", { max: JUDGE_CODE_MAX_CHARS })}
+              value={judgeCode}
+              onChange={(value) => setJudgeCode(value)}
+              isOptional
+              isDisabled={starting}
+              autoComplete="off"
+            />
+          </div>
+        </details>
+      ) : null}
       {/* Without a site key the closed notice above says why; nothing is loaded. */}
       {live.requires_turnstile && TURNSTILE_SITE_KEY !== undefined ? (
         <div className="hc-field">
@@ -381,7 +394,7 @@ function PresetDescription({ preset }: { preset: PresetV1 }) {
   );
 }
 
-/** The public budget as the ledger reports it, in US dollars (never rounded up). */
+/** The public budget as the ledger reports it, in US dollars (cut to cents, never rounded up). */
 function BudgetPanel({ budget }: { budget: PublicBudgetV1 }) {
   const t = useTranslations("NewDeliberation.live.budget");
   const format = useFormatter();
@@ -395,7 +408,6 @@ function BudgetPanel({ budget }: { budget: PublicBudgetV1 }) {
         currency: "USD",
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-        roundingMode: "trunc",
       })
     );
   };

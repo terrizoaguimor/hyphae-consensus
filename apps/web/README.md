@@ -22,10 +22,10 @@ the language-neutral root page `/` and the 404 page:
 
 | Page | Path | Content |
 |---|---|---|
-| Overview | `/` | What the system does, the main call to action (until the health probe answers, and when the API is unreachable: "How guided examples will work", linking to the Modes article; once the API answered: "Run a guided example", with the server's schema, policy and contract versions from the health answer), the tour invitation, how a deliberation works, the provenance legend; impact metrics are a not-connected placeholder |
-| New deliberation | `new/` | Guided examples from `GET /scenarios` (title, description, expected outcome as a neutral chip, SIMULATED model and evidence badges, a Run button: `ensureSession`, `POST /runs` with a fresh `Idempotency-Key`, then the run page) and the live presets from `capabilities.live` (adult attestation, optional invite code under a disclosure, the Turnstile widget, `POST /live-runs`), or the fixed "Live mode is not enabled on this server" state linking to the showcase; every API error shows its code's sentence and the Retry-After wait |
-| My runs | `runs/` | The session's runs from `GET /runs` (title, state, outcome with its evidence axis, provenance badges, created and updated, "access ends" and "deleted after" from the capabilities limits), the empty state, no list and no count without a session |
-| Run workspace | `run/?id=<run_id>` | Client-rendered from the query string: header (title, state, outcome with evidence axis, provenance axes with the latest frame's delivery, flags), tabs Live (named Playback for a run at rest), Explorer and Decision; see "Run workspace" below |
+| Overview | `/` | What the system does, the main call to action (until the health probe answers, and when the API is unreachable: "How guided examples will work", linking to the Modes article; once the API answered it opens New deliberation and reads "Run a guided example" only when `capabilities.guided_enabled` says so, with the server's schema, policy and contract versions from the health answer, and a note when the server's contract is not the one this build was generated from), the tour invitation, how a deliberation works, the provenance legend; impact metrics are a not-connected placeholder |
+| New deliberation | `new/` | Guided examples from `GET /scenarios` (the count the server lists, title, description, expected outcome as a neutral chip, SIMULATED model and evidence badges, a Run button: `ensureSession`, `POST /runs` with a fresh `Idempotency-Key`, then the run page) and the live presets from `capabilities.live` (`LiveCapabilitiesV1`: each preset with the badges of its own recorded model and evidence axes, the public budget in US dollars, the 18+ and territory attestation linking to the Terms, an optional invite code under a disclosure, the Turnstile widget, `POST /live-runs`; see "Live form" below), or the fixed "Live mode is not enabled on this server" state linking to the showcase; every API error shows its code's sentence and the Retry-After wait |
+| My runs | `runs/` | The session's runs from `GET /runs` (title, state, outcome with its evidence axis, the failure sentence of a failed run, provenance badges, never a LIVE label: a live-model run reads META MODEL with its recorded date, created and updated, "access ends" and "deleted after" from the capabilities limits), the empty state, no list and no count without a session |
+| Run workspace | `run/?id=<run_id>` | Client-rendered from the query string: header (title, state, outcome with evidence axis and, for a revision, which proposal it is for, records, revision round, run id, the failure sentence of a failed run, provenance axes with the latest frame's delivery, flags), the error of a failed detail request with a retry, tabs Live (only while the run deliberates and its latest frame is LIVE; Playback otherwise), Explorer and Decision; see "Run workspace" below |
 | Research showcase | `showcase/` | Not-connected placeholder (recorded runs, RECORDED label, dated corrections, MANIFEST) |
 | Docs | `docs/` | Index of 7 articles, tour launcher, explanation level |
 | Docs articles | `docs/<slug>/` | `what-is`, `three-roles`, `not-voting`, `verified-evidence`, `abstain-contested`, `human-authorization`, `modes`: summary, sections, technical details, previous/next |
@@ -85,39 +85,72 @@ run workspace is not a navigation entry: it is reached from New deliberation
 - **Errors in the UI**: `<ApiErrorNotice>` shows the translated sentence of
   the code (`Api.errors.<code>` in the catalogs, one per `ErrorCode` of the
   contract plus the client's own; an unknown code gets the generic
-  sentence), the Retry-After wait, and the code and HTTP status.
+  sentence), the Retry-After wait, the code and HTTP status, and a "Try
+  again" button when the caller passes `onRetry`. The registry is
+  `src/lib/api/errors.ts`: `satisfies Record<ErrorCode, true>` makes a
+  contract code without an entry fail `tsc`, and `tests/api-errors.test.ts`
+  reads the generated `ErrorCode` union and requires a sentence for each
+  member in every catalog. The server's English `message` is never shown.
+- **Failed runs**: a failed run (header, Explorer row, My runs card) reads
+  the translated sentence of its failure CODE (`src/lib/run/failure.ts`,
+  `Run.failure.codes.<code>`: every code `public_view::failure_message`
+  knows, the live ledger's `budget_refused` and `budget_unsettled`, the Meta
+  adapter's provider codes and the runtime's model-output codes), never the
+  server's English message; another code gets the generic sentence, which
+  names the code. `evidence_unavailable` records likewise
+  (`Run.unavailable`).
 
 ## Run workspace
 
 `src/components/run/`: `useRunData` loads the detail (`GET /runs/{id}`) and
 opens the stream (`GET /runs/{id}/events`, every stored frame then the live
 tail, until `stream_end`; a gap, a resync or the end re-reads the detail).
-Frames go through a pacer (`src/lib/run/pacing.ts`) before they are shown:
-a guided run finishes in milliseconds and streams as `delivery: replay`, so
-replayed frames are released one every 650 ms, labelled "simulated · paced
-for readability", with a "Skip pacing" control; live frames are never
-delayed; reduced motion (the OS setting or the in-app preference) turns the
-pacing off. Server timestamps are shown untouched.
+A failed detail request is kept as an error the workspace shows with a
+retry (never a loading line), the responses of older requests are dropped,
+and a detail never replaces one that is further along; the header shows the
+newest known summary (`src/lib/run/view.ts` `newestSummary`). Frames go
+through a pacer (`src/lib/run/pacing.ts`) before they are shown: a guided
+run finishes in milliseconds and streams as `delivery: replay`, so the
+replayed frames of a scripted run (`isPaceable` in `src/lib/provenance.ts`)
+are released one every 650 ms, labelled "simulated · paced for
+readability" with a waiting count and a "Skip pacing" control while frames
+are queued, announced once when pacing starts and once when it ends; a live
+or mixed model run is never paced or labelled simulated, live frames are
+never delayed, and reduced motion (the OS setting or the in-app preference)
+turns the pacing off. Server timestamps are shown untouched.
 
-- **Live / Playback** (`StageTab`): stream status, pacing control, the
-  three-agent stage (Proposer, Critic, Evidence Evaluator) where each card
-  shows the latest document of its role with the delivery badge of the frame
-  that carried it, the runtime lane (records retrieved, proofs checked,
-  recalls proven, counted from the frames), and the recommendation with its
-  evidence axis. The tab is named Live while the run is deliberating
-  (`summary.active`) and Playback once it is at rest.
+- **Live / Playback** (`StageTab`): stream status (a failed stream says the
+  stage shows the stored records and offers a reconnect after the newest
+  record held), pacing control, the three-agent stage (Proposer, Critic,
+  Evidence Evaluator) where each card shows the latest document of its role
+  with the delivery badge of the record that carried it, the runtime lane
+  (records retrieved, proofs checked, recalls proven), and the
+  recommendation with its evidence axis. The records are the frames shown so
+  far plus what the detail holds and the stream did not deliver (a gap at
+  once; the rest once the stream is settled and nothing is paced), read as
+  replayed (`stageRecords`), so the counts match the run. The tab is named
+  Live only while the run deliberates and its latest frame is LIVE, Playback
+  otherwise.
 - **Explorer** (`ExplorerTab`): the event timeline (sequence, type, actor,
   time, a one-line summary, the public event as expandable JSON), filterable
   by type; the rows are the union of the detail's events and the frames'.
+  Every status is translated: a scripted proof reads "SIMULATED proof
+  (scripted outcome …)", factual and relevance statuses and a decision's
+  authority have their own words, a failure or an unavailable retrieval
+  reads the sentence of its code.
 - **Decision** (`DecisionTab`): the recommendation kind with its evidence
-  axis, rationale, protocol, unresolved assumptions and uncertainties, the
-  open objections, the superseded-proposal notice (both summaries side by
-  side when the recommendation is for a revision), the public decision form
-  (approve or reject with an optional note; an override of a blocked or
+  axis and, right under it, the scope line when the recommendation is for a
+  revision (which proposal it is for, which one it replaced, the task, both
+  summaries side by side: K03/K04), rationale, protocol, unresolved
+  assumptions and uncertainties, the open objections, the public decision
+  form (approve or reject with an optional note; an override of a blocked or
   abstained run needs the note) with the fixed public_demo notice, enabled
   only while the run awaits a decision and belongs to this session; the
-  recorded decision with the server's notice; links to the receipt and the
-  verbatim log; cancel for a run still deliberating.
+  recorded decision with the server's notice; the receipt link, and the
+  verbatim log link only when the public surface publishes it
+  (`ndjsonPublishable`, the server's rule: a live-declared run answers `404
+  ndjson_unavailable`, said in a sentence instead); cancel for a run still
+  deliberating.
 - Not here: Evidence, Proof inspector, Audit trail and Meta API panel
   (another lane; no stubs are rendered).
 
@@ -125,13 +158,121 @@ Honesty rules the views follow (release gate G7; `src/lib/provenance.ts`,
 each with a unit test): LIVE only when a frame's delivery is `live`, the
 model axis is `live_meta` and no flag is raised (`provenance_inconsistent`,
 `unchained` and `mode_undeclared` are shown and never render as LIVE; a
-live-delivered record of a scripted run reads STREAMING); a replayed frame of
-a live-model run reads "Meta model · recorded <date>" next to REPLAY; a
-scripted provider reads "scripted double, no model call"; simulated evidence
-is named next to every outcome ("supported — on SIMULATED evidence"); a
-simulated proof is the neutral SIMULATED token with its scripted outcome as
-text, never a green "valid"; every count comes from the run data; nothing
+live-delivered record of a scripted run reads STREAMING); every label with a
+LIVE word (the LIVE delivery badge, the LIVE META model badge, "Meta model ·
+live", the Live tab) goes through `isLive`, so a replayed frame, a list
+entry, a preset or a flagged run reads META MODEL (a warning with a blocking
+flag) with "Meta model · recorded <date>" next to REPLAY, in every locale
+(`tests/provenance.test.ts` checks each locale's LIVE word); a scripted
+provider reads "scripted double, no model call"; simulated evidence is named
+next to every outcome ("supported — on SIMULATED evidence"); a simulated
+proof is the neutral SIMULATED token with its scripted outcome as text,
+never a green "valid"; every count comes from the run data; nothing
 pretends to load.
+
+## Conventions for the views that follow (lane W2)
+
+The Evidence tab, Proof inspector, Audit trail, Meta API panel, showcase
+detail and the plain/technical explanations of `PolicyTrace` build on what
+exists; none of it is to be duplicated.
+
+- **One run, one data source.** `useRunData(runId)` (mounted once by
+  `RunWorkspace` under `key={runId}`) is the only reader of
+  `GET /runs/{id}` and the stream; a new tab takes `data: RunData` (or
+  `detail`/`frames`) as props and adds itself to `TabKey` and the `items` of
+  `<Tabs>` in `RunWorkspace.tsx` (one panel, `run-tabpanel`). Records come
+  from `src/lib/run/view.ts`: `mergeEvents` (every record of the detail and
+  the frames: the Audit trail's list), `stageRecords` (what pacing has shown),
+  `newestSummary`, `supersededProposal`. The Explorer already lists the
+  events with their public JSON: the Audit trail is about the chain
+  (`detail.chain`, `prev_hash`/`hash`, the receipt), not a second timeline.
+- **Requests** go through `api` (`src/lib/api/client.ts`); a new endpoint
+  gets a method there and a zod mirror in `schemas.ts` (`z.looseObject`,
+  strict enumerations, `satisfies z.ZodType<T.X>` against the generated
+  `types.ts`, which is never edited by hand: `pnpm api:types`). The showcase
+  client methods exist (`showcase`, `showcaseDetail`, `showcaseReceipt`);
+  archived runs are not streamed and are never presented as running:
+  `source: research_archive` reads RECORDED, and without a delivery the
+  model badge is META MODEL by construction.
+- **Labels** come only from `src/lib/provenance.ts` (`isLive`,
+  `modelLabel(provenance, delivery?)`, `deliveryLabel`, `evidenceLabel`,
+  `sourceLabel`, `flagLabel`, `modelNoteKey`, `proofToken`,
+  `ndjsonPublishable`, `isPaceable`) and `<ProvenanceBadges>` (pass
+  `delivery` only for a frame being watched). A simulated proof is never a
+  green or cyan "valid" (`proofToken`; `ProofStatus` in `StageTab.tsx`
+  renders it); Hyphae cyan is for real proof and evidence only. Request ids
+  (`meta_request_ids`, `ModelInvocationV1.request_id`) are evidence of a
+  recorded Meta call, never of liveness.
+- **Errors and failures**: `<ApiErrorNotice error onRetry>` (every
+  `ErrorCode` has a sentence; `error.message` is never shown); a failure
+  code through `FailureSentence` / `useFailureText` / `useUnavailableText`
+  (`src/components/run/FailureSentence.tsx`). A settled failure is never a
+  loading line.
+- **Explanations**: `RecommendationV1.trace` (`PolicyTrace`: rule, reasons,
+  counts, version) and `rationale_code` are the data; render them through
+  catalog templates keyed by rule and reason, plain or technical after the
+  `explanation` preference (`usePreferences()`), and keep the server's
+  English `rationale` for the technical level only (the Decision tab still
+  shows it as recorded).
+- **i18n**: every string in `messages/{en,es,pt-BR,fr}.json`
+  (`react/jsx-no-literals`); a namespace a client component reads must be
+  listed in `clientNamespaces` (`src/i18n/messages.ts`); computed keys go
+  through `dynamicTranslator` with a unit test that every computed key exists
+  in the four catalogs (as `tests/provenance.test.ts`, `tests/api-errors.test.ts`,
+  `tests/run-failure.test.ts` do); every plural carries `=0`, `one` and
+  `other` (`tests/plurals.test.ts`; Spanish keeps its `many` branches); no
+  enumeration value is interpolated raw (translate it, as
+  `Run.explorer.factual|relevance|authority` and `Provenance.proof.*` do);
+  rich text only with `RICH_TAGS` and `richTags(locale)`.
+- **Tests**: logic lives in `src/lib/**` and is unit-tested in Vitest's node
+  environment (there is no DOM test setup); the views are covered by
+  `e2e/api.spec.ts` over `mockApi()` (`detail`, `frames`, `extraRuns`,
+  `detailFailures`, `streamFailures`, `liveEnabled`/`live*`, `capabilities`,
+  `health`), with variants derived from the fixtures (`awaitingDecisionDetail`,
+  `liveModelDetail`, `framesWith`, `inProgressLiveRun`, `failedDetail`,
+  `liveR01Run`); the showcase routes (`/showcase`, `/showcase/{id}`,
+  `/research/*`) are not mocked yet. Use `expectNoLive(page, locale)` for
+  every view that must not read LIVE, `takeProblem` for each API error a
+  test provokes, `reducedMotion: "reduce"` to skip pacing, and add the new
+  tabs to the axe scans (`writeScans`, `blocking`).
+- **CSP**: no Astryx component built on `Layer` (TabList, popover, tooltip,
+  dialog, `disabledMessage` tooltips, a TextInput `status` message): they
+  inject a `<style>` element the hash-only policy blocks; no `new Function`
+  (zod stays jitless); no inline event handler attributes.
+
+## Live form
+
+`src/components/new/NewDeliberation.tsx` over `src/lib/live/form.ts` (the
+rules, unit-tested) and `src/lib/live/turnstile.ts` (the widget):
+
+- `capabilities.live` is mirrored exactly (`LiveCapabilitiesV1`, `PresetV1`,
+  `PublicBudgetV1` in `src/lib/api/schemas.ts`). Each preset shows the
+  badges of its own model and evidence axes (no delivery, so never the
+  LIVE-worded model label); the budget is shown with translated labels in
+  US dollars, cut to whole cents on the ledger's decimal string, never
+  rounded up.
+- The form is closed, with one sentence and the showcase link, when the
+  ledger is tripped (with the trip code's reason), when no budget is
+  published (the ledger could not be read: nothing can be admitted), when no
+  preset is listed, or when the server requires Turnstile and this build has
+  no site key (every request would be refused). A closed form lists the
+  presets to read and offers no control.
+- An open form asks for a preset, the attestation (when
+  `requires_adult_attestation`: 18 or older and not using live mode from a
+  restricted territory, as the server records it, linking to the Terms;
+  legal wording pending the owner's sign-off), an optional invite code (sent
+  trimmed, only when 1 to 256 characters remain) and, when
+  `requires_turnstile`, a Turnstile token: Start stays disabled until each
+  is there.
+- Turnstile (`src/components/new/Turnstile.tsx`) loads
+  `challenges.cloudflare.com` only when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` was
+  set at build time, and then at runtime (never from the exported HTML,
+  which the CSP manifest would reject). The widget is rendered with the
+  action the server verifies (`live-run`, `CONSENSUS_TURNSTILE_ACTION_LIVE`).
+  A token is single-use (the gate spends it at Siteverify before it reserves
+  the budget, whatever it answers): every submit hands it to that request
+  only and resets the widget. The server's CSP has to allow that origin in
+  `script-src` and `frame-src` when the key is set.
 
 Manual smoke against the real server (host side, read-only use of the
 prebuilt `target/debug/consensus-api.exe serve-public` with
@@ -146,13 +287,6 @@ routes and save the bodies into the git-ignored `test-results/smoke/`
 then validates every capture against the zod mirrors (and the SSE capture's
 sequence and ids); without a capture it skips. Done on 2026-10-28 for a
 guided `retry` run and the archived runs: every capture parsed.
-
-Turnstile (`src/components/new/Turnstile.tsx`) loads
-`challenges.cloudflare.com` only when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` was set
-at build time, and then at runtime (never from the exported HTML, which the
-CSP manifest would reject); without a key it shows the fixed statement that
-live mode needs the challenge. The server's CSP has to allow that origin in
-`script-src` and `frame-src` when the key is set.
 
 Docs and legal statements come from the root README, `docs/threat-model.md`,
 the multi-agent (AI) audit of 2026-10-27 and the approved plan, with the owner's decisions of
@@ -264,7 +398,7 @@ Notes:
 | `pnpm install --frozen-lockfile` | Install exactly what `pnpm-lock.yaml` records |
 | `pnpm typecheck` | `next typegen`, then `tsc --noEmit` (strict) |
 | `pnpm lint` | ESLint (`eslint-config-next` core-web-vitals + TypeScript), zero warnings allowed |
-| `pnpm test` | Vitest: locale parity, ICU and rich-text tags of every catalog, site map, preferences, theme contrast, theme script, CSP manifest, static server, i18n helpers, the generated contract types (drift and hash), the zod mirrors over every contract fixture, the API client, the SSE stream, the pacer and the honesty predicates |
+| `pnpm test` | Vitest: locale parity, ICU and rich-text tags of every catalog, =0 branches of every plural, site map, preferences, theme contrast, theme script, CSP manifest, static server, i18n helpers, the generated contract types (drift and hash), the zod mirrors over every contract fixture (per-fixture expectations, the live section), a sentence for every `ErrorCode` read from the generated union, the API client (judge code trimming), the SSE stream, the pacer, the honesty predicates (no LIVE word unless `isLive`, in every locale), the live form's rules, the Turnstile widget, the run view helpers and the failure sentences |
 | `pnpm build` | Static export to `out/`, then `node scripts/csp-manifest.mjs` |
 | `pnpm theme:build` | Compile `src/theme/hyphaeMissionTheme.ts` with `astryx theme build` |
 | `pnpm theme:check` | Fail if the committed theme outputs drift from the source |
@@ -541,7 +675,7 @@ same-origin request or request to another origin.
 | `onboarding.spec.ts` | Offered but never opened by itself; Skip, Escape and backdrop close it and are remembered; all six steps with Back and Finish; strict focus trap and inert page; reopening from Docs; translated in every locale |
 | `motion.spec.ts` | OS reduced motion and the in-app setting remove movement and keep a short fade; "Match system" follows the OS live; the drawer; reduced transparency makes the glass solid (Chromium, through the DevTools protocol) |
 | `a11y.spec.ts` | axe on every page in both themes and all locales, the overlays, the 404 page in both themes, and phone layouts |
-| `api.spec.ts` | Over the mocked `/api/v1` (`e2e/api-mock.ts`, the contract fixtures): New deliberation -> run -> frames -> decision -> receipt link (with the `Idempotency-Key` and the `expected` block checked); a replayed finished run never reads LIVE and is named Playback; a replayed live-model run reads REPLAY and "Meta model · recorded"; a `provenance_inconsistent` run never reads LIVE even on live-delivered frames; the live section's disabled state and its form (attestation, invite code, the Turnstile statement, a 422 shown honestly); an error's sentence and Retry-After; My runs with and without a session; the Explorer filter; the run page without an id; the runtime NotConnected state against the static server; the Overview's button in both states; the four locales; axe on `/new`, `/runs` and the three tabs of `/run` in every locale and theme |
+| `api.spec.ts` | Over the mocked `/api/v1` (`e2e/api-mock.ts`, the contract fixtures; the live section in the contract's shape, validated with the client's zod mirror): New deliberation -> run -> frames -> decision -> receipt link (with the `Idempotency-Key` and the `expected` block checked); a replayed finished run never reads LIVE and is named Playback; no LIVE word on a replayed, flagged or listed live-model run in the four locales, and LIVE for a live-model run in progress; a `provenance_inconsistent` run never reads LIVE even on live-delivered frames; pacing only for scripted runs, and off with the in-app Reduced setting; the header's labels; the live section's disabled state, the closed form (no site key, tripped or unreadable ledger) and the open form's request (trimmed invite code, a live refusal's sentence); an error's sentence and Retry-After; a failed detail request with its retry; a failed stream with the stored records and a reconnect; a failed run explained from its code; the scope line of a revision; no verbatim-log link for a live-declared run; My runs with and without a session; the Explorer (filter, translated statuses, SIMULATED proofs, =0 count); the run page without an id; the runtime NotConnected state against the static server; the Overview's button (and a server on another contract); the four locales; axe on `/new`, `/runs` and the three tabs of `/run` in every locale and theme, and on the open live form, a failed run and a failed detail |
 
 The page fixture (`e2e/fixtures.ts`) fails a test on any console error, page
 error, CSP violation, request to another origin or same-origin response of
@@ -572,9 +706,17 @@ the axe scans.
   level, the Overview's build note) still speak in the future tense; the
   build note now shows only when the API is unreachable, the rest awaits a
   rewrite in the four languages once the connected portal is reviewed.
-- `capabilities.live` (presets, public budget) is read defensively: the
-  live-gate lane defines its shape; the budget is shown as the key/value
-  pairs it carries.
+- The live form with a Turnstile site key (Start waiting for the token, the
+  token spent and the widget reset on every submit, the `live-run` action)
+  is covered by unit tests (`tests/live-form.test.ts`,
+  `tests/turnstile.test.ts`) only: the e2e export is built without a key,
+  so the suite sees the closed form, and the open form only through a
+  mocked server that requires no token.
+- The live attestation wording (age and territory) and the Limitations
+  text are legal drafts awaiting the owner's sign-off; the Limitations
+  page still says an archived live-model run is labelled "next to LIVE
+  META", while the views now read META MODEL for anything not delivered
+  live.
 - Script weight: `/en/` loads 13 async scripts, 797,215 bytes raw (230,921
   gzip at level 9), plus a 112,594-byte `noModule` polyfill that modern
   browsers skip. The whole export is 460 files, 7,132,989 bytes (each page

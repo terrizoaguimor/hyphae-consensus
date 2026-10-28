@@ -93,13 +93,17 @@ export function isTripCode(code: string | null | undefined): code is TripCode {
 
 /**
  * A ledger amount (USD, as the ledger renders it: digits and a six-decimal
- * fraction) as a number for formatting, or null when the string is not such
- * an amount (it is then shown as sent, never guessed).
+ * fraction) cut to whole cents on its decimal digits, so a remaining budget
+ * is never shown rounded up (and no binary float decides a cent), or null
+ * when the string is not such an amount (it is then shown as sent, never
+ * guessed).
  */
 export function parseUsd(value: string): number | null {
-  if (!/^\d+(\.\d+)?$/.test(value)) {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value);
+  if (match === null) {
     return null;
   }
-  const amount = Number(value);
+  const cents = (match[2] ?? "").padEnd(2, "0").slice(0, 2);
+  const amount = Number(`${match[1] ?? "0"}.${cents}`);
   return Number.isFinite(amount) ? amount : null;
 }

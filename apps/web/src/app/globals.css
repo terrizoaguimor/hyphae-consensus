@@ -1243,6 +1243,13 @@
     margin: 0;
   }
 
+  /* The secondary text color does not reach 4.5:1 on the error surface in
+     dark mode; inside an error panel supporting lines keep the primary
+     color and differ by size only. */
+  .hc-error .hc-supporting {
+    color: var(--color-text-primary);
+  }
+
   .hc-error-title {
     font-weight: 600;
   }
@@ -1649,11 +1656,34 @@
     margin: 0;
   }
 
-  /* A live preset's text and the badges of its own recorded axes. */
+  /* A live preset's text and the badges of its own recorded axes; when the
+     live form is closed the presets are a list to read, not radios. */
   .hc-preset {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-2);
+  }
+
+  .hc-preset-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .hc-preset-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+    padding: var(--spacing-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-element);
+  }
+
+  .hc-preset-item > p {
+    margin: 0;
   }
 
   .hc-preset-text {

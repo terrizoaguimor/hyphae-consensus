@@ -6,8 +6,8 @@
 // count, the revision round, the run id, the failure sentence of a failed
 // run, the four provenance axes with the latest frame's delivery, the
 // flags), the error of a failed detail request with a retry, and the tabs
-// Live (named Playback unless the latest frame is LIVE by
-// src/lib/provenance.ts isLive), Explorer and Decision. The other tabs of the
+// Live (named Playback unless the run deliberates and its latest frame is
+// LIVE by src/lib/provenance.ts isLive), Explorer and Decision. The other tabs of the
 // design (Evidence, Proof inspector, Audit trail, Meta API panel) belong to
 // another lane and are not stubbed here.
 
@@ -97,10 +97,12 @@ function RunView({ locale, runId }: RunViewProps) {
 
   const latest = frames.at(-1);
   const title = detail?.task?.title ?? summary.title ?? t("title");
-  // The stage tab says Live only when its newest frame is LIVE (isLive: a
-  // live frame of a live-model run without a blocking flag); a replayed,
-  // flagged, scripted or still undetermined run is a playback.
-  const liveNow = latest !== undefined && isLive(latest.delivery, summary.provenance);
+  // The stage tab says Live only while the run deliberates and its newest
+  // frame is LIVE (isLive: a live frame of a live-model run without a
+  // blocking flag); a replayed, flagged, scripted, still undetermined or
+  // finished run is a playback.
+  const liveNow =
+    summary.active && latest !== undefined && isLive(latest.delivery, summary.provenance);
   const stageLabel = liveNow ? t("tabs.live") : t("tabs.playback");
   // When the recommendation is for a revision, the header says which one.
   const revisedId =

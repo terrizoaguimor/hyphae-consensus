@@ -369,7 +369,7 @@ fn only_429_and_503_are_retried() {
 }
 
 #[test]
-fn a_refused_connection_is_retried_and_a_dropped_one_is_not() {
+fn a_refused_connection_is_retried_and_a_dropped_one_is_not_with_the_transport_retry_off() {
     // Nothing listens on this port: the connection never opens, so no
     // request was sent and retrying cannot bill twice.
     let port = std::net::TcpListener::bind("127.0.0.1:0")

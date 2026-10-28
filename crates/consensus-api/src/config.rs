@@ -227,10 +227,13 @@ pub struct MetaConfig {
     /// `max_attempts` and the call's time budget, when the connection
     /// breaks after the request was sent (reset, EOF; no HTTP status). The
     /// lost attempt may already have been billed, so this retry can bill
-    /// one duplicate call. The public live mode's USD ledger reserves a
-    /// run's worst case per HTTP attempt and charges a post-send transport
-    /// failure at that worst case (ADR-0007), so the duplicate is within
-    /// the reservation. Timeouts, 504 and non-retryable 4xx are never
+    /// one duplicate generation that no invocation records (a successful
+    /// retry shows as `attempts` = 2 with the answered call's usage only; a
+    /// failed one surfaces only in the failure reason, "2 attempt(s)
+    /// made"). ADR-0007's ledger design (lane S-b2, not yet in this tree)
+    /// charges a post-send transport failure at the attempt's full worst
+    /// case against the run's reservation; until it lands, nothing accounts
+    /// for the duplicate. Timeouts, 504 and non-retryable 4xx are never
     /// retried, whatever this is set to.
     pub retry_transport_once: bool,
     /// `max_completion_tokens` sent with every call.

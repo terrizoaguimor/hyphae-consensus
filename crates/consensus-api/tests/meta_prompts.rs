@@ -578,6 +578,15 @@ fn every_role_keeps_its_system_rules_and_protocol_instructions() {
         keyed_line,
         "Assess these claims, one assessment each, keyed by claim id: claim-1"
     );
+    // ... and exactly one such line: a duplicate would pass `find` above.
+    assert_eq!(
+        evaluate
+            .lines()
+            .filter(|l| l.starts_with("Assess these claims"))
+            .count(),
+        1,
+        "{evaluate}"
+    );
     let (_, proposal_end) = block_span(evaluate, "UNTRUSTED_PROPOSAL");
     let keyed_at = evaluate.find("Assess these claims").unwrap();
     let objections_at = evaluate

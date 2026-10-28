@@ -539,6 +539,15 @@ pub fn draft_schema<T: JsonSchema>() -> Result<OrderedJson, String> {
 /// the object is empty, and still strict. `cleared_contradictions` stays a
 /// list: clearing is optional per record by design. A repeated id is an
 /// error: the ids are this adapter's, so one would be a bug here.
+///
+/// Two features of this schema have only been exercised against the fake
+/// server, never the live API: a `$ref` value directly under `properties`
+/// (the live API has so far only been seen accepting `$ref` under `items`)
+/// and, for a round without objections, the empty `item_verdicts` object
+/// (`"properties": {}`, `"required": []`), which some strict-mode
+/// implementations reject. Either rejection would be loud (a 4xx fails the
+/// run), never silent; the next live smoke battery must include a run
+/// whose critique raises no objection.
 pub fn evaluation_schema(claim_ids: &[&str], item_ids: &[&str]) -> Result<OrderedJson, String> {
     let mut schema = draft_schema::<DraftEvaluation>()?;
     key_property(&mut schema, "assessments", claim_ids)?;

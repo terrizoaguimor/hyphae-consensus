@@ -100,7 +100,11 @@ fn every_invalid_value_is_an_error_naming_its_variable() {
         (vars::DAILY_USD, "-5"),
         (vars::DAILY_USD, "1e3"),
         (vars::LIFETIME_USD, "60,00"),
+        (vars::LIFETIME_USD, "16.00"),
         (vars::JUDGE_USD, "15.0000001"),
+        (vars::JUDGE_USD, "60.00"),
+        (vars::JUDGE_DAILY_USD, "abc"),
+        (vars::JUDGE_DAILY_USD, "15.01"),
         (vars::MAX_CONCURRENT, "0"),
         (vars::HOURLY_ADMISSIONS, "six"),
         (vars::BURST_FRACTION, "1.5"),
@@ -255,6 +259,23 @@ fn cross_checks_hold_the_caps_together() {
     assert!(err.vars().contains(&vars::DAILY_USD));
     assert!(err.to_string().contains("1.88"), "{err}");
 
+    // ...and the public share of the lifetime cap: $60 − $58.50 = $1.50
+    // would leave a public lane that refuses its first request forever.
+    let err = load(Exposure::Public, &env(&[(vars::JUDGE_USD, "58.50")])).unwrap_err();
+    match &err {
+        ConfigError::Inconsistent {
+            vars: named,
+            reason,
+        } => {
+            assert!(named.contains(&vars::JUDGE_USD), "{named:?}");
+            assert!(named.contains(&vars::LIFETIME_USD), "{named:?}");
+            assert!(reason.contains("public share"), "{reason}");
+            assert!(reason.contains("1.50"), "{reason}");
+        }
+        other => panic!("{other}"),
+    }
+    assert!(load(Exposure::Public, &env(&[(vars::JUDGE_USD, "58.00")])).is_ok());
+
     // The two widget actions must differ.
     let err = load(
         Exposure::Public,
@@ -343,6 +364,35 @@ fn judge_codes_load_as_digests_and_malformed_lines_are_never_echoed() {
     assert!(err.vars().contains(&vars::JUDGE_USD), "{err}");
     // Without codes a small slice is fine: the lane is closed anyway.
     assert!(load(Exposure::Public, &env(&[(vars::JUDGE_USD, "1.00")])).is_ok());
+}
+
+#[test]
+fn the_judge_daily_cap_defaults_to_the_slice_and_stays_within_it() {
+    let cfg = load(Exposure::Public, &Env::new()).unwrap();
+    assert_eq!(cfg.budget.judge_daily_cap, Usd::parse("15.00").unwrap());
+    let cfg = load(Exposure::Public, &env(&[(vars::JUDGE_DAILY_USD, "3.76")])).unwrap();
+    assert_eq!(cfg.budget.judge_daily_cap, Usd::parse("3.76").unwrap());
+    // Lowering the slice lowers the default with it.
+    let cfg = load(Exposure::Public, &env(&[(vars::JUDGE_USD, "4.00")])).unwrap();
+    assert_eq!(cfg.budget.judge_daily_cap, Usd::parse("4.00").unwrap());
+    // Above the slice: an error naming both.
+    let err = load(Exposure::Public, &env(&[(vars::JUDGE_DAILY_USD, "15.01")])).unwrap_err();
+    assert_eq!(err.vars(), vec![vars::JUDGE_DAILY_USD, vars::JUDGE_USD]);
+    // With codes configured, the daily cap must hold one run.
+    let dir = TempDir::new("judge-daily");
+    let mut e = Env::new();
+    e.insert(
+        vars::JUDGE_CODES_FILE,
+        dir.file("j", &JudgeCodes::digest_hex("x")),
+    );
+    e.insert(vars::JUDGE_DAILY_USD, "1.00".into());
+    let err = load(Exposure::Public, &e).unwrap_err();
+    assert_eq!(
+        err.vars(),
+        vec![vars::JUDGE_DAILY_USD, vars::JUDGE_CODES_FILE]
+    );
+    e.insert(vars::JUDGE_DAILY_USD, "1.88".into());
+    assert!(load(Exposure::Public, &e).is_ok());
 }
 
 #[test]

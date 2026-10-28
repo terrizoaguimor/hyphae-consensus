@@ -51,9 +51,12 @@
 //!   `hourly_admissions` reservations per rolling hour; at most
 //!   `max_concurrent` active reservations per process; the lifetime cap
 //!   minus the judge slice bounds it with the operator lane.
-//! - `judge`: its own slice of the lifetime cap, its own rolling-hour
-//!   window and one slot; not paced by the daily budget, so judges can run
-//!   while the public lane is exhausted, and never beyond the slice.
+//! - `judge`: its own slice of the lifetime cap, its own daily cap
+//!   ([`BudgetConfig::judge_daily_cap`], by default the whole slice), its
+//!   own rolling-hour window and one slot; not paced by the public daily
+//!   budget, so judges can run while the public lane is exhausted, and
+//!   never beyond the slice or the judge daily cap. One UTC day's exposure
+//!   on the key is therefore bounded by `daily_cap + judge_daily_cap`.
 //! - `operator`: the daily and lifetime caps without pacing or slots.
 //!
 //! **Exposure.** An active reservation counts at its full worst case. A
@@ -124,10 +127,15 @@ pub type LedgerClock = Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>;
 /// Caps, limits and prices the ledger enforces (see [`super::config`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BudgetConfig {
+    /// Public and operator reservations per UTC day.
     pub daily_cap: Usd,
     pub lifetime_cap: Usd,
     /// Reserved for the judge lane inside `lifetime_cap`.
     pub judge_slice: Usd,
+    /// Judge reservations per UTC day, at most `judge_slice` (the default
+    /// equals it, so judges stay admissible while the public day is
+    /// exhausted; one day's exposure is then `daily_cap + judge_daily_cap`).
+    pub judge_daily_cap: Usd,
     /// Active public reservations per process.
     pub max_concurrent: u32,
     /// Reservations per rolling hour, per lane (public and judge).
@@ -195,6 +203,12 @@ impl BudgetConfig {
                 self.judge_slice, self.lifetime_cap
             ));
         }
+        if self.judge_daily_cap > self.judge_slice {
+            return err(format!(
+                "judge daily cap {} exceeds the judge slice {}",
+                self.judge_daily_cap, self.judge_slice
+            ));
+        }
         if self.max_concurrent == 0 || self.hourly_admissions == 0 {
             return err("max_concurrent and hourly_admissions must be at least 1".into());
         }
@@ -212,7 +226,22 @@ impl BudgetConfig {
                 self.daily_cap
             ));
         }
+        if self.run_worst_case() > self.public_share() {
+            return err(format!(
+                "the public share of the lifetime cap ({} − {} judge slice = {}) cannot hold one run's worst case {}",
+                self.lifetime_cap,
+                self.judge_slice,
+                self.public_share(),
+                self.run_worst_case()
+            ));
+        }
         Ok(())
+    }
+
+    /// The lifetime cap left to the public and operator lanes once the
+    /// judge slice is set aside.
+    pub fn public_share(&self) -> Usd {
+        self.lifetime_cap.saturating_sub(self.judge_slice)
     }
 }
 
@@ -581,6 +610,8 @@ pub enum Refusal {
     LifetimeBudget,
     #[error("judge budget slice exhausted")]
     JudgeSlice,
+    #[error("judge daily budget exhausted; retry after {retry_after:?}")]
+    JudgeDaily { retry_after: Duration },
     #[error("hourly admission cap reached; retry after {retry_after:?}")]
     HourlyAdmissions { retry_after: Duration },
     #[error("every live slot is busy; retry after {retry_after:?}")]
@@ -603,6 +634,7 @@ impl Refusal {
             Refusal::DailyBudget { .. } => "live_budget_daily",
             Refusal::LifetimeBudget => "live_budget_lifetime",
             Refusal::JudgeSlice => "live_budget_judge",
+            Refusal::JudgeDaily { .. } => "live_budget_judge_daily",
             Refusal::HourlyAdmissions { .. } => "live_rate_hourly",
             Refusal::Concurrency { .. } => "live_busy",
             Refusal::ReservationExhausted { .. } => "live_run_budget",
@@ -616,6 +648,7 @@ impl Refusal {
     pub fn retry_after(&self) -> Option<Duration> {
         match self {
             Refusal::DailyBudget { retry_after }
+            | Refusal::JudgeDaily { retry_after }
             | Refusal::HourlyAdmissions { retry_after }
             | Refusal::Concurrency { retry_after } => Some(*retry_after),
             _ => None,
@@ -819,6 +852,10 @@ pub struct Snapshot {
     pub judge_slice: Usd,
     pub judge_committed: Usd,
     pub judge_remaining: Usd,
+    pub judge_daily_cap: Usd,
+    /// Worst-case exposure of today's judge reservations.
+    pub judge_daily_committed: Usd,
+    pub judge_daily_remaining: Usd,
     pub run_worst_case: Usd,
     pub hourly_cap: u32,
     pub hourly_public: u32,
@@ -948,6 +985,7 @@ struct Totals {
     nonjudge_committed: Usd,
     judge_committed: Usd,
     daily_committed: Usd,
+    judge_daily_committed: Usd,
     reservations: u64,
     unsettled: u64,
     hourly_public: u32,
@@ -1335,6 +1373,7 @@ impl Inner {
             nonjudge_committed: Usd::ZERO,
             judge_committed: Usd::ZERO,
             daily_committed: Usd::ZERO,
+            judge_daily_committed: Usd::ZERO,
             reservations: 0,
             unsettled: 0,
             hourly_public: 0,
@@ -1354,6 +1393,9 @@ impl Inner {
             match res.lane {
                 Lane::Judge => {
                     t.judge_committed = t.judge_committed.saturating_add(exposure);
+                    if res.at.date_naive() == today {
+                        t.judge_daily_committed = t.judge_daily_committed.saturating_add(exposure);
+                    }
                     if in_window {
                         t.hourly_judge += 1;
                         t.oldest_judge_in_window =
@@ -1481,6 +1523,9 @@ impl Inner {
             judge_slice: cfg.judge_slice,
             judge_committed: t.judge_committed,
             judge_remaining: cfg.judge_slice.saturating_sub(t.judge_committed),
+            judge_daily_cap: cfg.judge_daily_cap,
+            judge_daily_committed: t.judge_daily_committed,
+            judge_daily_remaining: cfg.judge_daily_cap.saturating_sub(t.judge_daily_committed),
             run_worst_case: cfg.run_worst_case(),
             hourly_cap: cfg.hourly_admissions,
             hourly_public: t.hourly_public,
@@ -1689,6 +1734,11 @@ impl Ledger {
                     }
                     if cfg.judge_slice.saturating_sub(t.judge_committed) < worst_case {
                         return Err(Refusal::JudgeSlice);
+                    }
+                    if cfg.judge_daily_cap.saturating_sub(t.judge_daily_committed) < worst_case {
+                        return Err(Refusal::JudgeDaily {
+                            retry_after: until_midnight(now),
+                        });
                     }
                 }
                 Lane::Operator => {
@@ -2034,6 +2084,12 @@ impl Ledger {
     }
 }
 
+/// Seconds until the next UTC day (at least one).
+fn until_midnight(now: DateTime<Utc>) -> Duration {
+    let elapsed = u64::from(now.num_seconds_from_midnight());
+    Duration::from_secs(SECONDS_PER_DAY.saturating_sub(elapsed).max(1))
+}
+
 fn window_retry(now: DateTime<Utc>, oldest: Option<DateTime<Utc>>) -> Duration {
     let secs = oldest
         .map(|o| (o + TimeDelta::seconds(SECONDS_PER_HOUR) - now).num_seconds())
@@ -2064,6 +2120,7 @@ mod tests {
             daily_cap: Usd::parse("10").unwrap(),
             lifetime_cap: Usd::parse("60").unwrap(),
             judge_slice: Usd::parse("15").unwrap(),
+            judge_daily_cap: Usd::parse("15").unwrap(),
             max_concurrent: 1,
             hourly_admissions: 6,
             burst_fraction: Ppm::parse("0.25").unwrap(),
@@ -2076,6 +2133,30 @@ mod tests {
         };
         cfg.validate().unwrap();
         assert_eq!(cfg.run_worst_case(), Usd::parse("1.88").unwrap());
+        assert_eq!(cfg.public_share(), Usd::parse("45").unwrap());
+        // The public share must hold one run, and the judge daily cap must
+        // fit the slice.
+        let dead_public = BudgetConfig {
+            judge_slice: Usd::parse("58.50").unwrap(),
+            judge_daily_cap: Usd::parse("15").unwrap(),
+            ..cfg.clone()
+        };
+        let err = dead_public.validate().unwrap_err().to_string();
+        assert!(err.contains("public share"), "{err}");
+        assert!(BudgetConfig {
+            judge_slice: Usd::parse("58").unwrap(),
+            ..cfg.clone()
+        }
+        .validate()
+        .is_ok());
+        let err = BudgetConfig {
+            judge_daily_cap: Usd::parse("15.01").unwrap(),
+            ..cfg.clone()
+        }
+        .validate()
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("judge daily cap"), "{err}");
         assert_eq!(cfg.burst(), Usd::parse("2.50").unwrap());
         assert_eq!(BudgetConfig::input_bound_tokens(5_000), 6_024);
         assert_eq!(

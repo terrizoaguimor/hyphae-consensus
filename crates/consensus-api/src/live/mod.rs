@@ -34,6 +34,14 @@
 //!   and territory acknowledgment, Turnstile, then
 //!   [`budget::Ledger::reserve`], and only then `create_task`. Nothing is
 //!   spent before the reservation exists.
+//! - The idempotency lookup is also what makes the Turnstile pass-through
+//!   safe: the `idempotency_key` given to [`turnstile::Siteverify::verify`]
+//!   must be exactly the owner-scoped idempotency key, and Cloudflare
+//!   accepts the same token again under the same key. So a repeated key
+//!   must return the stored response without calling `verify` or
+//!   `reserve`, and a repeated key with a different body or preset must be
+//!   answered 409/422 before Siteverify is called; otherwise one solved
+//!   challenge could start a second, different live run.
 //! - Hold the [`budget::Reservation`] for the run's whole life and call
 //!   [`budget::Ledger::release`] on every terminal state (finished,
 //!   failed, cancelled, panicked). It takes the handle by reference and is
@@ -64,8 +72,12 @@
 //! - The judge lane is entered only after [`judge::JudgeCodes::verify`]
 //!   accepted the presented code; an unknown code falls back to the
 //!   public lane, it never errors in a way that reveals whether codes
-//!   exist.
-//! - [`budget::Ledger::reset`] is operator-only and must never be
+//!   exist. Judge reservations are bounded by the judge slice and by
+//!   `CONSENSUS_LIVE_JUDGE_DAILY_USD` (default: the slice), so one day's
+//!   exposure on the key is `daily + judge daily`; the owner can lower the
+//!   judge daily cap without touching the public lane.
+//! - [`budget::Ledger::reset`], [`budget::Ledger::release_by_id`] and
+//!   [`budget::Ledger::snapshot`] are operator-only and must never be
 //!   reachable from the public listener.
 
 pub mod budget;

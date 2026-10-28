@@ -13,6 +13,7 @@
 //! | `CONSENSUS_LIVE_DAILY_USD` | `10.00` | Daily cap (UTC day) |
 //! | `CONSENSUS_LIVE_LIFETIME_USD` | `60.00` | Lifetime cap, judge slice included |
 //! | `CONSENSUS_LIVE_JUDGE_USD` | `15.00` | Judge-lane slice inside the lifetime cap |
+//! | `CONSENSUS_LIVE_JUDGE_DAILY_USD` | the judge slice | Judge reservations per UTC day (≤ the slice); a day's exposure is `daily + judge daily` |
 //! | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | unset (lane closed) | SHA-256 hex digests of invite codes, one per line |
 //! | `CONSENSUS_LIVE_LEDGER_DIR` | required when enabled | Ledger directory |
 //! | `CONSENSUS_LIVE_MAX_CONCURRENT` | `1` | Public live runs at once (in-process) |
@@ -32,11 +33,13 @@
 //! | `CONSENSUS_LIVE_KILL_SWITCH_FILE` | `<ledger dir>/kill-switch` | Its presence trips the ledger |
 //! | `CONSENSUS_LIVE_EXPOSURE_DAYS` | unset | When set, `daily × days ≤ lifetime` is enforced |
 //!
-//! Cross-checks: `judge ≤ lifetime`; the worst case of one run must fit
-//! the daily cap (and the judge slice when judge codes are configured),
-//! or nothing could ever be admitted; `daily × exposure_days ≤ lifetime`
-//! when the exposure is declared. In public mode a Cloudflare test secret
-//! is refused ([`turnstile::TEST_SECRETS`]).
+//! Cross-checks: `judge ≤ lifetime` and `judge daily ≤ judge`; the worst
+//! case of one run must fit the daily cap and the public share of the
+//! lifetime cap (`lifetime − judge`), and the judge slice and judge daily
+//! cap when judge codes are configured, or nothing could ever be admitted;
+//! `daily × exposure_days ≤ lifetime` when the exposure is declared. In
+//! public mode a Cloudflare test secret is refused
+//! ([`turnstile::TEST_SECRETS`]).
 
 use super::budget::BudgetConfig;
 use super::geo::{self, parse_country_list, GeoPolicy};
@@ -53,6 +56,7 @@ pub mod vars {
     pub const DAILY_USD: &str = "CONSENSUS_LIVE_DAILY_USD";
     pub const LIFETIME_USD: &str = "CONSENSUS_LIVE_LIFETIME_USD";
     pub const JUDGE_USD: &str = "CONSENSUS_LIVE_JUDGE_USD";
+    pub const JUDGE_DAILY_USD: &str = "CONSENSUS_LIVE_JUDGE_DAILY_USD";
     pub const JUDGE_CODES_FILE: &str = "CONSENSUS_LIVE_JUDGE_CODES_FILE";
     pub const LEDGER_DIR: &str = "CONSENSUS_LIVE_LEDGER_DIR";
     pub const MAX_CONCURRENT: &str = "CONSENSUS_LIVE_MAX_CONCURRENT";
@@ -187,6 +191,15 @@ impl LiveConfig {
         let daily_cap = parse_usd(vars::DAILY_USD, env, defaults::DAILY_USD)?;
         let lifetime_cap = parse_usd(vars::LIFETIME_USD, env, defaults::LIFETIME_USD)?;
         let judge_slice = parse_usd(vars::JUDGE_USD, env, defaults::JUDGE_USD)?;
+        // Defaults to the slice itself: judges stay admissible while the
+        // public day is exhausted unless the owner bounds them per day.
+        let judge_daily_cap = match env.get(vars::JUDGE_DAILY_USD)? {
+            None => judge_slice,
+            Some(raw) => Usd::parse(&raw).map_err(|e| ConfigError::Invalid {
+                var: vars::JUDGE_DAILY_USD,
+                reason: format!("must be a decimal USD amount: {e}"),
+            })?,
+        };
         let max_concurrent =
             parse_positive_u32(vars::MAX_CONCURRENT, env, defaults::MAX_CONCURRENT)?;
         let hourly_admissions =
@@ -239,6 +252,7 @@ impl LiveConfig {
             daily_cap,
             lifetime_cap,
             judge_slice,
+            judge_daily_cap,
             max_concurrent,
             hourly_admissions,
             burst_fraction,
@@ -258,6 +272,14 @@ impl LiveConfig {
                 ),
             });
         }
+        if judge_daily_cap > judge_slice {
+            return Err(ConfigError::Inconsistent {
+                vars: vec![vars::JUDGE_DAILY_USD, vars::JUDGE_USD],
+                reason: format!(
+                    "the judge daily cap ({judge_daily_cap}) must not exceed the judge slice ({judge_slice})"
+                ),
+            });
+        }
         let worst_case = budget.run_worst_case();
         if worst_case > daily_cap {
             return Err(ConfigError::Inconsistent {
@@ -270,6 +292,22 @@ impl LiveConfig {
                 ],
                 reason: format!(
                     "one run's worst case ({worst_case}) exceeds the daily cap ({daily_cap}); no run could be admitted"
+                ),
+            });
+        }
+        let public_share = budget.public_share();
+        if worst_case > public_share {
+            return Err(ConfigError::Inconsistent {
+                vars: vec![
+                    vars::JUDGE_USD,
+                    vars::LIFETIME_USD,
+                    vars::RUN_TOKEN_CAP,
+                    vars::MAX_COMPLETION_TOKENS,
+                    vars::INPUT_CAP_TOKENS,
+                    vars::PRICE_OUTPUT_PER_M,
+                ],
+                reason: format!(
+                    "the public share of the lifetime cap ({lifetime_cap} − {judge_slice} judge slice = {public_share}) cannot hold one run's worst case ({worst_case}); no public run could be admitted"
                 ),
             });
         }
@@ -301,6 +339,14 @@ impl LiveConfig {
                 vars: vec![vars::JUDGE_USD, vars::JUDGE_CODES_FILE],
                 reason: format!(
                     "one run's worst case ({worst_case}) exceeds the judge slice ({judge_slice}); no judge run could be admitted"
+                ),
+            });
+        }
+        if !judge_codes.is_empty() && worst_case > judge_daily_cap {
+            return Err(ConfigError::Inconsistent {
+                vars: vec![vars::JUDGE_DAILY_USD, vars::JUDGE_CODES_FILE],
+                reason: format!(
+                    "one run's worst case ({worst_case}) exceeds the judge daily cap ({judge_daily_cap}); no judge run could be admitted"
                 ),
             });
         }

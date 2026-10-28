@@ -72,13 +72,15 @@ fn usd(text: &str) -> Usd {
     Usd::parse(text).unwrap()
 }
 
-/// The owner's defaults: $10/day, $60 lifetime, $15 judge slice, one slot,
-/// 6 admissions per hour, 25% burst, 70k/16k/8k tokens, $4/$20 per million.
+/// The owner's defaults: $10/day, $60 lifetime, $15 judge slice (and the
+/// same per day), one slot, 6 admissions per hour, 25% burst, 70k/16k/8k
+/// tokens, $4/$20 per million.
 fn owner_cfg() -> BudgetConfig {
     BudgetConfig {
         daily_cap: usd("10.00"),
         lifetime_cap: usd("60.00"),
         judge_slice: usd("15.00"),
+        judge_daily_cap: usd("15.00"),
         max_concurrent: 1,
         hourly_admissions: 6,
         burst_fraction: Ppm::parse("0.25").unwrap(),
@@ -508,6 +510,7 @@ fn lifetime_cap_reached_trips_across_reopen() {
         daily_cap: usd(WORST_CASE),
         lifetime_cap: usd(WORST_CASE),
         judge_slice: Usd::ZERO,
+        judge_daily_cap: Usd::ZERO,
         ..unpaced_cfg()
     };
     let dir = TempDir::new("lifetime");
@@ -662,6 +665,60 @@ fn judge_lane_admits_while_public_is_exhausted_and_never_beyond_its_slice() {
     assert_eq!(snap.judge_remaining, usd("1.84"));
     assert!(snap.judge_committed <= snap.judge_slice);
     assert_eq!(snap.lifetime_committed, usd("22.56"), "5 public + 7 judge");
+}
+
+#[test]
+fn the_judge_lane_has_its_own_daily_cap() {
+    // Two judge runs a day ($3.76 of the $15 slice).
+    let cfg = BudgetConfig {
+        judge_daily_cap: usd("3.76"),
+        ..unpaced_cfg()
+    };
+    let dir = TempDir::new("judge-daily");
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    let ledger = open(dir.path(), cfg, &clock);
+    let first = ledger.reserve(Lane::Judge).unwrap();
+    drop(first);
+    let second = ledger.reserve(Lane::Judge).unwrap();
+    drop(second);
+    match ledger.reserve(Lane::Judge) {
+        Err(Refusal::JudgeDaily { retry_after }) => {
+            assert_eq!(
+                retry_after,
+                Duration::from_secs(43_200),
+                "until the next UTC day"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    let snap = ledger.snapshot().unwrap();
+    assert_eq!(snap.judge_daily_cap, usd("3.76"));
+    assert_eq!(snap.judge_daily_committed, usd("3.76"));
+    assert_eq!(snap.judge_daily_remaining, Usd::ZERO);
+    assert_eq!(snap.judge_committed, usd("3.76"));
+    assert_eq!(snap.judge_remaining, usd("11.24"));
+    assert_eq!(
+        snap.daily_committed,
+        Usd::ZERO,
+        "judge runs stay outside the public day"
+    );
+    assert!(
+        ledger.reserve(Lane::Public).is_ok(),
+        "the public lane is untouched"
+    );
+    let refusal = Refusal::JudgeDaily {
+        retry_after: Duration::from_secs(1),
+    };
+    assert_eq!(refusal.code(), "live_budget_judge_daily");
+    assert_eq!(refusal.retry_after(), Some(Duration::from_secs(1)));
+    // A new UTC day admits judges again; the slice counts across days.
+    clock.set("2026-10-28T00:00:00Z");
+    let snap = ledger.snapshot().unwrap();
+    assert_eq!(snap.judge_daily_committed, Usd::ZERO);
+    assert_eq!(snap.judge_committed, usd("3.76"));
+    let third = ledger.reserve(Lane::Judge).unwrap();
+    drop(third);
+    assert_eq!(ledger.snapshot().unwrap().judge_committed, usd("5.64"));
 }
 
 #[test]
@@ -1476,6 +1533,7 @@ fn the_summary_floor_covers_the_judge_lane_and_a_reached_cap_trips_at_open() {
         daily_cap: usd("0.30"),
         lifetime_cap: usd("0.30"),
         judge_slice: Usd::ZERO,
+        judge_daily_cap: Usd::ZERO,
         run_token_cap: 1_000,
         max_completion_tokens: 1_000,
         input_cap_tokens: 1_000,

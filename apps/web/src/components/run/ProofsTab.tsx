@@ -239,7 +239,7 @@ function PlainReading({ entry, recorded }: { entry: Entry; recorded: boolean }) 
           {line.text}
         </p>
       ))}
-      {recorded && reading.kind !== "simulated" && reading.kind !== "generation_failed" ? (
+      {recorded && (reading.kind === "accepted" || reading.kind === "rejected") ? (
         <p>
           <ProofReadingLine verification={verification} evidence={evidence} recorded />
         </p>

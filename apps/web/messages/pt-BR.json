@@ -504,7 +504,8 @@
       "cancelling": "Cancelamento solicitado: a execução para no seu próximo ponto de verificação.",
       "cancelHint": "Só uma execução que ainda está deliberando pode ser cancelada.",
       "archiveLog": "Baixar o arquivo de log arquivado {name} (esta execução é um trecho dele)",
-      "recordedReadOnly": "Uma execução gravada do arquivo de pesquisa é somente leitura: nenhuma decisão pode ser registrada aqui."
+      "recordedReadOnly": "Uma execução gravada do arquivo de pesquisa é somente leitura: nenhuma decisão pode ser registrada aqui.",
+      "archiveLogPending": "O arquivo de log arquivado vem com a listagem da vitrine, que não foi lida ou não lista esta execução."
     },
     "failure": {
       "title": "A execução falhou",
@@ -744,7 +745,8 @@
       "verificationsByStatus": "integridade {status}: {count}",
       "verificationsSimulated": "{count, plural, =0 {Nenhuma prova SIMULADA entre eles.} one {# deles é uma prova SIMULADA: roteirizada, nada verificado.} many {# deles são provas SIMULADAS: roteirizadas, nada verificado.} other {# deles são provas SIMULADAS: roteirizadas, nada verificado.}}",
       "limitationsHeading": "Limitações das provas, como o recibo as declara (em inglês)",
-      "receiptJson": "O recibo em JSON"
+      "receiptJson": "O recibo em JSON",
+      "archivePending": "O arquivo de log desta execução e o resumo fixado dele vêm com a listagem da vitrine, que não foi lida ou não lista esta execução."
     },
     "meta": {
       "heading": "Painel da API da Meta",

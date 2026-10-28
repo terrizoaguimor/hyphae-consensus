@@ -822,6 +822,9 @@ test("a live-declared run's Audit trail names the operator's log for the check",
   await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
   await expect(page.locator("[data-log-unavailable]")).toHaveText(t("en", "Run.audit.logUnavailable"));
   await expect(page.locator("[data-log-link]")).toHaveCount(0);
+  await expect(page.locator("[data-chain-check]")).toHaveCount(0);
+  // The receipt carries the sanitized view: it stays downloadable.
+  await expect(page.locator("[data-receipt-download]")).toHaveAttribute("href", `/api/v1/runs/${LIVE_RUN_ID}/receipt`);
   await expect(page.locator("[data-audit-log='unavailable']")).toContainText(t("en", "Run.audit.cliOperator"));
   await expect(page.locator("[data-cli]")).toHaveText(
     `consensus-api verify events-${LIVE_RUN_ID}.jsonl --run ${LIVE_RUN_ID} --receipt receipt-${LIVE_RUN_ID}.json`,

@@ -199,6 +199,7 @@ function Workspace({
             archive === null
               ? null
               : { href: api.researchUrl(archive.file), name: baseName(archive.file), archive: true },
+          logPending: archive === null,
         }
       : {
           receipt: api.receiptUrl(runId),

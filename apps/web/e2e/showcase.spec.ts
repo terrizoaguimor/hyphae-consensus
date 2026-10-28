@@ -262,6 +262,21 @@ test("a schema-1.0 run reads pre-1.1, unchained", async ({ page }) => {
   await expectNoLive(page, "en");
 });
 
+test("a recorded run the listing does not name offers no file it cannot name", async ({ page }) => {
+  const { r06 } = entries();
+  await mockApi(page, { showcase: [], recordedRuns: [recordedRun(r06, { base: "retry" })] });
+  await openRecorded(page, "en", String(r06.run_id));
+  await expect(page.locator("[data-recorded-run]")).toContainText(t("en", "Showcase.run.bannerNoEntry"));
+  await expect(page.locator("[data-ndjson-unavailable]")).toHaveText(t("en", "Run.decision.archiveLogPending"));
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-log='archive-pending'] [data-log-unavailable]")).toHaveText(
+    t("en", "Run.audit.archivePending"),
+  );
+  await expect(page.locator("[data-cli]")).toHaveCount(0);
+  await expect(page.locator("[data-chain-check]")).toHaveCount(0);
+  await expectNoLive(page, "en");
+});
+
 test("a showcase that cannot be read is said, with a retry", async ({ page, pageProblems }) => {
   const { list } = entries();
   await mockApi(page, {

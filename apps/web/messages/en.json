@@ -504,7 +504,8 @@
       "cancelling": "Cancellation requested: the run stops at its next checkpoint.",
       "cancelHint": "Only a run that is still deliberating can be cancelled.",
       "archiveLog": "Download the archived log file {name} (this run is one segment of it)",
-      "recordedReadOnly": "A recorded run of the research archive is read-only: no decision can be recorded here."
+      "recordedReadOnly": "A recorded run of the research archive is read-only: no decision can be recorded here.",
+      "archiveLogPending": "The archived log file comes with the showcase listing, which has not been read, or does not list this run."
     },
     "failure": {
       "title": "The run failed",
@@ -744,7 +745,8 @@
       "verificationsByStatus": "integrity {status}: {count}",
       "verificationsSimulated": "{count, plural, =0 {No SIMULATED proof among them.} one {# of them is a SIMULATED proof: scripted, nothing checked.} other {# of them are SIMULATED proofs: scripted, nothing checked.}}",
       "limitationsHeading": "Proof limitations, as the receipt states them (English)",
-      "receiptJson": "The receipt as JSON"
+      "receiptJson": "The receipt as JSON",
+      "archivePending": "This run’s log file and its pinned digest come with the showcase listing, which has not been read, or does not list this run."
     },
     "meta": {
       "heading": "Meta API panel",

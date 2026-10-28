@@ -43,6 +43,8 @@ export type DecisionLinks = {
    * file); null when it is not published.
    */
   log: { href: string; name: string | null; archive: boolean } | null;
+  /** A recorded run whose archive entry (its log file) is not known yet or at all. */
+  logPending?: boolean;
 };
 
 type DecisionTabProps = {
@@ -330,7 +332,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
               </a>
             ) : (
               <span className="hc-supporting" data-ndjson-unavailable>
-                {t("ndjsonUnavailable")}
+                {links.logPending === true ? t("archiveLogPending") : t("ndjsonUnavailable")}
               </span>
             )}
           </li>

@@ -504,7 +504,8 @@
       "cancelling": "Annulation demandée : l’exécution s’arrête à son prochain point de contrôle.",
       "cancelHint": "Seule une exécution encore en délibération peut être annulée.",
       "archiveLog": "Télécharger le fichier de journal archivé {name} (cette exécution en est un segment)",
-      "recordedReadOnly": "Une exécution enregistrée de l’archive de recherche est en lecture seule : aucune décision ne peut être enregistrée ici."
+      "recordedReadOnly": "Une exécution enregistrée de l’archive de recherche est en lecture seule : aucune décision ne peut être enregistrée ici.",
+      "archiveLogPending": "Le fichier de journal archivé arrive avec la liste de la vitrine, qui n’a pas été lue ou ne liste pas cette exécution."
     },
     "failure": {
       "title": "L’exécution a échoué",
@@ -744,7 +745,8 @@
       "verificationsByStatus": "intégrité {status} : {count}",
       "verificationsSimulated": "{count, plural, =0 {Aucune preuve SIMULÉE parmi eux.} one {# d’entre eux est une preuve SIMULÉE : scénarisée, rien de vérifié.} many {# d’entre eux sont des preuves SIMULÉES : scénarisées, rien de vérifié.} other {# d’entre eux sont des preuves SIMULÉES : scénarisées, rien de vérifié.}}",
       "limitationsHeading": "Limites des preuves, telles que le reçu les énonce (en anglais)",
-      "receiptJson": "Le reçu en JSON"
+      "receiptJson": "Le reçu en JSON",
+      "archivePending": "Le fichier de journal de cette exécution et son empreinte fixée arrivent avec la liste de la vitrine, qui n’a pas été lue ou ne liste pas cette exécution."
     },
     "meta": {
       "heading": "Panneau de l’API Meta",

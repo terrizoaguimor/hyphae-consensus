@@ -62,7 +62,7 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
   const log =
     archive !== null
       ? { href: api.researchUrl(archive.file), name: baseName(archive.file), sha256: archive.sha256 }
-      : summary !== null && ndjsonPublishable(summary.provenance)
+      : !recorded && summary !== null && ndjsonPublishable(summary.provenance)
         ? { href: api.ndjsonUrl(runId), name: ownLogFileName(runId), sha256: null }
         : null;
   const receiptHref = recorded ? api.showcaseReceiptUrl(runId) : api.receiptUrl(runId);
@@ -142,11 +142,15 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
         </details>
       </section>
 
-      <section className="hc-section" aria-labelledby="audit-log" data-audit-log={log === null ? "unavailable" : "published"}>
+      <section
+        className="hc-section"
+        aria-labelledby="audit-log"
+        data-audit-log={log === null ? (recorded ? "archive-pending" : "unavailable") : "published"}
+      >
         <h4 id="audit-log">{t("logHeading")}</h4>
         {log === null ? (
           <p className="hc-supporting" data-log-unavailable>
-            {t("logUnavailable")}
+            {recorded ? t("archivePending") : t("logUnavailable")}
           </p>
         ) : (
           <>
@@ -155,11 +159,6 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
               <li>
                 <a href={log.href} download={log.name} className="hc-link" data-log-link>
                   {t("logDownload", { name: log.name })}
-                </a>
-              </li>
-              <li>
-                <a href={receiptHref} download={receiptFileName(runId)} className="hc-link" data-receipt-download>
-                  {t("receiptDownload", { name: receiptFileName(runId) })}
                 </a>
               </li>
             </ul>
@@ -175,10 +174,21 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
             )}
           </>
         )}
-        <p>{log === null ? t("cliOperator") : t("cli")}</p>
-        <pre className="hc-cli hc-code" data-cli>
-          {command}
-        </pre>
+        <ul className="hc-related" role="list">
+          <li>
+            <a href={receiptHref} download={receiptFileName(runId)} className="hc-link" data-receipt-download>
+              {t("receiptDownload", { name: receiptFileName(runId) })}
+            </a>
+          </li>
+        </ul>
+        {log === null && recorded ? null : (
+          <>
+            <p>{log === null ? t("cliOperator") : t("cli")}</p>
+            <pre className="hc-cli hc-code" data-cli>
+              {command}
+            </pre>
+          </>
+        )}
       </section>
 
       {log === null ? null : (

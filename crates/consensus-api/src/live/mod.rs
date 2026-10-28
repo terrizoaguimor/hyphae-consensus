@@ -27,6 +27,31 @@
 //! 503 otherwise, body `{code: refusal.code()}`; a
 //! [`turnstile::TurnstileError`] answers 403 `turnstile_failed`; a
 //! [`geo::GeoDecision::Block`] answers 451 with its code.
+//!
+//! Integration notes for the server and the Meta adapter:
+//! - Check order per ABUSE-9: owner-scoped idempotency lookup, geo
+//!   ([`geo::GeoPolicy::decide`] with [`geo::Surface::Live`]), the 18+
+//!   and territory acknowledgment, Turnstile, then
+//!   [`budget::Ledger::reserve`], and only then `create_task`. Nothing is
+//!   spent before the reservation exists.
+//! - Hold the [`budget::Reservation`] for the run's whole life and call
+//!   [`budget::Ledger::release`] on every terminal state (finished,
+//!   failed, cancelled, panicked). A reservation that is only dropped is
+//!   treated as a crash and keeps counting at its worst case.
+//! - Give the adapter [`budget::Ledger::meter`]; it draws before each
+//!   HTTP attempt and settles right after. A draw refusal fails the run
+//!   at stage `budget`; a settlement error leaves the attempt counted at
+//!   its estimate, so the run should fail closed too.
+//! - [`budget::BudgetConfig::max_concurrent`] slots are per process; a
+//!   server-side semaphore keyed by client (/64) is still needed.
+//! - The ledger and the HTTP Siteverify client block on I/O: call them
+//!   from a blocking task, never on the async executor.
+//! - The judge lane is entered only after [`judge::JudgeCodes::verify`]
+//!   accepted the presented code; an unknown code falls back to the
+//!   public lane, it never errors in a way that reveals whether codes
+//!   exist.
+//! - [`budget::Ledger::reset`] is operator-only and must never be
+//!   reachable from the public listener.
 
 pub mod budget;
 pub mod config;

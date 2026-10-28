@@ -343,6 +343,38 @@ impl Record {
             | Record::Reset { v, .. } => *v,
         }
     }
+
+    fn at(&self) -> &str {
+        match self {
+            Record::Reservation { at, .. }
+            | Record::Draw { at, .. }
+            | Record::Settlement { at, .. }
+            | Record::Release { at, .. }
+            | Record::Trip { at, .. }
+            | Record::Reset { at, .. } => at,
+        }
+    }
+}
+
+/// Refuses a stored record this version cannot trust: another format
+/// version, or a timestamp it cannot read (a reservation with an unreadable
+/// time could otherwise slip out of today's budget).
+fn validate_record(record: Record, path: &Path, offset: u64) -> Result<Record, LedgerError> {
+    if record.version() != RECORD_VERSION {
+        return Err(LedgerError::Corrupt {
+            file: path.to_path_buf(),
+            offset,
+            reason: format!("unsupported record version {}", record.version()),
+        });
+    }
+    if let Err(reason) = parse_at(record.at()) {
+        return Err(LedgerError::Corrupt {
+            file: path.to_path_buf(),
+            offset,
+            reason,
+        });
+    }
+    Ok(record)
 }
 
 /// The lifetime summary file.
@@ -762,6 +794,18 @@ fn parse_at(at: &str) -> Result<DateTime<Utc>, String> {
         .map_err(|e| format!("bad timestamp {at:?}: {e}"))
 }
 
+/// Makes `dir`'s entries durable after a file was created or renamed into
+/// it: fsync on Unix; nothing on Windows, where std cannot open a
+/// directory for syncing (same limitation as the event log).
+fn sync_dir(dir: &Path) -> Result<(), LedgerError> {
+    if cfg!(unix) {
+        File::open(dir)
+            .and_then(|d| d.sync_all())
+            .map_err(|e| LedgerError::io(dir, e))?;
+    }
+    Ok(())
+}
+
 fn day_file_name(day: NaiveDate) -> String {
     format!("{}.jsonl", day.format("%Y-%m-%d"))
 }
@@ -869,13 +913,7 @@ impl Inner {
                 (line_end, false)
             } else if let Ok(record) = serde_json::from_slice::<Record>(tail) {
                 // A complete record whose newline never made it to disk.
-                if record.version() != RECORD_VERSION {
-                    return Err(LedgerError::Corrupt {
-                        file: path,
-                        offset: line_end,
-                        reason: format!("unsupported record version {}", record.version()),
-                    });
-                }
+                let record = validate_record(record, &path, line_end)?;
                 if let Err(record) = apply(st, record) {
                     pending.push((path.clone(), line_end, record));
                 }
@@ -944,6 +982,10 @@ impl Inner {
         file.write_all(&line)
             .map_err(|e| LedgerError::io(&path, e))?;
         file.sync_all().map_err(|e| LedgerError::io(&path, e))?;
+        if len == 0 {
+            // A new day file: its directory entry must be durable too.
+            sync_dir(&self.dir)?;
+        }
         cursor.offset += line.len() as u64;
         cursor.needs_newline = false;
         let new_offset = cursor.offset;
@@ -979,7 +1021,8 @@ impl Inner {
                 .map_err(|e| LedgerError::io(&tmp, e))?;
             file.sync_all().map_err(|e| LedgerError::io(&tmp, e))?;
         }
-        std::fs::rename(&tmp, &path).map_err(|e| LedgerError::io(&path, e))
+        std::fs::rename(&tmp, &path).map_err(|e| LedgerError::io(&path, e))?;
+        sync_dir(&self.dir)
     }
 
     fn read_summary(&self) -> Result<Option<LifetimeSummary>, LedgerError> {
@@ -1158,14 +1201,7 @@ fn parse_record(path: &Path, offset: u64, line: &[u8]) -> Result<Record, LedgerE
         offset,
         reason: e.to_string(),
     })?;
-    if record.version() != RECORD_VERSION {
-        return Err(LedgerError::Corrupt {
-            file: path.to_path_buf(),
-            offset,
-            reason: format!("unsupported record version {}", record.version()),
-        });
-    }
-    Ok(record)
+    validate_record(record, path, offset)
 }
 
 /// Applies one record; `Err` hands back a record whose reservation is not
@@ -1179,6 +1215,9 @@ fn apply(st: &mut State, record: Record) -> Result<(), Record> {
             at,
             ..
         } => {
+            // Stored records were validated by `validate_record`, and the
+            // ledger's own records come from `rfc3339`; the fallback is
+            // unreachable.
             let at = parse_at(&at).unwrap_or_default();
             st.reservations.entry(id).or_insert(ResState {
                 lane,

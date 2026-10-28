@@ -987,6 +987,31 @@ fn a_torn_tail_is_cut_and_a_corrupt_line_fails_closed() {
 }
 
 #[test]
+fn a_record_with_an_unreadable_timestamp_fails_closed() {
+    let dir = TempDir::new("bad-timestamp");
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    let day_file = dir.path().join("2026-10-27.jsonl");
+    {
+        let ledger = open(dir.path(), unpaced_cfg(), &clock);
+        let r = ledger.reserve(Lane::Public).unwrap();
+        drop(r);
+    }
+    // An edited reservation time could otherwise drop out of today's
+    // budget while still looking like a valid record.
+    let text = std::fs::read_to_string(&day_file).unwrap();
+    assert!(text.contains("\"at\":\"2026-10-27T12:00:00.000Z\""));
+    let edited = text.replace("2026-10-27T12:00:00.000Z", "yesterday-ish");
+    std::fs::write(&day_file, edited).unwrap();
+    match Ledger::open_with(dir.path(), unpaced_cfg(), clock.clock(), fast_options()) {
+        Err(LedgerError::Corrupt { file, reason, .. }) => {
+            assert_eq!(file, day_file);
+            assert!(reason.contains("bad timestamp"), "{reason}");
+        }
+        other => panic!("{:?}", other.map(|_| ())),
+    }
+}
+
+#[test]
 fn the_lifetime_summary_is_a_floor_when_day_files_go_missing() {
     let dir = TempDir::new("summary-floor");
     let clock = TestClock::at("2026-10-27T12:00:00Z");

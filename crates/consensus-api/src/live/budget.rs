@@ -75,10 +75,12 @@
 //! a success with usage charges `prompt_tokens × input rate +
 //! completion_tokens × output rate`, where `completion_tokens` is the
 //! API's figure, reasoning included ([`Usage`]); HTTP
-//! 400/401/402/403/404/413/429 charge zero; a timeout, a transport error
-//! after the request was sent, any other status (5xx included), a success
-//! without usage or one whose usage is inconsistent charge the attempt's
-//! full estimate, never refunded.
+//! 400/401/402/403/404/413/429 charge zero, and so does an attempt whose
+//! request never left this process (a connection that could not be
+//! opened, a request that could not be built: [`Outcome::NotSent`]); a
+//! timeout, a transport error after the request was sent, any other
+//! status (5xx included), a success without usage or one whose usage is
+//! inconsistent charge the attempt's full estimate, never refunded.
 //!
 //! **Trips.** The ledger trips, persistently, when a settlement reports
 //! more completion tokens than the attempt's `max_completion_tokens` or a
@@ -325,6 +327,11 @@ pub enum Outcome {
     Timeout,
     /// The connection failed after the request was sent: full estimate.
     TransportAfterSend,
+    /// Nothing was sent: the connection never opened or the request could
+    /// not be built. The provider did no work, so the attempt charges
+    /// zero; recorded like [`RecordedOutcome::Zero`] with the detail
+    /// `not_sent`.
+    NotSent,
 }
 
 /// What a settlement record stores about its outcome.
@@ -1943,6 +1950,12 @@ impl Ledger {
                     RecordedOutcome::Unknown,
                     draw.est,
                     Some("transport error after send".to_string()),
+                    None,
+                ),
+                Outcome::NotSent => (
+                    RecordedOutcome::Zero,
+                    Usd::ZERO,
+                    Some("not_sent".to_string()),
                     None,
                 ),
             };

@@ -4,8 +4,12 @@
 # Runs every Rust gate inside an Ubuntu 24.04 container, the deployment
 # target (glibc 2.39), with the repository mounted READ-ONLY. Nothing from
 # the host environment is passed in: no Meta key, no Hyphae paths. The
-# toolchain, registry and build outputs live in named Docker volumes so a
-# second run is fast.
+# toolchain and registry live in named Docker volumes so a second run is
+# fast; the build-output volume is per checkout path, because every
+# checkout is mounted at /src and cargo's freshness check is mtime-based,
+# so two worktrees sharing one target volume reuse each other's stale
+# artifacts (seen 2026-10-28: a lane's older consensus-runtime rlib was
+# reused for the main checkout and the api crate failed to compile).
 #
 # Usage, from the repository root (Git Bash, Linux or macOS):
 #   sh scripts/linux-gates.sh                 # fmt, clippy, tests, evaluate
@@ -26,11 +30,14 @@ if windows_repo=$(cd "$repo" && pwd -W 2>/dev/null); then
   export MSYS_NO_PATHCONV=1
 fi
 
+# One build-output volume per checkout (see the header).
+target_key=$(printf %s "$repo" | sha256sum | cut -c1-12)
+
 exec docker run --rm \
   --volume "$repo:/src:ro" \
   --volume hc-linux-cargo:/cargo \
   --volume hc-linux-rustup:/rustup \
-  --volume hc-linux-target:/target \
+  --volume "hc-linux-target-$target_key:/target" \
   --env CARGO_HOME=/cargo \
   --env RUSTUP_HOME=/rustup \
   --env CARGO_TARGET_DIR=/target \

@@ -533,19 +533,32 @@ pub async fn serve_public() -> Result<(), Box<dyn std::error::Error>> {
 ///   and live mode is unavailable until the snapshot is fixed and the
 ///   server restarted (the code is logged; `/ready` reports
 ///   `live.evidence_ok: false`).
+///
+/// The live setup runs on the blocking pool: the snapshot boot runs the
+/// verifier and hashes the artifacts, and the gate's Siteverify transport
+/// is reqwest's blocking client, which must not be built on an async worker
+/// (a debug build panics there: "Cannot drop a runtime in a context where
+/// blocking is not allowed").
 pub async fn serve_public_with<F>(evidence: F) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnOnce() -> Result<Option<Arc<dyn DeliberationFactory>>, String>,
+    F: FnOnce() -> Result<Option<Arc<dyn DeliberationFactory>>, String> + Send + 'static,
 {
     let cfg = PublicConfig::from_env(&ProcessEnv)?;
     let live = LiveConfig::from_env()?;
     // What the startup lines say about the evidence of an enabled live mode.
     let mut evidence_status = None;
     let live_gate = if live.enabled {
-        let meta = public_meta_config()?;
-        let factory = evidence()?;
-        evidence_status = factory.as_ref().map(|f| f.status());
-        Some(build_live_gate(&live, meta, factory)?)
+        let enabled = live.clone();
+        let (gate, status) = tokio::task::spawn_blocking(move || {
+            let meta = public_meta_config()?;
+            let factory = evidence()?;
+            let status = factory.as_ref().map(|f| f.status());
+            Ok::<_, String>((build_live_gate(&enabled, meta, factory)?, status))
+        })
+        .await
+        .map_err(|e| format!("public live mode setup: {e}"))??;
+        evidence_status = status;
+        Some(gate)
     } else {
         let snapshot_dir_set =
             std::env::var(SNAPSHOT_DIR_VAR).is_ok_and(|dir| !dir.trim().is_empty());

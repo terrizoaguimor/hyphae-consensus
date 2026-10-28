@@ -150,6 +150,19 @@ export const test = base.extend<{ pageProblems: string[] }>({
       page.on("response", (response) => {
         const url = new URL(response.url());
         if (url.origin === origin && response.status() >= 400) {
+          // The e2e static server has no API: its not-found page (HTML, 404)
+          // for an /api/v1 path is the "API unreachable" condition the views
+          // must handle (ApiGate shows NotConnected), not a broken link. A
+          // mocked API error (a JSON body) still counts, and api.spec.ts
+          // takes the ones it expects out of the list.
+          const contentType = response.headers()["content-type"] ?? "";
+          if (
+            url.pathname.startsWith("/api/v1/") &&
+            response.status() === 404 &&
+            contentType.startsWith("text/html")
+          ) {
+            return;
+          }
           problems.push(`HTTP ${response.status()}: ${url.pathname}`);
         }
       });

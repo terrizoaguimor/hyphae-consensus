@@ -21,7 +21,6 @@ export default async function ShowcasePage({ params }: LocaleParams) {
     <>
       <PageHeader title={t("Nav.showcase")} lead={t("Showcase.lead")} />
       <NotConnected
-        locale={locale}
         planned={[
           t("Showcase.planned.recorded"),
           t("Showcase.planned.corrections"),

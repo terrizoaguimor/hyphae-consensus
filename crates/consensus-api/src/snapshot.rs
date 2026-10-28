@@ -1937,9 +1937,9 @@ impl MemoryClient for SnapshotMemoryClient {
     /// artifacts are re-hashed ([`check_artifacts`](Self::check_artifacts)),
     /// so a response, proof, witness, report or manifest deleted, truncated
     /// or replaced on disk reads as unhealthy before the next run would
-    /// notice. The detail then
-    /// starts with the error (its code and the artifact's relative path)
-    /// and keeps the boot summary after it. (The public live mode reads
+    /// notice. The detail then starts with the error (its code and the
+    /// artifact's relative path) and keeps the boot summary after it. (The
+    /// public live mode reads
     /// [`check_artifacts`](Self::check_artifacts) itself, without a clone:
     /// `crate::live::snapshot_factory`.)
     fn status(&mut self) -> std::result::Result<MemoryStatus, MemoryError> {

@@ -27,7 +27,10 @@
 //!
 //! Two captures are required and are the only ones the runtime serves: the
 //! proven `list` of the served project (`query ""`, `limit 64`) and the
-//! proven EMPTY `recall` of another project (its isolation evidence). Other
+//! proven EMPTY `recall` of another project (its isolation evidence). Each
+//! is found by those semantics; when several captures have them, the one
+//! named as the contract names it (`list-<project>`,
+//! `recall-<project>-isolation`) is served and the others are extras. Other
 //! captures may be present; they are checked like the rest (digests,
 //! ids) but never served or boot-verified. [`Snapshot::load`] checks the
 //! whole directory structurally; every failure is a [`SnapshotError`] with
@@ -70,12 +73,35 @@
 //!
 //! Boot and per-run verification prove that the proof and witness bytes on
 //! disk are the ones Hyphae sealed for the pinned anchor and that the
-//! recall re-executes to the sealed result. The record TEXTS come from the
-//! captured response file, which is bound to the proof only by the manifest
-//! and `SHA256SUMS` (both checked here), not byte-compared with the proof:
-//! the verifier's own detail says so, and the honest label of ADR-0008
-//! applies ("this proves the records are the snapshot's records, not that
-//! they are true or that a model used them").
+//! sealed request re-executes to the sealed result. What binds those bytes
+//! to the RECORDS the runtime serves is weaker, and is exactly this:
+//!
+//! - The verifier's report at boot must name the same `proof_digest`,
+//!   `result_digest` and `anchor_digest` as the capture-time
+//!   `.verify.json` of the same capture, so the artifacts verified now are
+//!   the ones verified when the response was captured
+//!   (`boot_verification_failed` otherwise).
+//! - The two served captures must carry distinct proof bytes and distinct
+//!   response-reported `proof_blake3` values: a proof seals its own
+//!   request, so one proof cannot stand for both the list and the empty
+//!   recall. A copy step that writes one capture's proof and witness into
+//!   the other's files is caught at load (`proof_shared`).
+//! - The response file (the record texts) is bound to the proof only by
+//!   the manifest and `SHA256SUMS`, both checked here but both written by
+//!   the capture script. The runtime cannot recompute the response's
+//!   `proof_blake3` (no BLAKE3 in this workspace), and the verifier's
+//!   `proof_digest` is NOT that value: for the 2026-10-27 recovery probe
+//!   the `agent ui` response said `proof_blake3 1ee5c45d…df79` while
+//!   `hyphae proof verify` on that proof file said `proof_digest
+//!   6a5f2fa6…edbb`. Nor is `result_digest` recomputable from the response
+//!   without Hyphae's canonical form. A swap of ALL files of one capture
+//!   with another's is therefore caught through the responses (record
+//!   count, project attribution, memory ids), not through the proofs.
+//!
+//! The record texts are never byte-compared with the proof; the verifier's
+//! own detail says so, and the honest label of ADR-0008 applies ("this
+//! proves the records are the snapshot's records, not that they are true or
+//! that a model used them").
 
 use crate::config::SnapshotConfig;
 use crate::hyphae::{CommandRunner, HyphaeProofVerifier, VERIFIED_KIND, VERIFIED_SCOPE};
@@ -157,9 +183,15 @@ pub mod codes {
     /// `store` disagrees with the list response (count or snapshot).
     pub const STORE_MISMATCH: &str = "store_mismatch";
     /// A capture-time verify record does not say verified/memory/semantic
-    /// re-execution at the manifest anchor.
+    /// re-execution at the manifest anchor, or names no proof and result
+    /// digests.
     pub const VERIFY_RECORD_INVALID: &str = "verify_record_invalid";
-    /// The verifier did not accept a required capture at boot.
+    /// The two served captures name the same proof bytes (or the same
+    /// response-reported `proof_blake3`): one proof cannot seal both the
+    /// list and the empty recall.
+    pub const PROOF_SHARED: &str = "proof_shared";
+    /// The verifier did not accept a required capture at boot, or its
+    /// report's digests are not the capture-time record's.
     pub const BOOT_VERIFICATION_FAILED: &str = "boot_verification_failed";
 }
 
@@ -282,9 +314,18 @@ struct ResponseSnapshot {
     logical_time_micros: i64,
 }
 
-struct ParsedResponse {
+/// What the capture-time `.verify.json` recorded about the artifacts:
+/// the digests the boot verification must reproduce.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedReport {
+    pub proof_digest: String,
+    pub result_digest: String,
+}
+
+struct ParsedCapture {
     memories: Vec<CapturedMemory>,
     snapshot: Option<ResponseSnapshot>,
+    report: RecordedReport,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -374,6 +415,8 @@ pub struct Snapshot {
     list: usize,
     isolation: usize,
     records: Vec<CapturedMemory>,
+    /// One per capture, in manifest order.
+    reports: Vec<RecordedReport>,
 }
 
 impl Snapshot {
@@ -407,13 +450,13 @@ impl Snapshot {
         })?;
         check_manifest(&manifest, dir)?;
 
-        let mut responses = Vec::with_capacity(manifest.captures.len());
+        let mut parsed = Vec::with_capacity(manifest.captures.len());
         for capture in &manifest.captures {
-            responses.push(check_capture(dir, &manifest, capture)?);
+            parsed.push(check_capture(dir, &manifest, capture)?);
         }
 
         // The required list capture of the served project.
-        let list = single(
+        let list = required(
             &manifest,
             "the proven list of the served project (operation list, query \"\", limit 64)",
             |c| {
@@ -422,9 +465,12 @@ impl Snapshot {
                     && c.arguments.query.is_empty()
                     && c.arguments.limit == LIST_LIMIT
             },
+            |_| format!("list-{}", manifest.project),
         )?;
         let list_capture = &manifest.captures[list];
-        let ParsedResponse { memories, snapshot } = &responses[list];
+        let ParsedCapture {
+            memories, snapshot, ..
+        } = &parsed[list];
         if memories.is_empty() {
             return Err(SnapshotError::new(
                 codes::CAPTURE_INVALID,
@@ -492,7 +538,7 @@ impl Snapshot {
         }
 
         // The required empty proven recall of another project.
-        let isolation = single(
+        let isolation = required(
             &manifest,
             "the proven empty recall of another project (operation recall, no memory ids)",
             |c| {
@@ -501,9 +547,27 @@ impl Snapshot {
                     && c.arguments.project != crate::hyphae::GLOBAL_PROJECT
                     && c.memory_ids.is_empty()
             },
+            |c| format!("recall-{}-isolation", c.arguments.project),
         )?;
 
+        // A proof seals its own request: the list and the empty recall
+        // cannot be sealed by one proof. Equal digests mean a copy step
+        // wrote one capture's artifacts (or response) into the other's.
+        let isolation_capture = &manifest.captures[isolation];
+        if list_capture.proof_sha256 == isolation_capture.proof_sha256
+            || list_capture.proof_blake3 == isolation_capture.proof_blake3
+        {
+            return Err(SnapshotError::new(
+                codes::PROOF_SHARED,
+                format!(
+                    "captures {} and {} name the same proof: one proof cannot seal both the list and the empty recall",
+                    list_capture.id, isolation_capture.id
+                ),
+            ));
+        }
+
         let records = memories.clone();
+        let reports = parsed.into_iter().map(|p| p.report).collect();
         Ok(Self {
             dir: dir.to_path_buf(),
             verifier_dir,
@@ -511,6 +575,7 @@ impl Snapshot {
             list,
             isolation,
             records,
+            reports,
         })
     }
 
@@ -527,6 +592,16 @@ impl Snapshot {
     /// The proven empty recall of another project.
     pub fn isolation_capture(&self) -> &Capture {
         &self.manifest.captures[self.isolation]
+    }
+
+    /// What the capture-time verify record of `capture` (a capture of this
+    /// snapshot's manifest) says the verifier must reproduce.
+    pub fn recorded_report(&self, capture: &Capture) -> Option<&RecordedReport> {
+        self.manifest
+            .captures
+            .iter()
+            .position(|c| c.id == capture.id)
+            .map(|i| &self.reports[i])
     }
 
     /// The list capture's records, in response order.
@@ -555,33 +630,53 @@ impl Snapshot {
     }
 }
 
-/// The index of the one capture matching `pick`.
-fn single(manifest: &Manifest, what: &str, pick: impl Fn(&Capture) -> bool) -> Result<usize> {
-    let mut found: Vec<usize> = manifest
+/// The index of the required capture matching `pick`: the only one with
+/// those semantics, or, when several have them (additional captures are
+/// allowed), the one named as the contract names it (`contract_id`).
+fn required(
+    manifest: &Manifest,
+    what: &str,
+    pick: impl Fn(&Capture) -> bool,
+    contract_id: impl Fn(&Capture) -> String,
+) -> Result<usize> {
+    let found: Vec<usize> = manifest
         .captures
         .iter()
         .enumerate()
         .filter(|(_, c)| pick(c))
         .map(|(i, _)| i)
         .collect();
-    match found.len() {
-        1 => Ok(found.remove(0)),
-        0 => Err(SnapshotError::new(
+    match found.as_slice() {
+        [one] => Ok(*one),
+        [] => Err(SnapshotError::new(
             codes::CAPTURE_MISSING,
             format!("no capture is {what}"),
         )),
-        _ => Err(SnapshotError::new(
-            codes::CAPTURE_AMBIGUOUS,
-            format!(
-                "{} captures are {what}: {}",
-                found.len(),
-                found
-                    .iter()
-                    .map(|i| manifest.captures[*i].id.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        )),
+        several => {
+            let named: Vec<usize> = several
+                .iter()
+                .copied()
+                .filter(|i| {
+                    let capture = &manifest.captures[*i];
+                    capture.id == contract_id(capture)
+                })
+                .collect();
+            if let [one] = named.as_slice() {
+                return Ok(*one);
+            }
+            Err(SnapshotError::new(
+                codes::CAPTURE_AMBIGUOUS,
+                format!(
+                    "{} captures are {what} and none is named as the contract names it: {}",
+                    several.len(),
+                    several
+                        .iter()
+                        .map(|i| manifest.captures[*i].id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ))
+        }
     }
 }
 
@@ -850,9 +945,11 @@ fn parse_checksums(text: &str) -> Result<Vec<(String, String)>> {
             continue;
         }
         let number = number + 1;
-        let (digest, rest) = match line.len() > 66 {
-            true => line.split_at(64),
-            false => {
+        // `split_at_checked`: a non-ASCII byte in the first 64 is a format
+        // error, never a panic on a char boundary.
+        let (digest, rest) = match line.split_at_checked(64) {
+            Some(parts) if line.len() > 66 => parts,
+            _ => {
                 return Err(invalid(format!(
                     "{CHECKSUMS_FILE} line {number}: not \"<64 hex>  <relative path>\""
                 )))
@@ -928,7 +1025,7 @@ fn string_field(object: &Value, key: &str) -> Option<String> {
 }
 
 /// One capture's files against its manifest entry.
-fn check_capture(dir: &Path, manifest: &Manifest, capture: &Capture) -> Result<ParsedResponse> {
+fn check_capture(dir: &Path, manifest: &Manifest, capture: &Capture) -> Result<ParsedCapture> {
     let id = &capture.id;
     for (file, expected) in [
         (&capture.proof_file, &capture.proof_sha256),
@@ -1059,7 +1156,25 @@ fn check_capture(dir: &Path, manifest: &Manifest, capture: &Capture) -> Result<P
             format!("{verify_file}: anchor_digest is not the manifest anchor"),
         ));
     }
-    Ok(ParsedResponse { memories, snapshot })
+    // The digests the boot verification must reproduce (the pinned 4.0.0
+    // verifier prints both).
+    let digest = |key: &str| {
+        said(key).filter(|d| is_hex64(d)).ok_or_else(|| {
+            SnapshotError::new(
+                codes::VERIFY_RECORD_INVALID,
+                format!("{verify_file}: {key} is not 64 lowercase hex digits"),
+            )
+        })
+    };
+    let report = RecordedReport {
+        proof_digest: digest("proof_digest")?,
+        result_digest: digest("result_digest")?,
+    };
+    Ok(ParsedCapture {
+        memories,
+        snapshot,
+        report,
+    })
 }
 
 /// A `hyphae proof verify` verifier as the snapshot configuration sets it:
@@ -1180,8 +1295,8 @@ impl SnapshotMemoryClient {
             ));
         }
         let mut captures = Vec::with_capacity(2);
-        for capture in [snapshot.list_capture(), snapshot.isolation_capture()] {
-            captures.push(verify_capture(&snapshot, capture, verifier)?);
+        for index in [snapshot.list, snapshot.isolation] {
+            captures.push(verify_capture(&snapshot, index, verifier)?);
         }
         let manifest = &snapshot.manifest;
         let list = snapshot.list_capture();
@@ -1281,12 +1396,15 @@ impl SnapshotMemoryClient {
 }
 
 /// Runs the verifier on one capture's artifacts and requires `Valid` as a
-/// memory proof re-executed against the manifest anchor.
+/// memory proof re-executed against the manifest anchor, with the proof
+/// and result digests the capture-time verify record holds.
 fn verify_capture<V: ProofVerifier + ?Sized>(
     snapshot: &Snapshot,
-    capture: &Capture,
+    index: usize,
     verifier: &mut V,
 ) -> Result<CaptureStatus> {
+    let capture = &snapshot.manifest.captures[index];
+    let recorded = &snapshot.reports[index];
     let anchor = &snapshot.manifest.anchor_hex;
     let probe = EvidenceReference {
         schema_version: SCHEMA_VERSION.into(),
@@ -1313,26 +1431,53 @@ fn verify_capture<V: ProofVerifier + ?Sized>(
     let report = check.report.clone();
     let kind = report.as_ref().and_then(|r| r.kind.as_deref());
     let scope = report.as_ref().and_then(|r| r.scope.as_deref());
-    let verified_anchor = check
-        .verified_anchor
-        .as_deref()
-        .map(|a| a.trim().to_ascii_lowercase());
+    let normalized = |value: Option<&str>| value.map(|a| a.trim().to_ascii_lowercase());
+    let verified_anchor = normalized(check.verified_anchor.as_deref());
+    let report_anchor = normalized(report.as_ref().and_then(|r| r.anchor_digest.as_deref()));
     let accepted = check.status == IntegrityStatus::Valid
         && kind == Some(VERIFIED_KIND)
         && scope == Some(VERIFIED_SCOPE)
-        && verified_anchor.as_deref() == Some(anchor.as_str());
+        && verified_anchor.as_deref() == Some(anchor.as_str())
+        && report_anchor.as_deref() == Some(anchor.as_str());
     if !accepted {
         return Err(SnapshotError::new(
             codes::BOOT_VERIFICATION_FAILED,
             format!(
-                "capture {}: the verifier reported {:?} (kind {}, scope {}): {}",
+                "capture {}: the verifier reported {:?} (kind {}, scope {}, anchor {}): {}",
                 capture.id,
                 check.status,
                 kind.unwrap_or("?"),
                 scope.unwrap_or("?"),
+                report_anchor.as_deref().unwrap_or("?"),
                 one_line(check.detail.as_deref().unwrap_or("no detail"), 300)
             ),
         ));
+    }
+    // The artifacts verified now are the ones verified at capture time:
+    // the verifier's digests must be the capture-time record's.
+    for (what, now, then) in [
+        (
+            "proof digest",
+            report.as_ref().and_then(|r| r.proof_digest.as_deref()),
+            recorded.proof_digest.as_str(),
+        ),
+        (
+            "result digest",
+            report.as_ref().and_then(|r| r.result_digest.as_deref()),
+            recorded.result_digest.as_str(),
+        ),
+    ] {
+        if normalized(now).as_deref() != Some(then) {
+            return Err(SnapshotError::new(
+                codes::BOOT_VERIFICATION_FAILED,
+                format!(
+                    "capture {}: the verifier reported {what} {}, but {} recorded {then} at capture time",
+                    capture.id,
+                    now.map(|d| one_line(d, 80)).unwrap_or_else(|| "(none)".into()),
+                    capture.verify_file
+                ),
+            ));
+        }
     }
     Ok(CaptureStatus {
         id: capture.id.clone(),
@@ -1463,6 +1608,11 @@ mod tests {
             format!("{digest}  SHA256SUMS"),
             format!("{digest}  a.json\n{digest}  a.json"),
             format!("{}  a.json", "zz".repeat(32)),
+            // Multi-byte characters across the 64th byte: a format error,
+            // not a panic on a char boundary.
+            format!("{}  manifest.json", "é".repeat(33)),
+            format!("{}  manifest.json", "€".repeat(22)),
+            "é".repeat(40),
         ] {
             let err = parse_checksums(&bad).unwrap_err();
             assert_eq!(err.code, codes::CHECKSUMS_INVALID, "{bad:?}");

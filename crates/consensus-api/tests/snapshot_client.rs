@@ -21,7 +21,7 @@ use consensus_domain::*;
 use consensus_runtime::clock::{FixedClock, SequentialIdGen};
 use consensus_runtime::fakes::FakeModelClient;
 use consensus_runtime::orchestrator::{codes as run_codes, Orchestrator, TaskInput};
-use consensus_runtime::ports::{MemoryClient, MemoryError, ProofVerifier, RecallProof};
+use consensus_runtime::ports::{MemoryClient, MemoryError, ProofCheck, ProofVerifier, RecallProof};
 use consensus_runtime::scenarios::{assessment, claim, evaluation, proposal, TS};
 use consensus_runtime::{EventLog, RunAggregate, RunLimits};
 use serde_json::{json, Value};
@@ -62,7 +62,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 /// One capture to assemble: its manifest entry's fields and which fixture
-/// response it carries.
+/// response and capture-time verify report it carries.
 #[derive(Clone)]
 struct Spec {
     id: &'static str,
@@ -71,6 +71,7 @@ struct Spec {
     query: &'static str,
     limit: u32,
     response_fixture: &'static str,
+    verify_fixture: &'static str,
     proof_blake3: &'static str,
 }
 
@@ -82,6 +83,7 @@ fn list_spec() -> Spec {
         query: "",
         limit: 64,
         response_fixture: "list-demo-repo.response.json",
+        verify_fixture: "list-demo-repo.verify.json",
         proof_blake3: "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4",
     }
 }
@@ -94,12 +96,33 @@ fn isolation_spec() -> Spec {
         query: ISOLATION_QUERY,
         limit: 8,
         response_fixture: "recall-other-repo-isolation.response.json",
+        verify_fixture: "recall-other-repo-isolation.verify.json",
         proof_blake3: "e5f60718e5f60718e5f60718e5f60718e5f60718e5f60718e5f60718e5f60718",
     }
 }
 
+const PROOF_PREFIX: &str = "synthetic proof bytes of ";
+
 fn proof_bytes(id: &str) -> Vec<u8> {
-    format!("synthetic proof bytes of {id}\n").into_bytes()
+    format!("{PROOF_PREFIX}{id}\n").into_bytes()
+}
+
+/// The capture whose synthetic proof bytes `path` holds; by file name
+/// when the path is not readable here (a mapped container path).
+fn capture_of_proof(path: &str) -> String {
+    match std::fs::read_to_string(path) {
+        Ok(text) => text
+            .trim()
+            .strip_prefix(PROOF_PREFIX)
+            .unwrap_or_else(|| panic!("not synthetic proof bytes: {path}"))
+            .to_string(),
+        Err(_) => Path::new(path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .trim_end_matches(".proof")
+            .to_string(),
+    }
 }
 
 fn witness_bytes(id: &str) -> Vec<u8> {
@@ -190,7 +213,7 @@ fn build_with(test: &str, specs: &[Spec], edit: impl FnOnce(&mut Value)) -> Path
         std::fs::write(captures.join(format!("{id}.witness")), witness_bytes(id)).unwrap();
         std::fs::write(
             captures.join(format!("{id}.verify.json")),
-            fixture("verify-report.json"),
+            fixture(spec.verify_fixture),
         )
         .unwrap();
     }
@@ -237,17 +260,25 @@ fn config(dir: &Path, binary: &str) -> SnapshotConfig {
     .expect("a snapshot config")
 }
 
-/// Answers every `hyphae proof verify` with one scripted outcome and
-/// records each argv.
+/// Answers every `hyphae proof verify` and records each argv. With an
+/// `outcome`, every call gets it; without one, a call gets the capture-time
+/// report of the capture whose synthetic proof bytes it was given, the way
+/// a real verifier's digests follow the artifact's content.
 struct ScriptedRunner {
-    outcome: Result<CommandOutput, CommandError>,
+    outcome: Option<Result<CommandOutput, CommandError>>,
     calls: Vec<Vec<String>>,
 }
 
 impl CommandRunner for ScriptedRunner {
     fn run(&mut self, argv: &[String], _timeout: Duration) -> Result<CommandOutput, CommandError> {
         self.calls.push(argv.to_vec());
-        self.outcome.clone()
+        match &self.outcome {
+            Some(outcome) => outcome.clone(),
+            None => {
+                let at = argv.iter().position(|a| a == "--proof").expect("--proof");
+                exited(0, &verify_report(&capture_of_proof(&argv[at + 1])), "")
+            }
+        }
     }
 }
 
@@ -259,13 +290,21 @@ fn exited(code: i32, stdout: &str, stderr: &str) -> Result<CommandOutput, Comman
     })
 }
 
-fn verified_report() -> String {
-    fixture("verify-report.json")
+/// The capture-time `hyphae proof verify` report of a capture.
+fn verify_report(id: &str) -> String {
+    fixture(&format!("{id}.verify.json"))
+}
+
+/// `verify_report(id)` with one field changed.
+fn report_with(id: &str, key: &str, value: Value) -> String {
+    let mut report: Value = serde_json::from_str(&verify_report(id)).unwrap();
+    report[key] = value;
+    report.to_string()
 }
 
 fn scripted(
     cfg: &SnapshotConfig,
-    outcome: Result<CommandOutput, CommandError>,
+    outcome: Option<Result<CommandOutput, CommandError>>,
 ) -> HyphaeProofVerifier<ScriptedRunner> {
     verifier_from_config(
         cfg,
@@ -278,7 +317,7 @@ fn scripted(
 
 fn open(dir: &Path) -> (SnapshotMemoryClient, HyphaeProofVerifier<ScriptedRunner>) {
     let cfg = config(dir, "hyphae");
-    let mut verifier = scripted(&cfg, exited(0, &verified_report(), ""));
+    let mut verifier = scripted(&cfg, None);
     let client = SnapshotMemoryClient::open(&cfg, &mut verifier).expect("open");
     (client, verifier)
 }
@@ -292,11 +331,30 @@ fn load_error(dir: &Path) -> SnapshotError {
 
 fn open_error(dir: &Path) -> SnapshotError {
     let cfg = config(dir, "hyphae");
-    let mut verifier = scripted(&cfg, exited(0, &verified_report(), ""));
+    let mut verifier = scripted(&cfg, None);
     match SnapshotMemoryClient::open(&cfg, &mut verifier) {
         Ok(_) => panic!("open must fail"),
         Err(e) => e,
     }
+}
+
+/// Rewrites the manifest's `proof_sha256` and `witness_sha256` from the
+/// files on disk, as a capture script computing them after a copy step
+/// would, then `SHA256SUMS`.
+fn recompute_digests(dir: &Path) {
+    edit_manifest(dir, |m| {
+        for capture in m["captures"].as_array_mut().unwrap() {
+            for (field, file) in [
+                ("proof_sha256", "proof_file"),
+                ("witness_sha256", "witness_file"),
+            ] {
+                let relative = capture[file].as_str().unwrap().to_string();
+                let bytes = std::fs::read(dir.join(relative)).unwrap();
+                capture[field] = json!(sha256_hex(&bytes));
+            }
+        }
+    });
+    write_checksums(dir);
 }
 
 fn flip_first_byte(path: &Path) {
@@ -379,7 +437,7 @@ fn the_snapshot_config_requires_the_pinned_anchor() {
     let verifier = verifier_from_config(
         &cfg,
         ScriptedRunner {
-            outcome: exited(0, "", ""),
+            outcome: Some(exited(0, "", "")),
             calls: vec![],
         },
     );
@@ -456,7 +514,37 @@ fn a_well_formed_snapshot_loads_and_opens_after_verifying_both_captures() {
         assert_eq!(report.kind.as_deref(), Some("memory"));
         assert_eq!(report.scope.as_deref(), Some("semantic_reexecution"));
         assert_eq!(report.anchor_digest.as_deref(), Some(ANCHOR));
+        // The boot report reproduced the capture-time record's digests.
+        let recorded: Value = serde_json::from_str(&verify_report(id)).unwrap();
+        assert_eq!(
+            report.proof_digest.as_deref(),
+            recorded["proof_digest"].as_str()
+        );
+        assert_eq!(
+            report.result_digest.as_deref(),
+            recorded["result_digest"].as_str()
+        );
+        let kept = snapshot
+            .recorded_report(if id == LIST_ID {
+                snapshot.list_capture()
+            } else {
+                snapshot.isolation_capture()
+            })
+            .expect("recorded");
+        assert_eq!(
+            kept.proof_digest,
+            recorded["proof_digest"].as_str().unwrap()
+        );
+        assert_eq!(
+            kept.result_digest,
+            recorded["result_digest"].as_str().unwrap()
+        );
     }
+    assert_ne!(
+        status.captures[0].report.as_ref().unwrap().proof_digest,
+        status.captures[1].report.as_ref().unwrap().proof_digest,
+        "two requests, two proofs"
+    );
     // Public-facing strings: no path, no witness content.
     let shown = format!(
         "{} {}",
@@ -710,6 +798,37 @@ fn tampering_with_any_file_fails_open_with_its_code() {
     write_checksums(&dir);
     assert_eq!(load_error(&dir).code, codes::VERIFY_RECORD_INVALID);
 
+    // A capture-time record verified against another anchor.
+    let dir = build("verify-record-anchor");
+    let verify_path = capture_file(&dir, &format!("{ISOLATION_ID}.verify.json"));
+    std::fs::write(
+        &verify_path,
+        report_with(ISOLATION_ID, "anchor_digest", json!("ab".repeat(32))),
+    )
+    .unwrap();
+    write_checksums(&dir);
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::ANCHOR_MISMATCH, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{ISOLATION_ID}.verify.json")),
+        "{err}"
+    );
+
+    // A capture-time record without the digests the boot check reproduces.
+    for key in ["proof_digest", "result_digest"] {
+        let dir = build(&format!("verify-record-no-{key}"));
+        let verify_path = capture_file(&dir, &format!("{LIST_ID}.verify.json"));
+        let mut report: Value =
+            serde_json::from_slice(&std::fs::read(&verify_path).unwrap()).unwrap();
+        report.as_object_mut().unwrap().remove(key);
+        std::fs::write(&verify_path, report.to_string()).unwrap();
+        write_checksums(&dir);
+        let err = load_error(&dir);
+        assert_eq!(err.code, codes::VERIFY_RECORD_INVALID, "{key}: {err}");
+        assert!(err.message.contains(key), "{err}");
+    }
+
     let dir = build("store-count");
     edit_manifest(&dir, |m| m["store"]["record_count"] = json!(6));
     write_checksums(&dir);
@@ -836,7 +955,7 @@ fn the_pinned_anchor_must_be_the_manifest_anchor() {
     let dir = build("pinned-anchor");
     let mut cfg = config(&dir, "hyphae");
     cfg.expected_anchor = "cd".repeat(32);
-    let mut verifier = scripted(&cfg, exited(0, &verified_report(), ""));
+    let mut verifier = scripted(&cfg, None);
     let err = SnapshotMemoryClient::open(&cfg, &mut verifier).unwrap_err();
     assert_eq!(err.code, codes::PINNED_ANCHOR_MISMATCH, "{err}");
     assert!(
@@ -866,13 +985,67 @@ fn the_required_captures_must_be_present_and_unique() {
         m["captures"][0]["arguments"]["limit"] = json!(8)
     });
     assert_eq!(load_error(&dir).code, codes::CAPTURE_MISSING);
-    // Two candidates for the list.
-    let mut twin = list_spec();
-    twin.id = "list-demo-repo-again";
-    let dir = build_with("two-lists", &[list_spec(), isolation_spec(), twin], |_| {});
+    // Two candidates for the list, neither named as the contract names the
+    // required one (list-<project>): ambiguous.
+    let mut first = list_spec();
+    first.id = "list-demo-repo-first";
+    let mut second = list_spec();
+    second.id = "list-demo-repo-again";
+    let dir = build_with(
+        "two-lists",
+        &[first.clone(), isolation_spec(), second.clone()],
+        |_| {},
+    );
     let err = load_error(&dir);
     assert_eq!(err.code, codes::CAPTURE_AMBIGUOUS, "{err}");
-    assert!(err.message.contains("list-demo-repo-again"), "{err}");
+    assert!(
+        err.message.contains("list-demo-repo-first")
+            && err.message.contains("list-demo-repo-again"),
+        "{err}"
+    );
+    assert!(err.message.contains("contract"), "{err}");
+    // With the contract-named capture among them, that one is served and
+    // the others are extras (additional captures are allowed).
+    let dir = build_with(
+        "two-lists-one-named",
+        &[second, list_spec(), isolation_spec(), first],
+        |_| {},
+    );
+    let snapshot = Snapshot::load(&dir, None).unwrap();
+    assert_eq!(snapshot.list_capture().id, LIST_ID);
+    let (client, verifier) = open(&dir);
+    assert_eq!(verifier.runner.calls.len(), 2);
+    assert_eq!(client.snapshot_status().captures[0].id, LIST_ID);
+    // The same for the isolation recall: a second empty recall of another
+    // project (or the same one with another query) is an extra when the
+    // contract-named one is present, ambiguous otherwise.
+    let mut third = isolation_spec();
+    third.id = "recall-third-repo-empty";
+    third.project = "third-repo";
+    let mut other_query = isolation_spec();
+    other_query.id = "recall-other-repo-preset-2";
+    other_query.query = "Raise payment retry attempts to 10";
+    let dir = build_with(
+        "two-isolations-one-named",
+        &[
+            third.clone(),
+            list_spec(),
+            other_query.clone(),
+            isolation_spec(),
+        ],
+        |_| {},
+    );
+    let snapshot = Snapshot::load(&dir, None).unwrap();
+    assert_eq!(snapshot.isolation_capture().id, ISOLATION_ID);
+    assert_eq!(open(&dir).0.isolation_project(), &ProjectId::new(OTHER));
+    let dir = build_with(
+        "two-isolations-unnamed",
+        &[list_spec(), third, other_query],
+        |_| {},
+    );
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::CAPTURE_AMBIGUOUS, "{err}");
+    assert!(err.message.contains("recall-third-repo-empty"), "{err}");
     // An isolation capture that returned records is not empty evidence.
     let mut full = isolation_spec();
     full.response_fixture = "list-demo-repo.response.json";
@@ -887,6 +1060,7 @@ fn the_required_captures_must_be_present_and_unique() {
         query: "Raise payment retry attempts to 10",
         limit: 8,
         response_fixture: "list-demo-repo.response.json",
+        verify_fixture: "list-demo-repo.verify.json",
         proof_blake3: list_spec().proof_blake3,
     };
     let dir = build_with(
@@ -917,11 +1091,7 @@ fn the_required_captures_must_be_present_and_unique() {
 fn boot_verification_requires_a_valid_memory_proof_at_the_anchor() {
     let dir = build("boot-verification");
     let cfg = config(&dir, "hyphae");
-    let report_with = |key: &str, value: Value| {
-        let mut report: Value = serde_json::from_str(&verified_report()).unwrap();
-        report[key] = value;
-        report.to_string()
-    };
+    let report_with = |key: &str, value: Value| report_with(LIST_ID, key, value);
     let corruption = r#"{"error":{"category":"corruption","code":"corruption","message":"native durable state is invalid"},"exit_class":9}"#;
     let io = r#"{"error":{"category":"io","code":"io","message":"native filesystem operation failed"},"exit_class":11}"#;
     for (label, outcome, status) in [
@@ -949,7 +1119,7 @@ fn boot_verification_requires_a_valid_memory_proof_at_the_anchor() {
             "VerificationError",
         ),
     ] {
-        let mut verifier = scripted(&cfg, outcome);
+        let mut verifier = scripted(&cfg, Some(outcome));
         let err = SnapshotMemoryClient::open(&cfg, &mut verifier).unwrap_err();
         assert_eq!(err.code, codes::BOOT_VERIFICATION_FAILED, "{label}: {err}");
         assert!(
@@ -963,6 +1133,178 @@ fn boot_verification_requires_a_valid_memory_proof_at_the_anchor() {
             "{label}: stops at the first failure"
         );
     }
+
+    // A verified memory proof at the right anchor whose digests are not the
+    // capture-time record's: the artifacts verified now are not the ones
+    // verified at capture (here the list capture gets the isolation
+    // recall's report, as it would if its files had been overwritten).
+    let other_proof = report_with(
+        "proof_digest",
+        json!("7b7b7b7b1c1c1c1c7b7b7b7b1c1c1c1c7b7b7b7b1c1c1c1c7b7b7b7b1c1c1c1c"),
+    );
+    let other_result = report_with("result_digest", json!("00".repeat(32)));
+    let mut no_proof_digest: Value = serde_json::from_str(&verify_report(LIST_ID)).unwrap();
+    no_proof_digest
+        .as_object_mut()
+        .unwrap()
+        .remove("proof_digest");
+    for (label, stdout, what) in [
+        ("another proof", verify_report(ISOLATION_ID), "proof digest"),
+        ("another proof digest", other_proof, "proof digest"),
+        ("another result digest", other_result, "result digest"),
+        (
+            "no proof digest",
+            no_proof_digest.to_string(),
+            "proof digest",
+        ),
+    ] {
+        let mut verifier = scripted(&cfg, Some(exited(0, &stdout, "")));
+        let err = SnapshotMemoryClient::open(&cfg, &mut verifier).unwrap_err();
+        assert_eq!(err.code, codes::BOOT_VERIFICATION_FAILED, "{label}: {err}");
+        assert!(
+            err.message.contains(LIST_ID) && err.message.contains(what),
+            "{label}: {err}"
+        );
+        assert!(
+            err.message
+                .contains(&format!("captures/{LIST_ID}.verify.json")),
+            "{label}: names the capture-time record: {err}"
+        );
+        assert_eq!(verifier.runner.calls.len(), 1, "{label}");
+    }
+}
+
+/// A verifier double answering `Valid` with whatever anchors it is told
+/// to: the boot check must not take `Valid` on faith.
+struct AnchorDouble {
+    verified_anchor: Option<String>,
+    report_anchor: Option<String>,
+    calls: usize,
+}
+
+impl ProofVerifier for AnchorDouble {
+    fn verify(&mut self, evidence: &EvidenceReference) -> ProofCheck {
+        self.calls += 1;
+        let id = capture_of_proof(evidence.proof_file.as_deref().unwrap());
+        let recorded: Value = serde_json::from_str(&verify_report(&id)).unwrap();
+        ProofCheck {
+            status: IntegrityStatus::Valid,
+            verifier: Some("anchor double".into()),
+            verified_anchor: self.verified_anchor.clone(),
+            detail: Some("scripted".into()),
+            report: Some(VerifierReport {
+                status: Some("verified".into()),
+                scope: Some("semantic_reexecution".into()),
+                kind: Some("memory".into()),
+                anchor_digest: self.report_anchor.clone(),
+                result_digest: recorded["result_digest"].as_str().map(str::to_string),
+                proof_digest: recorded["proof_digest"].as_str().map(str::to_string),
+            }),
+        }
+    }
+}
+
+#[test]
+fn boot_verification_requires_the_manifest_anchor_from_the_verifier_itself() {
+    let dir = build("boot-anchors");
+    let snapshot = Snapshot::load(&dir, None).unwrap();
+    let other = "ab".repeat(32);
+    for (label, verified_anchor, report_anchor) in [
+        (
+            "another verified anchor",
+            Some(other.clone()),
+            Some(ANCHOR.to_string()),
+        ),
+        ("no verified anchor", None, Some(ANCHOR.to_string())),
+        (
+            "another report anchor",
+            Some(ANCHOR.to_string()),
+            Some(other.clone()),
+        ),
+        ("no report anchor", Some(ANCHOR.to_string()), None),
+    ] {
+        let mut double = AnchorDouble {
+            verified_anchor,
+            report_anchor,
+            calls: 0,
+        };
+        let err =
+            SnapshotMemoryClient::from_snapshot(snapshot.clone(), ANCHOR, &mut double).unwrap_err();
+        assert_eq!(err.code, codes::BOOT_VERIFICATION_FAILED, "{label}: {err}");
+        assert!(err.message.contains(LIST_ID), "{label}: {err}");
+        assert_eq!(double.calls, 1, "{label}: stops at the first failure");
+    }
+    // The same double with the manifest anchor in both places is accepted:
+    // the anchors were what failed above. Case and whitespace are
+    // normalized as the live adapter does.
+    let mut double = AnchorDouble {
+        verified_anchor: Some(format!(" {}\n", ANCHOR.to_ascii_uppercase())),
+        report_anchor: Some(ANCHOR.to_ascii_uppercase()),
+        calls: 0,
+    };
+    let client = SnapshotMemoryClient::from_snapshot(snapshot, ANCHOR, &mut double).unwrap();
+    assert_eq!(double.calls, 2);
+    assert_eq!(
+        client.snapshot_status().captures[1].verifier.as_deref(),
+        Some("anchor double")
+    );
+}
+
+#[test]
+fn one_proof_cannot_stand_for_both_served_captures() {
+    let capture_file = |dir: &Path, name: &str| dir.join("captures").join(name);
+    // The isolation recall's proof and witness written into the list
+    // capture's files, digests and SHA256SUMS recomputed afterwards (a
+    // copy-step bug): the two served captures now name the same proof.
+    let dir = build("shared-proof");
+    for suffix in ["proof", "witness"] {
+        std::fs::copy(
+            capture_file(&dir, &format!("{ISOLATION_ID}.{suffix}")),
+            capture_file(&dir, &format!("{LIST_ID}.{suffix}")),
+        )
+        .unwrap();
+    }
+    recompute_digests(&dir);
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::PROOF_SHARED, "{err}");
+    assert!(
+        err.message.contains(LIST_ID) && err.message.contains(ISOLATION_ID),
+        "{err}"
+    );
+    assert_eq!(open_error(&dir).code, codes::PROOF_SHARED);
+
+    // The same response-reported proof_blake3 on both captures.
+    let dir = build("shared-blake3");
+    let response_path = capture_file(&dir, &format!("{ISOLATION_ID}.response.json"));
+    let mut response: Value =
+        serde_json::from_slice(&std::fs::read(&response_path).unwrap()).unwrap();
+    response["proof"]["proof_blake3"] = json!(list_spec().proof_blake3);
+    std::fs::write(&response_path, response.to_string()).unwrap();
+    edit_manifest(&dir, |m| {
+        m["captures"][1]["proof_blake3"] = json!(list_spec().proof_blake3)
+    });
+    write_checksums(&dir);
+    assert_eq!(load_error(&dir).code, codes::PROOF_SHARED);
+
+    // Proof and witness swapped BETWEEN the captures, capture-time records
+    // kept: distinct proofs, so the load passes; the boot verification
+    // then reports the other capture's digests for each and fails.
+    let dir = build("swapped-artifacts");
+    for suffix in ["proof", "witness"] {
+        let list = capture_file(&dir, &format!("{LIST_ID}.{suffix}"));
+        let isolation = capture_file(&dir, &format!("{ISOLATION_ID}.{suffix}"));
+        let kept = std::fs::read(&list).unwrap();
+        std::fs::copy(&isolation, &list).unwrap();
+        std::fs::write(&isolation, kept).unwrap();
+    }
+    recompute_digests(&dir);
+    Snapshot::load(&dir, None).expect("structurally consistent");
+    let err = open_error(&dir);
+    assert_eq!(err.code, codes::BOOT_VERIFICATION_FAILED, "{err}");
+    assert!(
+        err.message.contains(LIST_ID) && err.message.contains("proof digest"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -970,7 +1312,7 @@ fn artifact_paths_are_mapped_to_the_verifier_directory_when_configured() {
     let dir = build("mapped");
     let mut cfg = config(&dir, "scripts/hyphae-docker.cmd");
     cfg.verifier_dir = Some("/snapshots/snap-2026-10-29-demo-repo/".into());
-    let mut verifier = scripted(&cfg, exited(0, &verified_report(), ""));
+    let mut verifier = scripted(&cfg, None);
     let mut client = SnapshotMemoryClient::open(&cfg, &mut verifier).unwrap();
     let mapped = |name: &str| format!("/snapshots/snap-2026-10-29-demo-repo/captures/{name}");
     // The verifier was given the container paths, joined with `/`.
@@ -1025,29 +1367,53 @@ fn the_client_is_plain_data_that_can_be_shared_between_runs() {
 }
 
 /// A fake `hyphae` binary: appends its arguments to `log` and prints the
-/// fixture verify report. Windows: a `.cmd` script (`std::process::Command`
-/// runs it through `cmd.exe`); elsewhere a `sh` script.
+/// capture-time verify report of the capture whose synthetic proof bytes
+/// the `--proof` file holds (digests follow content, as Hyphae's do).
+/// Windows: a `.cmd` script (`std::process::Command` runs it through
+/// `cmd.exe`); elsewhere a `sh` script.
 fn fake_hyphae(root: &Path) -> (String, PathBuf) {
     let log = root.join("hyphae-calls.log");
-    let report = root.join("verify-report.json");
-    std::fs::write(&report, verified_report()).unwrap();
+    let reports = root.join("reports");
+    std::fs::create_dir_all(&reports).unwrap();
+    for id in [LIST_ID, ISOLATION_ID] {
+        std::fs::write(reports.join(format!("{id}.verify.json")), verify_report(id)).unwrap();
+    }
     let (name, script) = if cfg!(windows) {
         (
             "hyphae.cmd",
-            format!(
-                "@echo off\r\n>>\"{}\" echo %*\r\ntype \"{}\"\r\n",
-                log.display(),
-                report.display()
-            ),
+            [
+                "@echo off".to_string(),
+                format!(">>\"{}\" echo %*", log.display()),
+                "set \"proof=\"".into(),
+                ":loop".into(),
+                "if \"%~1\"==\"\" goto done".into(),
+                "if \"%~1\"==\"--proof\" set \"proof=%~2\"".into(),
+                "shift".into(),
+                "goto loop".into(),
+                ":done".into(),
+                // "synthetic proof bytes of <id>": the fifth token.
+                "for /f \"tokens=5\" %%a in ('type \"%proof%\"') do set \"id=%%a\"".into(),
+                format!("type \"{}\\%id%.verify.json\"", reports.display()),
+                String::new(),
+            ]
+            .join("\r\n"),
         )
     } else {
         (
             "hyphae",
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"{}\"\ncat \"{}\"\n",
-                log.display(),
-                report.display()
-            ),
+            [
+                "#!/bin/sh".to_string(),
+                format!("printf '%s\\n' \"$*\" >> \"{}\"", log.display()),
+                "proof=".into(),
+                "while [ $# -gt 0 ]; do".into(),
+                "  if [ \"$1\" = \"--proof\" ]; then proof=$2; fi".into(),
+                "  shift".into(),
+                "done".into(),
+                format!("id=$(sed -n 's/^{PROOF_PREFIX}\\(.*\\)$/\\1/p' \"$proof\")"),
+                format!("cat \"{}/$id.verify.json\"", reports.display()),
+                String::new(),
+            ]
+            .join("\n"),
         )
     };
     let path = root.join(name);

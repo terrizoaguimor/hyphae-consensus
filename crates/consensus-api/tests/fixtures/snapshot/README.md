@@ -17,10 +17,19 @@ assembled manifest are computed, never stored here.
   reads none of them except `snapshot` (compared with the manifest's `store`).
 - `recall-other-repo-isolation.response.json`: the proven EMPTY recall of
   `other-repo`, the snapshot's isolation evidence.
-- `verify-report.json`: a `hyphae proof verify` success report in the live
-  4.0.0 shape (field names captured 2026-10-27), with the fixture anchor. The
-  test writes it as each capture's `.verify.json` and makes the fake `hyphae`
-  binary print it.
+- `list-demo-repo.verify.json` and `recall-other-repo-isolation.verify.json`:
+  one `hyphae proof verify` success report per capture, in the live 4.0.0 shape
+  (field names captured 2026-10-27), with the fixture anchor. The list's digest
+  values are the ones the 4.0.0 verifier printed for the 2026-10-27 recovery
+  proof; the isolation report's `proof_digest`, `request_digest` and
+  `result_digest` are patterned synthetic values, distinct from the list's, so
+  the tests can tell a swapped artifact from the right one. The test writes each
+  as its capture's `.verify.json`, and the scripted runner and the fake `hyphae`
+  binary answer a `proof verify` with the report of the capture whose synthetic
+  proof bytes they are given (the digests are content-derived, as Hyphae's are).
+  Note that the verifier's `proof_digest` is not the response's `proof_blake3`:
+  the recovery probe of 2026-10-27 reported `proof_blake3 1ee5c45d…` for the
+  proof file whose verify report says `proof_digest 6a5f2fa6…`.
 
 The anchor `4e1f0c9a…8d0f`, the `proof_blake3` values, the `root_digest` and
 the paths inside `proof` are synthetic. They are not the demo store's anchor

@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+# cargo-deny policy (release gate G12). Run: cargo deny check
+#
+# Licenses: exactly the permissive expressions present in Cargo.lock on
+# 2026-10-27 (see THIRD_PARTY_NOTICES.md). Anything else, copyleft included,
+# fails the check and has to be reviewed by the owner before it is added.
+
+[graph]
+targets = [
+  { triple = "x86_64-unknown-linux-gnu" },
+  { triple = "x86_64-pc-windows-msvc" },
+]
+all-features = false
+
+[licenses]
+allow = [
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.9
+# Crates with no detectable license are always errors in cargo-deny 0.20.
+
+[advisories]
+# Known vulnerabilities fail the gate; unmaintained crates are reported.
+yanked = "deny"
+unmaintained = "workspace"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# The workspace crates depend on each other by path without a version; they
+# are publish = false, so that is not a registry wildcard.
+allow-wildcard-paths = true
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

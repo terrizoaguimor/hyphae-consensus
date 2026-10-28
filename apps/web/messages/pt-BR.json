@@ -147,6 +147,33 @@
     "metricsPlanned": {
       "computed": "mostrar números calculados a partir das próprias execuções gravadas, nunca digitados na página;",
       "labeled": "indicar em cada número as execuções, as datas e a versão da política de onde ele vem."
+    },
+    "figures": {
+      "loading": "Lendo o arquivo de pesquisa…",
+      "empty": "Este servidor não serve nenhum arquivo de pesquisa, então não há nenhum número a mostrar.",
+      "source": "Contados neste navegador a partir de {runs, plural, =0 {nenhuma execução gravada} one {# execução gravada} many {# de execuções gravadas} other {# execuções gravadas}} do arquivo de pesquisa ({events, plural, =0 {nenhum registro} one {# registro} many {# de registros} other {# registros}}), como o servidor as lista; o manifesto do arquivo tem o SHA-256 {sha256}…",
+      "outcomesCaption": "Execuções gravadas por resultado e pelas evidências com que cada uma foi julgada",
+      "outcome": "Resultado",
+      "onEvidence": "com evidências {evidence}",
+      "total": "Total",
+      "failed": "falhou antes de uma recomendação",
+      "other": "outro",
+      "batteriesCaption": "Execuções gravadas por bateria",
+      "battery": "Bateria",
+      "runs": "Execuções",
+      "schema": "Esquema e política",
+      "outcomes": "Resultados",
+      "schemaRules": "esquema {schema}, regras da política {rules}",
+      "schemaNoRules": "esquema {schema}, sem ser derivada de novo (anterior à 1.1)",
+      "outcomeCount": "{outcome}: {count}",
+      "models": "Por modelo: {list}.",
+      "modelCount": "{label} {count}",
+      "authorizations": "Por autorização: {list}.",
+      "authorizationCount": "{authorization} {count}",
+      "requests": "{count, plural, =0 {Nenhum id de solicitação da Meta registrado.} one {# id de solicitação da Meta registrado: evidência de uma chamada ao modelo registrada, não de algo acontecendo agora.} many {# de ids de solicitação da Meta registrados: evidência de chamadas ao modelo registradas, não de algo acontecendo agora.} other {# ids de solicitação da Meta registrados: evidência de chamadas ao modelo registradas, não de algo acontecendo agora.}}",
+      "unchained": "{count, plural, =0 {Nenhuma execução é anterior à cadeia de hashes.} one {# execução é anterior à cadeia de hashes (esquema 1.0, sem cadeia).} many {# de execuções são anteriores à cadeia de hashes (esquema 1.0, sem cadeia).} other {# execuções são anteriores à cadeia de hashes (esquema 1.0, sem cadeia).}}",
+      "note": "Estes números dizem o que foi registrado, não que alguma recomendação estava certa: integridade não é verdade, e as execuções com evidências simuladas são contadas sob esse rótulo.",
+      "showcaseLink": "Abrir a vitrine de pesquisa"
     }
   },
   "NewDeliberation": {

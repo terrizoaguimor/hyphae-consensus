@@ -147,6 +147,33 @@
     "metricsPlanned": {
       "computed": "show figures computed from the recorded runs themselves, never typed into the page;",
       "labeled": "label every figure with the runs, dates and policy version it comes from."
+    },
+    "figures": {
+      "loading": "Reading the research archive…",
+      "empty": "This server serves no research archive, so there is no figure to show.",
+      "source": "Counted in this browser from the {runs, plural, =0 {no recorded run} one {# recorded run} other {# recorded runs}} of the research archive ({events, plural, =0 {no record} one {# record} other {# records}}), as the server lists them; the archive’s manifest has SHA-256 {sha256}…",
+      "outcomesCaption": "Recorded runs by outcome, and by the evidence each was judged on",
+      "outcome": "Outcome",
+      "onEvidence": "on {evidence} evidence",
+      "total": "Total",
+      "failed": "failed before a recommendation",
+      "other": "other",
+      "batteriesCaption": "Recorded runs by battery",
+      "battery": "Battery",
+      "runs": "Runs",
+      "schema": "Schema and policy",
+      "outcomes": "Outcomes",
+      "schemaRules": "schema {schema}, policy rules {rules}",
+      "schemaNoRules": "schema {schema}, not re-derived (pre-1.1)",
+      "outcomeCount": "{outcome}: {count}",
+      "models": "By model: {list}.",
+      "modelCount": "{label} {count}",
+      "authorizations": "By authorization: {list}.",
+      "authorizationCount": "{authorization} {count}",
+      "requests": "{count, plural, =0 {No recorded Meta request id.} one {# recorded Meta request id: evidence of a recorded model call, not of anything happening now.} other {# recorded Meta request ids: evidence of recorded model calls, not of anything happening now.}}",
+      "unchained": "{count, plural, =0 {No run predates the hash chain.} one {# run predates the hash chain (schema 1.0, unchained).} other {# runs predate the hash chain (schema 1.0, unchained).}}",
+      "note": "These figures say what was recorded, not that any recommendation was right: integrity is not truth, and runs on simulated evidence are counted under that label.",
+      "showcaseLink": "Open the research showcase"
     }
   },
   "NewDeliberation": {

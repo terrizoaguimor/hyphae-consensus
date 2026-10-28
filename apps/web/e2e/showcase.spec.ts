@@ -22,7 +22,7 @@ import { AXE_TAGS, blocking, type ScanSummary, summarize, writeScans } from "./a
 import { mockApi, recordedRun } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
-import { expectNoLive, takeProblem } from "./helpers";
+import { expectNoLive, liveWord, takeProblem } from "./helpers";
 import { archiveEntry, logSegment, manifestRun, metaRequestIds, researchBytes } from "./research";
 
 type Json = Record<string, unknown>;
@@ -307,6 +307,69 @@ for (const locale of locales) {
   });
 }
 
+test("the Overview's figures are counted from the archive the server lists @smoke", async ({ page }) => {
+  const { list } = entries();
+  await mockApi(page, { showcase: list });
+  await page.goto(localePath("en", ""));
+  await hydrated(page);
+  const figures = page.locator("[data-figures='ready']");
+  await expect(figures).toBeVisible();
+  // Every expected figure is counted here from the same entries the mock serves.
+  type Entry = { outcome: string; battery: string; provenance: { evidence: string; model: string; meta_request_ids?: string[] } };
+  const entriesOf = list as unknown as Entry[];
+  const count = (outcome: string, evidence: string) =>
+    entriesOf.filter((e) => e.outcome === outcome && e.provenance.evidence === evidence).length;
+  await expect(figures.locator("[data-figures-total]")).toHaveAttribute("data-figures-total", String(entriesOf.length));
+  // Every outcome is counted next to its evidence axis.
+  await expect(figures.locator("[data-figures-outcomes] thead th")).toHaveText([
+    t("en", "Overview.figures.outcome"),
+    t("en", "Overview.figures.onEvidence", { evidence: t("en", "Provenance.simulated.label") }),
+    t("en", "Overview.figures.onEvidence", { evidence: t("en", "Provenance.hyphaeLive.label") }),
+    t("en", "Overview.figures.total"),
+  ]);
+  for (const outcome of ["supported", "contested", "blocked"]) {
+    const row = figures.locator(`[data-figure-outcome='${outcome}']`);
+    await expect(row.locator("[data-figure-evidence='simulated']")).toHaveText(String(count(outcome, "simulated")));
+    await expect(row.locator("[data-figure-evidence='hyphae_live']")).toHaveText(String(count(outcome, "hyphae_live")));
+    await expect(row.locator("[data-figure-total]")).toHaveText(
+      String(entriesOf.filter((e) => e.outcome === outcome).length),
+    );
+  }
+  // By battery, with the schema and policy rules each was recorded under.
+  const batteries = [...new Set(entriesOf.map((e) => e.battery))];
+  await expect(figures.locator("[data-figure-battery]")).toHaveCount(batteries.length);
+  await expect(figures.locator("[data-figure-battery='console-2026-10-26']")).toContainText(
+    t("en", "Overview.figures.schemaNoRules", { schema: "1.0" }),
+  );
+  await expect(figures.locator("[data-figure-battery='live-battery-2026-10-26']")).toContainText(
+    t("en", "Overview.figures.schemaRules", { schema: "1.1", rules: "1.1" }),
+  );
+  const requests = entriesOf.reduce((n, e) => n + (e.provenance.meta_request_ids ?? []).length, 0);
+  await expect(figures.locator("[data-figures-requests]")).toHaveAttribute("data-figures-requests", String(requests));
+  await expect(figures.locator("[data-figures-unchained]")).toHaveAttribute("data-figures-unchained", "1");
+  // A list of models never reads LIVE: META MODEL, from provenance.ts. (The
+  // Overview's provenance legend, which explains what LIVE META means, is
+  // outside the figures; battery ids such as live-battery-2026-10-26 are the
+  // archive's identifiers, shown as code, not labels.)
+  await expect(figures.locator("[data-figures-models]")).toContainText(t("en", "Provenance.metaModel.label"));
+  const labels = await figures.evaluate((element) => {
+    const copy = element.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll("code").forEach((code) => code.remove());
+    return copy.textContent ?? "";
+  });
+  expect(labels).not.toMatch(liveWord("en"));
+});
+
+test("without an API the Overview's figures are the not-connected placeholder", async ({ page }) => {
+  // No mock: the static server answers 404 (its HTML not-found page) for /api/v1.
+  await page.goto(localePath("en", ""));
+  await hydrated(page);
+  const placeholder = page.locator("[data-figures='unreachable']");
+  await expect(placeholder).toContainText(t("en", "NotConnected.message"));
+  await expect(placeholder).toContainText(t("en", "Overview.metricsPlanned.computed"));
+  await expect(page.locator("[data-figures='ready']")).toHaveCount(0);
+});
+
 const themes = ["light", "dark"] as const;
 
 async function scan(page: Page, name: string): Promise<ScanSummary> {
@@ -316,7 +379,7 @@ async function scan(page: Page, name: string): Promise<ScanSummary> {
 
 for (const locale of locales) {
   for (const theme of themes) {
-    test(`axe: /showcase and a recorded run (${locale}, ${theme})`, async ({ page }) => {
+    test(`axe: the Overview's figures, /showcase and a recorded run (${locale}, ${theme})`, async ({ page }) => {
       test.setTimeout(240_000);
       await useTheme(page, theme);
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
@@ -326,6 +389,10 @@ for (const locale of locales) {
         recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true })],
       });
       const scans: ScanSummary[] = [];
+      await page.goto(localePath(locale, ""));
+      await hydrated(page);
+      await expect(page.locator("[data-figures='ready']")).toBeVisible();
+      scans.push(await scan(page, `${locale} ${theme} / (figures)`));
       await openShowcase(page, locale);
       await expect(page.locator("[data-manifest-check='matches']")).toBeVisible();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -345,7 +412,7 @@ for (const locale of locales) {
         scans.push(await scan(page, `${locale} ${theme} /run recorded ${tab}`));
       }
       await writeScans(`showcase-${locale}-${theme}`, scans);
-      expect(scans).toHaveLength(7);
+      expect(scans).toHaveLength(8);
       expect(blocking(scans)).toEqual([]);
     });
   }

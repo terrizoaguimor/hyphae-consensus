@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Overview: what Hyphae Consensus does, the main call to action, the optional
-// tour invitation, the provenance labels, and the impact metrics, which need
-// data this lane does not read yet and stay an honest placeholder.
+// tour invitation, the provenance labels, and the impact figures, counted in
+// the browser from the research archive GET /api/v1/showcase lists
+// (src/components/ImpactFigures.tsx): no figure is typed into the page, and
+// without the API the honest placeholder says what they will be.
 //
 // The main button promises only what the server can do, decided at runtime
 // (src/components/OverviewActions.tsx): until GET /api/v1/health answers, and
@@ -13,7 +15,7 @@
 
 import { getTranslations } from "next-intl/server";
 
-import { NotConnected } from "@/components/NotConnected";
+import { ImpactFigures } from "@/components/ImpactFigures";
 import { OverviewActions } from "@/components/OverviewActions";
 import { PageHeader } from "@/components/PageHeader";
 import { ProvenanceLabels } from "@/components/ProvenanceLabels";
@@ -59,7 +61,8 @@ export default async function OverviewPage({ params }: LocaleParams) {
 
       <section className="hc-section">
         <h2 id="overview-metrics">{t("Overview.metricsHeading")}</h2>
-        <NotConnected
+        <ImpactFigures
+          locale={locale}
           planned={[
             t("Overview.metricsPlanned.computed"),
             t("Overview.metricsPlanned.labeled"),

@@ -147,6 +147,33 @@
     "metricsPlanned": {
       "computed": "affichera des chiffres calculés à partir des exécutions enregistrées elles-mêmes, jamais saisis à la main dans la page ;",
       "labeled": "indiquera pour chaque chiffre les exécutions, les dates et la version de la politique dont il provient."
+    },
+    "figures": {
+      "loading": "Lecture de l’archive de recherche…",
+      "empty": "Ce serveur ne sert aucune archive de recherche : il n’y a donc aucun chiffre à afficher.",
+      "source": "Comptés dans ce navigateur à partir {runs, plural, =0 {d’aucune exécution enregistrée} one {de # exécution enregistrée} many {de # d’exécutions enregistrées} other {des # exécutions enregistrées}} de l’archive de recherche ({events, plural, =0 {aucun enregistrement} one {# enregistrement} many {# d’enregistrements} other {# enregistrements}}), telles que le serveur les liste ; le manifeste de l’archive a le SHA-256 {sha256}…",
+      "outcomesCaption": "Exécutions enregistrées par résultat, et par les éléments probants sur lesquels chacune a été jugée",
+      "outcome": "Résultat",
+      "onEvidence": "sur des éléments probants {evidence}",
+      "total": "Total",
+      "failed": "échouée avant une recommandation",
+      "other": "autre",
+      "batteriesCaption": "Exécutions enregistrées par batterie",
+      "battery": "Batterie",
+      "runs": "Exécutions",
+      "schema": "Schéma et politique",
+      "outcomes": "Résultats",
+      "schemaRules": "schéma {schema}, règles de la politique {rules}",
+      "schemaNoRules": "schéma {schema}, non redérivé (antérieur à 1.1)",
+      "outcomeCount": "{outcome} : {count}",
+      "models": "Par modèle : {list}.",
+      "modelCount": "{label} {count}",
+      "authorizations": "Par autorisation : {list}.",
+      "authorizationCount": "{authorization} {count}",
+      "requests": "{count, plural, =0 {Aucun id de requête Meta enregistré.} one {# id de requête Meta enregistré : la preuve d’un appel au modèle enregistré, pas de quelque chose qui se passe maintenant.} many {# d’ids de requête Meta enregistrés : la preuve d’appels au modèle enregistrés, pas de quelque chose qui se passe maintenant.} other {# ids de requête Meta enregistrés : la preuve d’appels au modèle enregistrés, pas de quelque chose qui se passe maintenant.}}",
+      "unchained": "{count, plural, =0 {Aucune exécution n’est antérieure à la chaîne de hachage.} one {# exécution est antérieure à la chaîne de hachage (schéma 1.0, non chaînée).} many {# d’exécutions sont antérieures à la chaîne de hachage (schéma 1.0, non chaînées).} other {# exécutions sont antérieures à la chaîne de hachage (schéma 1.0, non chaînées).}}",
+      "note": "Ces chiffres disent ce qui a été enregistré, pas qu’une recommandation était juste : l’intégrité n’est pas la vérité, et les exécutions sur des éléments probants simulés sont comptées sous cette étiquette.",
+      "showcaseLink": "Ouvrir la vitrine de recherche"
     }
   },
   "NewDeliberation": {

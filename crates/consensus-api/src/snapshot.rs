@@ -35,7 +35,13 @@
 //! ids) but never served or boot-verified. [`Snapshot::load`] checks the
 //! whole directory structurally; every failure is a [`SnapshotError`] with
 //! a stable code ([`codes`]) and a message that names the offending file
-//! by its relative path and never quotes its contents.
+//! by its relative path and never quotes its contents. The directory is
+//! walked without following symbolic links (a link anywhere under it is
+//! refused, so a loop cannot recurse and a link cannot stand for an
+//! artifact) and no deeper than the flat layout ([`MAX_DEPTH`]). After
+//! boot, [`MemoryClient::status`] re-hashes the served artifacts on every
+//! call ([`SnapshotMemoryClient::check_artifacts`]), so `/health` stops
+//! saying "valid" as soon as a file on disk is not the one verified.
 //!
 //! # What a recall returns
 //!
@@ -133,6 +139,11 @@ pub const LIST_LIMIT: u32 = 64;
 /// Largest file read from a snapshot directory (a witness is a full copy
 /// of the store's data directory, about 3.3 MB for the seven records).
 pub const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
+/// Deepest path under the snapshot directory, in `/`-separated components:
+/// the layout is flat (`manifest.json`, `captures/<file>`), so a directory
+/// inside `captures/` (or inside any other first-level directory) is
+/// refused rather than walked.
+pub const MAX_DEPTH: usize = 2;
 
 /// Stable codes of [`SnapshotError`].
 pub mod codes {
@@ -169,6 +180,13 @@ pub mod codes {
     pub const FILE_UNREADABLE: &str = "file_unreadable";
     /// A file exceeds [`super::MAX_FILE_BYTES`].
     pub const FILE_TOO_LARGE: &str = "file_too_large";
+    /// A symbolic link under the snapshot directory. Artifacts are plain
+    /// files: a link could point outside the directory (its target would be
+    /// hashed and served as if it were the artifact) or loop.
+    pub const SYMLINK_REFUSED: &str = "symlink_refused";
+    /// A directory nested deeper than the flat layout allows
+    /// ([`super::MAX_DEPTH`] components).
+    pub const LAYOUT_TOO_DEEP: &str = "layout_too_deep";
     /// `SHA256SUMS` is missing or not in `sha256sum` format.
     pub const CHECKSUMS_INVALID: &str = "checksums_invalid";
     /// A file under the directory is not listed, or a listed file is absent.
@@ -415,6 +433,8 @@ pub struct Snapshot {
     dir: PathBuf,
     verifier_dir: Option<String>,
     pub manifest: Manifest,
+    /// SHA-256 of the `manifest.json` bytes that were loaded.
+    manifest_sha256: String,
     list: usize,
     isolation: usize,
     records: Vec<CapturedMemory>,
@@ -445,6 +465,7 @@ impl Snapshot {
                 format!("{MANIFEST_FILE}: {}", e.message),
             )
         })?;
+        let manifest_sha256 = sha256_hex(&manifest_bytes);
         let manifest: Manifest = serde_json::from_slice(&manifest_bytes).map_err(|e| {
             SnapshotError::new(
                 codes::MANIFEST_INVALID,
@@ -575,6 +596,7 @@ impl Snapshot {
             dir: dir.to_path_buf(),
             verifier_dir,
             manifest,
+            manifest_sha256,
             list,
             isolation,
             records,
@@ -691,14 +713,17 @@ fn local_path(dir: &Path, relative: &str) -> PathBuf {
     path
 }
 
-/// The bytes of a file under the snapshot directory, bounded.
+/// The bytes of a file under the snapshot directory, bounded. A symbolic
+/// link is refused, not followed (`symlink_refused`).
 fn read_file(dir: &Path, relative: &str) -> Result<Vec<u8>> {
     let path = local_path(dir, relative);
-    let size = std::fs::metadata(&path)
-        .map_err(|e| {
-            SnapshotError::new(codes::FILE_UNREADABLE, format!("{relative}: {}", e.kind()))
-        })?
-        .len();
+    let meta = std::fs::symlink_metadata(&path).map_err(|e| {
+        SnapshotError::new(codes::FILE_UNREADABLE, format!("{relative}: {}", e.kind()))
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(symlink_refused(relative));
+    }
+    let size = meta.len();
     if size > MAX_FILE_BYTES {
         return Err(SnapshotError::new(
             codes::FILE_TOO_LARGE,
@@ -897,8 +922,14 @@ fn check_capture_entry(manifest: &Manifest, capture: &Capture) -> Result<()> {
 }
 
 /// Every file under `dir`, as `/`-separated paths relative to it, sorted.
+/// Symbolic links are refused wherever they appear (`symlink_refused`: a
+/// link is never followed, so a loop cannot recurse and a link to a file
+/// outside the directory is not taken for the artifact), and so is a
+/// directory nested deeper than the flat layout (`layout_too_deep`,
+/// [`MAX_DEPTH`]).
 fn walk(dir: &Path) -> Result<Vec<String>> {
-    fn visit(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<()> {
+    /// `depth` is the number of components of the entries of `dir`.
+    fn visit(dir: &Path, prefix: &str, depth: usize, out: &mut Vec<String>) -> Result<()> {
         let entries = std::fs::read_dir(dir).map_err(|e| {
             SnapshotError::new(
                 codes::FILE_UNREADABLE,
@@ -920,11 +951,23 @@ fn walk(dir: &Path) -> Result<Vec<String>> {
                 format!("{prefix}/{name}")
             };
             let path = entry.path();
-            let meta = std::fs::metadata(&path).map_err(|e| {
+            // Not followed: a link is reported as what it is.
+            let meta = std::fs::symlink_metadata(&path).map_err(|e| {
                 SnapshotError::new(codes::FILE_UNREADABLE, format!("{relative}: {}", e.kind()))
             })?;
+            if meta.file_type().is_symlink() {
+                return Err(symlink_refused(&relative));
+            }
             if meta.is_dir() {
-                visit(&path, &relative, out)?;
+                if depth + 1 > MAX_DEPTH {
+                    return Err(SnapshotError::new(
+                        codes::LAYOUT_TOO_DEEP,
+                        format!(
+                            "{relative}: a directory nested deeper than the flat layout allows ({MAX_DEPTH} components)"
+                        ),
+                    ));
+                }
+                visit(&path, &relative, depth + 1, out)?;
             } else {
                 out.push(relative);
             }
@@ -932,9 +975,16 @@ fn walk(dir: &Path) -> Result<Vec<String>> {
         Ok(())
     }
     let mut out = Vec::new();
-    visit(dir, "", &mut out)?;
+    visit(dir, "", 1, &mut out)?;
     out.sort();
     Ok(out)
+}
+
+fn symlink_refused(relative: &str) -> SnapshotError {
+    SnapshotError::new(
+        codes::SYMLINK_REFUSED,
+        format!("{relative}: a symbolic link; a snapshot holds plain files only"),
+    )
 }
 
 /// `SHA256SUMS` lines as `(digest, relative path)`.
@@ -1259,6 +1309,11 @@ pub struct SnapshotMemoryClient {
     records: Vec<EvidenceReference>,
     list_proof: RecallProof,
     isolation_proof: RecallProof,
+    /// The local snapshot directory, for [`check_artifacts`](Self::check_artifacts).
+    dir: PathBuf,
+    /// `(relative path, SHA-256)` of `manifest.json` and of the served
+    /// captures' proof and witness files, as the boot check accepted them.
+    artifacts: Vec<(String, String)>,
     now: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
@@ -1352,7 +1407,19 @@ impl SnapshotMemoryClient {
             verified_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             captures,
         };
+        let artifacts = vec![
+            (MANIFEST_FILE.to_string(), snapshot.manifest_sha256.clone()),
+            (list.proof_file.clone(), list.proof_sha256.clone()),
+            (list.witness_file.clone(), list.witness_sha256.clone()),
+            (isolation.proof_file.clone(), isolation.proof_sha256.clone()),
+            (
+                isolation.witness_file.clone(),
+                isolation.witness_sha256.clone(),
+            ),
+        ];
         Ok(Self {
+            dir: snapshot.dir.clone(),
+            artifacts,
             isolation_project: ProjectId::new(isolation.arguments.project.clone()),
             list_proof: RecallProof {
                 request: list_request,
@@ -1382,6 +1449,27 @@ impl SnapshotMemoryClient {
     /// What the boot verification established.
     pub fn snapshot_status(&self) -> &SnapshotStatus {
         &self.status
+    }
+
+    /// The served artifacts as they are on disk NOW: `manifest.json` and
+    /// the proof and witness files of the two served captures are re-read
+    /// (bounded, no symlink) and re-hashed against the digests the boot
+    /// check accepted. A file deleted, truncated or replaced after boot is
+    /// a [`SnapshotError`] (`file_unreadable`, `file_too_large`,
+    /// `symlink_refused` or `digest_mismatch`) naming the artifact by its
+    /// relative path, never by a filesystem path. The response files are
+    /// not re-read: the records are served from memory.
+    pub fn check_artifacts(&self) -> Result<()> {
+        for (relative, expected) in &self.artifacts {
+            let bytes = read_file(&self.dir, relative)?;
+            if sha256_hex(&bytes) != *expected {
+                return Err(SnapshotError::new(
+                    codes::DIGEST_MISMATCH,
+                    format!("{relative}: SHA-256 differs from the digest accepted at boot"),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// The served records (templates: `retrieved_at` is set per recall).
@@ -1547,10 +1635,23 @@ impl MemoryClient for SnapshotMemoryClient {
         )))
     }
 
+    /// `healthy` is established on every call, not at boot: the served
+    /// artifacts are re-hashed ([`check_artifacts`](Self::check_artifacts)),
+    /// so a proof, witness or manifest deleted, truncated or replaced on disk
+    /// turns `/health` unhealthy before the next run would notice. The
+    /// detail then starts with the error (its code and the artifact's
+    /// relative path) and keeps the boot summary after it.
     fn status(&mut self) -> std::result::Result<MemoryStatus, MemoryError> {
-        Ok(MemoryStatus {
-            healthy: true,
-            detail: self.status.summary(),
+        let summary = self.status.summary();
+        Ok(match self.check_artifacts() {
+            Ok(()) => MemoryStatus {
+                healthy: true,
+                detail: summary,
+            },
+            Err(e) => MemoryStatus {
+                healthy: false,
+                detail: format!("{e}; at boot: {summary}"),
+            },
         })
     }
 }

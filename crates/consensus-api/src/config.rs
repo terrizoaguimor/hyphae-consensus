@@ -712,16 +712,15 @@ pub struct SnapshotConfig {
 }
 
 impl SnapshotConfig {
-    /// The configuration in the environment, or `None` when
-    /// `CONSENSUS_SNAPSHOT_DIR` is unset or a setting is unusable (fail
-    /// closed); [`try_from_env`](Self::try_from_env) says which.
-    pub fn from_env() -> Option<Self> {
-        Self::try_from_env().ok().flatten()
-    }
-
-    /// `Ok(None)` without `CONSENSUS_SNAPSHOT_DIR`; an error naming the
-    /// variable when the pinned anchor is missing or any setting is
-    /// unusable.
+    /// `Ok(None)` without `CONSENSUS_SNAPSHOT_DIR` (snapshot mode not
+    /// configured); an error naming the variable when the pinned anchor is
+    /// missing or malformed or any other setting is unusable. These two
+    /// entry points (and [`from_vars`](Self::from_vars)) are the only ones
+    /// on purpose: with the directory set, a missing or malformed
+    /// `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` must abort boot, never read as
+    /// "no snapshot configured" (ADR-0008 decision 1: a snapshot that fails
+    /// its check disables the mode and says why; no silent fallback), so
+    /// there is no accessor that folds the error into `None`.
     pub fn try_from_env() -> Result<Option<Self>, ConfigError> {
         Self::from_lookup(&process_env)
     }

@@ -447,6 +447,60 @@ fn the_snapshot_config_requires_the_pinned_anchor() {
 }
 
 #[test]
+fn a_set_snapshot_dir_with_a_missing_or_malformed_anchor_is_a_boot_error() {
+    // ADR-0008 decision 1: with the directory set, a missing or malformed
+    // pinned anchor is an error naming the variable, never `None` (which a
+    // caller would read as "snapshot mode not configured" and fall back
+    // silently). `from_vars` and `try_from_env` are the only entry points.
+    let from = |pairs: &[(&str, &str)]| {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        SnapshotConfig::from_vars(|name| {
+            pairs
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+        })
+    };
+    let short = ANCHOR[..63].to_string();
+    let long = format!("{ANCHOR}0");
+    let glyph = format!("{}g", &ANCHOR[..63]);
+    let cases: [(&str, Option<&str>); 7] = [
+        ("missing", None),
+        ("blank", Some("   ")),
+        ("not hex", Some("not-hex")),
+        ("63 digits", Some(short.as_str())),
+        ("65 digits", Some(long.as_str())),
+        ("a non-hex glyph", Some(glyph.as_str())),
+        ("the demo store's prefix only", Some("d91ac10d")),
+    ];
+    for (label, anchor) in cases {
+        let mut pairs = vec![("CONSENSUS_SNAPSHOT_DIR", "/srv/snapshots/snap")];
+        if let Some(anchor) = anchor {
+            pairs.push(("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", anchor));
+        }
+        let err = match from(&pairs) {
+            Err(err) => err,
+            Ok(cfg) => {
+                panic!("{label}: a set directory with a bad anchor must be an error, got {cfg:?}")
+            }
+        };
+        assert_eq!(err.setting, "CONSENSUS_HYPHAE_EXPECTED_ANCHOR", "{label}");
+        assert!(
+            err.to_string().contains("CONSENSUS_HYPHAE_EXPECTED_ANCHOR"),
+            "{label}: the message names the variable: {err}"
+        );
+    }
+    // The directory alone unset is the one `None`: snapshot mode off.
+    assert_eq!(
+        from(&[("CONSENSUS_HYPHAE_EXPECTED_ANCHOR", ANCHOR)]).unwrap(),
+        None
+    );
+}
+
+#[test]
 fn a_well_formed_snapshot_loads_and_opens_after_verifying_both_captures() {
     let dir = build("well-formed");
     let snapshot = Snapshot::load(&dir, None).unwrap();
@@ -947,6 +1001,245 @@ fn tampering_with_any_file_fails_open_with_its_code() {
     assert_eq!(
         load_error(&root.join("absent")).code,
         codes::SNAPSHOT_DIR_MISSING
+    );
+}
+
+/// Creates the symbolic link `link` to `target`, or returns `None` after a
+/// clear message when the OS refuses: on Windows, creating a symlink needs
+/// Developer Mode or the SeCreateSymbolicLinkPrivilege (error 1314). For a
+/// directory link on Windows without that privilege, a junction stands in:
+/// it needs no privilege, and Windows reports it as a name-surrogate
+/// reparse point, which `FileType::is_symlink` (the check `walk` relies on)
+/// reports as a symbolic link, so a loop through it is the same hazard.
+fn symlink(target: &Path, link: &Path, to_directory: bool) -> Option<()> {
+    #[cfg(windows)]
+    let result = if to_directory {
+        std::os::windows::fs::symlink_dir(target, link)
+    } else {
+        std::os::windows::fs::symlink_file(target, link)
+    };
+    #[cfg(not(windows))]
+    let result = {
+        let _ = to_directory;
+        std::os::unix::fs::symlink(target, link)
+    };
+    match result {
+        Ok(()) => Some(()),
+        Err(e)
+            if e.kind() == std::io::ErrorKind::PermissionDenied
+                || e.raw_os_error() == Some(1314) =>
+        {
+            #[cfg(windows)]
+            if to_directory {
+                let made = std::process::Command::new("cmd")
+                    .args(["/C", "mklink", "/J"])
+                    .arg(link)
+                    .arg(target)
+                    .stdout(std::process::Stdio::null())
+                    .status();
+                if matches!(made, Ok(status) if status.success()) {
+                    let kind = std::fs::symlink_metadata(link).unwrap().file_type();
+                    assert!(
+                        kind.is_symlink(),
+                        "a junction is a name-surrogate reparse point, seen as a symlink"
+                    );
+                    eprintln!("note: no symlink privilege ({e}); a junction stands in for the directory link");
+                    return Some(());
+                }
+            }
+            eprintln!(
+                "SKIPPED: this OS refuses to create a symbolic link ({e}); on Windows enable Developer Mode or run the test as administrator"
+            );
+            None
+        }
+        Err(e) => panic!("symlink {} -> {}: {e}", link.display(), target.display()),
+    }
+}
+
+#[test]
+fn a_symlink_loop_under_the_directory_is_refused_not_followed() {
+    // `captures/loop` -> the snapshot directory itself: following it would
+    // recurse without bound (a stack overflow at boot instead of an error).
+    let dir = build("symlink-loop");
+    let link = dir.join("captures").join("loop");
+    if symlink(&dir, &link, true).is_none() {
+        return;
+    }
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::SYMLINK_REFUSED, "{err}");
+    assert!(err.message.contains("captures/loop"), "{err}");
+    assert_eq!(open_error(&dir).code, codes::SYMLINK_REFUSED);
+}
+
+#[test]
+fn a_symlinked_artifact_pointing_outside_the_directory_is_refused() {
+    // The isolation witness replaced by a link to a file outside the
+    // directory holding the same bytes: every digest would match if the
+    // link were followed.
+    let dir = build("symlink-artifact");
+    let outside = dir.parent().unwrap().join("outside.witness");
+    let witness = dir.join("captures").join(format!("{ISOLATION_ID}.witness"));
+    std::fs::copy(&witness, &outside).unwrap();
+    std::fs::remove_file(&witness).unwrap();
+    if symlink(&outside, &witness, false).is_none() {
+        return;
+    }
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::SYMLINK_REFUSED, "{err}");
+    assert!(
+        err.message
+            .contains(&format!("captures/{ISOLATION_ID}.witness")),
+        "{err}"
+    );
+    assert!(
+        !err.message.contains("outside.witness"),
+        "names the artifact, not the link target: {err}"
+    );
+    assert_eq!(open_error(&dir).code, codes::SYMLINK_REFUSED);
+    // A link in place of SHA256SUMS itself is refused by the first read.
+    let dir = build("symlink-sums");
+    let sums = dir.join("SHA256SUMS");
+    let outside = dir.parent().unwrap().join("outside.SHA256SUMS");
+    std::fs::copy(&sums, &outside).unwrap();
+    std::fs::remove_file(&sums).unwrap();
+    symlink(&outside, &sums, false).unwrap();
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::SYMLINK_REFUSED, "{err}");
+    assert!(err.message.starts_with("SHA256SUMS"), "{err}");
+}
+
+#[test]
+fn a_directory_nested_deeper_than_the_flat_layout_is_refused() {
+    // No symlink needed: the walk stops at MAX_DEPTH components.
+    let dir = build("too-deep");
+    let deep = dir.join("captures").join("deep");
+    std::fs::create_dir_all(deep.join("deeper")).unwrap();
+    std::fs::write(deep.join("deeper").join("x.txt"), "x").unwrap();
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::LAYOUT_TOO_DEEP, "{err}");
+    assert!(err.message.contains("captures/deep"), "{err}");
+    assert!(
+        !err.message.contains("captures/deep/deeper"),
+        "stops at the first directory too deep: {err}"
+    );
+    assert_eq!(open_error(&dir).code, codes::LAYOUT_TOO_DEEP);
+    // A first-level directory is within the layout: it is walked, and its
+    // unlisted file is reported as such.
+    let dir = build("first-level-dir");
+    std::fs::create_dir_all(dir.join("extra")).unwrap();
+    std::fs::write(dir.join("extra").join("note.txt"), "x").unwrap();
+    let err = load_error(&dir);
+    assert_eq!(err.code, codes::CHECKSUMS_INCOMPLETE, "{err}");
+    assert!(err.message.contains("extra/note.txt"), "{err}");
+}
+
+#[test]
+fn status_rehashes_the_served_artifacts_on_every_call() {
+    let dir = build("status-rehash");
+    let (mut client, _) = open(&dir);
+    let boot_summary = client.snapshot_status().summary();
+    let healthy = client.status().unwrap();
+    assert!(healthy.healthy);
+    assert_eq!(healthy.detail, boot_summary);
+    client
+        .check_artifacts()
+        .expect("the artifacts are as verified");
+
+    // The isolation witness altered after boot (a flipped byte): unhealthy
+    // with the code and the artifact's relative path, the boot summary kept.
+    let witness = dir.join("captures").join(format!("{ISOLATION_ID}.witness"));
+    let original = std::fs::read(&witness).unwrap();
+    flip_first_byte(&witness);
+    let status = client.status().unwrap();
+    assert!(!status.healthy, "{}", status.detail);
+    assert!(
+        status.detail.starts_with(codes::DIGEST_MISMATCH),
+        "{}",
+        status.detail
+    );
+    assert!(
+        status
+            .detail
+            .contains(&format!("captures/{ISOLATION_ID}.witness")),
+        "{}",
+        status.detail
+    );
+    assert!(status.detail.contains(&boot_summary), "{}", status.detail);
+    assert!(
+        !status.detail.contains(&dir.to_string_lossy().into_owned()),
+        "no filesystem path: {}",
+        status.detail
+    );
+    assert!(
+        !status.detail.contains("synthetic witness bytes"),
+        "no witness content: {}",
+        status.detail
+    );
+    let err = client.check_artifacts().unwrap_err();
+    assert_eq!(
+        err.code,
+        codes::DIGEST_MISMATCH,
+        "the code for /health: {err}"
+    );
+    // A clone handed to a run sees the same disk.
+    assert!(!client.clone().status().unwrap().healthy);
+
+    // Truncated.
+    std::fs::write(&witness, &original[..original.len() / 2]).unwrap();
+    let status = client.status().unwrap();
+    assert!(
+        !status.healthy && status.detail.starts_with(codes::DIGEST_MISMATCH),
+        "{}",
+        status.detail
+    );
+    // Deleted.
+    std::fs::remove_file(&witness).unwrap();
+    let status = client.status().unwrap();
+    assert!(!status.healthy, "{}", status.detail);
+    assert!(
+        status.detail.starts_with(codes::FILE_UNREADABLE),
+        "{}",
+        status.detail
+    );
+    assert!(
+        status
+            .detail
+            .contains(&format!("captures/{ISOLATION_ID}.witness")),
+        "{}",
+        status.detail
+    );
+    // Restored: the check is of the files as they are now.
+    std::fs::write(&witness, &original).unwrap();
+    assert!(client.status().unwrap().healthy);
+
+    // The list capture's proof replaced, then the manifest rewritten.
+    let proof = dir.join("captures").join(format!("{LIST_ID}.proof"));
+    flip_first_byte(&proof);
+    let status = client.status().unwrap();
+    assert!(
+        !status.healthy && status.detail.contains(&format!("captures/{LIST_ID}.proof")),
+        "{}",
+        status.detail
+    );
+    flip_first_byte(&proof);
+    assert!(client.status().unwrap().healthy);
+    edit_manifest(&dir, |m| m["captured_at"] = json!("2026-10-30T00:00:00Z"));
+    let status = client.status().unwrap();
+    assert!(
+        !status.healthy
+            && status.detail.starts_with(codes::DIGEST_MISMATCH)
+            && status.detail.contains("manifest.json"),
+        "{}",
+        status.detail
+    );
+    // Recalls still answer from the records verified at boot (the client
+    // is plain data); only the health report changes.
+    assert_eq!(
+        client
+            .recall(&ProjectId::new(PROJECT), "q", 5)
+            .unwrap()
+            .len(),
+        7
     );
 }
 

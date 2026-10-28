@@ -93,6 +93,14 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    docker exec hyphae-consensus sh /hyphae-home/capture-snapshot.sh --dry-run <id>
    ```
 
+   Before that, the script's own checks, which need no Hyphae: `dash scripts/hyphae-container/capture-snapshot.sh --selftest`
+   on the host (dash + gawk) and the same under the container's shell and awk in a throwaway
+   `debian:trixie-slim` container with the script mounted read-only (dash + mawk 1.3.4). It
+   feeds the store response shapes `hyphae mcp` can print (a result object, `isError`, a
+   tool-error envelope, a JSON-RPC error object) through the seeding check, the tokenizer with
+   raw control characters inside strings, and the daemon stop and the signal traps with sleep
+   processes as the daemon; every line must say `ok`.
+
    Optional, recommended by the audit ("confirmed on a scratch store first"): run a real session
    with a scratch id (`scratch-2026-10-29-a`), read its `capture.log`, then run the real one.
    The script never deletes an instance; a scratch instance stays under
@@ -115,11 +123,11 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    | 0 | creates `/hyphae-home/snapshots/<id>/captures/` and `capture.log`; records `hyphae --version`, `agent ui --help`, `agent setup --help`, `proof verify --help` | refuses if the instance HOME or the output directory exists; refuses the demo and lab HOMEs; requires the sibling scripts and the tools |
    | 1 | `mkdir /hyphae-home/sealed/<id>`; `HOME=/hyphae-home/sealed/<id> hyphae agent setup --no-service` (its stdout goes to the script's scratch directory under `/tmp`, which is removed at exit on every path, success or failure, because whether it prints credential material is unverified; only its byte count is logged); then `hyphae-env.sh` is sourced for the new HOME, which runs `hyphae agent configure opencode` to learn the canonical endpoint | the data directory and the credentials directory must appear where `hyphae-env.sh` derives them; every file `setup` and `configure` left under the HOME outside the data directory is listed (names and sizes); `configure` must not change the data directory; the canonical socket must be one plain absolute path outside the data directory, and no socket may already exist there (another daemon would answer the captures) |
    | 2 | `hyphae agent recover`, then `nohup hyphae serve --data-dir <data> --endpoint <socket> --native-api-key-auth` for the new HOME only (the two commands of `serve.sh`) | waits for the socket; the pid is kept so the daemon is stopped and reaped by the script |
-   | 3 | 7 × `hyphae_store demo-repo <kind> "<text>"` (writer credential of the new instance, MCP writer path) | each text must appear verbatim in `seed.sh` or `seed-demo-facts.sh`; a store error or an empty response aborts; nothing is ever forgotten |
+   | 3 | 7 × `hyphae_store demo-repo <kind> "<text>"` (writer credential of the new instance, MCP writer path) | each text must appear verbatim in `seed.sh` or `seed-demo-facts.sh`; only a response line that is a tools/call result object without an error marker counts as stored: an empty response, `isError`, a tool-error envelope or a JSON-RPC error object (`{"jsonrpc":"2.0","id":2,"error":{…}}`, what `hyphae mcp` prints when a request is refused) aborts with the raw line in the log; nothing is ever forgotten |
    | 4 | two `hyphae agent ui` requests (below); the proof and witness files Hyphae writes (under `<HOME>/.local/state/hyphae/proofs/` for the demo store) are copied verbatim to `captures/` and compared with `cmp`; the sha256 of the response, the proof copy and the witness copy is computed the moment they are written and goes into the log and `captures.index` | `proof` must not be null; `proof.scope` must be `memory-snapshot-v1`; the proof and witness paths must lie under the new HOME (and not inside its data directory), otherwise `agent ui` answered from another store; the list must hold exactly 7 records, all of project `demo-repo`; the `other-repo` recall must be empty; both proofs must carry the same `anchor_hex` and must not be byte-identical; an anchor equal to the demo store's `d91ac10d…` is logged as a warning |
    | 5 | none (reads) | `hyphae proof verify --proof captures/<id>.proof --witness captures/<id>.witness --anchor <anchor_hex of the list response>`: exit 0 and a report with `status = verified`, `kind = memory`, `scope = semantic_reexecution`, `semantic_reexecution_performed = true`, `anchor_digest` equal to the anchor given; the report's own digests (`proof_digest`, `witness_digest`, `request_digest`, `result_digest`, …) and the sha256 of the report file are logged, the latter also recorded in `captures.index` |
    | 6 | none (reads) | `hyphae --version` and `sha256sum` of `readlink -f $(command -v hyphae)` |
-   | 7 | `kill -INT <daemon pid>` (waits for the socket to vanish, reaps the process); `rm -rf <HOME>/.config/hyphae/credentials` after listing every file in it (names and sizes only, never contents); `chmod -R a-w <data directory>` | the credentials directory must be gone afterwards; the files left under the HOME are listed again (the original proofs and witnesses, `serve.log`) |
+   | 7 | `kill -INT <daemon pid>` (waits up to 30 s for the socket to vanish; a daemon still running 10 s later gets `SIGTERM`, one still running 10 s after that gets `SIGKILL`, each logged, so the wait is bounded and this step always runs; then the process is reaped); `rm -rf <HOME>/.config/hyphae/credentials` after listing every file in it (names and sizes only, never contents); `chmod -R a-w <data directory>` | the credentials directory must be gone afterwards; the files left under the HOME are listed again (the original proofs and witnesses, `serve.log`) |
    | 8 | writes `captures.index` and `session.json` into the output directory | |
 
    The two requests (`id` is any string; the response is written verbatim):
@@ -136,6 +144,23 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    `chmod -R a-w` the data directory, exactly what step 7 does) or leave the instance as a
    scratch and rerun with a new id. `sh /hyphae-home/capture-snapshot.sh --inspect <file>`
    prints what the script extracts from a saved response or verifier report, for diagnosis.
+
+   The same cleanup runs when the script is interrupted (`SIGINT`) or the `docker exec` session
+   is torn down (`SIGTERM`, `SIGHUP`): the daemon is stopped with the bounded escalation of
+   step 7, the scratch directory is removed, and the signal is re-raised (exit 130/143/129).
+   What no trap can catch is `SIGKILL`, and a signal arriving while `hyphae agent ui` or
+   `hyphae proof verify` runs in the foreground is acted on only when that child returns. If
+   the session died that way, a daemon of the sealed HOME may still be running; the container
+   has no `ps`, so find it through `/proc` (only the one whose `--data-dir` lies under
+   `/hyphae-home/sealed/<id>`; the demo and lab daemons are not touched):
+
+   ```sh
+   for p in /proc/[0-9]*; do
+     c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
+     case $c in *"hyphae serve"*) echo "${p#/proc/}: $c" ;; esac
+   done
+   kill -INT <pid>      # SIGINT makes it remove its socket; then destroy the credentials as above
+   ```
 
 4. **Copy the output to the host** (the witness copies included; they are private files on the
    dev machine and are git-ignored):
@@ -383,14 +408,23 @@ by the anchor and binary digest published out of band (ADR-0008), and by the com
   inside); `CONSENSUS_SNAPSHOT_VERIFIER_DIR` (optional) = the same directory as the verifier
   binary sees it (Windows dev machine: the container path, because `CONSENSUS_HYPHAE_BIN` is
   `scripts/hyphae-docker.cmd`; Linux server: unset); `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` mandatory
-  and equal to the manifest anchor; `CONSENSUS_HYPHAE_BIN` and
-  `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` as today (`crates/consensus-api/src/config.rs`,
-  `hyphae.rs`).
+  and equal to the manifest anchor: with the directory set, a missing or malformed anchor is a
+  configuration error naming the variable and boot aborts (`SnapshotConfig::try_from_env` /
+  `from_vars` are the only readers; none folds that error into "snapshot mode not configured");
+  `CONSENSUS_HYPHAE_BIN` and `CONSENSUS_HYPHAE_VERIFY_TIMEOUT_SECS` as today
+  (`crates/consensus-api/src/config.rs`, `hyphae.rs`). The directory is read without following
+  symbolic links (a link anywhere under it, or a directory nested deeper than `captures/`, is
+  refused with `symlink_refused` / `layout_too_deep`).
 - **`/health`** reports the evidence mode, the snapshot id, `captured_at`, the anchor prefix, the
   Hyphae version from the manifest, the time and result of the last verification, and, when the
   boot check failed, the mode as disabled with a stable reason code (digest mismatch, verifier
-  rejection, verifier error, anchor mismatch, manifest invalid). It never reports paths, witness
-  contents or container details (G9: no witness or container path in any public response).
+  rejection, verifier error, anchor mismatch, manifest invalid). Every status call re-hashes
+  `manifest.json` and the served captures' proof and witness files against the digests the boot
+  check accepted (`SnapshotMemoryClient::check_artifacts`), so a file deleted, truncated or
+  replaced after boot makes the report unhealthy at once, with the code and the artifact's name
+  relative to the snapshot directory (`captures/<id>.witness`), while the boot summary stays in
+  the detail. It never reports filesystem paths, witness contents or container details (G9: no
+  witness or container path in any public response).
 
 ## 8. Privacy
 
@@ -421,7 +455,10 @@ assumed silently.
 2. Whether `agent ui` prints the result object itself or an envelope with `result`, and whether
    it prints compact or pretty-printed JSON; both shapes are handled (the tokenizer was exercised
    under dash + mawk 1.3.4 in a throwaway debian:trixie-slim container on compact and
-   pretty-printed samples, including the live `proof verify` report shape of 2026-10-27).
+   pretty-printed samples, including the live `proof verify` report shape of 2026-10-27, and on
+   strings holding a raw newline, a raw tab or a NUL byte, which JSON forbids and the tokenizer
+   refuses as a hard failure instead of splitting the leaf; `--selftest` repeats these checks,
+   and `--inspect` on such a file exits 4 saying so).
 3. Whether `agent ui` accepts the request as given (`schema`, `id`, `operation`, `arguments`
    with `project`, `query`, `limit`, `prove`), honours `prove` for `list`, and returns `proof`
    with `scope = memory-snapshot-v1`, `proof_path`, `witness_path`, `proof_blake3` (64 hex) and

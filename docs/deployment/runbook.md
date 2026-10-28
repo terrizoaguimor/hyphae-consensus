@@ -79,7 +79,7 @@ Day numbers are the approved plan's (`docs/reviews/2026-10-27-independent-audit.
 | 2 | **Dedicated Meta key**: create a separate key for the public server on dev.meta.ai (never the development key); claim the hackathon credits on that account and set a spend alert (ADR-0007 consequences). | `meta.key` credential file |
 | 3 | **Reproducible Linux build**: `scripts/linux-gates.sh` green in the pinned `ubuntu:24.04` container; release build of `consensus-api` (section 3.1). | the binary and its sha256 |
 | when B11/D2 lands | **Snapshot artifact**: the sealed snapshot directory (`manifest.json`, `SHA256SUMS`, `captures/*.proof`, `*.witness`, `*.response.json`, `*.verify.json`) and its pinned anchor, captured once per ADR-0008. | `<snapshot-id>`, `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` |
-| before go-live | **Judge codes**: generate the invite codes, keep the codes only in the submission's testing notes, install their digests (section 4.3). | `/etc/consensus/judge-codes.sha256` |
+| before go-live | **Judge codes**: on the server, `sudo ~/consensus/deploy/scripts/judge-codes.sh --count <judge seats>` generates the invite codes, prints them once and installs only their digests; copy the codes into the submission's testing instructions and nowhere else (section 4.3). | `/etc/consensus/judge-codes.sha256` |
 | 5 | Legal texts approved in four languages; public contact email set (web lane). | nothing here |
 | after G1–G12 PASS | Go-live (section 8). | |
 | about 2026-11-10 | Teardown: revoke the key, export the ledger, archive the runs (section 9.7). | |
@@ -502,6 +502,8 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_LIVE_ENABLED` | `false` until section 8.7, then `true` | `live/config.rs` |
 | `CONSENSUS_LIVE_LEDGER_DIR` | `/var/lib/consensus/ledger/staging` during staging; `/var/lib/consensus/ledger/public` from go-live | required when enabled; one directory per phase, so production starts at zero (section 4.5) |
 | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | `/etc/consensus/judge-codes.sha256`, set only once the file has at least one digest | an empty digest file is a configuration error (`live/judge.rs`) |
+| `CONSENSUS_LIVE_CLIENT_DAILY` | unset: the default `3` | public-lane live runs per client key (IPv4 /32, IPv6 /64) per UTC day; over it `429 live_client_quota` until 00:00 UTC; the judge lane is exempt; process-local, so a restart of `consensus-public` forgets the counts (`live/config.rs`, `live/gate.rs`) |
+| `CONSENSUS_LIVE_JUDGE_CODE_DAILY` | unset: the default `5` | judge-lane live runs per invite code per UTC day; over it the judge lane's daily refusal `429 live_budget_judge_daily`; process-local (`live/config.rs`, `live/gate.rs`) |
 | `CONSENSUS_TURNSTILE_SECRET_FILE` | `/run/credentials/consensus-public.service/turnstile.secret` | required when enabled |
 | `CONSENSUS_TURNSTILE_HOSTNAME` | `staging.<hostname>` during staging, `<hostname>` from go-live | one bare hostname; Siteverify's `hostname` must equal it (`live/turnstile.rs`) |
 
@@ -526,8 +528,14 @@ and `CONSENSUS_TURNSTILE_SECRET_FILE` at `/run/credentials/consensus-operator.se
 that unit's own credentials directory (the token is a `LoadCredential=` like the
 other two, section 4.2). `CONSENSUS_OPERATOR_BIND` keeps its default `127.0.0.1:8787`
 (`public_config.rs`; a non-loopback address is refused), and `CONSENSUS_LIVE_LEDGER_DIR`
-is inherited from `public.env`, never overridden: an operator live run debits the same
-ledger (gate G3).
+is inherited from `public.env`, never overridden: `serve-operator` opens that ledger with
+the same caps as `consensus-public` and meters every console `model=meta` run on it, on
+the operator lane (gate G3; section 9.2). It reads that configuration without any
+credential (the live switch, the Turnstile secret file and the judge-codes file are
+hidden from the load, as for `ledger.sh`), and refuses to start when the directory does
+not exist. A console run's `CONSENSUS_META_MAX_COMPLETION_TOKENS` (default 16000) must not
+exceed `CONSENSUS_LIVE_MAX_COMPLETION_TOKENS` (default 16000), or the metered run is
+refused before anything is reserved.
 
 The server validates every variable at startup and stops with the variable's name on
 an invalid value (`public_config.rs`, `live/config.rs`); a failed start is visible with
@@ -580,27 +588,35 @@ test configuration cannot reach production by mistake.
 
 The file holds the SHA-256 of each code as 64 lowercase hex characters, one per line,
 `#` comments and blank lines allowed; the server never sees a code in plain text and
-reports a malformed line by number only (`live/judge.rs`). The server hashes the
-presented code after trimming, so hash the bare code without a trailing newline.
-Generate on the owner machine; the codes themselves go only into the submission's
-testing notes (release checklist, owner step 4).
+reports a malformed line by number only (`live/judge.rs`). The digests are unsalted, so
+the codes must be long and random: `deploy/scripts/judge-codes.sh` makes them on the
+server, 140 random bits each from `/dev/urandom` (28 symbols of `0-9 A-Z` without
+`I L O U`, in seven groups of four joined by hyphens), prints them once, and installs
+only their digests, `root:consensus 0640`, after one comment line. It refuses to
+overwrite an existing digests file unless given `--force`, which replaces the file and
+so revokes every code it held. The codes themselves go only into the submission's
+testing instructions (release checklist, owner step 4); a judge enters one exactly as
+printed, hyphens included (the server hashes what it receives, trimmed).
 
 ```sh
-# owner machine: one code per judge seat; keep the codes, send the digests
-code=$(openssl rand -base64 24 | tr -d '/+=')      # repeat per code; store the codes in the submission notes
-printf '%s' "$code" | sha256sum | cut -d' ' -f1 >> judge-codes.sha256
-scp judge-codes.sha256 <server>:/tmp/
+# server: one code per judge seat
+sudo ~/consensus/deploy/scripts/judge-codes.sh --count 3      # prints the codes ONCE: copy them into the testing instructions now
+sudo stat -c '%U:%G %a' /etc/consensus/judge-codes.sha256      # root:consensus 640
+sudo grep -c -E '^[0-9a-f]{64}$' /etc/consensus/judge-codes.sha256   # the number of codes
 ```
 
-```sh
-# server
-sudo install -o root -g consensus -m 0640 /tmp/judge-codes.sha256 /etc/consensus/judge-codes.sha256 && rm /tmp/judge-codes.sha256
-grep -c -E '^[0-9a-f]{64}$' /etc/consensus/judge-codes.sha256   # the number of codes
-```
-
-Then uncomment `CONSENSUS_LIVE_JUDGE_CODES_FILE` in `public.env`. Revocation is
-editing the file and restarting, or the kill switch for everything at once
-(`live/judge.rs`).
+Then uncomment `CONSENSUS_LIVE_JUDGE_CODES_FILE` in `public.env` and restart
+`consensus-public`: the file is read at startup only. Each code admits at most
+`CONSENSUS_LIVE_JUDGE_CODE_DAILY` (default 5) judge-lane runs per UTC day, refused over it
+with the judge lane's own daily refusal (`429 live_budget_judge_daily`), so a code's holder
+learns nothing new from it (`live/gate.rs`). Revocation is deleting the code's line from
+the file (`sudoedit /etc/consensus/judge-codes.sha256`) and restarting `consensus-public`,
+or the kill switch for every lane at once. What a code cannot hide: the judge lane is
+observable (its refusals differ from the public lane's, it has its own hourly window and
+slot, and `/capabilities`' `daily_remaining` leaves judge reservations out), so someone who
+solves one Turnstile challenge per guess can tell a valid code from an invalid one, which
+is why the codes are long and random; and a leaked code drains the judge slice and the
+judge daily cap at up to its per-code limit a day until it is revoked.
 
 ### 4.4 The kill-switch file and the reset
 
@@ -1007,8 +1023,9 @@ the origin the second (`live/geo.rs` module docs).
       Create rule → Rate limiting rules `[CF-19]`: name "Consensus: live-run creations",
       expression `(http.request.uri.path eq "/api/v1/live-runs")`, same characteristics
       IP, when rate exceeds 5 requests per 10 seconds, action Block, duration 10 seconds.
-      The server's own limits (6 run creations per minute per client, one live slot)
-      remain the fine-grained control (`public_config.rs`, ADR-0007).
+      The server's own limits (6 run creations per minute per client, 3 public live
+      runs per client a day, one live slot taken only after Turnstile passed) remain the
+      fine-grained control (`public_config.rs`, `live/gate.rs`, ADR-0007).
 
 Verification: from a blocked country (or a VPN exit there) `curl -sS -o /dev/null -w
 '%{http_code} %{header_json}' https://<hostname>/` answers `403` with a `cf-ray`
@@ -1521,10 +1538,22 @@ sudo systemctl stop consensus-operator.service
 ```
 
 The console accepts `Host` values `127.0.0.1:8787` and `localhost:8787` and nothing
-else (`public_config.rs`), so the forwarded port must be 8787. Operator live runs
-debit the same ledger (gate G3). Until the console exposes the ledger snapshot, the
-files above are the record: one JSONL per UTC day plus `lifetime.json`
-(`live/budget.rs`).
+else (`public_config.rs`), so the forwarded port must be 8787. Every console
+`model=meta` run is metered on the same ledger, on the operator lane (gate G3,
+`server.rs` `operator_ledger`): its worst case is reserved before it starts and counts
+against the daily and lifetime caps the public lane shares, every Meta call is drawn and
+settled, and the kill switch or any trip refuses it with the ledger's code
+(`live_tripped`, `live_budget_daily`, ...). Check the console's startup line:
+
+```sh
+journalctl -u consensus-operator.service -n 20 --no-pager | grep 'Operator model=meta runs'
+# "metered on the live ledger at /var/lib/consensus/ledger/<phase> (...)"; an "UNMETERED" line
+# means CONSENSUS_LIVE_LEDGER_DIR did not reach the unit: stop the console and fix public.env
+```
+
+Until the console exposes the ledger snapshot, the files above are the record: one JSONL
+per UTC day plus `lifetime.json` (`live/budget.rs`); an operator run's reservation carries
+`"lane":"operator"`.
 
 ### 9.3 Kill switch, reset and reconciliation
 
@@ -1539,8 +1568,9 @@ sudo ~/consensus/deploy/scripts/ledger.sh release <reservation-id> --by <operato
 
 Semantics (`live/budget.rs`, `ledger_cli.rs`): the file's presence trips the ledger at
 the next admission; a tripped ledger refuses every reservation and every draw, so
-in-flight runs stop at their next model call; the trip is persistent, survives
-restarts, and a file still present re-trips it. **Only an operator reset clears a
+in-flight runs stop at their next model call, the operator console's `model=meta` runs
+included (they are metered on the same ledger, section 9.2); the trip is persistent,
+survives restarts, and a file still present re-trips it. **Only an operator reset clears a
 trip** (section 4.4): `off` only removes the file; `ledger.sh reset` re-opens live mode
 on the same ledger once the reason for the stop is written up. Guided runs and the
 showcase are unaffected. The ledger also trips on its own on 401/402/403 from Meta, on
@@ -1636,6 +1666,29 @@ Suspected key exposure, unexpected spend, or a compromised host:
    ledger summary with the submission notes if the owner wishes. The snapshot directory
    on the server may be deleted (`sudo rm -rf /var/lib/consensus/snapshots`): the owner
    holds the capture.
+
+### 9.8 Judge codes and the daily quotas
+
+```sh
+# a code leaked or a judge seat ends: delete its digest line, then restart (the file is read at startup only)
+sudoedit /etc/consensus/judge-codes.sha256
+sudo systemctl restart consensus-public.service
+# every code at once: new codes replace the file (the old ones stop working at the restart)
+sudo ~/consensus/deploy/scripts/judge-codes.sh --count <seats> --force && sudo systemctl restart consensus-public.service
+journalctl -u consensus-public.service --since -1d --no-pager | grep -E 'refused a (public|judge) run: the (client|code) started'
+```
+
+A digest line does not say whose code it is: the lines follow the order in which the
+script printed the codes, so note which judge seat got the first, the second, ... code
+(the seat, never the code). The gate's daily counts (`live/gate.rs`) are kept in the
+`consensus-public` process only: `CONSENSUS_LIVE_CLIENT_DAILY` (default 3) public-lane
+runs per client key and `CONSENSUS_LIVE_JUDGE_CODE_DAILY` (default 5) runs per judge code,
+per UTC day, taken with the ledger reservation and given back when the ledger refuses, the
+run cannot be built or its start fails, so a refusal consumes nothing. A restart forgets
+them, so a client or a code may start its share again the same day; the ledger's caps are
+unaffected (they live in its files). A refusal logs one line without the client's address
+or the code (the `grep` above); the visitor sees `429 live_client_quota` with
+`Retry-After` until 00:00 UTC, a judge `429 live_budget_judge_daily`.
 
 ---
 

@@ -40,8 +40,10 @@
 //! accepts a token once, and the web client resets its widget after every
 //! submit, so a refused visitor solves a new (usually invisible) challenge.
 //!
-//! 7. the lane's daily quota, process-local ([`DailyCounts`], counted at the
-//!    reservation's grant, given back on every refusal or failed start, so a
+//! 7. the lane's daily quota, process-local ([`DailyCounts`]; the count goes
+//!    with the reservation: taken just before the ledger is asked, so that
+//!    concurrent requests of one client cannot overshoot, and given back when
+//!    the ledger refuses, the run cannot be built or its start fails, so a
 //!    refusal never consumes it): on the public lane at most
 //!    `CONSENSUS_LIVE_CLIENT_DAILY` admissions per client key (IPv4 /32,
 //!    IPv6 /64) per UTC day of the ledger's clock (`429 live_client_quota`,

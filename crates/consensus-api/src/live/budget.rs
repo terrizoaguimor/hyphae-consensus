@@ -26,10 +26,10 @@
 //! **Records.** `reservation {id, lane, worst_case_usd, at}`,
 //! `draw {reservation, attempt, est_usd, input_bound_tokens,
 //! max_completion_tokens, at}`, `settlement {reservation, attempt,
-//! outcome: usage{input,output,reasoning}|zero|unknown, charged_usd, at}`,
-//! `release {reservation, at}`, `trip {reason, at}` and `reset {by, at}`.
-//! Money is a decimal string with six places, parsed exactly; arithmetic
-//! is integer micro-dollars ([`super::money`]).
+//! outcome: usage{input,completion,reasoning_included}|zero|unknown,
+//! charged_usd, at}`, `release {reservation, at}`, `trip {code, reason,
+//! at}` and `reset {by, at}`. Money is a decimal string with six places,
+//! parsed exactly; arithmetic is integer micro-dollars ([`super::money`]).
 //!
 //! **Admission** ([`Ledger::reserve`]). The run's worst case is
 //! `(run token cap + max_completion_tokens + per-call input cap)` priced
@@ -60,21 +60,25 @@
 //! `max_completion_tokens`, is refused before sending. The attempt's
 //! estimate is `input bound × input rate + max_completion_tokens × output
 //! rate` and must fit the reservation's remaining ceiling. Settlement:
-//! a success with usage charges `input × input rate + (output + reasoning)
-//! × output rate`; HTTP 400/401/402/403/404/413/429 charge zero; a timeout,
-//! a transport error after the request was sent, any other status
-//! (5xx included) or a success without usage charge the attempt's full
-//! estimate, never refunded.
+//! a success with usage charges `prompt_tokens × input rate +
+//! completion_tokens × output rate`, where `completion_tokens` is the
+//! API's figure, reasoning included ([`Usage`]); HTTP
+//! 400/401/402/403/404/413/429 charge zero; a timeout, a transport error
+//! after the request was sent, any other status (5xx included), a success
+//! without usage or one whose usage is inconsistent charge the attempt's
+//! full estimate, never refunded.
 //!
 //! **Trips.** The ledger trips, persistently, when a settlement reports
 //! more completion tokens than the attempt's `max_completion_tokens` or a
 //! charge above the attempt's estimate (the bound did not hold), on any
 //! 401/402/403 from the provider (the key is in trouble), when the lifetime
 //! spend reaches the lifetime cap, or when the kill-switch file exists.
-//! Tripped, it refuses every reservation and every draw, so in-flight
-//! runs stop at their next call. The state survives reopen; only an
-//! explicit operator [`Ledger::reset`] clears it, and a kill-switch file
-//! still present trips it again at the next admission.
+//! Each trip has a coarse public code ([`TripReason`]) and an
+//! operator-only detail ([`Trip`]). Tripped, it refuses every reservation
+//! and every draw, so in-flight runs stop at their next call. The state
+//! survives reopen; only an explicit operator [`Ledger::reset`] clears it,
+//! and a kill-switch file still present trips it again at the next
+//! admission.
 
 use super::money::{Ppm, Usd};
 use chrono::{DateTime, NaiveDate, SecondsFormat, TimeDelta, Timelike, Utc};
@@ -222,21 +226,50 @@ impl Lane {
     }
 }
 
-/// Token usage the provider reported for one successful attempt.
-/// `output` is the completion tokens *excluding* reasoning, `reasoning`
-/// the reasoning tokens reported apart (zero when the API does not report
-/// them separately); both are billed at the output rate.
+/// Token usage the provider reported for one successful attempt, with the
+/// OpenAI-compatible semantics Meta's API uses: `completion` is the API's
+/// `completion_tokens` **as reported, inclusive of reasoning tokens**, and
+/// `reasoning_included` is `completion_tokens_details.reasoning_tokens`, a
+/// breakdown of that same total. Only `input` (at the input rate) and
+/// `completion` (at the output rate) are billed; `reasoning_included` is
+/// recorded for the operator and never priced a second time. Build it with
+/// [`Usage::from_chat_usage`] from the adapter's parsed `usage` block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Usage {
+    /// `usage.prompt_tokens`.
     pub input: u64,
-    pub output: u64,
-    pub reasoning: u64,
+    /// `usage.completion_tokens`, reasoning included.
+    pub completion: u64,
+    /// `usage.completion_tokens_details.reasoning_tokens`, a subset of
+    /// `completion`; zero when the API does not report it.
+    pub reasoning_included: u64,
 }
 
 impl Usage {
-    /// Everything billed at the output rate.
+    /// From the fields of an OpenAI-style `usage` block, passed exactly as
+    /// reported: `completion_tokens` already includes the reasoning tokens.
+    pub fn from_chat_usage(
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        reasoning_tokens: Option<u64>,
+    ) -> Self {
+        Self {
+            input: prompt_tokens,
+            completion: completion_tokens,
+            reasoning_included: reasoning_tokens.unwrap_or(0),
+        }
+    }
+
+    /// Everything billed at the output rate: the reported completion total.
     pub fn completion_tokens(&self) -> u64 {
-        self.output.saturating_add(self.reasoning)
+        self.completion
+    }
+
+    /// False when the reasoning breakdown exceeds the total it is part of.
+    /// Such a report cannot be trusted and is settled like
+    /// [`Outcome::SuccessWithoutUsage`]: the attempt's full estimate.
+    pub fn is_consistent(&self) -> bool {
+        self.reasoning_included <= self.completion
     }
 }
 
@@ -260,13 +293,66 @@ pub enum Outcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RecordedOutcome {
+    /// The reported usage, with [`Usage`]'s inclusive semantics.
     Usage {
         input: u64,
-        output: u64,
-        reasoning: u64,
+        completion: u64,
+        reasoning_included: u64,
     },
     Zero,
     Unknown,
+}
+
+/// Why the ledger tripped: a coarse code that is safe to publish. The
+/// detail string that accompanies it ([`Trip::detail`]) is operator-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TripReason {
+    /// The kill-switch file exists.
+    KillSwitch,
+    /// The lifetime spend reached the lifetime cap.
+    LifetimeCap,
+    /// A settlement reported more completion tokens than the attempt's
+    /// `max_completion_tokens`: the output bound did not hold.
+    OutputBound,
+    /// A settlement charged more than the attempt's estimate.
+    ChargeBound,
+    /// The provider answered 401/402/403: the key itself is refused.
+    ProviderRefusedKey,
+    /// The lifetime summary remembers a trip the day files do not show.
+    Inconsistent,
+}
+
+impl TripReason {
+    /// Stable public code.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TripReason::KillSwitch => "kill_switch",
+            TripReason::LifetimeCap => "lifetime_cap",
+            TripReason::OutputBound => "output_bound",
+            TripReason::ChargeBound => "charge_bound",
+            TripReason::ProviderRefusedKey => "provider_refused_key",
+            TripReason::Inconsistent => "inconsistent",
+        }
+    }
+}
+
+/// A trip the ledger is in: the public code and the operator-only detail
+/// (which may name an upstream HTTP status or ledger amounts; never send
+/// it to a visitor).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Trip {
+    pub code: TripReason,
+    pub detail: String,
+}
+
+impl Trip {
+    fn new(code: TripReason, detail: impl Into<String>) -> Self {
+        Self {
+            code,
+            detail: detail.into(),
+        }
+    }
 }
 
 /// A reservation's id: a UUID v4 the ledger generates.
@@ -322,6 +408,10 @@ enum Record {
     },
     Trip {
         v: u32,
+        /// Absent in records written before the code existed; inferred
+        /// from `reason` then.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<TripReason>,
         reason: String,
         at: String,
     },
@@ -330,6 +420,24 @@ enum Record {
         by: String,
         at: String,
     },
+}
+
+/// The code of a trip record written without one: the detail strings have
+/// always started with a stable prefix.
+fn infer_trip_code(detail: &str) -> TripReason {
+    if detail.starts_with("kill_switch") {
+        TripReason::KillSwitch
+    } else if detail.starts_with("lifetime_cap") {
+        TripReason::LifetimeCap
+    } else if detail.starts_with("completion_tokens_exceeded_max") {
+        TripReason::OutputBound
+    } else if detail.starts_with("charge_exceeded_attempt_draw") {
+        TripReason::ChargeBound
+    } else if detail.starts_with("provider_refused_key") {
+        TripReason::ProviderRefusedKey
+    } else {
+        TripReason::Inconsistent
+    }
 }
 
 impl Record {
@@ -392,9 +500,14 @@ pub struct LifetimeSummary {
     pub unsettled_reservations: u64,
     pub tripped: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trip_code: Option<TripReason>,
+    /// Operator-only detail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trip_reason: Option<String>,
 }
 
+/// Errors are for the operator log: their `Display` names files and
+/// paths. The wire answer is [`Refusal::code`] (`live_unavailable`).
 #[derive(Debug, Error)]
 pub enum LedgerError {
     #[error("ledger configuration: {0}")]
@@ -437,12 +550,14 @@ impl LedgerError {
 }
 
 /// Why an admission or a draw was refused. Every variant has a stable
-/// public code; the fields are for the operator and the `Retry-After`
-/// header.
+/// public code ([`Refusal::code`]) and, where retrying helps, a hint for
+/// `Retry-After`. Everything else, the fields and the `Display` text
+/// (which can carry a trip detail, ledger amounts or file paths), is
+/// operator-only: never put `to_string()` of a refusal in a response body.
 #[derive(Debug, Error)]
 pub enum Refusal {
-    #[error("ledger tripped: {reason}")]
-    Tripped { reason: String },
+    #[error("ledger tripped ({}): {reason}", code.as_str())]
+    Tripped { code: TripReason, reason: String },
     #[error("daily live budget exhausted; retry after {retry_after:?}")]
     DailyBudget { retry_after: Duration },
     #[error("lifetime live budget exhausted")]
@@ -609,8 +724,8 @@ impl Draw {
 pub struct Settlement {
     pub charged: Usd,
     pub outcome: RecordedOutcome,
-    /// The ledger's trip reason after this settlement, if tripped.
-    pub tripped: Option<String>,
+    /// The ledger's trip after this settlement, if tripped.
+    pub tripped: Option<Trip>,
 }
 
 /// The result of releasing a reservation.
@@ -620,7 +735,12 @@ pub struct Released {
     pub spent: Usd,
 }
 
-/// Per-attempt metering the Meta adapter calls around each HTTP attempt.
+/// Per-attempt metering the Meta adapter calls around each HTTP attempt:
+/// [`AttemptMeter::draw`] before the request is sent, [`AttemptMeter::settle`]
+/// right after it ends. A success is settled with
+/// [`Outcome::Success`]`(`[`Usage::from_chat_usage`]`(prompt_tokens,
+/// completion_tokens, reasoning_tokens))`, passing `completion_tokens`
+/// exactly as the API reported it (it already includes reasoning).
 pub trait AttemptMeter: Send + Sync {
     fn draw(&self, est: AttemptEstimate) -> Result<Draw, Refusal>;
     fn settle(&self, draw: Draw, outcome: Outcome) -> Result<Settlement, LedgerError>;
@@ -651,7 +771,9 @@ impl AttemptMeter for ReservationMeter {
     }
 }
 
-/// The ledger's state for `/capabilities` and the operator.
+/// The ledger's full state, for the operator. It carries internal detail
+/// (`trip_reason`, `inconsistent`) that must not reach a visitor: the
+/// `/capabilities` payload is [`Snapshot::public`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Snapshot {
     /// The UTC day the daily figures refer to.
@@ -679,9 +801,42 @@ pub struct Snapshot {
     pub reservations: u64,
     pub unsettled_reservations: u64,
     pub tripped: bool,
+    /// The coarse, publishable reason.
+    pub trip_code: Option<TripReason>,
+    /// Operator-only detail (may name an upstream HTTP status or amounts).
     pub trip_reason: Option<String>,
-    /// Set when the summary and the day files disagree.
+    /// Operator-only: set when the summary and the day files disagree.
     pub inconsistent: Option<String>,
+}
+
+impl Snapshot {
+    /// The visitor-safe projection for `/capabilities`: remaining budgets,
+    /// whether live mode is tripped and the coarse code, nothing else.
+    pub fn public(&self) -> PublicSnapshot {
+        PublicSnapshot {
+            daily_remaining: self.daily_remaining,
+            daily_available_now: self.daily_available_now,
+            lifetime_remaining: self.lifetime_remaining,
+            judge_remaining: self.judge_remaining,
+            tripped: self.tripped,
+            trip_code: self.trip_code,
+        }
+    }
+}
+
+/// What `/capabilities` may publish about the ledger; see
+/// [`Snapshot::public`]. No detail strings, statuses, paths or amounts
+/// from trips.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PublicSnapshot {
+    pub daily_remaining: Usd,
+    /// What the public lane could reserve right now, pacing included.
+    pub daily_available_now: Usd,
+    pub lifetime_remaining: Usd,
+    pub judge_remaining: Usd,
+    pub tripped: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trip_code: Option<TripReason>,
 }
 
 struct ResState {
@@ -731,7 +886,7 @@ struct Cursor {
 #[derive(Default)]
 struct State {
     reservations: BTreeMap<ReservationId, ResState>,
-    tripped: Option<String>,
+    tripped: Option<Trip>,
     cursors: BTreeMap<String, Cursor>,
     spent_floor: Usd,
     inconsistent: Option<String>,
@@ -1010,7 +1165,8 @@ impl Inner {
             reservations: totals.reservations,
             unsettled_reservations: totals.unsettled,
             tripped: st.tripped.is_some(),
-            trip_reason: st.tripped.clone(),
+            trip_code: st.tripped.as_ref().map(|t| t.code),
+            trip_reason: st.tripped.as_ref().map(|t| t.detail.clone()),
         };
         let path = self.dir.join(SUMMARY_FILE);
         let tmp = self.dir.join(format!("{SUMMARY_FILE}.tmp"));
@@ -1131,7 +1287,10 @@ impl Inner {
     fn check_kill_switch(&self, st: &mut State) -> Result<(), LedgerError> {
         if let Some(path) = &self.cfg.kill_switch_file {
             if st.tripped.is_none() && path.exists() {
-                self.trip(st, "kill_switch_file_present".to_string())?;
+                self.trip(
+                    st,
+                    Trip::new(TripReason::KillSwitch, "kill_switch_file_present"),
+                )?;
             }
         }
         Ok(())
@@ -1139,7 +1298,7 @@ impl Inner {
 
     /// Trips once (a second reason is not recorded over the first) and
     /// rewrites the summary, so the trip is visible there too.
-    fn trip(&self, st: &mut State, reason: String) -> Result<(), LedgerError> {
+    fn trip(&self, st: &mut State, trip: Trip) -> Result<(), LedgerError> {
         if st.tripped.is_some() {
             return Ok(());
         }
@@ -1147,7 +1306,8 @@ impl Inner {
             st,
             Record::Trip {
                 v: RECORD_VERSION,
-                reason,
+                code: Some(trip.code),
+                reason: trip.detail,
                 at: rfc3339(self.now()),
             },
         )?;
@@ -1157,9 +1317,20 @@ impl Inner {
     /// Trips when the lifetime spend has reached the lifetime cap.
     fn check_lifetime(&self, st: &mut State) -> Result<(), LedgerError> {
         if st.tripped.is_none() && self.totals(st).lifetime_spent >= self.cfg.lifetime_cap {
-            self.trip(st, "lifetime_cap_reached".to_string())?;
+            self.trip(
+                st,
+                Trip::new(TripReason::LifetimeCap, "lifetime_cap_reached"),
+            )?;
         }
         Ok(())
+    }
+
+    /// The refusal a tripped ledger answers with.
+    fn tripped_refusal(st: &State) -> Option<Refusal> {
+        st.tripped.as_ref().map(|t| Refusal::Tripped {
+            code: t.code,
+            reason: t.detail.clone(),
+        })
     }
 
     fn snapshot(&self, st: &State) -> Snapshot {
@@ -1189,7 +1360,8 @@ impl Inner {
             reservations: t.reservations,
             unsettled_reservations: t.unsettled,
             tripped: st.tripped.is_some(),
-            trip_reason: st.tripped.clone(),
+            trip_code: st.tripped.as_ref().map(|t| t.code),
+            trip_reason: st.tripped.as_ref().map(|t| t.detail.clone()),
             inconsistent: st.inconsistent.clone(),
         }
     }
@@ -1265,8 +1437,9 @@ fn apply(st: &mut State, record: Record) -> Result<(), Record> {
             }
             None => Err(record),
         },
-        Record::Trip { reason, .. } => {
-            st.tripped = Some(reason);
+        Record::Trip { code, reason, .. } => {
+            let code = code.unwrap_or_else(|| infer_trip_code(&reason));
+            st.tripped = Some(Trip::new(code, reason));
             Ok(())
         }
         Record::Reset { .. } => {
@@ -1316,7 +1489,11 @@ impl Ledger {
                         .trip_reason
                         .clone()
                         .unwrap_or_else(|| "unrecorded".into());
-                    st.tripped = Some(format!("summary_trip_not_in_day_files: {reason}"));
+                    let code = summary.trip_code.unwrap_or(TripReason::Inconsistent);
+                    st.tripped = Some(Trip::new(
+                        code,
+                        format!("summary_trip_not_in_day_files: {reason}"),
+                    ));
                     st.inconsistent = Some(format!(
                         "lifetime summary records a trip ({reason}) the day files do not"
                     ));
@@ -1353,10 +1530,8 @@ impl Ledger {
         let inner = self.inner.clone();
         self.locked(move |ledger, st| {
             ledger.check_kill_switch(st)?;
-            if let Some(reason) = &st.tripped {
-                return Err(Refusal::Tripped {
-                    reason: reason.clone(),
-                });
+            if let Some(refusal) = Inner::tripped_refusal(st) {
+                return Err(refusal);
             }
             let now = ledger.now();
             let cfg = &ledger.cfg;
@@ -1475,10 +1650,8 @@ impl Ledger {
         let id = reservation.clone();
         self.locked(move |ledger, st| {
             ledger.check_kill_switch(st)?;
-            if let Some(reason) = &st.tripped {
-                return Err(Refusal::Tripped {
-                    reason: reason.clone(),
-                });
+            if let Some(refusal) = Inner::tripped_refusal(st) {
+                return Err(refusal);
             }
             let res = st
                 .reservations
@@ -1532,18 +1705,30 @@ impl Ledger {
                 });
             }
             let (recorded, charged, detail, trip) = match outcome {
+                Outcome::Success(usage) if !usage.is_consistent() => (
+                    RecordedOutcome::Unknown,
+                    draw.est,
+                    Some(format!(
+                        "2xx with inconsistent usage: reasoning_included {} > completion {}",
+                        usage.reasoning_included, usage.completion
+                    )),
+                    None,
+                ),
                 Outcome::Success(usage) => {
                     let charged = ledger.cfg.charge(&usage);
                     let completion = usage.completion_tokens();
                     let trip = if completion > draw.max_completion_tokens {
-                        Some(format!(
-                            "completion_tokens_exceeded_max: {completion} > {}",
-                            draw.max_completion_tokens
+                        Some(Trip::new(
+                            TripReason::OutputBound,
+                            format!(
+                                "completion_tokens_exceeded_max: {completion} > {}",
+                                draw.max_completion_tokens
+                            ),
                         ))
                     } else if charged > draw.est {
-                        Some(format!(
-                            "charge_exceeded_attempt_draw: {charged} > {}",
-                            draw.est
+                        Some(Trip::new(
+                            TripReason::ChargeBound,
+                            format!("charge_exceeded_attempt_draw: {charged} > {}", draw.est),
                         ))
                     } else {
                         None
@@ -1551,8 +1736,8 @@ impl Ledger {
                     (
                         RecordedOutcome::Usage {
                             input: usage.input,
-                            output: usage.output,
-                            reasoning: usage.reasoning,
+                            completion: usage.completion,
+                            reasoning_included: usage.reasoning_included,
                         },
                         charged,
                         None,
@@ -1569,9 +1754,12 @@ impl Ledger {
                     RecordedOutcome::Zero,
                     Usd::ZERO,
                     Some(format!("http {status}")),
-                    TRIPPING_STATUSES
-                        .contains(&status)
-                        .then(|| format!("provider_refused_key: http {status}")),
+                    TRIPPING_STATUSES.contains(&status).then(|| {
+                        Trip::new(
+                            TripReason::ProviderRefusedKey,
+                            format!("provider_refused_key: http {status}"),
+                        )
+                    }),
                 ),
                 Outcome::Status(status) => (
                     RecordedOutcome::Unknown,
@@ -1604,8 +1792,8 @@ impl Ledger {
                     at: rfc3339(ledger.now()),
                 },
             )?;
-            if let Some(reason) = trip {
-                ledger.trip(st, reason)?;
+            if let Some(trip) = trip {
+                ledger.trip(st, trip)?;
             }
             ledger.check_lifetime(st)?;
             ledger.write_summary(st)?;
@@ -1733,11 +1921,58 @@ mod tests {
         assert_eq!(
             cfg.charge(&Usage {
                 input: 2_688,
-                output: 10_692,
-                reasoning: 0
+                completion: 10_692,
+                reasoning_included: 0
             }),
             Usd::parse("0.224592").unwrap()
         );
+        // Reasoning is a breakdown of the completion total, never added.
+        assert_eq!(
+            cfg.charge(&Usage::from_chat_usage(2_688, 10_692, Some(6_000))),
+            Usd::parse("0.224592").unwrap()
+        );
+        assert!(Usage::from_chat_usage(1, 10, Some(10)).is_consistent());
+        assert!(!Usage::from_chat_usage(1, 10, Some(11)).is_consistent());
+        assert_eq!(
+            Usage::from_chat_usage(5, 7, None),
+            Usage {
+                input: 5,
+                completion: 7,
+                reasoning_included: 0
+            }
+        );
+    }
+
+    #[test]
+    fn trip_codes_are_stable_and_inferred_for_old_records() {
+        for (code, text) in [
+            (TripReason::KillSwitch, "kill_switch"),
+            (TripReason::LifetimeCap, "lifetime_cap"),
+            (TripReason::OutputBound, "output_bound"),
+            (TripReason::ChargeBound, "charge_bound"),
+            (TripReason::ProviderRefusedKey, "provider_refused_key"),
+            (TripReason::Inconsistent, "inconsistent"),
+        ] {
+            assert_eq!(code.as_str(), text);
+            assert_eq!(serde_json::to_string(&code).unwrap(), format!("{text:?}"));
+        }
+        assert_eq!(
+            infer_trip_code("kill_switch_file_present"),
+            TripReason::KillSwitch
+        );
+        assert_eq!(
+            infer_trip_code("provider_refused_key: http 402"),
+            TripReason::ProviderRefusedKey
+        );
+        assert_eq!(infer_trip_code("something else"), TripReason::Inconsistent);
+        let old = r#"{"type":"trip","v":1,"reason":"lifetime_cap_reached","at":"2026-10-27T12:00:00.000Z"}"#;
+        match serde_json::from_str::<Record>(old).unwrap() {
+            Record::Trip { code, reason, .. } => {
+                assert_eq!(code, None);
+                assert_eq!(infer_trip_code(&reason), TripReason::LifetimeCap);
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
@@ -1748,8 +1983,8 @@ mod tests {
             attempt: 2,
             outcome: RecordedOutcome::Usage {
                 input: 1,
-                output: 2,
-                reasoning: 3,
+                completion: 3,
+                reasoning_included: 2,
             },
             charged_usd: Usd::from_micros(64),
             detail: None,

@@ -5,7 +5,7 @@
 use chrono::{DateTime, TimeDelta, Utc};
 use consensus_api::live::budget::{
     AttemptEstimate, AttemptMeter, BudgetConfig, Lane, Ledger, LedgerClock, LedgerError,
-    LedgerOptions, Outcome, RecordedOutcome, Refusal, Usage, LOCK_FILE, SUMMARY_FILE,
+    LedgerOptions, Outcome, RecordedOutcome, Refusal, TripReason, Usage, LOCK_FILE, SUMMARY_FILE,
 };
 use consensus_api::live::money::{Ppm, Usd};
 use std::path::{Path, PathBuf};
@@ -253,20 +253,22 @@ fn retries_take_one_draw_per_attempt() {
 
     let third = meter.draw(full_attempt()).unwrap();
     assert_eq!(third.attempt(), 3);
-    let usage = Usage {
-        input: 2_688,
-        output: 10_692,
-        reasoning: 0,
-    };
+    // As Meta reports it: completion_tokens inclusive of the reasoning
+    // breakdown (R01-reference, 2026-10-27).
+    let usage = Usage::from_chat_usage(2_688, 10_692, Some(6_000));
     let s3 = meter.settle(third, Outcome::Success(usage)).unwrap();
     assert_eq!(s3.charged, usd("0.224592"), "2688 × $4/M + 10692 × $20/M");
     assert_eq!(
         s3.outcome,
         RecordedOutcome::Usage {
             input: 2_688,
-            output: 10_692,
-            reasoning: 0
+            completion: 10_692,
+            reasoning_included: 6_000
         }
+    );
+    assert!(
+        s3.tripped.is_none(),
+        "10,692 inclusive tokens fit the bound"
     );
 
     let draws = records(dir.path(), "2026-10-27", "draw");
@@ -295,20 +297,25 @@ fn completion_over_max_trips_and_the_trip_survives_reopen() {
             draw,
             Outcome::Success(Usage {
                 input: 10,
-                output: 16_000,
-                reasoning: 1,
+                completion: 16_001,
+                reasoning_included: 1,
             }),
         )
         .unwrap();
-    let reason = settled.tripped.expect("tripped");
+    let trip = settled.tripped.expect("tripped");
+    assert_eq!(trip.code, TripReason::OutputBound);
+    let reason = trip.detail;
     assert!(
         reason.starts_with("completion_tokens_exceeded_max"),
         "{reason}"
     );
-    assert!(matches!(
-        ledger.reserve(Lane::Public),
-        Err(Refusal::Tripped { .. })
-    ));
+    match ledger.reserve(Lane::Public) {
+        Err(Refusal::Tripped { code, reason: r }) => {
+            assert_eq!(code, TripReason::OutputBound);
+            assert_eq!(r, reason);
+        }
+        other => panic!("{other:?}"),
+    }
     assert!(
         matches!(
             ledger.draw(&reservation, full_attempt()),
@@ -326,6 +333,7 @@ fn completion_over_max_trips_and_the_trip_survives_reopen() {
     let reopened = open(dir.path(), unpaced_cfg(), &clock);
     let snap = reopened.snapshot().unwrap();
     assert!(snap.tripped);
+    assert_eq!(snap.trip_code, Some(TripReason::OutputBound));
     assert_eq!(snap.trip_reason.as_deref(), Some(reason.as_str()));
     assert!(matches!(
         reopened.reserve(Lane::Public),
@@ -335,6 +343,78 @@ fn completion_over_max_trips_and_the_trip_survives_reopen() {
     reopened.reset("operator").unwrap();
     assert!(!reopened.snapshot().unwrap().tripped);
     assert!(reopened.reserve(Lane::Public).is_ok());
+}
+
+#[test]
+fn reasoning_included_changes_neither_the_charge_nor_the_trip() {
+    let dir = TempDir::new("reasoning");
+    let clock = TestClock::at("2026-10-27T12:00:00Z");
+    let ledger = open(dir.path(), unpaced_cfg(), &clock);
+    let reservation = ledger.reserve(Lane::Public).unwrap();
+
+    // The same completion total with and without a reasoning breakdown
+    // costs the same: reasoning is inside completion_tokens, not added.
+    let plain = Usage::from_chat_usage(2_688, 10_692, None);
+    let with_reasoning = Usage::from_chat_usage(2_688, 10_692, Some(6_000));
+    assert_eq!(ledger.config().charge(&plain), usd("0.224592"));
+    assert_eq!(ledger.config().charge(&with_reasoning), usd("0.224592"));
+    assert_eq!(
+        plain.completion_tokens(),
+        with_reasoning.completion_tokens()
+    );
+
+    let draw = ledger.draw(&reservation, full_attempt()).unwrap();
+    let s1 = ledger.settle(draw, Outcome::Success(plain)).unwrap();
+    assert_eq!(s1.charged, usd("0.224592"));
+    assert!(s1.tripped.is_none());
+
+    // 10,692 completion tokens of which 6,000 are reasoning: a naive sum
+    // would read 16,692 > 16,000 and trip; the inclusive total does not.
+    let draw = ledger.draw(&reservation, full_attempt()).unwrap();
+    let s2 = ledger
+        .settle(draw, Outcome::Success(with_reasoning))
+        .unwrap();
+    assert_eq!(s2.charged, usd("0.224592"));
+    assert!(s2.tripped.is_none(), "{:?}", s2.tripped);
+    assert_eq!(
+        s2.outcome,
+        RecordedOutcome::Usage {
+            input: 2_688,
+            completion: 10_692,
+            reasoning_included: 6_000
+        }
+    );
+
+    // Exactly at the bound, all of it reasoning: still no trip.
+    let draw = ledger.draw(&reservation, full_attempt()).unwrap();
+    let s3 = ledger
+        .settle(
+            draw,
+            Outcome::Success(Usage::from_chat_usage(10, 16_000, Some(16_000))),
+        )
+        .unwrap();
+    assert!(s3.tripped.is_none());
+
+    // A breakdown larger than its total is not a usage report at all: the
+    // attempt is charged at its full estimate, like a 2xx without usage.
+    let draw = ledger.draw(&reservation, full_attempt()).unwrap();
+    let s4 = ledger
+        .settle(
+            draw,
+            Outcome::Success(Usage::from_chat_usage(10, 100, Some(101))),
+        )
+        .unwrap();
+    assert_eq!(s4.charged, usd(ATTEMPT_EST));
+    assert_eq!(s4.outcome, RecordedOutcome::Unknown);
+    assert!(s4.tripped.is_none());
+    let settlements = records(dir.path(), "2026-10-27", "settlement");
+    assert_eq!(settlements.len(), 4);
+    assert_eq!(settlements[3]["outcome"]["kind"], "unknown");
+    assert!(settlements[3]["detail"]
+        .as_str()
+        .unwrap()
+        .contains("inconsistent usage"));
+    assert!(ledger.release(reservation).is_ok());
 }
 
 #[test]
@@ -350,16 +430,18 @@ fn a_charge_above_the_attempt_draw_trips() {
             draw,
             Outcome::Success(Usage {
                 input: 100_000,
-                output: 100,
-                reasoning: 0,
+                completion: 100,
+                reasoning_included: 0,
             }),
         )
         .unwrap();
     assert_eq!(settled.charged, usd("0.402"), "the real charge is kept");
-    let reason = settled.tripped.expect("tripped");
+    let trip = settled.tripped.expect("tripped");
+    assert_eq!(trip.code, TripReason::ChargeBound);
     assert!(
-        reason.starts_with("charge_exceeded_attempt_draw"),
-        "{reason}"
+        trip.detail.starts_with("charge_exceeded_attempt_draw"),
+        "{}",
+        trip.detail
     );
 }
 
@@ -383,12 +465,27 @@ fn provider_key_refusals_trip_and_other_no_retry_statuses_charge_zero() {
         let draw = ledger.draw(&reservation, full_attempt()).unwrap();
         let settled = ledger.settle(draw, Outcome::Status(status)).unwrap();
         assert_eq!(settled.charged, Usd::ZERO, "{status}");
-        let reason = settled.tripped.expect("tripped");
-        assert_eq!(reason, format!("provider_refused_key: http {status}"));
+        let trip = settled.tripped.expect("tripped");
+        assert_eq!(trip.code, TripReason::ProviderRefusedKey);
+        assert_eq!(trip.detail, format!("provider_refused_key: http {status}"));
         assert!(matches!(
             ledger.reserve(Lane::Public),
             Err(Refusal::Tripped { .. })
         ));
+        // The visitor-facing projection carries the coarse code only: no
+        // upstream status, no detail text, no paths.
+        let snap = ledger.snapshot().unwrap();
+        assert_eq!(snap.trip_code, Some(TripReason::ProviderRefusedKey));
+        assert!(snap.trip_reason.as_deref().unwrap().contains("http"));
+        let public = serde_json::to_string(&snap.public()).unwrap();
+        assert!(!public.contains("http"), "{public}");
+        assert!(!public.contains(&status.to_string()), "{public}");
+        assert!(!public.contains('/') && !public.contains('\\'), "{public}");
+        assert!(
+            public.contains("\"trip_code\":\"provider_refused_key\""),
+            "{public}"
+        );
+        assert!(public.contains("\"tripped\":true"), "{public}");
     }
 }
 
@@ -423,13 +520,16 @@ fn lifetime_cap_reached_trips_across_reopen() {
         tripped = ledger.settle(draw, Outcome::Timeout).unwrap().tripped;
     }
     assert_eq!(spent, usd(WORST_CASE));
-    assert_eq!(tripped.as_deref(), Some("lifetime_cap_reached"));
+    let trip = tripped.expect("tripped");
+    assert_eq!(trip.code, TripReason::LifetimeCap);
+    assert_eq!(trip.detail, "lifetime_cap_reached");
     drop(reservation);
     drop(ledger);
 
     let reopened = open(dir.path(), cfg, &clock);
     let snap = reopened.snapshot().unwrap();
     assert!(snap.tripped);
+    assert_eq!(snap.trip_code, Some(TripReason::LifetimeCap));
     assert_eq!(snap.lifetime_spent, usd(WORST_CASE));
     assert_eq!(snap.lifetime_remaining, Usd::ZERO);
     assert!(matches!(
@@ -458,7 +558,10 @@ fn kill_switch_file_refuses_everything_until_an_operator_reset() {
 
     std::fs::write(&switch, b"stop\n").unwrap();
     match ledger.reserve(Lane::Public) {
-        Err(Refusal::Tripped { reason }) => assert_eq!(reason, "kill_switch_file_present"),
+        Err(Refusal::Tripped { code, reason }) => {
+            assert_eq!(code, TripReason::KillSwitch);
+            assert_eq!(reason, "kill_switch_file_present");
+        }
         other => panic!("{other:?}"),
     }
     assert!(
@@ -697,10 +800,10 @@ fn exact_decimal_money_over_ten_thousand_settlements() {
     let cfg = unpaced_cfg();
     let usage = Usage {
         input: 123,
-        output: 456,
-        reasoning: 7,
+        completion: 463,
+        reasoning_included: 7,
     };
-    // 123 × 4 + (456 + 7) × 20 = 492 + 9,260 = 9,752 micro-dollars.
+    // 123 × 4 + 463 × 20 = 492 + 9,260 = 9,752 micro-dollars.
     assert_eq!(cfg.charge(&usage), Usd::from_micros(9_752));
     let mut total = Usd::ZERO;
     for _ in 0..10_000 {
@@ -908,8 +1011,8 @@ fn release_frees_the_day_down_to_what_was_spent() {
             draw,
             Outcome::Success(Usage {
                 input: 1_000,
-                output: 2_000,
-                reasoning: 0,
+                completion: 2_000,
+                reasoning_included: 0,
             }),
         )
         .unwrap();
@@ -1039,6 +1142,14 @@ fn the_lifetime_summary_is_a_floor_when_day_files_go_missing() {
     assert_eq!(snap.lifetime_committed, usd(ATTEMPT_EST));
     assert!(snap.inconsistent.is_some());
     assert!(!snap.tripped);
+    // The operator sees the inconsistency; the public projection does not.
+    let full = serde_json::to_string(&snap).unwrap();
+    assert!(full.contains("inconsistent"), "{full}");
+    let public = serde_json::to_string(&snap.public()).unwrap();
+    assert!(!public.contains("inconsistent"), "{public}");
+    assert!(!public.contains("summary"), "{public}");
+    assert!(!public.contains('/') && !public.contains('\\'), "{public}");
+    assert!(!public.contains("trip_code"), "no trip, no code: {public}");
 }
 
 #[test]
@@ -1055,7 +1166,11 @@ fn snapshot_and_refusals_expose_stable_codes_and_string_money() {
     assert_eq!(json["tripped"], false);
     assert_eq!(json["day"], "2026-10-27");
     let codes: Vec<&str> = [
-        Refusal::Tripped { reason: "x".into() }.code(),
+        Refusal::Tripped {
+            code: TripReason::KillSwitch,
+            reason: "x".into(),
+        }
+        .code(),
         Refusal::DailyBudget {
             retry_after: Duration::from_secs(1),
         }

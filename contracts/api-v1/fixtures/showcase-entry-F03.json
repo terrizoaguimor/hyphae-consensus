@@ -1,0 +1,30 @@
+{
+  "authorization": "pending",
+  "battery": "live-battery-2026-10-27-final",
+  "event_count": 28,
+  "file": "2026-10-27/live-battery-2026-10-27-final.jsonl",
+  "head_hash": "629a2fb5923350e5de952f22d44717c96fc2df884332b18c84d7567a1422bbbf",
+  "label": "F03",
+  "outcome": "contested",
+  "provenance": {
+    "evidence": "hyphae_live",
+    "flags": [
+      "mode_undeclared"
+    ],
+    "meta_request_ids": [
+      "chatcmpl-01a17c50-1917-73e5-a8ad-705baefd6cc9",
+      "chatcmpl-01a17c50-a2d8-70a8-b5e2-6b69c4b08d99",
+      "chatcmpl-01a17c51-3001-71ac-b44a-757d218ecec1",
+      "chatcmpl-01a17c51-b153-72be-aa8f-9abdf2b627ac",
+      "chatcmpl-01a17c52-65c4-7216-bc28-b804eed4f6df",
+      "chatcmpl-01a17c53-61f8-73bf-aa6f-c61d0cb2707f"
+    ],
+    "model": "live_meta",
+    "source": "research_archive"
+  },
+  "record_file": "2026-10-27/live-battery-2026-10-27-final/F03-raise-to-10.json",
+  "run_id": "run-d6f28bca-0a10-4fcf-9257-4cfb7374280c",
+  "schema_version": "1.2",
+  "sha256": "3d647ed975654be2d9fa2feccfdc6059f28e3f16ad72969740e27809f6f68c76",
+  "title": "Raise payment retry attempts to 10"
+}

@@ -1,0 +1,766 @@
+{
+  "chain": {
+    "first_sequence": 1,
+    "head_hash": "baad5e42869428235f5224c6e231e0137c3a433d204620be97db3e0d93e1c4ef",
+    "last_sequence": 12,
+    "scope": "run"
+  },
+  "challenge_items": [
+    {
+      "claim_id": "claim-2",
+      "description": "No retrieved record shows that 10 retry attempts are safe",
+      "id": "item-1",
+      "kind": "unsupported_claim",
+      "raised_in_round": 1,
+      "resolution_reason": "the revision no longer raises the attempt limit",
+      "status": "resolved"
+    },
+    {
+      "claim_id": "claim-1",
+      "description": "No retrieved record ties the timeouts to too few retries",
+      "id": "item-2",
+      "kind": "unsupported_claim",
+      "raised_in_round": 1,
+      "resolution_reason": "the revision no longer claims a cause; claim-1 states a correlation",
+      "status": "resolved"
+    }
+  ],
+  "current_proposal": {
+    "assumptions": [
+      "Upstream services tolerate the proposed change"
+    ],
+    "author_role": "proposer",
+    "claims": [
+      {
+        "evidence_refs": [],
+        "id": "claim-1",
+        "statement": "Payment timeouts correlate with retry bursts above 5 attempts"
+      },
+      {
+        "evidence_refs": [],
+        "id": "claim-2",
+        "statement": "Capping retries at 3 attempts with jitter matches the documented constraint"
+      }
+    ],
+    "created_at": "2026-10-26T09:00:00Z",
+    "id": "prop-2",
+    "plan_steps": [
+      "Apply the change",
+      "Run the existing test suite"
+    ],
+    "run_id": "run-00000000-0000-4000-8000-000000000002",
+    "schema_version": "1.3",
+    "summary": "Cap retries at 3 attempts with jitter per the documented constraint",
+    "uncertainties": [
+      "No load-test data available"
+    ]
+  },
+  "events": [
+    {
+      "actor": {
+        "id": "visitor:fixture0000000",
+        "kind": "human"
+      },
+      "event_id": "evt-0002",
+      "hash": "f6c81ebbceb5fabf92fcf916c5a41d17a5a38089bf9e76ac9071a53afc29b6c9",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "task": {
+          "created_at": "2026-10-26T09:00:00Z",
+          "description": "Payment requests intermittently time out under load. Propose a fix.",
+          "id": "task-0001",
+          "mode": {
+            "evidence": "simulated",
+            "model": "scripted",
+            "origin": "public",
+            "preset": "guided:offline"
+          },
+          "project_id": "demo-repo",
+          "run_id": "run-00000000-0000-4000-8000-000000000002",
+          "schema_version": "1.3",
+          "title": "Fix payment client timeouts"
+        },
+        "type": "task_created"
+      },
+      "prev_hash": "genesis",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 1
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "proposer"
+      },
+      "event_id": "evt-0003",
+      "hash": "2218c58ea761528431959e070c585ce6572aaf66cfc203696145f74b3717de86",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-propose-1",
+          "scripted": true
+        },
+        "proposal": {
+          "assumptions": [
+            "Upstream services tolerate the proposed change"
+          ],
+          "author_role": "proposer",
+          "claims": [
+            {
+              "evidence_refs": [],
+              "id": "claim-1",
+              "statement": "Payment timeouts are caused by insufficient retries"
+            },
+            {
+              "evidence_refs": [],
+              "id": "claim-2",
+              "statement": "Raising the retry limit to 10 attempts is safe"
+            }
+          ],
+          "created_at": "2026-10-26T09:00:00Z",
+          "id": "prop-1",
+          "plan_steps": [
+            "Apply the change",
+            "Run the existing test suite"
+          ],
+          "run_id": "run-00000000-0000-4000-8000-000000000002",
+          "schema_version": "1.3",
+          "summary": "Raise the payment client retry limit to fix timeouts",
+          "uncertainties": [
+            "No load-test data available"
+          ]
+        },
+        "type": "proposal_submitted"
+      },
+      "prev_hash": "f6c81ebbceb5fabf92fcf916c5a41d17a5a38089bf9e76ac9071a53afc29b6c9",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 2
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0004",
+      "hash": "7399b2b98dd710fecd2131d29d9e8d4dda14aa99b8fbf37ff6429df8e337a7f8",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "code": "memory_unavailable",
+        "message": "The memory backend was unreachable.",
+        "query": "Payment timeouts are caused by insufficient retries",
+        "type": "evidence_unavailable"
+      },
+      "prev_hash": "2218c58ea761528431959e070c585ce6572aaf66cfc203696145f74b3717de86",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 3
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0005",
+      "hash": "e4e86b920e6651dc909158d8e53c6b3251415fa76b98d61c0afb9c47b8572ee2",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "code": "memory_unavailable",
+        "message": "The memory backend was unreachable.",
+        "query": "Raising the retry limit to 10 attempts is safe",
+        "type": "evidence_unavailable"
+      },
+      "prev_hash": "7399b2b98dd710fecd2131d29d9e8d4dda14aa99b8fbf37ff6429df8e337a7f8",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 4
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "critic"
+      },
+      "event_id": "evt-0006",
+      "hash": "757ce472980d4f43ecf5e1caec2c997eedd02ce7e5cec5a5aeeb51def0c61a7a",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "challenge": {
+          "created_at": "2026-10-26T09:00:00Z",
+          "id": "chal-1",
+          "items": [
+            {
+              "claim_id": "claim-2",
+              "description": "No retrieved record shows that 10 retry attempts are safe",
+              "evidence_refs": [],
+              "id": "item-1",
+              "kind": "unsupported_claim"
+            },
+            {
+              "claim_id": "claim-1",
+              "description": "No retrieved record ties the timeouts to too few retries",
+              "evidence_refs": [],
+              "id": "item-2",
+              "kind": "unsupported_claim"
+            }
+          ],
+          "run_id": "run-00000000-0000-4000-8000-000000000002",
+          "schema_version": "1.3",
+          "target_proposal": "prop-1"
+        },
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-critique-2",
+          "scripted": true
+        },
+        "type": "challenge_submitted"
+      },
+      "prev_hash": "e4e86b920e6651dc909158d8e53c6b3251415fa76b98d61c0afb9c47b8572ee2",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 5
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "evidence_evaluator"
+      },
+      "event_id": "evt-0007",
+      "hash": "1d54062462b25e9003713d44dfc26e9603aed47516f620e9f5a5f0d1e94cc246",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "evaluation": {
+          "abstain": false,
+          "assessments": [
+            {
+              "claim_id": "claim-1",
+              "contradicting_evidence": [],
+              "corroborated": false,
+              "note": "scripted assessment",
+              "relevant_evidence": []
+            },
+            {
+              "claim_id": "claim-2",
+              "contradicting_evidence": [],
+              "corroborated": false,
+              "note": "scripted assessment",
+              "relevant_evidence": []
+            }
+          ],
+          "created_at": "2026-10-26T09:00:00Z",
+          "item_verdicts": [
+            {
+              "item_id": "item-1",
+              "reason": "memory is offline: no record could be retrieved to settle it",
+              "status": "unresolved"
+            },
+            {
+              "item_id": "item-2",
+              "reason": "memory is offline: no record could be retrieved to settle it",
+              "status": "unresolved"
+            }
+          ],
+          "run_id": "run-00000000-0000-4000-8000-000000000002",
+          "schema_version": "1.3",
+          "target_proposal": "prop-1",
+          "unresolved_items": [
+            "item-1",
+            "item-2"
+          ]
+        },
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-evaluate-3",
+          "scripted": true
+        },
+        "type": "evaluation_submitted"
+      },
+      "prev_hash": "757ce472980d4f43ecf5e1caec2c997eedd02ce7e5cec5a5aeeb51def0c61a7a",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 6
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "proposer"
+      },
+      "event_id": "evt-0008",
+      "hash": "1662348444a32a4689b84806eadfaf1635d1b87c013712df8b63947b75df5f81",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-revise-4",
+          "scripted": true
+        },
+        "revision": {
+          "addressed_items": [
+            "item-1",
+            "item-2"
+          ],
+          "proposal": {
+            "assumptions": [
+              "Upstream services tolerate the proposed change"
+            ],
+            "author_role": "proposer",
+            "claims": [
+              {
+                "evidence_refs": [],
+                "id": "claim-1",
+                "statement": "Payment timeouts correlate with retry bursts above 5 attempts"
+              },
+              {
+                "evidence_refs": [],
+                "id": "claim-2",
+                "statement": "Capping retries at 3 attempts with jitter matches the documented constraint"
+              }
+            ],
+            "created_at": "2026-10-26T09:00:00Z",
+            "id": "prop-2",
+            "plan_steps": [
+              "Apply the change",
+              "Run the existing test suite"
+            ],
+            "run_id": "run-00000000-0000-4000-8000-000000000002",
+            "schema_version": "1.3",
+            "summary": "Cap retries at 3 attempts with jitter per the documented constraint",
+            "uncertainties": [
+              "No load-test data available"
+            ]
+          },
+          "schema_version": "1.3",
+          "supersedes": "prop-1"
+        },
+        "type": "revision_submitted"
+      },
+      "prev_hash": "1d54062462b25e9003713d44dfc26e9603aed47516f620e9f5a5f0d1e94cc246",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 7
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0009",
+      "hash": "33a0947d474c60b0988b57fea80ba96f7469023dcbe7328d1c73bc2eea10a5df",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "code": "memory_unavailable",
+        "message": "The memory backend was unreachable.",
+        "query": "Payment timeouts correlate with retry bursts above 5 attempts",
+        "type": "evidence_unavailable"
+      },
+      "prev_hash": "1662348444a32a4689b84806eadfaf1635d1b87c013712df8b63947b75df5f81",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 8
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0010",
+      "hash": "6863e23ed65e303b8c5bd4b77d7f27607a72c8e594937ba77026fb2e77dbf845",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "code": "memory_unavailable",
+        "message": "The memory backend was unreachable.",
+        "query": "Capping retries at 3 attempts with jitter matches the documented constraint",
+        "type": "evidence_unavailable"
+      },
+      "prev_hash": "33a0947d474c60b0988b57fea80ba96f7469023dcbe7328d1c73bc2eea10a5df",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 9
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "critic"
+      },
+      "event_id": "evt-0011",
+      "hash": "032d4dc2e837a7cf841593ed2a32dde56ee5e1303335b6f56e64c3eee27d4c0a",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "challenge": {
+          "created_at": "2026-10-26T09:00:00Z",
+          "id": "chal-2",
+          "items": [],
+          "run_id": "run-00000000-0000-4000-8000-000000000002",
+          "schema_version": "1.3",
+          "target_proposal": "prop-2"
+        },
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-critique-5",
+          "scripted": true
+        },
+        "type": "challenge_submitted"
+      },
+      "prev_hash": "6863e23ed65e303b8c5bd4b77d7f27607a72c8e594937ba77026fb2e77dbf845",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 10
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "evidence_evaluator"
+      },
+      "event_id": "evt-0012",
+      "hash": "814da5fefddd8688ded322aa3342db68383f1d99700dae8de703321eb504c4e8",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "evaluation": {
+          "abstain": false,
+          "assessments": [
+            {
+              "claim_id": "claim-1",
+              "contradicting_evidence": [],
+              "corroborated": false,
+              "note": "scripted assessment",
+              "relevant_evidence": []
+            },
+            {
+              "claim_id": "claim-2",
+              "contradicting_evidence": [],
+              "corroborated": false,
+              "note": "scripted assessment",
+              "relevant_evidence": []
+            }
+          ],
+          "created_at": "2026-10-26T09:00:00Z",
+          "item_verdicts": [
+            {
+              "item_id": "item-1",
+              "reason": "the revision no longer raises the attempt limit",
+              "status": "resolved"
+            },
+            {
+              "item_id": "item-2",
+              "reason": "the revision no longer claims a cause; claim-1 states a correlation",
+              "status": "resolved"
+            }
+          ],
+          "run_id": "run-00000000-0000-4000-8000-000000000002",
+          "schema_version": "1.3",
+          "target_proposal": "prop-2",
+          "unresolved_items": []
+        },
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-evaluate-6",
+          "scripted": true
+        },
+        "type": "evaluation_submitted"
+      },
+      "prev_hash": "032d4dc2e837a7cf841593ed2a32dde56ee5e1303335b6f56e64c3eee27d4c0a",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 11
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0013",
+      "hash": "baad5e42869428235f5224c6e231e0137c3a433d204620be97db3e0d93e1c4ef",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "recommendation": {
+          "issued_at": "2026-10-26T09:00:00Z",
+          "kind": "insufficient_evidence",
+          "rationale": "InsufficientEvidence: 0/2 claims corroborated; proofs: 0 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+          "schema_version": "1.3",
+          "unresolved_assumptions": [
+            "Upstream services tolerate the proposed change"
+          ],
+          "unresolved_uncertainties": [
+            "No load-test data available"
+          ]
+        },
+        "type": "recommendation_issued"
+      },
+      "prev_hash": "814da5fefddd8688ded322aa3342db68383f1d99700dae8de703321eb504c4e8",
+      "run_id": "run-00000000-0000-4000-8000-000000000002",
+      "schema_version": "1.3",
+      "sequence": 12
+    }
+  ],
+  "model_invocations": [
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-propose-1",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-critique-2",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-evaluate-3",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-revise-4",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-critique-5",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-evaluate-6",
+      "scripted": true
+    }
+  ],
+  "recommendation": {
+    "issued_at": "2026-10-26T09:00:00Z",
+    "kind": "insufficient_evidence",
+    "protocol": "protocol 1.3 · policy rules 1.2",
+    "rationale": "InsufficientEvidence: 0/2 claims corroborated; proofs: 0 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+    "rationale_code": "insufficient_evidence.insufficient_evidence",
+    "trace": {
+      "counts": {
+        "claims": 2,
+        "corroborated": 0,
+        "proofs_invalid": 0,
+        "proofs_unavailable_or_error": 0,
+        "proofs_valid": 0,
+        "unresolved_items": 0
+      },
+      "kind": "insufficient_evidence",
+      "reasons": [
+        {
+          "claim_ids": [
+            "claim-1",
+            "claim-2"
+          ],
+          "reason": "uncorroborated_claims"
+        },
+        {
+          "reason": "no_checked_evidence"
+        }
+      ],
+      "rule": "insufficient_evidence",
+      "version": "1.2"
+    },
+    "unresolved_assumptions": [
+      "Upstream services tolerate the proposed change"
+    ],
+    "unresolved_uncertainties": [
+      "No load-test data available"
+    ]
+  },
+  "rounds": [
+    {
+      "challenge": {
+        "created_at": "2026-10-26T09:00:00Z",
+        "id": "chal-1",
+        "items": [
+          {
+            "claim_id": "claim-2",
+            "description": "No retrieved record shows that 10 retry attempts are safe",
+            "evidence_refs": [],
+            "id": "item-1",
+            "kind": "unsupported_claim"
+          },
+          {
+            "claim_id": "claim-1",
+            "description": "No retrieved record ties the timeouts to too few retries",
+            "evidence_refs": [],
+            "id": "item-2",
+            "kind": "unsupported_claim"
+          }
+        ],
+        "run_id": "run-00000000-0000-4000-8000-000000000002",
+        "schema_version": "1.3",
+        "target_proposal": "prop-1"
+      },
+      "evaluation": {
+        "abstain": false,
+        "assessments": [
+          {
+            "claim_id": "claim-1",
+            "contradicting_evidence": [],
+            "corroborated": false,
+            "note": "scripted assessment",
+            "relevant_evidence": []
+          },
+          {
+            "claim_id": "claim-2",
+            "contradicting_evidence": [],
+            "corroborated": false,
+            "note": "scripted assessment",
+            "relevant_evidence": []
+          }
+        ],
+        "created_at": "2026-10-26T09:00:00Z",
+        "item_verdicts": [
+          {
+            "item_id": "item-1",
+            "reason": "memory is offline: no record could be retrieved to settle it",
+            "status": "unresolved"
+          },
+          {
+            "item_id": "item-2",
+            "reason": "memory is offline: no record could be retrieved to settle it",
+            "status": "unresolved"
+          }
+        ],
+        "run_id": "run-00000000-0000-4000-8000-000000000002",
+        "schema_version": "1.3",
+        "target_proposal": "prop-1",
+        "unresolved_items": [
+          "item-1",
+          "item-2"
+        ]
+      },
+      "proposal_id": "prop-1",
+      "round": 1,
+      "verifications": []
+    },
+    {
+      "challenge": {
+        "created_at": "2026-10-26T09:00:00Z",
+        "id": "chal-2",
+        "items": [],
+        "run_id": "run-00000000-0000-4000-8000-000000000002",
+        "schema_version": "1.3",
+        "target_proposal": "prop-2"
+      },
+      "evaluation": {
+        "abstain": false,
+        "assessments": [
+          {
+            "claim_id": "claim-1",
+            "contradicting_evidence": [],
+            "corroborated": false,
+            "note": "scripted assessment",
+            "relevant_evidence": []
+          },
+          {
+            "claim_id": "claim-2",
+            "contradicting_evidence": [],
+            "corroborated": false,
+            "note": "scripted assessment",
+            "relevant_evidence": []
+          }
+        ],
+        "created_at": "2026-10-26T09:00:00Z",
+        "item_verdicts": [
+          {
+            "item_id": "item-1",
+            "reason": "the revision no longer raises the attempt limit",
+            "status": "resolved"
+          },
+          {
+            "item_id": "item-2",
+            "reason": "the revision no longer claims a cause; claim-1 states a correlation",
+            "status": "resolved"
+          }
+        ],
+        "run_id": "run-00000000-0000-4000-8000-000000000002",
+        "schema_version": "1.3",
+        "target_proposal": "prop-2",
+        "unresolved_items": []
+      },
+      "proposal_id": "prop-2",
+      "round": 2,
+      "verifications": []
+    }
+  ],
+  "summary": {
+    "active": false,
+    "authorization": "pending",
+    "created_at": "2026-10-26T09:00:00Z",
+    "event_count": 12,
+    "last_sequence": 12,
+    "override": false,
+    "provenance": {
+      "declared": {
+        "evidence": "simulated",
+        "model": "scripted",
+        "origin": "public",
+        "preset": "guided:offline"
+      },
+      "evidence": "none",
+      "model": "scripted",
+      "source": "this_server"
+    },
+    "recommendation": "insufficient_evidence",
+    "revision_round": 1,
+    "run_id": "run-00000000-0000-4000-8000-000000000002",
+    "state": "awaiting_human_approval",
+    "title": "Fix payment client timeouts",
+    "updated_at": "2026-10-26T09:00:00Z"
+  },
+  "task": {
+    "created_at": "2026-10-26T09:00:00Z",
+    "description": "Payment requests intermittently time out under load. Propose a fix.",
+    "id": "task-0001",
+    "mode": {
+      "evidence": "simulated",
+      "model": "scripted",
+      "origin": "public",
+      "preset": "guided:offline"
+    },
+    "project_id": "demo-repo",
+    "run_id": "run-00000000-0000-4000-8000-000000000002",
+    "schema_version": "1.3",
+    "title": "Fix payment client timeouts"
+  }
+}

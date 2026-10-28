@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "`202` of a cancel request.",
+  "properties": {
+    "cancelling": {
+      "description": "The run stops at its next checkpoint and records `run_failed{stage: cancelled}`.",
+      "type": "boolean"
+    },
+    "run_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "cancelling",
+    "run_id"
+  ],
+  "title": "CancelResponseV1",
+  "type": "object"
+}

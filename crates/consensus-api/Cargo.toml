@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Operator entry point: Meta and Hyphae adapters, Axum/SSE console, scripted demo."
+description = "Public API, operator surface, Meta and Hyphae adapters, SSE streaming, verify CLI."
 
 [dependencies]
 consensus-domain = { path = "../consensus-domain" }
@@ -19,3 +19,15 @@ axum.workspace = true
 futures-core.workspace = true
 async-stream.workspace = true
 tokio.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+# Session ids and operator tokens: 256 bits straight from the OS. Already
+# in Cargo.lock through uuid.
+getrandom = "=0.4.3"
+
+[dev-dependencies]
+# HTTP-level tests drive the routers through `tower::ServiceExt::oneshot`
+# and read bodies with `http_body_util::BodyExt`; both are already in
+# Cargo.lock through axum.
+tower = { version = "=0.5.3", default-features = false, features = ["util"] }
+http-body-util = "=0.1.5"

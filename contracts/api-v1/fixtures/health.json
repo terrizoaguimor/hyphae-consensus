@@ -1,0 +1,8 @@
+{
+  "contract_sha256": "1a99db013f5faf4b59cb05a2c0f2cd2dc7a9fcdfdc824a492e38aecbeec96231",
+  "executor": "disabled",
+  "policy_version": "1.2",
+  "schema_version": "1.3",
+  "status": "ok",
+  "version": "0.1.0"
+}

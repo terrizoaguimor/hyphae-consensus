@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "`GET /api/v1/health`: static facts only, no environment probing.",
+  "properties": {
+    "contract_sha256": {
+      "type": "string"
+    },
+    "executor": {
+      "description": "Always `disabled`: approval records a decision and executes nothing.",
+      "type": "string"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "contract_sha256",
+    "executor",
+    "policy_version",
+    "schema_version",
+    "status",
+    "version"
+  ],
+  "title": "HealthV1",
+  "type": "object"
+}

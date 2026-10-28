@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "`GET /api/v1/runs` query: cursor pagination, newest first.",
+  "properties": {
+    "cursor": {
+      "description": "The `next_cursor` of the previous page.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "1 to 50; default 20.",
+      "format": "uint32",
+      "minimum": 0.0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "title": "ListRunsQuery",
+  "type": "object"
+}

@@ -1,0 +1,25 @@
+{
+  "active": false,
+  "authorization": "pending",
+  "created_at": "2026-10-26T09:00:00Z",
+  "event_count": 5,
+  "last_sequence": 5,
+  "override": false,
+  "provenance": {
+    "declared": {
+      "evidence": "simulated",
+      "model": "scripted",
+      "origin": "public",
+      "preset": "guided:abstain"
+    },
+    "evidence": "none",
+    "model": "scripted",
+    "source": "this_server"
+  },
+  "recommendation": "abstained",
+  "revision_round": 0,
+  "run_id": "run-00000000-0000-4000-8000-000000000005",
+  "state": "awaiting_human_approval",
+  "title": "Fix payment client timeouts (abstention demo)",
+  "updated_at": "2026-10-26T09:00:00Z"
+}

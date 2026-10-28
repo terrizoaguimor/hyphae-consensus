@@ -1,0 +1,238 @@
+{
+  "authorization": {
+    "authority": "public_demo",
+    "decided_at": "2026-10-26T09:00:00Z",
+    "note": "fixture decision on a simulated run",
+    "state": "approved"
+  },
+  "chain": {
+    "first_sequence": 1,
+    "head_hash": "78d2fcab4f3cbc64c737f2b04af4a3ab5ac8a475dd3035d37b1dcc226438ff23",
+    "last_sequence": 15,
+    "note": "This run's events form a complete hash chain from genesis on their own: recomputing every record's hash and link from them alone verifies the run. head_hash is the hash of its last event. The chain is unsigned SHA-256. A successful check shows that the records received are internally consistent; it detects a change only against a hash obtained earlier, such as this receipt's head_hash or a published manifest. It cannot detect a run rewritten and re-hashed, a truncated tail or a deleted run, and it says nothing about whether the content is true.",
+    "scope": "run"
+  },
+  "deliberation": {
+    "assumptions": [
+      "Upstream services tolerate the proposed change"
+    ],
+    "claims": [
+      {
+        "assessment": {
+          "contradicting_evidence": [],
+          "corroborated": true,
+          "note": "scripted assessment",
+          "relevant_evidence": [
+            "ev-fact"
+          ]
+        },
+        "evidence_refs": [],
+        "id": "claim-1",
+        "statement": "Payment timeouts correlate with retry bursts above 5 attempts"
+      },
+      {
+        "assessment": {
+          "contradicting_evidence": [],
+          "corroborated": true,
+          "note": "scripted assessment",
+          "relevant_evidence": [
+            "ev-constraint"
+          ]
+        },
+        "evidence_refs": [],
+        "id": "claim-2",
+        "statement": "Capping retries at 3 attempts with jitter matches the documented constraint"
+      }
+    ],
+    "earlier_round_objections_never_rejudged": [],
+    "evaluated_proposal_id": "prop-2",
+    "final_proposal_id": "prop-2",
+    "final_proposal_summary": "Cap retries at 3 attempts with jitter per the documented constraint",
+    "missing_tests": [],
+    "open_items": [],
+    "plan_steps": [
+      "Apply the change",
+      "Run the existing test suite"
+    ],
+    "revisions": [
+      {
+        "addressed_items": [
+          "item-1",
+          "item-2"
+        ],
+        "after_round": 1,
+        "proposal_id": "prop-2",
+        "summary": "Cap retries at 3 attempts with jitter per the documented constraint",
+        "supersedes": "prop-1"
+      }
+    ],
+    "rounds": 2,
+    "uncertainties": [
+      "No load-test data available"
+    ],
+    "unevaluated_items": [],
+    "unmatched_assessments": []
+  },
+  "event_count": 15,
+  "final_state": "approved",
+  "format": "hyphae-consensus-run-receipt-v2",
+  "generated_at": "2026-10-26T09:00:00Z",
+  "model_invocations": [
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-propose-1"
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-critique-2"
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-evaluate-3"
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-revise-4"
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-critique-5"
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-evaluate-6"
+    }
+  ],
+  "policy_trace": {
+    "counts": {
+      "claims": 2,
+      "corroborated": 2,
+      "proofs_invalid": 0,
+      "proofs_unavailable_or_error": 0,
+      "proofs_valid": 2,
+      "unresolved_items": 0
+    },
+    "kind": "supported",
+    "reasons": [],
+    "rule": "all_checks_passed",
+    "version": "1.2"
+  },
+  "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it.",
+  "protocol": "protocol 1.3 · policy rules 1.2",
+  "recommendation": {
+    "issued_at": "2026-10-26T09:00:00Z",
+    "kind": "supported",
+    "rationale": "Supported: 2/2 claims corroborated; proofs: 2 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+    "schema_version": "1.3",
+    "unresolved_assumptions": [
+      "Upstream services tolerate the proposed change"
+    ],
+    "unresolved_uncertainties": [
+      "No load-test data available"
+    ]
+  },
+  "run_id": "run-00000000-0000-4000-8000-000000000001",
+  "run_schema_version": "1.3",
+  "schema_version": "1.3",
+  "task": {
+    "created_at": "2026-10-26T09:00:00Z",
+    "description": "Payment requests intermittently time out under load. Propose a fix.",
+    "id": "task-0001",
+    "mode": {
+      "evidence": "simulated",
+      "model": "scripted",
+      "origin": "public",
+      "preset": "guided:retry"
+    },
+    "project_id": "demo-repo",
+    "run_id": "run-00000000-0000-4000-8000-000000000001",
+    "schema_version": "1.3",
+    "title": "Fix payment client timeouts"
+  },
+  "verifications": [
+    {
+      "round": 1,
+      "verification": {
+        "checked_at": "2026-10-26T09:00:00Z",
+        "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+        "evidence_id": "ev-constraint",
+        "factual_status": "contradicted",
+        "integrity_status": "valid",
+        "relevance_status": "relevant",
+        "round": 1,
+        "schema_version": "1.3",
+        "verified_anchor": "fake-anchor-1",
+        "verifier": "fake-verifier"
+      }
+    },
+    {
+      "round": 1,
+      "verification": {
+        "checked_at": "2026-10-26T09:00:00Z",
+        "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+        "evidence_id": "ev-fact",
+        "factual_status": "uncorroborated",
+        "integrity_status": "valid",
+        "relevance_status": "relevant",
+        "round": 1,
+        "schema_version": "1.3",
+        "verified_anchor": "fake-anchor-1",
+        "verifier": "fake-verifier"
+      }
+    },
+    {
+      "round": 2,
+      "verification": {
+        "checked_at": "2026-10-26T09:00:00Z",
+        "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+        "evidence_id": "ev-constraint",
+        "factual_status": "corroborated",
+        "integrity_status": "valid",
+        "relevance_status": "relevant",
+        "round": 2,
+        "schema_version": "1.3",
+        "verified_anchor": "fake-anchor-1",
+        "verifier": "fake-verifier"
+      }
+    },
+    {
+      "round": 2,
+      "verification": {
+        "checked_at": "2026-10-26T09:00:00Z",
+        "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+        "evidence_id": "ev-fact",
+        "factual_status": "corroborated",
+        "integrity_status": "valid",
+        "relevance_status": "relevant",
+        "round": 2,
+        "schema_version": "1.3",
+        "verified_anchor": "fake-anchor-1",
+        "verifier": "fake-verifier"
+      }
+    }
+  ]
+}

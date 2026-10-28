@@ -1,0 +1,2419 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Actor": {
+      "description": "Who performed an action recorded in the event log. `Human` is the only actor kind allowed to authorize a run.",
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "agent"
+              ],
+              "type": "string"
+            },
+            "role": {
+              "$ref": "#/definitions/AgentRole"
+            }
+          },
+          "required": [
+            "kind",
+            "role"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "runtime"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "human"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AgentRole": {
+      "description": "The three logical agent roles. Roles may share one underlying model; they differ in instructions, context, and tool permissions.",
+      "enum": [
+        "proposer",
+        "critic",
+        "evidence_evaluator"
+      ],
+      "type": "string"
+    },
+    "AuthorizationState": {
+      "enum": [
+        "pending",
+        "approved",
+        "rejected"
+      ],
+      "type": "string"
+    },
+    "ChainScope": {
+      "description": "What a reader needs to verify the run's events.",
+      "oneOf": [
+        {
+          "description": "The run's events are a complete chain from genesis on their own.",
+          "enum": [
+            "run"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The run is a segment of a multi-run log: its records link to other runs' records, so verifying them needs the whole file.",
+          "enum": [
+            "log"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The run began before schema 1.1 and was continued after it: its first records carry no hash chain and are not tamper-evident, and the chain after them commits to them only by count (`pre-1.1:<sequence>`), not by content.",
+          "enum": [
+            "partly_chained"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Pre-1.1 records carry no hash chain.",
+          "enum": [
+            "unchained"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ChainV1": {
+      "description": "What the chain of this run's events looks like.",
+      "properties": {
+        "first_sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "head_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/definitions/ChainScope"
+        }
+      },
+      "required": [
+        "first_sequence",
+        "last_sequence",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "Challenge": {
+      "description": "Critic output. The critic's job is to find problems, not to agree.",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/definitions/ChallengeItem"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "target_proposal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "created_at",
+        "id",
+        "items",
+        "run_id",
+        "schema_version",
+        "target_proposal"
+      ],
+      "type": "object"
+    },
+    "ChallengeItem": {
+      "description": "One specific objection raised by the Critic against a claim or plan. Items carry stable ids so resolution is tracked per objection, not per challenge document.",
+      "properties": {
+        "claim_id": {
+          "description": "Claim under challenge, when the objection targets one claim.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "description": "Evidence the critic believes contradicts or constrains the claim.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ChallengeKind"
+        }
+      },
+      "required": [
+        "description",
+        "evidence_refs",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ChallengeItemStatus": {
+      "description": "What became of a Critic objection.",
+      "oneOf": [
+        {
+          "description": "Still open: unresolved by the latest evaluation, or never judged.",
+          "enum": [
+            "open"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Resolved by an explicit verdict with a reason.",
+          "enum": [
+            "resolved"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Raised in an earlier round and never judged again (pre-1.3 protocol): counted as resolved then, without a stated reason.",
+          "enum": [
+            "never_rejudged"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ChallengeItemV1": {
+      "description": "One Critic objection across the run.",
+      "properties": {
+        "claim_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ChallengeKind"
+        },
+        "raised_in_round": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "resolution_reason": {
+          "description": "The reason of the verdict that resolved it, when one did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/ChallengeItemStatus"
+        }
+      },
+      "required": [
+        "description",
+        "id",
+        "kind",
+        "raised_in_round",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ChallengeKind": {
+      "enum": [
+        "contradictory_evidence",
+        "missing_test",
+        "unsupported_claim",
+        "regression_risk",
+        "security_risk",
+        "constraint_conflict"
+      ],
+      "type": "string"
+    },
+    "Claim": {
+      "description": "One explicit, checkable assertion inside a proposal.",
+      "properties": {
+        "evidence_refs": {
+          "description": "Evidence the author believes supports this claim (may be empty, which the evaluator treats as unsupported until retrieved).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_refs",
+        "id",
+        "statement"
+      ],
+      "type": "object"
+    },
+    "ClaimAssessment": {
+      "description": "Evaluator output: per-claim sufficiency judgment. Factual and relevance judgments live here; cryptographic integrity is reported separately in `EvidenceVerification` and is never inferred from this document.",
+      "properties": {
+        "claim_id": {
+          "type": "string"
+        },
+        "contradicting_evidence": {
+          "default": [],
+          "description": "Evidence the evaluator judges to contradict this claim.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "corroborated": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        },
+        "relevant_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "claim_id",
+        "corroborated",
+        "note",
+        "relevant_evidence"
+      ],
+      "type": "object"
+    },
+    "ClearedContradiction": {
+      "description": "A contradiction recorded in an earlier round that this evaluation judges no longer applies, with the reason (schema 1.3). Silence never clears a contradiction; only an entry here does.",
+      "properties": {
+        "evidence_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "DecisionV1": {
+      "description": "A recorded human decision.",
+      "properties": {
+        "approved": {
+          "type": "boolean"
+        },
+        "authority": {
+          "description": "`operator`, `public_demo`, or `unspecified` for records that carry no authority (before schema 1.3). Never read as operator authority unless it says so.",
+          "type": "string"
+        },
+        "authorized_by": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "Operator surface only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notice": {
+          "description": "Present for `public_demo`: the decision carries no operational authority.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "approved",
+        "authority",
+        "authorized_by",
+        "decided_at"
+      ],
+      "type": "object"
+    },
+    "Evaluation": {
+      "properties": {
+        "abstain": {
+          "description": "True when the evaluator cannot reach a supported judgment and the correct behavior is to abstain rather than guess.",
+          "type": "boolean"
+        },
+        "abstain_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "assessments": {
+          "items": {
+            "$ref": "#/definitions/ClaimAssessment"
+          },
+          "type": "array"
+        },
+        "cleared_contradictions": {
+          "description": "Schema 1.3: contradictions carried from earlier rounds that this evaluation clears, each with its reason.",
+          "items": {
+            "$ref": "#/definitions/ClearedContradiction"
+          },
+          "type": "array"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "item_verdicts": {
+          "description": "Schema 1.3: one verdict for every objection under evaluation, the ones still open from earlier rounds and this round's. Empty on earlier records, which judged this round's items only, implicitly.",
+          "items": {
+            "$ref": "#/definitions/ItemVerdict"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "target_proposal": {
+          "type": "string"
+        },
+        "unresolved_items": {
+          "default": [],
+          "description": "Challenge ITEM ids the evaluator judges still unresolved. From schema 1.3 exactly the ids of the `unresolved` verdicts.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "abstain",
+        "assessments",
+        "created_at",
+        "run_id",
+        "schema_version",
+        "target_proposal"
+      ],
+      "type": "object"
+    },
+    "EventPayloadV1": {
+      "description": "The payload of one event, as a client may see it. Tagged like the stored record (`type`), with the same variant names.",
+      "oneOf": [
+        {
+          "properties": {
+            "task": {
+              "$ref": "#/definitions/Task"
+            },
+            "type": {
+              "enum": [
+                "task_created"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "task",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "invocation": {
+              "$ref": "#/definitions/ModelInvocationV1"
+            },
+            "proposal": {
+              "$ref": "#/definitions/Proposal"
+            },
+            "type": {
+              "enum": [
+                "proposal_submitted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "invocation",
+            "proposal",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "evidence": {
+              "$ref": "#/definitions/EvidenceReferenceV1"
+            },
+            "type": {
+              "enum": [
+                "evidence_retrieved"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "message": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "reason": {
+              "description": "Operator surface only.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "evidence_unavailable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "query",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "anchor": {
+              "type": "string"
+            },
+            "empty": {
+              "type": "boolean"
+            },
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "proof_ref": {
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/definitions/ProofRequest"
+            },
+            "type": {
+              "enum": [
+                "recall_proven"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "anchor",
+            "empty",
+            "evidence_ids",
+            "proof_ref",
+            "request",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "enum": [
+                "evidence_verified"
+              ],
+              "type": "string"
+            },
+            "verification": {
+              "$ref": "#/definitions/VerificationV1"
+            }
+          },
+          "required": [
+            "type",
+            "verification"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "challenge": {
+              "$ref": "#/definitions/Challenge"
+            },
+            "invocation": {
+              "$ref": "#/definitions/ModelInvocationV1"
+            },
+            "type": {
+              "enum": [
+                "challenge_submitted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "challenge",
+            "invocation",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "evaluation": {
+              "$ref": "#/definitions/Evaluation"
+            },
+            "invocation": {
+              "$ref": "#/definitions/ModelInvocationV1"
+            },
+            "type": {
+              "enum": [
+                "evaluation_submitted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evaluation",
+            "invocation",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "invocation": {
+              "$ref": "#/definitions/ModelInvocationV1"
+            },
+            "revision": {
+              "$ref": "#/definitions/Revision"
+            },
+            "type": {
+              "enum": [
+                "revision_submitted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "invocation",
+            "revision",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "recommendation": {
+              "$ref": "#/definitions/Recommendation"
+            },
+            "type": {
+              "enum": [
+                "recommendation_issued"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "recommendation",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "decision": {
+              "$ref": "#/definitions/DecisionV1"
+            },
+            "type": {
+              "enum": [
+                "human_decision_recorded"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "decision",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "invocation": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ModelInvocationV1"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "message": {
+              "type": "string"
+            },
+            "reason": {
+              "description": "Operator surface only.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "stage": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "run_failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "stage",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EventV1": {
+      "description": "One event of a run, with its chain fields, so a client can show the chain. The verbatim stored line is at `events.ndjson`.",
+      "properties": {
+        "actor": {
+          "$ref": "#/definitions/Actor"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "occurred_at": {
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/definitions/EventPayloadV1"
+        },
+        "prev_hash": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "actor",
+        "event_id",
+        "hash",
+        "occurred_at",
+        "payload",
+        "prev_hash",
+        "run_id",
+        "schema_version",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    "EvidenceMode": {
+      "oneOf": [
+        {
+          "description": "Seeded in-memory records with scripted proof outcomes.",
+          "enum": [
+            "simulated"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No memory backend: retrieval fails and the run degrades.",
+          "enum": [
+            "offline"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A sealed, pre-captured Hyphae snapshot.",
+          "enum": [
+            "sealed_snapshot"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A running Hyphae Agent Memory deployment.",
+          "enum": [
+            "live_hyphae"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "EvidenceProvenance": {
+      "description": "Where the evidence came from, read from the verification and retrieval records.",
+      "oneOf": [
+        {
+          "description": "Seeded records checked by the scripted verifier: SIMULATED.",
+          "enum": [
+            "simulated"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records of a sealed Hyphae snapshot, verified with `hyphae proof verify`.",
+          "enum": [
+            "hyphae_snapshot"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records recalled from a running Hyphae deployment.",
+          "enum": [
+            "hyphae_live"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No evidence record in the run.",
+          "enum": [
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records of more than one kind.",
+          "enum": [
+            "mixed"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "EvidenceReferenceV1": {
+      "description": "Public view of an evidence record: no local paths, no backend internals.",
+      "properties": {
+        "anchor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend_project": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend_ref": {
+          "description": "Operator surface only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backend_scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "captured_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "content": {
+          "description": "Retrieved content: data to show, never instructions.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "proof_error": {
+          "description": "Operator surface only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_error_reported": {
+          "description": "True when proof generation failed upstream for this record.",
+          "type": "boolean"
+        },
+        "proof_file": {
+          "description": "Operator surface only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_request": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProofRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "proof_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retrieval": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Retrieval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retrieved_at": {
+          "type": "string"
+        },
+        "snapshot_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "witness_file": {
+          "description": "Operator surface only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "content",
+        "id",
+        "kind",
+        "project_id",
+        "proof_error_reported",
+        "retrieved_at"
+      ],
+      "type": "object"
+    },
+    "FactualStatus": {
+      "description": "Factual corroboration axis only. Independent of integrity.",
+      "enum": [
+        "corroborated",
+        "uncorroborated",
+        "contradicted",
+        "not_assessed"
+      ],
+      "type": "string"
+    },
+    "FailureV1": {
+      "description": "Stage and code of a failed run; the English reason stays on the operator surface.",
+      "properties": {
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "`failed`.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Fixed statement per code.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Operator surface only: the recorded reason.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "message",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "IntegrityStatus": {
+      "description": "Cryptographic integrity axis only.",
+      "oneOf": [
+        {
+          "description": "Proof was available and verified against its anchor.",
+          "enum": [
+            "valid"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Proof was available and failed verification.",
+          "enum": [
+            "invalid"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No proof was available for this record (includes backend offline).",
+          "enum": [
+            "unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Verification could not complete due to infrastructure error.",
+          "enum": [
+            "verification_error"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Verification has not been attempted.",
+          "enum": [
+            "not_checked"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ItemStatus": {
+      "description": "Evaluator judgment on one Critic objection: `resolved` when the proposal as written no longer has the problem or the retrieved evidence shows the objection is mistaken; `unresolved` when it still applies, so it stays open into the next round.",
+      "enum": [
+        "resolved",
+        "unresolved"
+      ],
+      "type": "string"
+    },
+    "ItemVerdict": {
+      "description": "One explicit verdict on one objection, by item id (schema 1.3).",
+      "properties": {
+        "item_id": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why. Required (non-empty) for a resolved verdict: an objection is never closed without saying what settled it.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/ItemStatus"
+        }
+      },
+      "required": [
+        "item_id",
+        "reason",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ModelInvocationV1": {
+      "description": "Public view of a model call.",
+      "properties": {
+        "attempts": {
+          "description": "Operator surface only.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "finish_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "latency_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_completion_tokens": {
+          "description": "Operator surface only.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "output_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "prompt_sha256": {
+          "description": "Operator surface only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "reasoning_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_name": {
+          "description": "Operator surface only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_sha256": {
+          "description": "Operator surface only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scripted": {
+          "description": "True for `provider=fake`: a scripted double, no model call.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "model",
+        "provider",
+        "scripted"
+      ],
+      "type": "object"
+    },
+    "ModelMode": {
+      "oneOf": [
+        {
+          "description": "Scripted test doubles; no model is called.",
+          "enum": [
+            "scripted"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The Meta Model API.",
+          "enum": [
+            "meta"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ModelProvenance": {
+      "description": "Which model answered the roles, read from the chained `ModelInvocation` records (provider and request id), never from the request or the declared mode.",
+      "oneOf": [
+        {
+          "description": "Every recorded call came from a scripted double (`provider=fake`): no model was called.",
+          "enum": [
+            "scripted"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Every recorded call went to the Meta Model API (`provider=meta` with a request id).",
+          "enum": [
+            "live_meta"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Calls from more than one provider, or Meta calls without request ids: shown with a flag, never as LIVE.",
+          "enum": [
+            "mixed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No model call recorded yet.",
+          "enum": [
+            "undetermined"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PolicyRule": {
+      "description": "The policy rule that decided a recommendation kind. Listed in the 1.2 priority order; 1.1 ranks `abstention` above `recorded_contradiction`.",
+      "oneOf": [
+        {
+          "description": "An integrity proof failed somewhere in the retrieved set: `blocked`.",
+          "enum": [
+            "invalid_proof"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Cited or contradicting evidence is recorded as contradicted: `contested`.",
+          "enum": [
+            "recorded_contradiction"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The Evaluator abstained: `abstained`.",
+          "enum": [
+            "abstention"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Challenge items remain unresolved: `contested`.",
+          "enum": [
+            "unresolved_items"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A claim, or the evidence it cites, falls short: `insufficient_evidence`.",
+          "enum": [
+            "insufficient_evidence"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No check failed: `supported`.",
+          "enum": [
+            "all_checks_passed"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PolicyRules": {
+      "description": "Policy rule order a [`PolicyTrace`] was derived under, serialized as its version string.",
+      "oneOf": [
+        {
+          "description": "Schema 1.1: abstention outranks every contradiction.",
+          "enum": [
+            "1.1"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Schema 1.2: a recorded contradiction outranks abstention.",
+          "enum": [
+            "1.2"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PolicyTrace": {
+      "description": "Why the policy derived the kind it did, from one evaluation and the verification records of its round. `rule` is the rule that decided `kind`; `reasons` lists every check that failed, in the priority order of `version`, so its first entry belongs to `rule`. `reasons` is empty exactly when the run is `supported`.",
+      "properties": {
+        "counts": {
+          "$ref": "#/definitions/TraceCounts"
+        },
+        "kind": {
+          "$ref": "#/definitions/RecommendationKind"
+        },
+        "reasons": {
+          "items": {
+            "$ref": "#/definitions/TraceReason"
+          },
+          "type": "array"
+        },
+        "rule": {
+          "$ref": "#/definitions/PolicyRule"
+        },
+        "version": {
+          "$ref": "#/definitions/PolicyRules"
+        }
+      },
+      "required": [
+        "counts",
+        "kind",
+        "reasons",
+        "rule",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ProofRequest": {
+      "description": "The request a memory proof seals (schema 1.3): the operation and arguments the proof's own result answers.",
+      "properties": {
+        "limit": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "operation": {
+          "description": "Backend operation, e.g. `list` or `recall`.",
+          "type": "string"
+        },
+        "project": {
+          "description": "Backend project string the operation ran against.",
+          "type": "string"
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "operation",
+        "project"
+      ],
+      "type": "object"
+    },
+    "Proposal": {
+      "description": "Proposer output: a plan plus the claims, assumptions, and uncertainties it rests on.",
+      "properties": {
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "author_role": {
+          "$ref": "#/definitions/AgentRole"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/definitions/Claim"
+          },
+          "type": "array"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "plan_steps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "uncertainties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "assumptions",
+        "author_role",
+        "claims",
+        "created_at",
+        "id",
+        "plan_steps",
+        "run_id",
+        "schema_version",
+        "summary",
+        "uncertainties"
+      ],
+      "type": "object"
+    },
+    "ProvenanceFlag": {
+      "description": "Something a client must show next to the provenance axes.",
+      "oneOf": [
+        {
+          "description": "The declared `Task.mode` disagrees with what the records prove. Never shown as LIVE.",
+          "enum": [
+            "provenance_inconsistent"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records before schema 1.1 carry no hash chain.",
+          "enum": [
+            "unchained"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The declared mode is missing (runs before schema 1.3).",
+          "enum": [
+            "mode_undeclared"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ProvenanceV1": {
+      "description": "The provenance axes of a run, every one derived from chained data.",
+      "properties": {
+        "declared": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TaskMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The mode the run was declared with, as recorded in `TaskCreated`."
+        },
+        "evidence": {
+          "$ref": "#/definitions/EvidenceProvenance"
+        },
+        "flags": {
+          "items": {
+            "$ref": "#/definitions/ProvenanceFlag"
+          },
+          "type": "array"
+        },
+        "meta_request_ids": {
+          "description": "The chained Meta request ids, when the model axis is `live_meta`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelProvenance"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceProvenance"
+        }
+      },
+      "required": [
+        "evidence",
+        "model",
+        "source"
+      ],
+      "type": "object"
+    },
+    "Recommendation": {
+      "properties": {
+        "issued_at": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/RecommendationKind"
+        },
+        "rationale": {
+          "description": "Human-readable, concise justification citing claim/evidence ids.",
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "unresolved_assumptions": {
+          "description": "Assumptions that remain unresolved at decision time.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unresolved_uncertainties": {
+          "description": "Schema 1.3: the final proposal's own uncertainties, carried to the human next to its assumptions.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "issued_at",
+        "kind",
+        "rationale",
+        "schema_version",
+        "unresolved_assumptions"
+      ],
+      "type": "object"
+    },
+    "RecommendationKind": {
+      "description": "Runtime-derived assessment of a run. Never written by a model.",
+      "enum": [
+        "supported",
+        "contested",
+        "insufficient_evidence",
+        "abstained",
+        "blocked"
+      ],
+      "type": "string"
+    },
+    "RecommendationV1": {
+      "description": "The recommendation with its policy trace.",
+      "properties": {
+        "issued_at": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/RecommendationKind"
+        },
+        "protocol": {
+          "description": "`policy 1.2`, or `protocol 1.3 · policy rules 1.2`.",
+          "type": "string"
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "rationale_code": {
+          "description": "Stable code of the rule that fired, e.g. `contested.unresolved_items`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trace": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PolicyTrace"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`policy::explain` over the records the recommendation was issued on. None for a recommendation recorded before schema 1.1."
+        },
+        "unresolved_assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unresolved_uncertainties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "issued_at",
+        "kind",
+        "protocol",
+        "rationale",
+        "unresolved_assumptions"
+      ],
+      "type": "object"
+    },
+    "RelevanceStatus": {
+      "description": "Relevance axis only. Independent of integrity and factuality.",
+      "enum": [
+        "relevant",
+        "irrelevant",
+        "not_assessed"
+      ],
+      "type": "string"
+    },
+    "Retrieval": {
+      "description": "How an evidence record was obtained (schema 1.3).",
+      "oneOf": [
+        {
+          "description": "A recall against a running memory backend.",
+          "enum": [
+            "live_recall"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Served from a sealed, pre-captured snapshot.",
+          "enum": [
+            "sealed_snapshot"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A seeded test record; any proof outcome is scripted.",
+          "enum": [
+            "simulated"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "Revision": {
+      "description": "A revision is a new proposal document that supersedes an earlier one.",
+      "properties": {
+        "addressed_items": {
+          "default": [],
+          "description": "Which challenge ITEMS this revision claims to address, by item id.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "proposal": {
+          "$ref": "#/definitions/Proposal"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "supersedes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal",
+        "schema_version",
+        "supersedes"
+      ],
+      "type": "object"
+    },
+    "RoundV1": {
+      "description": "One deliberation round: the proposal judged, the critique, the evaluation and the verifications recorded for it.",
+      "properties": {
+        "challenge": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Challenge"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evaluation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Evaluation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "proposal_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "round": {
+          "description": "1-based.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "verifications": {
+          "items": {
+            "$ref": "#/definitions/VerificationV1"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "round",
+        "verifications"
+      ],
+      "type": "object"
+    },
+    "RunOrigin": {
+      "oneOf": [
+        {
+          "description": "The command-line demo.",
+          "enum": [
+            "cli"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The operator console.",
+          "enum": [
+            "operator"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The public portal.",
+          "enum": [
+            "public"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RunState": {
+      "description": "Deterministic lifecycle of one run. Transitions are owned and validated by the runtime state machine; see `docs/adr/0001-m1-architecture.md`.",
+      "enum": [
+        "created",
+        "proposed",
+        "evidence_review",
+        "evaluated",
+        "revised",
+        "abstained",
+        "awaiting_human_approval",
+        "approved",
+        "rejected",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "RunSummaryV1": {
+      "description": "The one-line view of a run: list entries, the 202 of creation, every SSE frame.",
+      "properties": {
+        "active": {
+          "description": "True while the deliberation is in progress on this server.",
+          "type": "boolean"
+        },
+        "authorization": {
+          "$ref": "#/definitions/AuthorizationState"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "event_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FailureV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "override": {
+          "description": "True when a human approved a `blocked` or `abstained` run.",
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/definitions/ProvenanceV1"
+        },
+        "recommendation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RecommendationKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision_round": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/RunState"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "active",
+        "authorization",
+        "created_at",
+        "event_count",
+        "last_sequence",
+        "override",
+        "provenance",
+        "revision_round",
+        "run_id",
+        "state",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "SourceProvenance": {
+      "description": "Where the records come from.",
+      "oneOf": [
+        {
+          "description": "A run of this server.",
+          "enum": [
+            "this_server"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A run of the published research archive.",
+          "enum": [
+            "research_archive"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "Task": {
+      "description": "A user-defined problem submitted for multi-agent deliberation.",
+      "properties": {
+        "created_at": {
+          "description": "RFC 3339 timestamp supplied by the runtime clock.",
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TaskMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Schema 1.3: the mode the run was declared with when it was created. A declaration, not proof: what actually happened is read from the recorded invocations and verifications."
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "created_at",
+        "description",
+        "id",
+        "project_id",
+        "run_id",
+        "schema_version",
+        "title"
+      ],
+      "type": "object"
+    },
+    "TaskMode": {
+      "description": "How a run was declared at creation (schema 1.3).",
+      "properties": {
+        "evidence": {
+          "$ref": "#/definitions/EvidenceMode"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelMode"
+        },
+        "origin": {
+          "$ref": "#/definitions/RunOrigin"
+        },
+        "preset": {
+          "description": "Curated preset the task came from, when it did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "evidence",
+        "model",
+        "origin"
+      ],
+      "type": "object"
+    },
+    "TraceCounts": {
+      "description": "The counts `rationale_for` reports, from the same inputs.",
+      "properties": {
+        "claims": {
+          "description": "Claim assessments in the evaluation.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "corroborated": {
+          "description": "Of those, the ones judged corroborated.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proofs_invalid": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proofs_unavailable_or_error": {
+          "description": "Integrity `unavailable` or `verification_error`.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proofs_valid": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unresolved_items": {
+          "description": "Entries in the evaluation's `unresolved_items`.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "claims",
+        "corroborated",
+        "proofs_invalid",
+        "proofs_unavailable_or_error",
+        "proofs_valid",
+        "unresolved_items"
+      ],
+      "type": "object"
+    },
+    "TraceReason": {
+      "description": "One policy check that keeps a run from `supported`, with the ids it concerns. Evidence and claim ids are listed once each, in the order the evaluation and verification records first name them; `OpenItems` is the exception and lists item ids exactly as recorded, duplicates included.",
+      "oneOf": [
+        {
+          "description": "Evidence whose integrity proof is `invalid`, cited or not.",
+          "properties": {
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "invalid_proofs"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cited or contradicting evidence recorded as `contradicted`.",
+          "properties": {
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "contradicted_evidence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The Evaluator abstained, with its stated reason when it gave one.",
+          "properties": {
+            "abstain_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "enum": [
+                "evaluator_abstained"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Challenge item ids the evaluation lists as unresolved, exactly as recorded: in its order, and an id listed twice appears twice.",
+          "properties": {
+            "item_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "open_items"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "item_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The evaluation assesses no claim at all.",
+          "properties": {
+            "reason": {
+              "enum": [
+                "no_assessments"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Claims the evaluation does not judge corroborated.",
+          "properties": {
+            "claim_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "uncorroborated_claims"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "claim_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Claims judged corroborated that cite no evidence of their own.",
+          "properties": {
+            "claim_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "claims_without_own_evidence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "claim_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cited supporting evidence with no `valid` integrity record (invalid, unavailable, error, unchecked, or never retrieved).",
+          "properties": {
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "cited_evidence_not_valid"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No claim cites any supporting evidence, so nothing checked backs the run.",
+          "properties": {
+            "reason": {
+              "enum": [
+                "no_checked_evidence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "VerificationV1": {
+      "description": "Public view of a verification record: the three status axes, the verifier identity and anchor; the verifier's raw output stays on the operator surface.",
+      "properties": {
+        "checked_at": {
+          "type": "string"
+        },
+        "detail": {
+          "description": "Operator surface only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_id": {
+          "type": "string"
+        },
+        "factual_status": {
+          "$ref": "#/definitions/FactualStatus"
+        },
+        "integrity_status": {
+          "$ref": "#/definitions/IntegrityStatus"
+        },
+        "proof_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relevance_status": {
+          "$ref": "#/definitions/RelevanceStatus"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VerifierReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "round": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "simulated": {
+          "description": "True when the verifier is the scripted double: the proof outcome was scripted, not computed.",
+          "type": "boolean"
+        },
+        "verified_anchor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verifier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "checked_at",
+        "evidence_id",
+        "factual_status",
+        "integrity_status",
+        "relevance_status",
+        "simulated"
+      ],
+      "type": "object"
+    },
+    "VerifierReport": {
+      "description": "Structured fields of a verifier's own report (schema 1.3), kept next to the free-text `detail` so a reader never has to parse prose.",
+      "properties": {
+        "anchor_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "description": "The full view of one run.",
+  "properties": {
+    "chain": {
+      "$ref": "#/definitions/ChainV1"
+    },
+    "challenge_items": {
+      "items": {
+        "$ref": "#/definitions/ChallengeItemV1"
+      },
+      "type": "array"
+    },
+    "current_proposal": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Proposal"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The proposal as it stands: the last proposal or revision."
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/DecisionV1"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "events": {
+      "items": {
+        "$ref": "#/definitions/EventV1"
+      },
+      "type": "array"
+    },
+    "model_invocations": {
+      "items": {
+        "$ref": "#/definitions/ModelInvocationV1"
+      },
+      "type": "array"
+    },
+    "recommendation": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RecommendationV1"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rounds": {
+      "items": {
+        "$ref": "#/definitions/RoundV1"
+      },
+      "type": "array"
+    },
+    "summary": {
+      "$ref": "#/definitions/RunSummaryV1"
+    },
+    "task": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Task"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "chain",
+    "challenge_items",
+    "events",
+    "model_invocations",
+    "rounds",
+    "summary"
+  ],
+  "title": "RunDetailV1",
+  "type": "object"
+}

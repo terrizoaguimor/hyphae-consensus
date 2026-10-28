@@ -1,0 +1,225 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "ErrorCode": {
+      "description": "Stable error codes. A code never changes meaning; a new condition gets a new code.",
+      "oneOf": [
+        {
+          "description": "The body is not the expected JSON: a syntax error, an unknown field, a bad enum value, a missing field, a value out of bounds.",
+          "enum": [
+            "invalid_request"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The body exceeds the request body limit.",
+          "enum": [
+            "payload_too_large"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A state-changing request without `Content-Type: application/json`.",
+          "enum": [
+            "unsupported_media_type"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The `Origin` or `Sec-Fetch-Site` header does not allow the request.",
+          "enum": [
+            "csrf_rejected"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The `Host` header is not one this server answers for.",
+          "enum": [
+            "host_not_allowed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The listener trusts `CF-Connecting-IP` and the request has none.",
+          "enum": [
+            "client_unidentified"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The public route needs a session cookie (`POST /api/v1/session`).",
+          "enum": [
+            "session_required"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The operator route needs a valid bearer token.",
+          "enum": [
+            "unauthorized"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No such route, run or file, or a run the caller does not own.",
+          "enum": [
+            "not_found"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Method not allowed on this route.",
+          "enum": [
+            "method_not_allowed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The client key exceeded a request rate; see `retry_after_secs`.",
+          "enum": [
+            "rate_limited"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Every deliberation slot is busy; see `retry_after_secs`.",
+          "enum": [
+            "too_many_runs"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A stream cap (per run, per client or global) is reached.",
+          "enum": [
+            "too_many_streams"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The store holds its configured maximum of visitor runs.",
+          "enum": [
+            "storage_full"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The public live mode is not wired on this server.",
+          "enum": [
+            "live_disabled"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The server is shutting down; no new runs are admitted.",
+          "enum": [
+            "shutting_down"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A decision needs the run to await a human decision.",
+          "enum": [
+            "run_not_awaiting_decision"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The decision's `expected` block does not match the run.",
+          "enum": [
+            "decision_conflict"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The `Idempotency-Key` was already used with a different body.",
+          "enum": [
+            "idempotency_key_reused"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The `Idempotency-Key` header is missing or malformed.",
+          "enum": [
+            "idempotency_key_required"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Approving a blocked or abstained run needs a note.",
+          "enum": [
+            "override_note_required"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Only a run still deliberating can be cancelled.",
+          "enum": [
+            "run_not_cancellable"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The run is held by another operation; retry shortly.",
+          "enum": [
+            "run_busy"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Operator surface: `model=meta` without credentials.",
+          "enum": [
+            "model_not_configured"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Operator surface: `memory=hyphae` without configuration.",
+          "enum": [
+            "memory_not_configured"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Operator surface: an upstream client could not be initialised.",
+          "enum": [
+            "upstream_unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Something failed on the server; the detail is in its log.",
+          "enum": [
+            "internal"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "description": "The JSON body of every error response.",
+  "properties": {
+    "code": {
+      "$ref": "#/definitions/ErrorCode"
+    },
+    "message": {
+      "description": "Short English statement for humans and logs; clients localize from `code`. Never carries paths, upstream bodies or panic text.",
+      "type": "string"
+    },
+    "retry_after_secs": {
+      "description": "Seconds to wait before retrying, when the status is 429 or 503.",
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "message"
+  ],
+  "title": "ApiError",
+  "type": "object"
+}

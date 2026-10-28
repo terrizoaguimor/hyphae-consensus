@@ -1,0 +1,963 @@
+{
+  "chain": {
+    "first_sequence": 1,
+    "head_hash": "78d2fcab4f3cbc64c737f2b04af4a3ab5ac8a475dd3035d37b1dcc226438ff23",
+    "last_sequence": 15,
+    "scope": "run"
+  },
+  "challenge_items": [
+    {
+      "claim_id": "claim-2",
+      "description": "Documented constraint caps retries at 3 attempts",
+      "id": "item-1",
+      "kind": "constraint_conflict",
+      "raised_in_round": 1,
+      "resolution_reason": "claim-2 now caps retries at 3 attempts with jitter",
+      "status": "resolved"
+    },
+    {
+      "claim_id": "claim-1",
+      "description": "No evidence ties timeouts to insufficient retries",
+      "id": "item-2",
+      "kind": "unsupported_claim",
+      "raised_in_round": 1,
+      "resolution_reason": "claim-1 now states the correlation ev-fact records",
+      "status": "resolved"
+    }
+  ],
+  "current_proposal": {
+    "assumptions": [
+      "Upstream services tolerate the proposed change"
+    ],
+    "author_role": "proposer",
+    "claims": [
+      {
+        "evidence_refs": [],
+        "id": "claim-1",
+        "statement": "Payment timeouts correlate with retry bursts above 5 attempts"
+      },
+      {
+        "evidence_refs": [],
+        "id": "claim-2",
+        "statement": "Capping retries at 3 attempts with jitter matches the documented constraint"
+      }
+    ],
+    "created_at": "2026-10-26T09:00:00Z",
+    "id": "prop-2",
+    "plan_steps": [
+      "Apply the change",
+      "Run the existing test suite"
+    ],
+    "run_id": "run-00000000-0000-4000-8000-000000000001",
+    "schema_version": "1.3",
+    "summary": "Cap retries at 3 attempts with jitter per the documented constraint",
+    "uncertainties": [
+      "No load-test data available"
+    ]
+  },
+  "decision": {
+    "approved": true,
+    "authority": "public_demo",
+    "authorized_by": "visitor:fixture0000000",
+    "decided_at": "2026-10-26T09:00:00Z",
+    "idempotency_key": "fixture-approve",
+    "note": "fixture decision on a simulated run",
+    "notice": "This decision carries no operational authority: it records a visitor's choice on a simulated run."
+  },
+  "events": [
+    {
+      "actor": {
+        "id": "visitor:fixture0000000",
+        "kind": "human"
+      },
+      "event_id": "evt-0002",
+      "hash": "5a965a67b84e0de7d62cf7d670ae5321542d320d4e18dc6eabba4793cd3d165c",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "task": {
+          "created_at": "2026-10-26T09:00:00Z",
+          "description": "Payment requests intermittently time out under load. Propose a fix.",
+          "id": "task-0001",
+          "mode": {
+            "evidence": "simulated",
+            "model": "scripted",
+            "origin": "public",
+            "preset": "guided:retry"
+          },
+          "project_id": "demo-repo",
+          "run_id": "run-00000000-0000-4000-8000-000000000001",
+          "schema_version": "1.3",
+          "title": "Fix payment client timeouts"
+        },
+        "type": "task_created"
+      },
+      "prev_hash": "genesis",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 1
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "proposer"
+      },
+      "event_id": "evt-0003",
+      "hash": "b18f99174f43d3ed745357fa9617f33dbe8dc7a58efa15d638d0a09068ba29ad",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-propose-1",
+          "scripted": true
+        },
+        "proposal": {
+          "assumptions": [
+            "Upstream services tolerate the proposed change"
+          ],
+          "author_role": "proposer",
+          "claims": [
+            {
+              "evidence_refs": [],
+              "id": "claim-1",
+              "statement": "Payment timeouts are caused by insufficient retries"
+            },
+            {
+              "evidence_refs": [],
+              "id": "claim-2",
+              "statement": "Raising the retry limit to 10 attempts is safe"
+            }
+          ],
+          "created_at": "2026-10-26T09:00:00Z",
+          "id": "prop-1",
+          "plan_steps": [
+            "Apply the change",
+            "Run the existing test suite"
+          ],
+          "run_id": "run-00000000-0000-4000-8000-000000000001",
+          "schema_version": "1.3",
+          "summary": "Raise the payment client retry limit to fix timeouts",
+          "uncertainties": [
+            "No load-test data available"
+          ]
+        },
+        "type": "proposal_submitted"
+      },
+      "prev_hash": "5a965a67b84e0de7d62cf7d670ae5321542d320d4e18dc6eabba4793cd3d165c",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 2
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0004",
+      "hash": "c09c0c10c973328eb8381cf6e3edab61a972f2ee453c2878ef4e941aa36bce9c",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "evidence": {
+          "anchor": "fake-anchor-1",
+          "backend_ref": "fake-memory:ev-constraint",
+          "content": "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
+          "id": "ev-constraint",
+          "kind": "constraint",
+          "project_id": "demo-repo",
+          "proof_error_reported": false,
+          "retrieval": "simulated",
+          "retrieved_at": "2026-10-26T09:00:00Z"
+        },
+        "type": "evidence_retrieved"
+      },
+      "prev_hash": "b18f99174f43d3ed745357fa9617f33dbe8dc7a58efa15d638d0a09068ba29ad",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 3
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0005",
+      "hash": "a8c5c2348f6d09332c41ce912b82fdc9817e805e36e32a9ecd653389c069b6f6",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "evidence": {
+          "anchor": "fake-anchor-1",
+          "backend_ref": "fake-memory:ev-fact",
+          "content": "Fact: payment client timeouts correlate with retry bursts above 5 attempts.",
+          "id": "ev-fact",
+          "kind": "fact",
+          "project_id": "demo-repo",
+          "proof_error_reported": false,
+          "retrieval": "simulated",
+          "retrieved_at": "2026-10-26T09:00:00Z"
+        },
+        "type": "evidence_retrieved"
+      },
+      "prev_hash": "c09c0c10c973328eb8381cf6e3edab61a972f2ee453c2878ef4e941aa36bce9c",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 4
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "critic"
+      },
+      "event_id": "evt-0006",
+      "hash": "e5736fd36c38e3b331eae021abd579da2726bb66285d48fd969aa81ce76797ed",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "challenge": {
+          "created_at": "2026-10-26T09:00:00Z",
+          "id": "chal-1",
+          "items": [
+            {
+              "claim_id": "claim-2",
+              "description": "Documented constraint caps retries at 3 attempts",
+              "evidence_refs": [
+                "ev-constraint"
+              ],
+              "id": "item-1",
+              "kind": "constraint_conflict"
+            },
+            {
+              "claim_id": "claim-1",
+              "description": "No evidence ties timeouts to insufficient retries",
+              "evidence_refs": [],
+              "id": "item-2",
+              "kind": "unsupported_claim"
+            }
+          ],
+          "run_id": "run-00000000-0000-4000-8000-000000000001",
+          "schema_version": "1.3",
+          "target_proposal": "prop-1"
+        },
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-critique-2",
+          "scripted": true
+        },
+        "type": "challenge_submitted"
+      },
+      "prev_hash": "a8c5c2348f6d09332c41ce912b82fdc9817e805e36e32a9ecd653389c069b6f6",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 5
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "evidence_evaluator"
+      },
+      "event_id": "evt-0007",
+      "hash": "017686eb53bf8158c1d433b5b28744f64e4c501123039ca2ea32d0c8b050d89e",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "evaluation": {
+          "abstain": false,
+          "assessments": [
+            {
+              "claim_id": "claim-1",
+              "contradicting_evidence": [],
+              "corroborated": false,
+              "note": "scripted assessment",
+              "relevant_evidence": [
+                "ev-fact"
+              ]
+            },
+            {
+              "claim_id": "claim-2",
+              "contradicting_evidence": [
+                "ev-constraint"
+              ],
+              "corroborated": false,
+              "note": "scripted assessment",
+              "relevant_evidence": [
+                "ev-constraint"
+              ]
+            }
+          ],
+          "created_at": "2026-10-26T09:00:00Z",
+          "item_verdicts": [
+            {
+              "item_id": "item-1",
+              "reason": "ev-constraint caps retries at 3 attempts; the proposal raises them to 10",
+              "status": "unresolved"
+            },
+            {
+              "item_id": "item-2",
+              "reason": "ev-fact ties timeouts to retry bursts, not to too few retries",
+              "status": "unresolved"
+            }
+          ],
+          "run_id": "run-00000000-0000-4000-8000-000000000001",
+          "schema_version": "1.3",
+          "target_proposal": "prop-1",
+          "unresolved_items": [
+            "item-1",
+            "item-2"
+          ]
+        },
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-evaluate-3",
+          "scripted": true
+        },
+        "type": "evaluation_submitted"
+      },
+      "prev_hash": "e5736fd36c38e3b331eae021abd579da2726bb66285d48fd969aa81ce76797ed",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 6
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0008",
+      "hash": "b2de52de959c57e4520618e85f062f7687c72514bc643957328c8701047ba649",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "type": "evidence_verified",
+        "verification": {
+          "checked_at": "2026-10-26T09:00:00Z",
+          "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+          "evidence_id": "ev-constraint",
+          "factual_status": "contradicted",
+          "integrity_status": "valid",
+          "relevance_status": "relevant",
+          "round": 1,
+          "simulated": true,
+          "verified_anchor": "fake-anchor-1",
+          "verifier": "fake-verifier"
+        }
+      },
+      "prev_hash": "017686eb53bf8158c1d433b5b28744f64e4c501123039ca2ea32d0c8b050d89e",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 7
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0009",
+      "hash": "f4a34614e84c0b742ced8671def5012744d36dd14e24b66161e2d929d26625d7",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "type": "evidence_verified",
+        "verification": {
+          "checked_at": "2026-10-26T09:00:00Z",
+          "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+          "evidence_id": "ev-fact",
+          "factual_status": "uncorroborated",
+          "integrity_status": "valid",
+          "relevance_status": "relevant",
+          "round": 1,
+          "simulated": true,
+          "verified_anchor": "fake-anchor-1",
+          "verifier": "fake-verifier"
+        }
+      },
+      "prev_hash": "b2de52de959c57e4520618e85f062f7687c72514bc643957328c8701047ba649",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 8
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "proposer"
+      },
+      "event_id": "evt-0010",
+      "hash": "a0f87a916802ff51d544f7e80f69c12cec199de838727a6c86dd94204c6d320d",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-revise-4",
+          "scripted": true
+        },
+        "revision": {
+          "addressed_items": [
+            "item-1",
+            "item-2"
+          ],
+          "proposal": {
+            "assumptions": [
+              "Upstream services tolerate the proposed change"
+            ],
+            "author_role": "proposer",
+            "claims": [
+              {
+                "evidence_refs": [],
+                "id": "claim-1",
+                "statement": "Payment timeouts correlate with retry bursts above 5 attempts"
+              },
+              {
+                "evidence_refs": [],
+                "id": "claim-2",
+                "statement": "Capping retries at 3 attempts with jitter matches the documented constraint"
+              }
+            ],
+            "created_at": "2026-10-26T09:00:00Z",
+            "id": "prop-2",
+            "plan_steps": [
+              "Apply the change",
+              "Run the existing test suite"
+            ],
+            "run_id": "run-00000000-0000-4000-8000-000000000001",
+            "schema_version": "1.3",
+            "summary": "Cap retries at 3 attempts with jitter per the documented constraint",
+            "uncertainties": [
+              "No load-test data available"
+            ]
+          },
+          "schema_version": "1.3",
+          "supersedes": "prop-1"
+        },
+        "type": "revision_submitted"
+      },
+      "prev_hash": "f4a34614e84c0b742ced8671def5012744d36dd14e24b66161e2d929d26625d7",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 9
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "critic"
+      },
+      "event_id": "evt-0011",
+      "hash": "bbf043c157bf6637ad84776478bddbc23b0bfdc6e8f64dc5f58ba4a06bd04f9f",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "challenge": {
+          "created_at": "2026-10-26T09:00:00Z",
+          "id": "chal-2",
+          "items": [],
+          "run_id": "run-00000000-0000-4000-8000-000000000001",
+          "schema_version": "1.3",
+          "target_proposal": "prop-2"
+        },
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-critique-5",
+          "scripted": true
+        },
+        "type": "challenge_submitted"
+      },
+      "prev_hash": "a0f87a916802ff51d544f7e80f69c12cec199de838727a6c86dd94204c6d320d",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 10
+    },
+    {
+      "actor": {
+        "kind": "agent",
+        "role": "evidence_evaluator"
+      },
+      "event_id": "evt-0012",
+      "hash": "fb7dfef821b3ab96f2df053b5a827b05444436fc731918b32e2df628d5c82018",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "evaluation": {
+          "abstain": false,
+          "assessments": [
+            {
+              "claim_id": "claim-1",
+              "contradicting_evidence": [],
+              "corroborated": true,
+              "note": "scripted assessment",
+              "relevant_evidence": [
+                "ev-fact"
+              ]
+            },
+            {
+              "claim_id": "claim-2",
+              "contradicting_evidence": [],
+              "corroborated": true,
+              "note": "scripted assessment",
+              "relevant_evidence": [
+                "ev-constraint"
+              ]
+            }
+          ],
+          "cleared_contradictions": [
+            {
+              "evidence_id": "ev-constraint",
+              "reason": "the revision caps retries at 3 attempts with jitter, as the constraint requires"
+            }
+          ],
+          "created_at": "2026-10-26T09:00:00Z",
+          "item_verdicts": [
+            {
+              "item_id": "item-1",
+              "reason": "claim-2 now caps retries at 3 attempts with jitter",
+              "status": "resolved"
+            },
+            {
+              "item_id": "item-2",
+              "reason": "claim-1 now states the correlation ev-fact records",
+              "status": "resolved"
+            }
+          ],
+          "run_id": "run-00000000-0000-4000-8000-000000000001",
+          "schema_version": "1.3",
+          "target_proposal": "prop-2",
+          "unresolved_items": []
+        },
+        "invocation": {
+          "input_tokens": 0,
+          "latency_ms": 1,
+          "model": "muse-wonder-1.0",
+          "output_tokens": 0,
+          "provider": "fake",
+          "request_id": "fake-evaluate-6",
+          "scripted": true
+        },
+        "type": "evaluation_submitted"
+      },
+      "prev_hash": "bbf043c157bf6637ad84776478bddbc23b0bfdc6e8f64dc5f58ba4a06bd04f9f",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 11
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0013",
+      "hash": "bf4d7d6fc0a778aee010e70e91bb489061d46a491994f58cfb602bfaac7635ff",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "type": "evidence_verified",
+        "verification": {
+          "checked_at": "2026-10-26T09:00:00Z",
+          "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+          "evidence_id": "ev-constraint",
+          "factual_status": "corroborated",
+          "integrity_status": "valid",
+          "relevance_status": "relevant",
+          "round": 2,
+          "simulated": true,
+          "verified_anchor": "fake-anchor-1",
+          "verifier": "fake-verifier"
+        }
+      },
+      "prev_hash": "fb7dfef821b3ab96f2df053b5a827b05444436fc731918b32e2df628d5c82018",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 12
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0014",
+      "hash": "e526ded8101864a2c7186d1f73b593a2df7e6c1422252111f12363bcd129eb39",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "type": "evidence_verified",
+        "verification": {
+          "checked_at": "2026-10-26T09:00:00Z",
+          "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+          "evidence_id": "ev-fact",
+          "factual_status": "corroborated",
+          "integrity_status": "valid",
+          "relevance_status": "relevant",
+          "round": 2,
+          "simulated": true,
+          "verified_anchor": "fake-anchor-1",
+          "verifier": "fake-verifier"
+        }
+      },
+      "prev_hash": "bf4d7d6fc0a778aee010e70e91bb489061d46a491994f58cfb602bfaac7635ff",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 13
+    },
+    {
+      "actor": {
+        "kind": "runtime"
+      },
+      "event_id": "evt-0015",
+      "hash": "76f51cca08b6e31bc8583565e2ca646a8988e1231d3b7eac6ca302edd1ee5b22",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "recommendation": {
+          "issued_at": "2026-10-26T09:00:00Z",
+          "kind": "supported",
+          "rationale": "Supported: 2/2 claims corroborated; proofs: 2 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+          "schema_version": "1.3",
+          "unresolved_assumptions": [
+            "Upstream services tolerate the proposed change"
+          ],
+          "unresolved_uncertainties": [
+            "No load-test data available"
+          ]
+        },
+        "type": "recommendation_issued"
+      },
+      "prev_hash": "e526ded8101864a2c7186d1f73b593a2df7e6c1422252111f12363bcd129eb39",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 14
+    },
+    {
+      "actor": {
+        "id": "visitor:fixture0000000",
+        "kind": "human"
+      },
+      "event_id": "human-decision:run-00000000-0000-4000-8000-000000000001:fixture-approve",
+      "hash": "78d2fcab4f3cbc64c737f2b04af4a3ab5ac8a475dd3035d37b1dcc226438ff23",
+      "occurred_at": "2026-10-26T09:00:00Z",
+      "payload": {
+        "decision": {
+          "approved": true,
+          "authority": "public_demo",
+          "authorized_by": "visitor:fixture0000000",
+          "decided_at": "2026-10-26T09:00:00Z",
+          "idempotency_key": "fixture-approve",
+          "note": "fixture decision on a simulated run",
+          "notice": "This decision carries no operational authority: it records a visitor's choice on a simulated run."
+        },
+        "type": "human_decision_recorded"
+      },
+      "prev_hash": "76f51cca08b6e31bc8583565e2ca646a8988e1231d3b7eac6ca302edd1ee5b22",
+      "run_id": "run-00000000-0000-4000-8000-000000000001",
+      "schema_version": "1.3",
+      "sequence": 15
+    }
+  ],
+  "model_invocations": [
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-propose-1",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-critique-2",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-evaluate-3",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-revise-4",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-critique-5",
+      "scripted": true
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-evaluate-6",
+      "scripted": true
+    }
+  ],
+  "recommendation": {
+    "issued_at": "2026-10-26T09:00:00Z",
+    "kind": "supported",
+    "protocol": "protocol 1.3 · policy rules 1.2",
+    "rationale": "Supported: 2/2 claims corroborated; proofs: 2 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+    "rationale_code": "supported.all_checks_passed",
+    "trace": {
+      "counts": {
+        "claims": 2,
+        "corroborated": 2,
+        "proofs_invalid": 0,
+        "proofs_unavailable_or_error": 0,
+        "proofs_valid": 2,
+        "unresolved_items": 0
+      },
+      "kind": "supported",
+      "reasons": [],
+      "rule": "all_checks_passed",
+      "version": "1.2"
+    },
+    "unresolved_assumptions": [
+      "Upstream services tolerate the proposed change"
+    ],
+    "unresolved_uncertainties": [
+      "No load-test data available"
+    ]
+  },
+  "rounds": [
+    {
+      "challenge": {
+        "created_at": "2026-10-26T09:00:00Z",
+        "id": "chal-1",
+        "items": [
+          {
+            "claim_id": "claim-2",
+            "description": "Documented constraint caps retries at 3 attempts",
+            "evidence_refs": [
+              "ev-constraint"
+            ],
+            "id": "item-1",
+            "kind": "constraint_conflict"
+          },
+          {
+            "claim_id": "claim-1",
+            "description": "No evidence ties timeouts to insufficient retries",
+            "evidence_refs": [],
+            "id": "item-2",
+            "kind": "unsupported_claim"
+          }
+        ],
+        "run_id": "run-00000000-0000-4000-8000-000000000001",
+        "schema_version": "1.3",
+        "target_proposal": "prop-1"
+      },
+      "evaluation": {
+        "abstain": false,
+        "assessments": [
+          {
+            "claim_id": "claim-1",
+            "contradicting_evidence": [],
+            "corroborated": false,
+            "note": "scripted assessment",
+            "relevant_evidence": [
+              "ev-fact"
+            ]
+          },
+          {
+            "claim_id": "claim-2",
+            "contradicting_evidence": [
+              "ev-constraint"
+            ],
+            "corroborated": false,
+            "note": "scripted assessment",
+            "relevant_evidence": [
+              "ev-constraint"
+            ]
+          }
+        ],
+        "created_at": "2026-10-26T09:00:00Z",
+        "item_verdicts": [
+          {
+            "item_id": "item-1",
+            "reason": "ev-constraint caps retries at 3 attempts; the proposal raises them to 10",
+            "status": "unresolved"
+          },
+          {
+            "item_id": "item-2",
+            "reason": "ev-fact ties timeouts to retry bursts, not to too few retries",
+            "status": "unresolved"
+          }
+        ],
+        "run_id": "run-00000000-0000-4000-8000-000000000001",
+        "schema_version": "1.3",
+        "target_proposal": "prop-1",
+        "unresolved_items": [
+          "item-1",
+          "item-2"
+        ]
+      },
+      "proposal_id": "prop-1",
+      "round": 1,
+      "verifications": [
+        {
+          "checked_at": "2026-10-26T09:00:00Z",
+          "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+          "evidence_id": "ev-constraint",
+          "factual_status": "contradicted",
+          "integrity_status": "valid",
+          "relevance_status": "relevant",
+          "round": 1,
+          "simulated": true,
+          "verified_anchor": "fake-anchor-1",
+          "verifier": "fake-verifier"
+        },
+        {
+          "checked_at": "2026-10-26T09:00:00Z",
+          "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+          "evidence_id": "ev-fact",
+          "factual_status": "uncorroborated",
+          "integrity_status": "valid",
+          "relevance_status": "relevant",
+          "round": 1,
+          "simulated": true,
+          "verified_anchor": "fake-anchor-1",
+          "verifier": "fake-verifier"
+        }
+      ]
+    },
+    {
+      "challenge": {
+        "created_at": "2026-10-26T09:00:00Z",
+        "id": "chal-2",
+        "items": [],
+        "run_id": "run-00000000-0000-4000-8000-000000000001",
+        "schema_version": "1.3",
+        "target_proposal": "prop-2"
+      },
+      "evaluation": {
+        "abstain": false,
+        "assessments": [
+          {
+            "claim_id": "claim-1",
+            "contradicting_evidence": [],
+            "corroborated": true,
+            "note": "scripted assessment",
+            "relevant_evidence": [
+              "ev-fact"
+            ]
+          },
+          {
+            "claim_id": "claim-2",
+            "contradicting_evidence": [],
+            "corroborated": true,
+            "note": "scripted assessment",
+            "relevant_evidence": [
+              "ev-constraint"
+            ]
+          }
+        ],
+        "cleared_contradictions": [
+          {
+            "evidence_id": "ev-constraint",
+            "reason": "the revision caps retries at 3 attempts with jitter, as the constraint requires"
+          }
+        ],
+        "created_at": "2026-10-26T09:00:00Z",
+        "item_verdicts": [
+          {
+            "item_id": "item-1",
+            "reason": "claim-2 now caps retries at 3 attempts with jitter",
+            "status": "resolved"
+          },
+          {
+            "item_id": "item-2",
+            "reason": "claim-1 now states the correlation ev-fact records",
+            "status": "resolved"
+          }
+        ],
+        "run_id": "run-00000000-0000-4000-8000-000000000001",
+        "schema_version": "1.3",
+        "target_proposal": "prop-2",
+        "unresolved_items": []
+      },
+      "proposal_id": "prop-2",
+      "round": 2,
+      "verifications": [
+        {
+          "checked_at": "2026-10-26T09:00:00Z",
+          "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+          "evidence_id": "ev-constraint",
+          "factual_status": "corroborated",
+          "integrity_status": "valid",
+          "relevance_status": "relevant",
+          "round": 2,
+          "simulated": true,
+          "verified_anchor": "fake-anchor-1",
+          "verifier": "fake-verifier"
+        },
+        {
+          "checked_at": "2026-10-26T09:00:00Z",
+          "detail": "SIMULATED proof (scripted outcome, no cryptography checked): Valid",
+          "evidence_id": "ev-fact",
+          "factual_status": "corroborated",
+          "integrity_status": "valid",
+          "relevance_status": "relevant",
+          "round": 2,
+          "simulated": true,
+          "verified_anchor": "fake-anchor-1",
+          "verifier": "fake-verifier"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "active": false,
+    "authorization": "approved",
+    "created_at": "2026-10-26T09:00:00Z",
+    "event_count": 15,
+    "last_sequence": 15,
+    "override": false,
+    "provenance": {
+      "declared": {
+        "evidence": "simulated",
+        "model": "scripted",
+        "origin": "public",
+        "preset": "guided:retry"
+      },
+      "evidence": "simulated",
+      "model": "scripted",
+      "source": "this_server"
+    },
+    "recommendation": "supported",
+    "revision_round": 1,
+    "run_id": "run-00000000-0000-4000-8000-000000000001",
+    "state": "approved",
+    "title": "Fix payment client timeouts",
+    "updated_at": "2026-10-26T09:00:00Z"
+  },
+  "task": {
+    "created_at": "2026-10-26T09:00:00Z",
+    "description": "Payment requests intermittently time out under load. Propose a fix.",
+    "id": "task-0001",
+    "mode": {
+      "evidence": "simulated",
+      "model": "scripted",
+      "origin": "public",
+      "preset": "guided:retry"
+    },
+    "project_id": "demo-repo",
+    "run_id": "run-00000000-0000-4000-8000-000000000001",
+    "schema_version": "1.3",
+    "title": "Fix payment client timeouts"
+  }
+}

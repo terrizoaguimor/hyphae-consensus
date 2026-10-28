@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "`POST /api/v1/session`, `GET /api/v1/session`.",
+  "properties": {
+    "created": {
+      "description": "True when this response minted the session.",
+      "type": "boolean"
+    },
+    "expires_at": {
+      "type": "string"
+    },
+    "pseudonym": {
+      "description": "The pseudonym recorded as `authorized_by` on this session's decisions.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "created",
+    "expires_at",
+    "pseudonym"
+  ],
+  "title": "SessionV1",
+  "type": "object"
+}

@@ -1,0 +1,1465 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AuthorizationState": {
+      "enum": [
+        "pending",
+        "approved",
+        "rejected"
+      ],
+      "type": "string"
+    },
+    "ChainScope": {
+      "description": "What a reader needs to verify the run's events.",
+      "oneOf": [
+        {
+          "description": "The run's events are a complete chain from genesis on their own.",
+          "enum": [
+            "run"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The run is a segment of a multi-run log: its records link to other runs' records, so verifying them needs the whole file.",
+          "enum": [
+            "log"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The run began before schema 1.1 and was continued after it: its first records carry no hash chain and are not tamper-evident, and the chain after them commits to them only by count (`pre-1.1:<sequence>`), not by content.",
+          "enum": [
+            "partly_chained"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Pre-1.1 records carry no hash chain.",
+          "enum": [
+            "unchained"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ChallengeKind": {
+      "enum": [
+        "contradictory_evidence",
+        "missing_test",
+        "unsupported_claim",
+        "regression_risk",
+        "security_risk",
+        "constraint_conflict"
+      ],
+      "type": "string"
+    },
+    "ClaimAssessment": {
+      "description": "Evaluator output: per-claim sufficiency judgment. Factual and relevance judgments live here; cryptographic integrity is reported separately in `EvidenceVerification` and is never inferred from this document.",
+      "properties": {
+        "claim_id": {
+          "type": "string"
+        },
+        "contradicting_evidence": {
+          "default": [],
+          "description": "Evidence the evaluator judges to contradict this claim.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "corroborated": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        },
+        "relevant_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "claim_id",
+        "corroborated",
+        "note",
+        "relevant_evidence"
+      ],
+      "type": "object"
+    },
+    "Deliberation": {
+      "description": "The deliberation as it stood at the end of the run.",
+      "properties": {
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "claims": {
+          "description": "The final proposal's claims, each with the final evaluation's assessment of it.",
+          "items": {
+            "$ref": "#/definitions/ReceiptClaim"
+          },
+          "type": "array"
+        },
+        "earlier_round_objections_never_rejudged": {
+          "description": "Items raised in rounds before the final one that the final evaluation does not list as unresolved and that no later evaluation resolves with an explicit verdict (protocol 1.3). Before protocol 1.3 each evaluation judged only the items of its own round's challenge, so no later round judged these again. Computed from the records for every protocol, never from a schema label: every earlier item is an open item, resolved later with a reason, or listed here.",
+          "items": {
+            "$ref": "#/definitions/UnrejudgedObjection"
+          },
+          "type": "array"
+        },
+        "evaluated_proposal_id": {
+          "description": "The proposal the final evaluation judged. It differs from `final_proposal_id` only when a run ended between a revision and its evaluation.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "final_proposal_id": {
+          "description": "The last proposal or revision submitted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "final_proposal_summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "missing_tests": {
+          "description": "The open items of kind `missing_test`. Unevaluated items of that kind stay in `unevaluated_items` only.",
+          "items": {
+            "$ref": "#/definitions/OpenItem"
+          },
+          "type": "array"
+        },
+        "open_items": {
+          "description": "Items the final evaluation lists as unresolved.",
+          "items": {
+            "$ref": "#/definitions/OpenItem"
+          },
+          "type": "array"
+        },
+        "plan_steps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "revisions": {
+          "items": {
+            "$ref": "#/definitions/ReceiptRevision"
+          },
+          "type": "array"
+        },
+        "rounds": {
+          "description": "Evaluation rounds recorded. A round is one critique and its evaluation; each revision opens the next round.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "uncertainties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unevaluated_items": {
+          "description": "Items of every challenge recorded after the final evaluation (or with no evaluation at all), each with the round that raised it: the run failed or stopped before any evaluation judged them. They are open objections too, though no evaluation lists them.",
+          "items": {
+            "$ref": "#/definitions/OpenItem"
+          },
+          "type": "array"
+        },
+        "unmatched_assessments": {
+          "description": "Final-evaluation assessments not attached to any claim above: a claim id the final proposal does not contain, a second assessment of the same claim, or every assessment when the final evaluation judged an earlier proposal. Shown, never dropped.",
+          "items": {
+            "$ref": "#/definitions/ClaimAssessment"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "assumptions",
+        "claims",
+        "earlier_round_objections_never_rejudged",
+        "missing_tests",
+        "open_items",
+        "plan_steps",
+        "revisions",
+        "rounds",
+        "uncertainties",
+        "unevaluated_items",
+        "unmatched_assessments"
+      ],
+      "type": "object"
+    },
+    "EvidenceMode": {
+      "oneOf": [
+        {
+          "description": "Seeded in-memory records with scripted proof outcomes.",
+          "enum": [
+            "simulated"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No memory backend: retrieval fails and the run degrades.",
+          "enum": [
+            "offline"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A sealed, pre-captured Hyphae snapshot.",
+          "enum": [
+            "sealed_snapshot"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A running Hyphae Agent Memory deployment.",
+          "enum": [
+            "live_hyphae"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "EvidenceVerification": {
+      "description": "Full verification picture for one evidence record. The three status fields must be set from independent evidence: integrity from proof verification, factual/relevance from evaluator judgment.",
+      "properties": {
+        "checked_at": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_id": {
+          "type": "string"
+        },
+        "factual_status": {
+          "$ref": "#/definitions/FactualStatus"
+        },
+        "integrity_status": {
+          "$ref": "#/definitions/IntegrityStatus"
+        },
+        "proof_ref": {
+          "description": "Schema 1.3: the proof artifact that was checked (the record's `proof_ref`), when it has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relevance_status": {
+          "$ref": "#/definitions/RelevanceStatus"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VerifierReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Schema 1.3: the verifier's structured report, when it gives one."
+        },
+        "round": {
+          "description": "Schema 1.3: the deliberation round (1 = first) whose evaluation this record combines with. Protocol 1.3 re-verifies every record of the round context in every round.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "verified_anchor": {
+          "description": "Anchor the verification was performed against, when available.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verifier": {
+          "description": "Verifier identity/mechanism, e.g. `hyphae proof verify`, when run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "checked_at",
+        "evidence_id",
+        "factual_status",
+        "integrity_status",
+        "relevance_status",
+        "schema_version"
+      ],
+      "type": "object"
+    },
+    "FactualStatus": {
+      "description": "Factual corroboration axis only. Independent of integrity.",
+      "enum": [
+        "corroborated",
+        "uncorroborated",
+        "contradicted",
+        "not_assessed"
+      ],
+      "type": "string"
+    },
+    "IntegrityStatus": {
+      "description": "Cryptographic integrity axis only.",
+      "oneOf": [
+        {
+          "description": "Proof was available and verified against its anchor.",
+          "enum": [
+            "valid"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Proof was available and failed verification.",
+          "enum": [
+            "invalid"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No proof was available for this record (includes backend offline).",
+          "enum": [
+            "unavailable"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Verification could not complete due to infrastructure error.",
+          "enum": [
+            "verification_error"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Verification has not been attempted.",
+          "enum": [
+            "not_checked"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ModelInvocation": {
+      "description": "Metadata for one model call, recorded so Meta model participation is demonstrable from receipts. `model` preserves the exact Model API identity string returned/configured for the call.",
+      "properties": {
+        "attempts": {
+          "description": "Schema 1.3: HTTP attempts made for this call (retries included).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "finish_reason": {
+          "description": "Schema 1.3: why the model stopped generating, as the API said it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "latency_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_completion_tokens": {
+          "description": "Schema 1.3: the output bound sent with the request, if any.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "output_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "prompt_sha256": {
+          "description": "Schema 1.3: SHA-256 of the prompt template, lowercase hex.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "description": "Schema 1.3: reasoning effort requested, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reasoning_tokens": {
+          "description": "Schema 1.3: reasoning tokens, when the API reports them apart.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "safety_identifier_sent": {
+          "description": "Schema 1.3: whether a pseudonymous safety identifier was sent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "schema_name": {
+          "description": "Schema 1.3: name of the structured-output schema requested.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_sha256": {
+          "description": "Schema 1.3: SHA-256 of that schema as sent, lowercase hex.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "model",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "ModelMode": {
+      "oneOf": [
+        {
+          "description": "Scripted test doubles; no model is called.",
+          "enum": [
+            "scripted"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The Meta Model API.",
+          "enum": [
+            "meta"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "OpenItem": {
+      "description": "A challenge item that is still open: listed as unresolved by the final evaluation ([`Deliberation::open_items`]), or raised after it ([`Deliberation::unevaluated_items`]). For a listed item, details are None when no recorded challenge contains an item with its id (pre-1.1 evaluations listed challenge ids, not item ids).",
+      "properties": {
+        "claim_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Item id; for an unevaluated item, empty on pre-1.1 records, which predate item ids.",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ChallengeKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "raised_in_round": {
+          "description": "Round whose challenge raised the item.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "PolicyRule": {
+      "description": "The policy rule that decided a recommendation kind. Listed in the 1.2 priority order; 1.1 ranks `abstention` above `recorded_contradiction`.",
+      "oneOf": [
+        {
+          "description": "An integrity proof failed somewhere in the retrieved set: `blocked`.",
+          "enum": [
+            "invalid_proof"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Cited or contradicting evidence is recorded as contradicted: `contested`.",
+          "enum": [
+            "recorded_contradiction"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The Evaluator abstained: `abstained`.",
+          "enum": [
+            "abstention"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Challenge items remain unresolved: `contested`.",
+          "enum": [
+            "unresolved_items"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A claim, or the evidence it cites, falls short: `insufficient_evidence`.",
+          "enum": [
+            "insufficient_evidence"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No check failed: `supported`.",
+          "enum": [
+            "all_checks_passed"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PolicyRules": {
+      "description": "Policy rule order a [`PolicyTrace`] was derived under, serialized as its version string.",
+      "oneOf": [
+        {
+          "description": "Schema 1.1: abstention outranks every contradiction.",
+          "enum": [
+            "1.1"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Schema 1.2: a recorded contradiction outranks abstention.",
+          "enum": [
+            "1.2"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PolicyTrace": {
+      "description": "Why the policy derived the kind it did, from one evaluation and the verification records of its round. `rule` is the rule that decided `kind`; `reasons` lists every check that failed, in the priority order of `version`, so its first entry belongs to `rule`. `reasons` is empty exactly when the run is `supported`.",
+      "properties": {
+        "counts": {
+          "$ref": "#/definitions/TraceCounts"
+        },
+        "kind": {
+          "$ref": "#/definitions/RecommendationKind"
+        },
+        "reasons": {
+          "items": {
+            "$ref": "#/definitions/TraceReason"
+          },
+          "type": "array"
+        },
+        "rule": {
+          "$ref": "#/definitions/PolicyRule"
+        },
+        "version": {
+          "$ref": "#/definitions/PolicyRules"
+        }
+      },
+      "required": [
+        "counts",
+        "kind",
+        "reasons",
+        "rule",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ReceiptAssessment": {
+      "description": "The Evaluator's judgment of one claim.",
+      "properties": {
+        "contradicting_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "corroborated": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        },
+        "relevant_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "contradicting_evidence",
+        "corroborated",
+        "note",
+        "relevant_evidence"
+      ],
+      "type": "object"
+    },
+    "ReceiptAuthorization": {
+      "description": "The human decision, if one was recorded.",
+      "properties": {
+        "authority": {
+          "description": "Authority the decision was recorded under: `unspecified` for every record before schema 1.3, which carried no authority and must never be read as operator authority. None while no decision is recorded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decided_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/definitions/AuthorizationState"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    "ReceiptChain": {
+      "description": "The hash chain behind a receipt. The chain is unsigned.",
+      "properties": {
+        "first_sequence": {
+          "description": "Sequences of the run's first and last records in their log.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "head_hash": {
+          "description": "Hash of the run's last event (not the head of a multi-run file). None when that record is unchained.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "note": {
+          "description": "Plain-language statement of what the chain does and does not show.",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/ChainScope"
+        }
+      },
+      "required": [
+        "first_sequence",
+        "last_sequence",
+        "note",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "ReceiptClaim": {
+      "description": "One claim of the final proposal.",
+      "properties": {
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReceiptAssessment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The final evaluation's assessment. None when it did not assess the claim."
+        },
+        "evidence_refs": {
+          "description": "Evidence the proposer cited for the claim.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_refs",
+        "id",
+        "statement"
+      ],
+      "type": "object"
+    },
+    "ReceiptFailure": {
+      "description": "Where and why a run failed.",
+      "properties": {
+        "code": {
+          "description": "Stable failure code recorded with the failure (schema 1.3), for clients that localize from codes instead of the English reason.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "ReceiptRevision": {
+      "description": "One revision, in order.",
+      "properties": {
+        "addressed_items": {
+          "description": "Item ids the revision says it addresses (a claim, not a verdict).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "after_round": {
+          "description": "The evaluation round this revision answers. The revised proposal is judged in the next round.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proposal_id": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "supersedes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "addressed_items",
+        "after_round",
+        "proposal_id",
+        "summary",
+        "supersedes"
+      ],
+      "type": "object"
+    },
+    "Recommendation": {
+      "properties": {
+        "issued_at": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/RecommendationKind"
+        },
+        "rationale": {
+          "description": "Human-readable, concise justification citing claim/evidence ids.",
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "unresolved_assumptions": {
+          "description": "Assumptions that remain unresolved at decision time.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unresolved_uncertainties": {
+          "description": "Schema 1.3: the final proposal's own uncertainties, carried to the human next to its assumptions.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "issued_at",
+        "kind",
+        "rationale",
+        "schema_version",
+        "unresolved_assumptions"
+      ],
+      "type": "object"
+    },
+    "RecommendationKind": {
+      "description": "Runtime-derived assessment of a run. Never written by a model.",
+      "enum": [
+        "supported",
+        "contested",
+        "insufficient_evidence",
+        "abstained",
+        "blocked"
+      ],
+      "type": "string"
+    },
+    "RelevanceStatus": {
+      "description": "Relevance axis only. Independent of integrity and factuality.",
+      "enum": [
+        "relevant",
+        "irrelevant",
+        "not_assessed"
+      ],
+      "type": "string"
+    },
+    "RoundVerification": {
+      "description": "A verification record and the evaluation round it belongs to. The record is nested, never flattened beside `round`: a field the record gains (schema 1.3 adds its own round) can then never collide with this receipt's tag.",
+      "properties": {
+        "round": {
+          "description": "1-based evaluation round, from the record's position in the log: the records after the k-th evaluation are round k. 0 for a record made before any evaluation, which no policy derivation reads.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "verification": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/EvidenceVerification"
+            }
+          ],
+          "description": "The verification record as stored."
+        }
+      },
+      "required": [
+        "round",
+        "verification"
+      ],
+      "type": "object"
+    },
+    "RunOrigin": {
+      "oneOf": [
+        {
+          "description": "The command-line demo.",
+          "enum": [
+            "cli"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The operator console.",
+          "enum": [
+            "operator"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The public portal.",
+          "enum": [
+            "public"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RunState": {
+      "description": "Deterministic lifecycle of one run. Transitions are owned and validated by the runtime state machine; see `docs/adr/0001-m1-architecture.md`.",
+      "enum": [
+        "created",
+        "proposed",
+        "evidence_review",
+        "evaluated",
+        "revised",
+        "abstained",
+        "awaiting_human_approval",
+        "approved",
+        "rejected",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "Task": {
+      "description": "A user-defined problem submitted for multi-agent deliberation.",
+      "properties": {
+        "created_at": {
+          "description": "RFC 3339 timestamp supplied by the runtime clock.",
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TaskMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Schema 1.3: the mode the run was declared with when it was created. A declaration, not proof: what actually happened is read from the recorded invocations and verifications."
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "created_at",
+        "description",
+        "id",
+        "project_id",
+        "run_id",
+        "schema_version",
+        "title"
+      ],
+      "type": "object"
+    },
+    "TaskMode": {
+      "description": "How a run was declared at creation (schema 1.3).",
+      "properties": {
+        "evidence": {
+          "$ref": "#/definitions/EvidenceMode"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelMode"
+        },
+        "origin": {
+          "$ref": "#/definitions/RunOrigin"
+        },
+        "preset": {
+          "description": "Curated preset the task came from, when it did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "evidence",
+        "model",
+        "origin"
+      ],
+      "type": "object"
+    },
+    "TraceCounts": {
+      "description": "The counts `rationale_for` reports, from the same inputs.",
+      "properties": {
+        "claims": {
+          "description": "Claim assessments in the evaluation.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "corroborated": {
+          "description": "Of those, the ones judged corroborated.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proofs_invalid": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proofs_unavailable_or_error": {
+          "description": "Integrity `unavailable` or `verification_error`.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proofs_valid": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unresolved_items": {
+          "description": "Entries in the evaluation's `unresolved_items`.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "claims",
+        "corroborated",
+        "proofs_invalid",
+        "proofs_unavailable_or_error",
+        "proofs_valid",
+        "unresolved_items"
+      ],
+      "type": "object"
+    },
+    "TraceReason": {
+      "description": "One policy check that keeps a run from `supported`, with the ids it concerns. Evidence and claim ids are listed once each, in the order the evaluation and verification records first name them; `OpenItems` is the exception and lists item ids exactly as recorded, duplicates included.",
+      "oneOf": [
+        {
+          "description": "Evidence whose integrity proof is `invalid`, cited or not.",
+          "properties": {
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "invalid_proofs"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cited or contradicting evidence recorded as `contradicted`.",
+          "properties": {
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "contradicted_evidence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The Evaluator abstained, with its stated reason when it gave one.",
+          "properties": {
+            "abstain_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "enum": [
+                "evaluator_abstained"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Challenge item ids the evaluation lists as unresolved, exactly as recorded: in its order, and an id listed twice appears twice.",
+          "properties": {
+            "item_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "open_items"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "item_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The evaluation assesses no claim at all.",
+          "properties": {
+            "reason": {
+              "enum": [
+                "no_assessments"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Claims the evaluation does not judge corroborated.",
+          "properties": {
+            "claim_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "uncorroborated_claims"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "claim_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Claims judged corroborated that cite no evidence of their own.",
+          "properties": {
+            "claim_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "claims_without_own_evidence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "claim_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cited supporting evidence with no `valid` integrity record (invalid, unavailable, error, unchecked, or never retrieved).",
+          "properties": {
+            "evidence_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reason": {
+              "enum": [
+                "cited_evidence_not_valid"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "evidence_ids",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "No claim cites any supporting evidence, so nothing checked backs the run.",
+          "properties": {
+            "reason": {
+              "enum": [
+                "no_checked_evidence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UnrejudgedObjection": {
+      "description": "A challenge item from an earlier round that no later round judged.",
+      "properties": {
+        "claim_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "description": "Item id; empty on pre-1.1 records, which predate item ids.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/ChallengeKind"
+        },
+        "raised_in_round": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unresolved_in_its_round": {
+          "description": "Whether the evaluation of the round that raised it listed it as unresolved (pre-1.1: listed its challenge's id). False means that evaluation left it unlisted, which before protocol 1.3 counted as resolved without any stated reason.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "description",
+        "id",
+        "kind",
+        "raised_in_round",
+        "unresolved_in_its_round"
+      ],
+      "type": "object"
+    },
+    "VerifierReport": {
+      "description": "Structured fields of a verifier's own report (schema 1.3), kept next to the free-text `detail` so a reader never has to parse prose.",
+      "properties": {
+        "anchor_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proof_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "description": "Receipt v2: everything a reader needs to see what a human is asked to authorize, and on what grounds, derived from one run's events.",
+  "properties": {
+    "authorization": {
+      "$ref": "#/definitions/ReceiptAuthorization"
+    },
+    "chain": {
+      "$ref": "#/definitions/ReceiptChain"
+    },
+    "deliberation": {
+      "$ref": "#/definitions/Deliberation"
+    },
+    "event_count": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ReceiptFailure"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Stage and reason of a failed run."
+    },
+    "final_state": {
+      "$ref": "#/definitions/RunState"
+    },
+    "format": {
+      "description": "Always [`RunReceiptV2::FORMAT`].",
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "model_invocations": {
+      "description": "Every model call recorded for the run, in order.",
+      "items": {
+        "$ref": "#/definitions/ModelInvocation"
+      },
+      "type": "array"
+    },
+    "policy_trace": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PolicyTrace"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The policy re-derived from the evaluation and verification records the recommendation was issued on. None when no recommendation was issued, or for a pre-1.1 recommendation record, which predates re-derivation. A recommendation recorded under schema 1.1 or later always has one: no receipt is issued for it otherwise."
+    },
+    "proof_limitations": {
+      "description": "Plain-language limits of what the proofs establish. Always present.",
+      "type": "string"
+    },
+    "protocol": {
+      "description": "Protocol and policy rules of the run, e.g. `policy 1.2`, or `protocol 1.3 · policy rules 1.2` once carry-forward changed the policy's inputs.",
+      "type": "string"
+    },
+    "recommendation": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Recommendation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The recommendation as recorded. From schema 1.1 on, its kind, rationale and unresolved assumptions were re-derived from the run's records before this receipt was issued; a pre-1.1 one is shown as recorded, unverified."
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "run_schema_version": {
+      "description": "Schema version of the run's first record: the version it was deliberated under.",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Schema version of the software that produced this receipt.",
+      "type": "string"
+    },
+    "task": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Task"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "verifications": {
+      "description": "Every verification record, tagged with its round. The policy used the final round's records only.",
+      "items": {
+        "$ref": "#/definitions/RoundVerification"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "authorization",
+    "chain",
+    "deliberation",
+    "event_count",
+    "final_state",
+    "format",
+    "generated_at",
+    "model_invocations",
+    "proof_limitations",
+    "protocol",
+    "run_id",
+    "run_schema_version",
+    "schema_version",
+    "verifications"
+  ],
+  "title": "RunReceiptV2",
+  "type": "object"
+}

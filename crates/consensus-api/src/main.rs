@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Entry point. Two modes:
+//! Entry point.
 //!
-//!   cargo run -p consensus-api -- serve     # operator console (Axum/SSE)
-//!   cargo run -p consensus-api              # scripted demo to AwaitingHumanApproval
-//!   cargo run -p consensus-api -- --approve # also record human approval
-//!   cargo run -p consensus-api -- --reject  # also record human rejection
+//!   cargo run -p consensus-api -- serve-public     # public API + static export (unix socket, or CONSENSUS_PUBLIC_BIND)
+//!   cargo run -p consensus-api -- serve-operator   # operator console (loopback, bearer token); `serve` is an alias
+//!   cargo run -p consensus-api -- verify <log.jsonl> [--run <id>] [--receipt <receipt.json>]
+//!   cargo run -p consensus-api                     # scripted demo to AwaitingHumanApproval
+//!   cargo run -p consensus-api -- --approve        # also record human approval
+//!   cargo run -p consensus-api -- --reject         # also record human rejection
 //!
-//! Approval is RECORDED ONLY in both modes. No repository or external
+//! Approval is RECORDED ONLY in every mode. No repository or external
 //! mutation occurs (the executor is deferred through M3). The scripted
 //! demo persists events to `demo-run/events.jsonl`; delete that directory
 //! for a fresh run — the binary replays it instead of re-running when a
@@ -20,18 +22,31 @@ use consensus_runtime::{EventLog, RunLimits};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "serve") {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("tokio runtime");
-        if let Err(e) = runtime.block_on(consensus_api::server::serve()) {
-            eprintln!("error: {e}");
-            std::process::exit(1);
+    match args.get(1).map(String::as_str) {
+        Some("serve-public") => serve(consensus_api::server::serve_public()),
+        Some("serve-operator") | Some("serve") => serve(consensus_api::server::serve_operator()),
+        Some("verify") => {
+            let code = consensus_api::verify_cli::run(&args[2..], &mut std::io::stdout());
+            std::process::exit(code);
         }
-        return;
+        _ => {
+            if let Err(e) = run() {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
     }
-    if let Err(e) = run() {
+}
+
+fn serve<F>(server: F)
+where
+    F: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>,
+{
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    if let Err(e) = runtime.block_on(server) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
@@ -58,7 +73,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             first.run_id.clone()
         }
         None => {
-            let s = retry_constraint_scenario();
+            let mut s = retry_constraint_scenario();
+            s.input.mode = Some(TaskMode {
+                model: ModelMode::Scripted,
+                evidence: EvidenceMode::Simulated,
+                origin: RunOrigin::Cli,
+                preset: None,
+            });
             let clock = SystemClock;
             let now = consensus_runtime::Clock::now(&clock);
             let mut orch = Orchestrator {

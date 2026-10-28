@@ -190,12 +190,17 @@ dependencies = [
  "consensus-domain",
  "consensus-runtime",
  "futures-core",
+ "getrandom 0.4.3",
+ "http-body-util",
  "reqwest",
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
  "tokio",
+ "tower",
+ "uuid",
 ]
 
 [[package]]

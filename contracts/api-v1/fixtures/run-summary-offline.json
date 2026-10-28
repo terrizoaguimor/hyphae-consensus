@@ -1,0 +1,25 @@
+{
+  "active": false,
+  "authorization": "pending",
+  "created_at": "2026-10-26T09:00:00Z",
+  "event_count": 12,
+  "last_sequence": 12,
+  "override": false,
+  "provenance": {
+    "declared": {
+      "evidence": "simulated",
+      "model": "scripted",
+      "origin": "public",
+      "preset": "guided:offline"
+    },
+    "evidence": "none",
+    "model": "scripted",
+    "source": "this_server"
+  },
+  "recommendation": "insufficient_evidence",
+  "revision_round": 1,
+  "run_id": "run-00000000-0000-4000-8000-000000000002",
+  "state": "awaiting_human_approval",
+  "title": "Fix payment client timeouts",
+  "updated_at": "2026-10-26T09:00:00Z"
+}

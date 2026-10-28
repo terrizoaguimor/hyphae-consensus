@@ -1,0 +1,138 @@
+{
+  "authorization": {
+    "state": "pending"
+  },
+  "chain": {
+    "first_sequence": 1,
+    "head_hash": "6da0734816ee2e9bb4065f05dae8e46adb8dbb57353eb746cdfa66cb49775bf9",
+    "last_sequence": 5,
+    "note": "This run's events form a complete hash chain from genesis on their own: recomputing every record's hash and link from them alone verifies the run. head_hash is the hash of its last event. The chain is unsigned SHA-256. A successful check shows that the records received are internally consistent; it detects a change only against a hash obtained earlier, such as this receipt's head_hash or a published manifest. It cannot detect a run rewritten and re-hashed, a truncated tail or a deleted run, and it says nothing about whether the content is true.",
+    "scope": "run"
+  },
+  "deliberation": {
+    "assumptions": [
+      "Upstream services tolerate the proposed change"
+    ],
+    "claims": [
+      {
+        "assessment": {
+          "contradicting_evidence": [],
+          "corroborated": false,
+          "note": "scripted assessment",
+          "relevant_evidence": []
+        },
+        "evidence_refs": [],
+        "id": "c1",
+        "statement": "Payment timeouts are caused by insufficient retries"
+      }
+    ],
+    "earlier_round_objections_never_rejudged": [],
+    "evaluated_proposal_id": "p1",
+    "final_proposal_id": "p1",
+    "final_proposal_summary": "Raise retries",
+    "missing_tests": [],
+    "open_items": [],
+    "plan_steps": [
+      "Apply the change",
+      "Run the existing test suite"
+    ],
+    "revisions": [],
+    "rounds": 1,
+    "uncertainties": [
+      "No load-test data available"
+    ],
+    "unevaluated_items": [],
+    "unmatched_assessments": []
+  },
+  "event_count": 5,
+  "final_state": "awaiting_human_approval",
+  "format": "hyphae-consensus-run-receipt-v2",
+  "generated_at": "2026-10-26T09:00:00Z",
+  "model_invocations": [
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-propose-1"
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-critique-2"
+    },
+    {
+      "input_tokens": 0,
+      "latency_ms": 1,
+      "model": "muse-wonder-1.0",
+      "output_tokens": 0,
+      "provider": "fake",
+      "request_id": "fake-evaluate-3"
+    }
+  ],
+  "policy_trace": {
+    "counts": {
+      "claims": 1,
+      "corroborated": 0,
+      "proofs_invalid": 0,
+      "proofs_unavailable_or_error": 0,
+      "proofs_valid": 0,
+      "unresolved_items": 0
+    },
+    "kind": "abstained",
+    "reasons": [
+      {
+        "abstain_reason": "evidence is insufficient to judge",
+        "reason": "evaluator_abstained"
+      },
+      {
+        "claim_ids": [
+          "c1"
+        ],
+        "reason": "uncorroborated_claims"
+      },
+      {
+        "reason": "no_checked_evidence"
+      }
+    ],
+    "rule": "abstention",
+    "version": "1.2"
+  },
+  "proof_limitations": "Integrity proofs, where valid, establish that a recalled record matches its anchored snapshot under the memory backend's documented assumptions. They do not establish that the content is true, relevant, or complete, or that a model reasoned from it.",
+  "protocol": "protocol 1.3 · policy rules 1.2",
+  "recommendation": {
+    "issued_at": "2026-10-26T09:00:00Z",
+    "kind": "abstained",
+    "rationale": "Abstained: 0/1 claims corroborated; proofs: 0 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
+    "schema_version": "1.3",
+    "unresolved_assumptions": [
+      "Upstream services tolerate the proposed change"
+    ],
+    "unresolved_uncertainties": [
+      "No load-test data available"
+    ]
+  },
+  "run_id": "run-00000000-0000-4000-8000-000000000005",
+  "run_schema_version": "1.3",
+  "schema_version": "1.3",
+  "task": {
+    "created_at": "2026-10-26T09:00:00Z",
+    "description": "No evidence exists; the evaluator must abstain.",
+    "id": "task-0001",
+    "mode": {
+      "evidence": "simulated",
+      "model": "scripted",
+      "origin": "public",
+      "preset": "guided:abstain"
+    },
+    "project_id": "demo-repo",
+    "run_id": "run-00000000-0000-4000-8000-000000000005",
+    "schema_version": "1.3",
+    "title": "Fix payment client timeouts (abstention demo)"
+  },
+  "verifications": []
+}

@@ -1,0 +1,424 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AuthorizationState": {
+      "enum": [
+        "pending",
+        "approved",
+        "rejected"
+      ],
+      "type": "string"
+    },
+    "EvidenceMode": {
+      "oneOf": [
+        {
+          "description": "Seeded in-memory records with scripted proof outcomes.",
+          "enum": [
+            "simulated"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No memory backend: retrieval fails and the run degrades.",
+          "enum": [
+            "offline"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A sealed, pre-captured Hyphae snapshot.",
+          "enum": [
+            "sealed_snapshot"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A running Hyphae Agent Memory deployment.",
+          "enum": [
+            "live_hyphae"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "EvidenceProvenance": {
+      "description": "Where the evidence came from, read from the verification and retrieval records.",
+      "oneOf": [
+        {
+          "description": "Seeded records checked by the scripted verifier: SIMULATED.",
+          "enum": [
+            "simulated"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records of a sealed Hyphae snapshot, verified with `hyphae proof verify`.",
+          "enum": [
+            "hyphae_snapshot"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records recalled from a running Hyphae deployment.",
+          "enum": [
+            "hyphae_live"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No evidence record in the run.",
+          "enum": [
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records of more than one kind.",
+          "enum": [
+            "mixed"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "FailureV1": {
+      "description": "Stage and code of a failed run; the English reason stays on the operator surface.",
+      "properties": {
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "`failed`.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Fixed statement per code.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Operator surface only: the recorded reason.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "message",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "ModelMode": {
+      "oneOf": [
+        {
+          "description": "Scripted test doubles; no model is called.",
+          "enum": [
+            "scripted"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The Meta Model API.",
+          "enum": [
+            "meta"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ModelProvenance": {
+      "description": "Which model answered the roles, read from the chained `ModelInvocation` records (provider and request id), never from the request or the declared mode.",
+      "oneOf": [
+        {
+          "description": "Every recorded call came from a scripted double (`provider=fake`): no model was called.",
+          "enum": [
+            "scripted"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Every recorded call went to the Meta Model API (`provider=meta` with a request id).",
+          "enum": [
+            "live_meta"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Calls from more than one provider, or Meta calls without request ids: shown with a flag, never as LIVE.",
+          "enum": [
+            "mixed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "No model call recorded yet.",
+          "enum": [
+            "undetermined"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ProvenanceFlag": {
+      "description": "Something a client must show next to the provenance axes.",
+      "oneOf": [
+        {
+          "description": "The declared `Task.mode` disagrees with what the records prove. Never shown as LIVE.",
+          "enum": [
+            "provenance_inconsistent"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Records before schema 1.1 carry no hash chain.",
+          "enum": [
+            "unchained"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The declared mode is missing (runs before schema 1.3).",
+          "enum": [
+            "mode_undeclared"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ProvenanceV1": {
+      "description": "The provenance axes of a run, every one derived from chained data.",
+      "properties": {
+        "declared": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TaskMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The mode the run was declared with, as recorded in `TaskCreated`."
+        },
+        "evidence": {
+          "$ref": "#/definitions/EvidenceProvenance"
+        },
+        "flags": {
+          "items": {
+            "$ref": "#/definitions/ProvenanceFlag"
+          },
+          "type": "array"
+        },
+        "meta_request_ids": {
+          "description": "The chained Meta request ids, when the model axis is `live_meta`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelProvenance"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceProvenance"
+        }
+      },
+      "required": [
+        "evidence",
+        "model",
+        "source"
+      ],
+      "type": "object"
+    },
+    "RecommendationKind": {
+      "description": "Runtime-derived assessment of a run. Never written by a model.",
+      "enum": [
+        "supported",
+        "contested",
+        "insufficient_evidence",
+        "abstained",
+        "blocked"
+      ],
+      "type": "string"
+    },
+    "RunOrigin": {
+      "oneOf": [
+        {
+          "description": "The command-line demo.",
+          "enum": [
+            "cli"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The operator console.",
+          "enum": [
+            "operator"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The public portal.",
+          "enum": [
+            "public"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RunState": {
+      "description": "Deterministic lifecycle of one run. Transitions are owned and validated by the runtime state machine; see `docs/adr/0001-m1-architecture.md`.",
+      "enum": [
+        "created",
+        "proposed",
+        "evidence_review",
+        "evaluated",
+        "revised",
+        "abstained",
+        "awaiting_human_approval",
+        "approved",
+        "rejected",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "SourceProvenance": {
+      "description": "Where the records come from.",
+      "oneOf": [
+        {
+          "description": "A run of this server.",
+          "enum": [
+            "this_server"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A run of the published research archive.",
+          "enum": [
+            "research_archive"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "TaskMode": {
+      "description": "How a run was declared at creation (schema 1.3).",
+      "properties": {
+        "evidence": {
+          "$ref": "#/definitions/EvidenceMode"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelMode"
+        },
+        "origin": {
+          "$ref": "#/definitions/RunOrigin"
+        },
+        "preset": {
+          "description": "Curated preset the task came from, when it did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "evidence",
+        "model",
+        "origin"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "The one-line view of a run: list entries, the 202 of creation, every SSE frame.",
+  "properties": {
+    "active": {
+      "description": "True while the deliberation is in progress on this server.",
+      "type": "boolean"
+    },
+    "authorization": {
+      "$ref": "#/definitions/AuthorizationState"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "event_count": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FailureV1"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "last_sequence": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "override": {
+      "description": "True when a human approved a `blocked` or `abstained` run.",
+      "type": "boolean"
+    },
+    "provenance": {
+      "$ref": "#/definitions/ProvenanceV1"
+    },
+    "recommendation": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RecommendationKind"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision_round": {
+      "format": "uint32",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/definitions/RunState"
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "active",
+    "authorization",
+    "created_at",
+    "event_count",
+    "last_sequence",
+    "override",
+    "provenance",
+    "revision_round",
+    "run_id",
+    "state",
+    "updated_at"
+  ],
+  "title": "RunSummaryV1",
+  "type": "object"
+}

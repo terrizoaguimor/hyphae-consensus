@@ -46,7 +46,53 @@
     "badge": "No conectado",
     "message": "Esta vista se conecta a la API de Hyphae Consensus; no está conectada en esta versión.",
     "plannedHeading": "Una vez conectada, esta vista:",
-    "related": "Relacionado"
+    "related": "Relacionado",
+    "unreachable": "La API no respondió: la solicitud a /api/v1/health falló ({code}).",
+    "retry": "Reintentar"
+  },
+  "ApiGate": {
+    "checking": "Comprobando la conexión con la API de Hyphae Consensus…",
+    "connected": "Conectado a la API: esquema {schema}, política {policy}, contrato {contract}."
+  },
+  "Api": {
+    "errorTitle": "El servidor rechazó la solicitud",
+    "errorDetail": "Código {code}, HTTP {status}.",
+    "retryAfter": "{seconds, plural, =0 {Puedes reintentar ahora.} one {Reintenta en # segundo.} other {Reintenta en # segundos.}}",
+    "errors": {
+      "invalid_request": "El servidor no aceptó la solicitud tal como se envió (un campo desconocido, un valor incorrecto o un campo que falta).",
+      "payload_too_large": "La solicitud era más grande de lo que el servidor acepta.",
+      "unsupported_media_type": "El servidor espera JSON en esta solicitud.",
+      "csrf_rejected": "El servidor rechazó el origen de la solicitud.",
+      "host_not_allowed": "El servidor no responde para este nombre de host.",
+      "client_unidentified": "El servidor no pudo identificar a este cliente.",
+      "session_required": "Primero hace falta una sesión; empieza cuando ejecutas un ejemplo guiado.",
+      "unauthorized": "Esta ruta necesita las credenciales del operador.",
+      "not_found": "No existe nada en esta dirección, o la ejecución pertenece a otra sesión.",
+      "method_not_allowed": "El servidor no permite este método en esta ruta.",
+      "rate_limited": "Demasiadas solicitudes desde esta conexión; el servidor pide esperar.",
+      "too_many_runs": "Todas las plazas de deliberación están ocupadas; el servidor pide reintentar más tarde.",
+      "too_many_streams": "Demasiadas transmisiones abiertas para esta ejecución o esta conexión.",
+      "storage_full": "El servidor tiene su máximo de ejecuciones de visitantes y no pudo liberar ninguna; reintenta en breve.",
+      "live_disabled": "El modo en vivo no está habilitado en este servidor.",
+      "shutting_down": "El servidor se está apagando y no admite ejecuciones nuevas.",
+      "run_not_awaiting_decision": "La ejecución no está esperando una decisión humana.",
+      "decision_conflict": "La ejecución cambió desde que la viste; se volvió a leer, revísala de nuevo antes de decidir.",
+      "idempotency_key_reused": "Esta clave de solicitud ya se usó con una solicitud distinta.",
+      "idempotency_key_required": "La solicitud necesita una clave de idempotencia.",
+      "override_note_required": "Aprobar una ejecución bloqueada o con abstención es una anulación y requiere una nota.",
+      "run_not_cancellable": "Solo se puede cancelar una ejecución que sigue deliberando.",
+      "run_busy": "Otra operación retiene la ejecución; reintenta en breve.",
+      "model_not_configured": "El servidor no tiene credenciales de modelo para este modo.",
+      "memory_not_configured": "El servidor no tiene un backend de memoria para este modo.",
+      "upstream_unavailable": "No se pudo alcanzar un servicio externo que el servidor necesita.",
+      "ndjson_unavailable": "El registro literal de eventos de una ejecución en vivo no se publica en la superficie pública; el detalle y el recibo llevan su vista depurada.",
+      "request_timeout": "El servidor no atendió la solicitud dentro de su límite de tiempo.",
+      "internal": "Algo falló en el servidor.",
+      "unreachable": "No se pudo alcanzar el servidor.",
+      "unexpected_status": "El servidor respondió con un estado que este cliente no entiende.",
+      "bad_response": "La respuesta del servidor no coincide con el contrato de la API para el que se hizo esta versión.",
+      "unknown": "El servidor rechazó la solicitud con un código que esta versión no conoce."
+    }
   },
   "NotFound": {
     "title": "Página no encontrada",
@@ -84,12 +130,51 @@
     }
   },
   "NewDeliberation": {
-    "lead": "Aquí iniciarás una deliberación en uno de dos modos.",
+    "lead": "Inicia una deliberación en uno de dos modos.",
     "planned": {
       "guided": "ofrecerá un ejemplo guiado que empieza al instante, con roles que siguen un guion y evidencia simulada, con la etiqueta SIMULADO y sin llamar a ningún modelo;",
       "live": "ofrecerá las tareas predefinidas y seleccionadas del modo «Meta en vivo», que llaman a muse-wonder-1.0 de Meta con evidencia de una instantánea sellada de Hyphae (solo tareas predefinidas, sin texto libre; las ejecuciones de la última batería grabada tardaron entre 4 y 7 minutos aproximadamente);",
       "fallback": "ofrecerá en su lugar una ejecución grabada cuando el modo en vivo esté ocupado o se haya agotado su presupuesto diario;",
       "return": "te permitirá salir y volver a tu ejecución desde Mis ejecuciones."
+    },
+    "guided": {
+      "heading": "Ejemplos guiados",
+      "intro": "Cinco escenarios con guion. Los roles son dobles que siguen un guion y la evidencia es simulada: no se llama a ningún modelo y ninguna prueba es real. Cada uno alcanza su resultado documentado en milisegundos; la página de la ejecución lo reproduce después.",
+      "modelBadge": "Modelo SIMULADO",
+      "evidenceBadge": "Evidencia SIMULADA",
+      "expected": "Resultado esperado",
+      "run": "Ejecutar",
+      "runScenario": "Ejecutar {title}",
+      "starting": "Iniciando…",
+      "empty": "El servidor no lista ningún escenario guiado.",
+      "disabled": "Los ejemplos guiados no están habilitados en este servidor."
+    },
+    "live": {
+      "heading": "Tareas predefinidas en vivo",
+      "intro": "Tareas seleccionadas que delibera el modelo de Meta con la clave del propietario, con evidencia de una instantánea sellada de Hyphae. Solo tareas predefinidas: ningún texto libre llega a un modelo.",
+      "modelBadge": "META EN VIVO",
+      "evidenceBadge": "Evidencia de INSTANTÁNEA SELLADA",
+      "disabled": "El modo en vivo no está habilitado en este servidor.",
+      "disabledHint": "Las ejecuciones grabadas de la vitrina de investigación muestran cómo es una ejecución en vivo.",
+      "showcaseLink": "Abrir la vitrina de investigación",
+      "noPresets": "El modo en vivo está habilitado, pero el servidor todavía no lista ninguna tarea predefinida.",
+      "presetLegend": "Tarea predefinida",
+      "untitledPreset": "Tarea predefinida {id}",
+      "budgetHeading": "Presupuesto público",
+      "attest": "Confirmo que tengo 18 años o más.",
+      "attestDescription": "El modo en vivo llama al modelo de Meta; los Términos de uso solo admiten visitantes adultos.",
+      "inviteSummary": "Tengo un código de invitación",
+      "inviteLabel": "Código de invitación",
+      "inviteDescription": "Opcional. Un código de jurado admite una ejecución fuera del presupuesto público.",
+      "turnstileHeading": "Verificación humana",
+      "turnstileMissing": "El modo en vivo necesita el desafío Turnstile de Cloudflare, y esta versión se construyó sin una clave de sitio de Turnstile; el servidor rechazará la solicitud hasta que se configure una clave al construir.",
+      "turnstileLoading": "Cargando el desafío Turnstile de Cloudflare…",
+      "turnstilePassed": "Desafío superado.",
+      "turnstileFailed": "El desafío no se completó; recarga la página para intentarlo de nuevo.",
+      "start": "Iniciar ejecución en vivo",
+      "starting": "Iniciando…",
+      "needsPreset": "Elige primero una tarea predefinida.",
+      "needsAttestation": "Confirma primero la declaración de edad."
     }
   },
   "Runs": {
@@ -99,6 +184,218 @@
       "own": "listará solo las ejecuciones iniciadas en esta sesión del navegador; no existe una lista de las ejecuciones de otros visitantes;",
       "expiry": "mantendrá cada ejecución accesible durante 24 horas y eliminará sus archivos después de 7 días;",
       "status": "mostrará si una ejecución sigue deliberando, espera tu decisión o ya terminó."
+    },
+    "noSession": "Este navegador no tiene sesión, así que no hay nada que listar. Una sesión empieza cuando ejecutas un ejemplo guiado.",
+    "empty": "Todavía no hay ejecuciones en esta sesión.",
+    "startOne": "Iniciar una deliberación",
+    "refresh": "Actualizar",
+    "loadMore": "Cargar más",
+    "untitled": "Ejecución sin título",
+    "open": "Abrir la ejecución {title}",
+    "state": "Estado",
+    "outcome": "Resultado",
+    "created": "Creada el {date}",
+    "updated": "Actualizada el {date}",
+    "accessEnds": "El acceso termina el {date}",
+    "deletedAfter": "Se elimina después del {date}",
+    "active": "Deliberando"
+  },
+  "Run": {
+    "title": "Espacio de la ejecución",
+    "noId": "No hay ninguna ejecución seleccionada.",
+    "noIdHint": "Abre una ejecución desde Mis ejecuciones o inicia una desde Nueva deliberación.",
+    "invalidId": "Esta dirección no nombra una ejecución.",
+    "loading": "Cargando la ejecución…",
+    "goToRuns": "Ir a Mis ejecuciones",
+    "tabs": {
+      "label": "Vistas de la ejecución",
+      "live": "En vivo",
+      "playback": "Reproducción",
+      "explorer": "Explorador",
+      "decision": "Decisión"
+    },
+    "header": {
+      "state": "Estado",
+      "outcome": "Resultado",
+      "noOutcome": "Todavía no hay recomendación",
+      "revision": "Ronda de revisión {round}",
+      "records": "{count, plural, =0 {Sin registros} one {# registro} many {# de registros} other {# registros}}",
+      "provenance": "Procedencia",
+      "flags": "Avisos",
+      "task": "Tarea",
+      "latestDelivery": "Último registro"
+    },
+    "outcome": "{kind} — con evidencia {evidence}",
+    "kinds": {
+      "supported": "respaldada",
+      "contested": "cuestionada",
+      "insufficient_evidence": "evidencia insuficiente",
+      "abstained": "abstención",
+      "blocked": "bloqueada"
+    },
+    "states": {
+      "created": "creada",
+      "proposed": "propuesta",
+      "evidence_review": "revisión de evidencia",
+      "evaluated": "evaluada",
+      "revised": "revisada",
+      "abstained": "abstención",
+      "awaiting_human_approval": "espera tu decisión",
+      "approved": "aprobada",
+      "rejected": "rechazada",
+      "failed": "fallida"
+    },
+    "stream": {
+      "heading": "Transmisión",
+      "connecting": "Conectando con la transmisión…",
+      "open": "Conectado; esperando registros.",
+      "replaying": "Reproduciendo registros almacenados.",
+      "live": "Recibiendo registros a medida que se publican.",
+      "reconnecting": "Conexión perdida; el navegador se está reconectando.",
+      "ended": "Transmisión terminada: {reason}.",
+      "error": "No se pudo abrir la transmisión.",
+      "closed": "Transmisión cerrada.",
+      "endReasons": {
+        "awaiting_human_approval": "la ejecución espera una decisión humana",
+        "terminal": "la ejecución llegó a su estado final"
+      },
+      "gap": "Faltaban registros en la transmisión; la ejecución se volvió a leer del servidor.",
+      "resync": "El servidor volvió a leer su registro; la ejecución se volvió a leer del servidor.",
+      "invalid": "{count, plural, one {# cuadro no coincidía} other {# cuadros no coincidían}} con el contrato y se {count, plural, one {descartó} other {descartaron}}."
+    },
+    "pacing": {
+      "label": "simulado · ritmo ajustado para la lectura",
+      "skip": "Omitir el ritmo",
+      "pending": "{count, plural, =0 {Todos los registros mostrados.} one {# registro en espera.} many {# de registros en espera.} other {# registros en espera.}}",
+      "off": "Ritmo desactivado: movimiento reducido."
+    },
+    "stage": {
+      "heading": "Escenario de la deliberación",
+      "proposer": "Proponente",
+      "critic": "Crítico",
+      "evaluator": "Evaluador de evidencia",
+      "runtime": "Entorno de ejecución",
+      "waiting": "Todavía no hay nada de este rol.",
+      "proposal": "Propuesta {id}",
+      "revision": "Revisión {id}, reemplaza a {supersedes}",
+      "claims": "Afirmaciones",
+      "assumptions": "Supuestos",
+      "uncertainties": "Incertidumbres",
+      "plan": "Plan",
+      "challenge": "Objeción {id} sobre {target}",
+      "noObjections": "No se plantearon objeciones.",
+      "objection": "{kind} sobre {claim}",
+      "objectionNoClaim": "{kind}",
+      "kinds": {
+        "contradictory_evidence": "evidencia contradictoria",
+        "missing_test": "prueba de software que falta",
+        "unsupported_claim": "afirmación sin respaldo",
+        "regression_risk": "riesgo de regresión",
+        "security_risk": "riesgo de seguridad",
+        "constraint_conflict": "conflicto con una restricción"
+      },
+      "evaluation": "Evaluación de {id}",
+      "abstained": "El Evaluador se abstuvo: {reason}",
+      "abstainedNoReason": "El Evaluador se abstuvo.",
+      "corroborated": "corroborada",
+      "notCorroborated": "no corroborada",
+      "contradictedBy": "contradicha por {ids}",
+      "verdicts": "Veredictos",
+      "verdict": "{item}: {status}. {reason}",
+      "resolved": "resuelta",
+      "unresolved": "sin resolver",
+      "lane": "Carril del entorno de ejecución",
+      "retrieved": "{count, plural, =0 {Ninguna evidencia obtenida} one {# registro obtenido} many {# de registros obtenidos} other {# registros obtenidos}}",
+      "verified": "{count, plural, =0 {Ninguna prueba comprobada} one {# prueba comprobada} many {# de pruebas comprobadas} other {# pruebas comprobadas}}",
+      "proven": "{count, plural, =0 {Ninguna consulta probada} one {# consulta probada} many {# de consultas probadas} other {# consultas probadas}}",
+      "unavailable": "{count, plural, one {# obtención falló} many {# de obtenciones fallaron} other {# obtenciones fallaron}}",
+      "simulatedProof": "Prueba SIMULADA: resultado con guion «{status}», sin criptografía comprobada",
+      "proofStatus": "prueba {status}",
+      "recommendation": "Recomendación",
+      "noRecommendation": "Todavía no se emitió ninguna recomendación.",
+      "model": "{model} vía {provider}"
+    },
+    "explorer": {
+      "heading": "Línea de tiempo de eventos",
+      "filter": "Filtrar por tipo",
+      "all": "Todos los tipos",
+      "sequence": "Sec.",
+      "type": "Tipo",
+      "actor": "Actor",
+      "time": "Hora",
+      "summary": "Resumen",
+      "json": "Evento público (JSON)",
+      "empty": "Ningún registro coincide con este filtro.",
+      "count": "{shown, plural, one {# registro} many {# de registros} other {# registros}} de {total}",
+      "actors": {
+        "runtime": "entorno de ejecución",
+        "human": "humano {id}"
+      },
+      "roles": {
+        "proposer": "Proponente",
+        "critic": "Crítico",
+        "evidence_evaluator": "Evaluador de evidencia"
+      },
+      "types": {
+        "task_created": "tarea creada",
+        "proposal_submitted": "propuesta enviada",
+        "evidence_retrieved": "evidencia obtenida",
+        "evidence_unavailable": "evidencia no disponible",
+        "recall_proven": "consulta probada",
+        "evidence_verified": "evidencia verificada",
+        "challenge_submitted": "objeción enviada",
+        "evaluation_submitted": "evaluación enviada",
+        "revision_submitted": "revisión enviada",
+        "recommendation_issued": "recomendación emitida",
+        "human_decision_recorded": "decisión humana registrada",
+        "run_failed": "ejecución fallida"
+      },
+      "summaries": {
+        "task_created": "{title}",
+        "proposal_submitted": "{id}: {summary}",
+        "evidence_retrieved": "{id} ({kind})",
+        "evidence_unavailable": "{message}",
+        "recall_proven": "{count, plural, =0 {ningún registro} one {# registro} many {# de registros} other {# registros}} bajo el anclaje {anchor}",
+        "evidence_verified": "{id}: integridad {integrity}, factual {factual}, relevancia {relevance}",
+        "challenge_submitted": "{count, plural, =0 {ninguna objeción} one {# objeción} many {# de objeciones} other {# objeciones}} sobre {target}",
+        "evaluation_submitted": "{corroborated} de {claims} afirmaciones corroboradas, {unresolved} sin resolver",
+        "revision_submitted": "{id} reemplaza a {supersedes}: {summary}",
+        "recommendation_issued": "{kind}",
+        "human_decision_recorded": "{decision} por {by} ({authority})",
+        "run_failed": "{stage}: {message}"
+      }
+    },
+    "decision": {
+      "heading": "Decisión",
+      "recommendation": "Recomendación",
+      "rationale": "Justificación",
+      "protocol": "Protocolo",
+      "assumptions": "Supuestos sin resolver",
+      "uncertainties": "Incertidumbres",
+      "objections": "Objeciones abiertas",
+      "noObjections": "Ninguna objeción abierta.",
+      "pending": "Todavía no hay recomendación: la ejecución sigue deliberando.",
+      "superseded": "La recomendación es para la propuesta revisada; la original pedía otra cosa.",
+      "original": "Propuesta original {id}",
+      "revised": "Propuesta revisada {id}",
+      "publicDemo": "Las decisiones en este portal público no tienen autoridad operativa: aprobar o rechazar registra tu elección sobre esta ejecución y no ejecuta nada.",
+      "formHeading": "Tu decisión",
+      "approve": "Aprobar",
+      "reject": "Rechazar",
+      "note": "Nota",
+      "noteDescription": "Opcional, hasta 2000 caracteres. Obligatoria para aprobar una ejecución bloqueada o con abstención (una anulación).",
+      "overrideRequired": "Aprobar una ejecución {kind} es una anulación: escribe primero una nota.",
+      "notAwaiting": "La ejecución no está esperando una decisión.",
+      "submitting": "Registrando…",
+      "recorded": "Decisión registrada: {decision} por {by} el {date}.",
+      "approved": "aprobada",
+      "rejected": "rechazada",
+      "withNote": "Nota: {note}",
+      "receipt": "Abrir el recibo (JSON)",
+      "ndjson": "Descargar el registro literal de eventos",
+      "cancel": "Cancelar esta ejecución",
+      "cancelling": "Cancelación solicitada: la ejecución se detiene en su próximo punto de control.",
+      "cancelHint": "Solo se puede cancelar una ejecución que sigue deliberando."
     }
   },
   "Showcase": {
@@ -200,14 +497,44 @@
   "Provenance": {
     "heading": "Etiquetas de procedencia",
     "intro": "Cuando esté conectado, el portal marcará cada ejecución y cada evento con su procedencia, en ejes separados: el modelo (con guion o Meta en vivo), la evidencia (simulada o una instantánea sellada), el origen (este servidor o el archivo de investigación) y la entrega de cada evento (en vivo o reproducción). Las etiquetas provendrán de los datos registrados, nunca de la solicitud. Qué significarán:",
+    "axes": {
+      "model": "Modelo",
+      "evidence": "Evidencia",
+      "source": "Origen",
+      "delivery": "Entrega"
+    },
     "simulated": {
       "label": "SIMULADO",
       "description": "Evidencia simulada: sus pruebas no son reales. En las ejecuciones guiadas los roles también siguen un guion y no se llama a ningún modelo."
     },
+    "scripted": {
+      "label": "CON GUION",
+      "note": "doble con guion, sin llamada a un modelo"
+    },
+    "mixedModel": {
+      "label": "MODELO MIXTO"
+    },
+    "undetermined": {
+      "label": "MODELO SIN DETERMINAR"
+    },
     "liveMeta": {
       "label": "META EN VIVO",
       "evidence": "INSTANTÁNEA SELLADA",
+      "recorded": "Modelo de Meta · grabado el {date}",
+      "live": "Modelo de Meta · en vivo",
       "description": "Una ejecución en curso: llamadas en vivo a muse-wonder-1.0 de Meta, con evidencia de una instantánea sellada de Hyphae cuyas pruebas se verifican de nuevo en cada ejecución. META EN VIVO nunca aparece sola; la etiqueta de la evidencia siempre va a su lado."
+    },
+    "hyphaeLive": {
+      "label": "HYPHAE EN VIVO"
+    },
+    "noEvidence": {
+      "label": "SIN EVIDENCIA"
+    },
+    "mixedEvidence": {
+      "label": "EVIDENCIA MIXTA"
+    },
+    "thisServer": {
+      "label": "ESTE SERVIDOR"
     },
     "hybrid": {
       "description": "Un modelo en vivo con evidencia simulada: llamadas reales al modelo, pero pruebas que no son reales. Algunas ejecuciones del archivo de investigación son de este tipo, y sus etiquetas lo indican."
@@ -219,6 +546,29 @@
     "replay": {
       "label": "REPRODUCCIÓN",
       "description": "Eventos almacenados que se reproducen, no en el momento en que ocurren. Una ejecución grabada siempre se muestra como reproducción."
+    },
+    "live": {
+      "label": "EN VIVO"
+    },
+    "streaming": {
+      "label": "EN TRANSMISIÓN"
+    },
+    "flags": {
+      "provenance_inconsistent": "PROCEDENCIA INCONSISTENTE",
+      "unchained": "SIN CADENA",
+      "mode_undeclared": "MODO SIN DECLARAR"
+    },
+    "flagNotes": {
+      "provenance_inconsistent": "El modo con el que se declaró esta ejecución no coincide con lo que demuestran sus registros; nunca se muestra como en vivo.",
+      "unchained": "Los registros anteriores al esquema 1.1 no llevan cadena de hashes.",
+      "mode_undeclared": "La ejecución se grabó antes del esquema 1.3 y no declara ningún modo."
+    },
+    "proof": {
+      "valid": "válida",
+      "invalid": "inválida",
+      "unavailable": "no disponible",
+      "verification_error": "error de verificación",
+      "not_checked": "sin comprobar"
     },
     "note": "Una prueba válida demuestra que Hyphae puede reproducir la consulta sellada de la que proviene un registro, no que el registro sea verdadero, relevante o completo, ni que un modelo lo haya usado."
   },

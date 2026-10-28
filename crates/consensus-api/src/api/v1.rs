@@ -7,8 +7,9 @@
 use super::error::{ApiError, ErrorCode};
 use super::types::*;
 use super::{
-    trusted_country, ApiJson, AppState, Client, CreationRecord, Identity, LiveAdmissionRequest,
-    LiveGrant, READY_CACHE_TTL, TURNSTILE_HEADER, TURNSTILE_TOKEN_MAX,
+    trusted_country, ApiJson, AppState, Client, CreationClaim, CreationRecord, Identity, KeyClaim,
+    KeyReused, LiveAdmissionRequest, LiveGrant, READY_CACHE_TTL, TURNSTILE_HEADER,
+    TURNSTILE_TOKEN_MAX,
 };
 use crate::guided;
 use crate::public_config::BODY_LIMIT_BYTES;
@@ -204,9 +205,37 @@ fn body_sha256<T: serde::Serialize>(body: &T) -> String {
         .collect()
 }
 
-/// The 202 of the creation this owner already made with `key`, if its run
-/// still exists; 409 when the key was used with another body; None when
-/// the key is new (or its run is gone), so the creation proceeds.
+fn key_reused() -> ApiError {
+    ApiError::new(
+        ErrorCode::IdempotencyKeyReused,
+        "this Idempotency-Key was already used to create a different run",
+    )
+}
+
+/// The 202 of `record`'s run if it still exists; `None` when it was purged
+/// meanwhile, which frees the key again.
+async fn replay_of(
+    state: &AppState,
+    identity: &Identity,
+    key: &str,
+    record: &CreationRecord,
+) -> Result<Option<Response>, ApiError> {
+    match snapshot(state, record.run_id.as_str(), &identity.owner).await {
+        Ok(snapshot) => Ok(Some(created_response(state, &snapshot))),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            state.creation_keys.forget(&identity.owner, key, record);
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// The live route's lookup: the 202 of the creation this owner already
+/// made with `key`, if its run still exists; 409 when the key was used
+/// with another body; None when the key is new (or its run is gone), so
+/// the creation proceeds. It claims nothing: concurrent duplicates of one
+/// submit all reach the gate, where one solved Turnstile challenge admits
+/// one run ([`super::LiveGate`]).
 async fn replayed_creation(
     state: &AppState,
     identity: &Identity,
@@ -216,20 +245,64 @@ async fn replayed_creation(
     let Some(key) = key else {
         return Ok(None);
     };
-    let Some(record) = state.creation_keys.get(&identity.owner, key) else {
-        return Ok(None);
-    };
-    if record.body_sha256 != body_sha256 {
-        return Err(ApiError::new(
-            ErrorCode::IdempotencyKeyReused,
-            "this Idempotency-Key was already used to create a different run",
-        ));
+    match state
+        .creation_keys
+        .recorded(&identity.owner, key, body_sha256)
+    {
+        Err(KeyReused) => Err(key_reused()),
+        Ok(None) => Ok(None),
+        Ok(Some(record)) => replay_of(state, identity, key, &record).await,
     }
-    match snapshot(state, record.run_id.as_str(), &identity.owner).await {
-        Ok(snapshot) => Ok(Some(created_response(state, &snapshot))),
-        // Purged meanwhile: the key is free again.
-        Err(e) if e.code == ErrorCode::NotFound => Ok(None),
-        Err(e) => Err(e),
+}
+
+/// What a guided or operator creation's `Idempotency-Key` resolved to.
+enum Creation {
+    /// Create the run, and record it under the claimed key (if one was
+    /// sent) with [`CreationClaim::complete`].
+    New(Option<CreationClaim>),
+    /// The 202 of the run this owner already made with this key and body.
+    Replayed(Response),
+}
+
+/// Resolves a guided or operator creation's `Idempotency-Key` before
+/// anything is admitted or started: the run this owner already made with
+/// it (replayed), 409 for another body, or the key claimed for this
+/// creation. A duplicate that arrives while the creation that claimed the
+/// key is still under way waits until it ends, then answers with its run,
+/// or claims the key itself when that creation failed. The key is claimed
+/// before the start, so concurrent duplicates never start a second run;
+/// the wait is bounded by the request timeout.
+async fn claim_creation(
+    state: &AppState,
+    identity: &Identity,
+    key: Option<&str>,
+    body_sha256: &str,
+) -> Result<Creation, ApiError> {
+    let Some(key) = key else {
+        return Ok(Creation::New(None));
+    };
+    loop {
+        match state.creation_keys.claim(&identity.owner, key, body_sha256) {
+            KeyClaim::Claimed(claim) => return Ok(Creation::New(Some(claim))),
+            KeyClaim::Reused => return Err(key_reused()),
+            KeyClaim::InFlight(mut ended) => {
+                // Resolves once the claimant completes or gives the key up
+                // (its sender is dropped either way); then look again.
+                let _ = ended.changed().await;
+            }
+            KeyClaim::Created(record) => {
+                if let Some(replayed) = replay_of(state, identity, key, &record).await? {
+                    return Ok(Creation::Replayed(replayed));
+                }
+            }
+        }
+    }
+}
+
+/// Records the started run under the claimed key, if there is one.
+fn complete_creation(claim: Option<CreationClaim>, snapshot: &RunSnapshot) {
+    if let Some(claim) = claim {
+        claim.complete(snapshot.aggregate.run_id.clone());
     }
 }
 
@@ -345,14 +418,14 @@ pub async fn create_guided_run(
 ) -> Result<Response, ApiError> {
     let key = creation_key(&headers)?;
     let body_hash = body_sha256(&req);
-    if let Some(replayed) = replayed_creation(&state, &identity, key.as_deref(), &body_hash).await?
-    {
-        return Ok(replayed);
-    }
+    let claim = match claim_creation(&state, &identity, key.as_deref(), &body_hash).await? {
+        Creation::Replayed(response) => return Ok(response),
+        Creation::New(claim) => claim,
+    };
     admit_creation(&state, &client).await?;
     let start = guided_start(&state, &identity, req.scenario, RunOrigin::Public);
     let snapshot = state.manager.start(start).await.map_err(start_error)?;
-    remember_creation(&state, &identity, key, body_hash, &snapshot);
+    complete_creation(claim, &snapshot);
     Ok(created_response(&state, &snapshot))
 }
 
@@ -454,10 +527,10 @@ pub async fn create_operator_run(
     req.validate().map_err(ApiError::invalid)?;
     let key = creation_key(&headers)?;
     let body_hash = body_sha256(&req);
-    if let Some(replayed) = replayed_creation(&state, &identity, key.as_deref(), &body_hash).await?
-    {
-        return Ok(replayed);
-    }
+    let claim = match claim_creation(&state, &identity, key.as_deref(), &body_hash).await? {
+        Creation::Replayed(response) => return Ok(response),
+        Creation::New(claim) => claim,
+    };
     admit_creation(&state, &client).await?;
     let start = match req.model {
         OperatorModel::Fake => {
@@ -474,7 +547,7 @@ pub async fn create_operator_run(
         }
     };
     let snapshot = state.manager.start(start).await.map_err(start_error)?;
-    remember_creation(&state, &identity, key, body_hash, &snapshot);
+    complete_creation(claim, &snapshot);
     Ok(created_response(&state, &snapshot))
 }
 

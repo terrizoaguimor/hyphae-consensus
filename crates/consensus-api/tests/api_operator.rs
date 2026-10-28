@@ -9,12 +9,14 @@ use axum::http::{header, StatusCode};
 use common::doubles::{panicking_start, unavailable_start};
 use common::{body_text, operator_server, read_sse, sequences, Req, OPERATOR_TOKEN};
 use consensus_api::config::MetaConfig;
+use consensus_api::runs::RunKind;
 use consensus_api::server::BuildOptions;
 use consensus_api::static_files::csp_hash;
 use consensus_domain::RunOrigin;
 use consensus_runtime::event_log::verify_bytes;
 use consensus_runtime::{Owner, Retention};
 use serde_json::json;
+use std::time::Duration;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_api_route_needs_the_bearer_token() {
@@ -367,6 +369,48 @@ async fn the_operator_gets_the_whole_chain_of_a_live_run() {
     let text = body_text(response).await;
     assert!(text.contains(UPSTREAM));
     assert!(verify_bytes(text.as_bytes()).is_ok(), "the chain verifies");
+}
+
+/// The operator route claims its key before the start too: concurrent
+/// duplicates of one console submit start one run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_duplicates_of_one_operator_submit_start_one_run() {
+    let server = operator_server(
+        &[("CONSENSUS_GUIDED_CONCURRENCY", "1")],
+        BuildOptions {
+            admission_wait: Duration::from_secs(5),
+            ..BuildOptions::default()
+        },
+    );
+    let slot = server.state.manager.reserve(RunKind::Guided).await.unwrap();
+    let duplicate = || {
+        Req::post("/api/v1/operator/runs")
+            .header("idempotency-key", "dup-operator-1")
+            .json(&json!({"model":"fake","memory":"fake","scenario":"abstain"}))
+    };
+    let release = async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        drop(slot);
+    };
+    let (a, b, c, ()) = tokio::join!(
+        server.json(duplicate()),
+        server.json(duplicate()),
+        server.json(duplicate()),
+        release
+    );
+    let outcomes = [a, b, c];
+    for (status, body, _) in &outcomes {
+        assert_eq!(*status, StatusCode::ACCEPTED, "{outcomes:?}: {body}");
+    }
+    let first = &outcomes[0].1["run"]["run_id"];
+    assert!(
+        outcomes
+            .iter()
+            .all(|(_, body, _)| &body["run"]["run_id"] == first),
+        "{outcomes:?}"
+    );
+    let (_, list, _) = server.json(Req::get("/api/v1/runs")).await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 1, "{list}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

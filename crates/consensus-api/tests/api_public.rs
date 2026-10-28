@@ -1748,6 +1748,100 @@ async fn a_retried_creation_with_the_same_key_returns_the_same_run() {
     assert_eq!(server.state.creation_keys.len(), 2);
 }
 
+/// Three identical guided submits at once from one session, with one
+/// `Idempotency-Key`, while the only guided slot is taken: the first claims
+/// the key and waits for the slot, the other two wait for the first and
+/// answer with its run. With the key recorded only after the start, all
+/// three queued for the slot and each started a run (R12, UI-1/TC-8).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_duplicates_of_one_guided_submit_start_one_run() {
+    let server = public_server(
+        &[("CONSENSUS_GUIDED_CONCURRENCY", "1")],
+        BuildOptions {
+            admission_wait: Duration::from_secs(5),
+            ..BuildOptions::default()
+        },
+    );
+    let cookie = server.new_session().await;
+    let slot = server.state.manager.reserve(RunKind::Guided).await.unwrap();
+    let duplicate = || {
+        Req::post("/api/v1/runs")
+            .cookie(&cookie)
+            .header("idempotency-key", "dup-guided-1")
+            .json(&json!({"scenario": "retry"}))
+    };
+    let release = async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        drop(slot);
+    };
+    let (a, b, c, ()) = tokio::join!(
+        server.json(duplicate()),
+        server.json(duplicate()),
+        server.json(duplicate()),
+        release
+    );
+    let outcomes = [a, b, c];
+    for (status, body, _) in &outcomes {
+        assert_eq!(*status, StatusCode::ACCEPTED, "{outcomes:?}: {body}");
+    }
+    let ids: std::collections::BTreeSet<&str> = outcomes
+        .iter()
+        .map(|(_, body, _)| body["run"]["run_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids.len(), 1, "one run for the three: {outcomes:?}");
+    let run_id = ids.into_iter().next().unwrap().to_string();
+    server.wait_resting(&cookie, &run_id).await;
+    let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 1, "{list}");
+    let created = server
+        .state
+        .manager
+        .store()
+        .index_records()
+        .unwrap()
+        .iter()
+        .filter(|r| r.kind == IndexKind::Created)
+        .count();
+    assert_eq!(created, 1, "one run was ever created");
+    assert_eq!(server.state.creation_keys.len(), 1);
+}
+
+/// A creation refused before its start gives its key back: the same key
+/// then creates, and a retry answers with that run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_guided_creation_frees_its_key() {
+    let server = public_server(
+        &[("CONSENSUS_GUIDED_CONCURRENCY", "1")],
+        BuildOptions {
+            admission_wait: Duration::from_millis(100),
+            ..BuildOptions::default()
+        },
+    );
+    let cookie = server.new_session().await;
+    let submit = || {
+        Req::post("/api/v1/runs")
+            .cookie(&cookie)
+            .header("idempotency-key", "refused-first")
+            .json(&json!({"scenario": "abstain"}))
+    };
+    let slot = server.state.manager.reserve(RunKind::Guided).await.unwrap();
+    let (status, body, _) = server.json(submit()).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "too_many_runs");
+    assert!(
+        server.state.creation_keys.is_empty(),
+        "the claim was given up"
+    );
+    drop(slot);
+    let (status, first, _) = server.json(submit()).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{first}");
+    let (status, again, _) = server.json(submit()).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["run"]["run_id"], first["run"]["run_id"]);
+    let (_, list, _) = server.json(Req::get("/api/v1/runs").cookie(&cookie)).await;
+    assert_eq!(list["runs"].as_array().unwrap().len(), 1, "{list}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_damaged_stored_run_is_reported_never_served_as_if_whole() {
     let server = public_server(&[], BuildOptions::default());

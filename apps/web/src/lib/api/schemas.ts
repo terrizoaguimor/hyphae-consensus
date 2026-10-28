@@ -931,6 +931,27 @@ export const receiptSchema = z.looseObject({
   proof_limitations: z.string(),
 }) satisfies z.ZodType<T.RunReceiptV2>;
 
+// --- Research archive (not part of the API contract) ---------------------
+
+/**
+ * What the views read from the archive's manifest (research/MANIFEST.json,
+ * schema `hyphae-consensus-research-manifest-v1`), served at /research/ and
+ * pinned by ShowcaseV1.manifest_sha256: the files with their digests and
+ * notes. A research file, not an API response, so it has no generated type;
+ * loose like every mirror here.
+ */
+export const archiveManifestSchema = z.looseObject({
+  created: z.string().optional(),
+  files: z.array(
+    z.looseObject({
+      path: z.string(),
+      sha256: z.string(),
+      kind: z.string(),
+      description: z.string().optional(),
+    }),
+  ),
+});
+
 // --- Errors ----------------------------------------------------------------
 
 /**

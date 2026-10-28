@@ -112,6 +112,17 @@ export function runPath(locale: Locale, runId: string): string {
   return `${localePath(locale, "run")}?id=${encodeURIComponent(runId)}`;
 }
 
+/** The `source` query value that opens the run workspace in RECORDED mode. */
+export const SHOWCASE_SOURCE = "showcase";
+
+/**
+ * A recorded run of the research showcase in the run workspace (RECORDED
+ * mode: read from GET /showcase/{id}, never streamed).
+ */
+export function showcaseRunPath(locale: Locale, runId: string): string {
+  return `${runPath(locale, runId)}&source=${SHOWCASE_SOURCE}`;
+}
+
 /**
  * How a pathname relates to a nav entry: "page" when it is that page,
  * "section" when it is below it (a docs article under Docs), else null.

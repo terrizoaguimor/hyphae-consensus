@@ -475,7 +475,9 @@
       "ndjsonUnavailable": "Le journal d’événements brut de cette exécution n’est pas publié sur la surface publique : les enregistrements d’un modèle en direct peuvent citer du texte externe. Le reçu en porte la vue épurée.",
       "cancel": "Annuler cette exécution",
       "cancelling": "Annulation demandée : l’exécution s’arrête à son prochain point de contrôle.",
-      "cancelHint": "Seule une exécution encore en délibération peut être annulée."
+      "cancelHint": "Seule une exécution encore en délibération peut être annulée.",
+      "archiveLog": "Télécharger le fichier de journal archivé {name} (cette exécution en est un segment)",
+      "recordedReadOnly": "Une exécution enregistrée de l’archive de recherche est en lecture seule : aucune décision ne peut être enregistrée ici."
     },
     "failure": {
       "title": "L’exécution a échoué",
@@ -527,7 +529,8 @@
       "modelNote": "Texte écrit par un modèle ou tiré de la tâche, affiché tel qu’il a été enregistré.",
       "originalRecord": "Texte original (en anglais).",
       "originalModel": "Sortie originale du modèle (en anglais).",
-      "serverNote": "Le texte propre au serveur, tel qu’il l’a écrit."
+      "serverNote": "Le texte propre au serveur, tel qu’il l’a écrit.",
+      "archiveNote": "La note de l’archive elle-même, telle que son manifeste l’énonce."
     },
     "evidence": {
       "heading": "Éléments probants récupérés",
@@ -819,11 +822,45 @@
     }
   },
   "Showcase": {
-    "lead": "Des exécutions réelles enregistrées les 26 et 27 octobre 2026, qui seront rejouées depuis une archive qui les conserve à l’identique.",
+    "lead": "Des exécutions réelles enregistrées les 26 et 27 octobre 2026, lues depuis une archive qui les conserve à l’identique.",
     "planned": {
       "recorded": "rejouera chaque exécution depuis l’archive, avec l’étiquette ENREGISTRÉ ; un rejeu n’est jamais présenté comme une exécution en direct ;",
       "corrections": "affichera les corrections datées qui s’appliquent à chaque exécution ;",
       "manifest": "reliera chaque exécution à son journal archivé, dont le SHA-256 est fixé dans le manifeste de l’archive."
+    },
+    "loading": "Lecture de l’archive de recherche…",
+    "empty": "Ce serveur ne sert aucune archive de recherche.",
+    "count": "{count, plural, =0 {Aucune exécution enregistrée} one {# exécution enregistrée} many {# d’exécutions enregistrées} other {# exécutions enregistrées}} ({events, plural, =0 {aucun enregistrement} one {# enregistrement} many {# d’enregistrements} other {# enregistrements}}), telles que le serveur les liste à partir des chaînes archivées.",
+    "recordedNote": "Chaque exécution ici est ENREGISTRÉE : affichée depuis l’archive, en lecture seule, jamais comme en cours. Ses étiquettes de modèle et d’éléments probants sont celles que portent ses enregistrements.",
+    "batteryCount": "{count, plural, =0 {Aucune exécution} one {# exécution} many {# d’exécutions} other {# exécutions}}",
+    "logFile": "Fichier de journal {file}, SHA-256 {sha256}… (fixé par le manifeste de l’archive).",
+    "download": "Télécharger {name}",
+    "noteHeading": "La note de l’archive sur ce fichier (MANIFEST.json, en anglais) :",
+    "noteHeadingDated": "La note de l’archive sur ce fichier (MANIFEST.json du {created}, en anglais) :",
+    "open": "Ouvrir l’exécution enregistrée {label} : {title}",
+    "authorization": "Autorisation",
+    "otherAuthorization": "autorisation {authorization}",
+    "schema": "Schéma",
+    "schemaValue": "{version}",
+    "unchained": "antérieure à 1.1, non chaînée",
+    "failedAt": "échec à l’étape {stage} — sur des éléments probants {evidence}",
+    "otherOutcome": "{outcome} — sur des éléments probants {evidence}",
+    "manifest": {
+      "pinned": "Manifeste {file}, SHA-256 {sha256}… tel que le serveur le publie.",
+      "download": "Télécharger {file}",
+      "checking": "Vérification du SHA-256 du manifeste dans ce navigateur…",
+      "matches": "Vérifié dans ce navigateur : les octets du manifeste donnent le SHA-256 publié.",
+      "differs": "Vérifié dans ce navigateur : les octets du manifeste donnent {sha256}…, pas le SHA-256 publié ; ses notes ne sont donc pas affichées.",
+      "trust": "Cela ne vaut que ce que vaut la copie de l’empreinte avec laquelle vous comparez, par exemple un MANIFEST.json d’un commit étiqueté."
+    },
+    "run": {
+      "heading": "Exécution enregistrée, en lecture seule",
+      "banner": "Exécution {label} de la batterie {battery}, affichée depuis l’archive de recherche : rien n’est diffusé, rien ne s’exécute et aucune décision ne peut être enregistrée ici.",
+      "bannerNoEntry": "Une exécution de l’archive de recherche, affichée en lecture seule : rien n’est diffusé, rien ne s’exécute et aucune décision ne peut être enregistrée ici.",
+      "unchainedNote": "Ses enregistrements ont été écrits avant l’existence de la chaîne de hachage (schéma 1.0) : rien en eux ne révèle une altération, et sa recommandation est affichée telle qu’enregistrée, sans être redérivée.",
+      "generationFailed": "{count, plural, =0 {Aucune génération de preuve n’a échoué.} one {Bloquée parce qu’aucune preuve n’a pu être générée en amont pour le # enregistrement dont la preuve est invalide (il signale une erreur de preuve) : cet état enregistre un échec à produire la preuve, pas une vérification qui aurait trouvé l’enregistrement modifié. La note de l’archive elle-même sur ce journal en donne la cause.} many {Bloquée parce qu’aucune preuve n’a pu être générée en amont pour les # d’enregistrements dont les preuves sont invalides (chacun signale une erreur de preuve) : cet état enregistre un échec à produire les preuves, pas une vérification qui aurait trouvé un enregistrement modifié. La note de l’archive elle-même sur ce journal en donne la cause.} other {Bloquée parce qu’aucune preuve n’a pu être générée en amont pour les # enregistrements dont les preuves sont invalides (chacun signale une erreur de preuve) : cet état enregistre un échec à produire les preuves, pas une vérification qui aurait trouvé un enregistrement modifié. La note de l’archive elle-même sur ce journal en donne la cause.}}",
+      "awaiting": "arrêtée à son point de décision ; aucune décision n’a été enregistrée",
+      "back": "Retour à la vitrine"
     }
   },
   "Settings": {
@@ -949,7 +986,7 @@
       "description": "Enregistrements d’une exécution du modèle de Meta affichés après coup (rejoués, listés ou archivés) : de vrais appels au modèle, mais qui n’ont pas lieu maintenant. META EN DIRECT ne s’affiche que pour des enregistrements qui arrivent pendant que vous regardez."
     },
     "hyphaeLive": {
-      "label": "HYPHAE EN DIRECT"
+      "label": "REQUÊTE HYPHAE"
     },
     "noEvidence": {
       "label": "AUCUN ÉLÉMENT PROBANT"

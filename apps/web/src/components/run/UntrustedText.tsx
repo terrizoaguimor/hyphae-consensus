@@ -12,8 +12,8 @@ import { useLocale, useTranslations } from "next-intl";
 
 type UntrustedTextProps = {
   text: string;
-  /** A retrieved record's content, a model's output, or the server's own English text. */
-  source: "record" | "model" | "server";
+  /** A retrieved record's content, a model's output, the server's own English text, or the archive manifest's note. */
+  source: "record" | "model" | "server" | "archive";
 };
 
 export function UntrustedText({ text, source }: UntrustedTextProps) {
@@ -21,7 +21,13 @@ export function UntrustedText({ text, source }: UntrustedTextProps) {
   const locale = useLocale();
   const english = locale !== "en";
   const note =
-    source === "record" ? t("recordNote") : source === "model" ? t("modelNote") : t("serverNote");
+    source === "record"
+      ? t("recordNote")
+      : source === "model"
+        ? t("modelNote")
+        : source === "server"
+          ? t("serverNote")
+          : t("archiveNote");
   return (
     <figure className="hc-untrusted" data-untrusted={source}>
       <figcaption className="hc-supporting">

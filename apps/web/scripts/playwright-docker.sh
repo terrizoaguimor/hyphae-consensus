@@ -6,7 +6,9 @@
 # release that matches the pinned @playwright/test. Like in-docker.sh, the
 # container sees apps/web mounted at /app and the API contract (the
 # repository's contracts/ directory, whose fixtures the specs serve as the
-# mocked /api/v1) read-only at /contracts, and nothing else: no -e variables,
+# mocked /api/v1) read-only at /contracts and the research archive (research/,
+# whose verbatim files the specs serve as the mocked /research) read-only at
+# /research, and nothing else: no -e variables,
 # no host home directory, no credentials, no TTY. It also gets no network at
 # all (--network none): the tests serve the static export on the container's
 # own loopback, and nothing they load may come from anywhere else.
@@ -48,6 +50,7 @@ IMAGE="mcr.microsoft.com/playwright@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7
 
 app_dir=$(cd "$(dirname "$0")/.." && pwd)
 contract_dir=$(cd "$app_dir/../../contracts" && pwd)
+research_dir=$(cd "$app_dir/../../research" && pwd)
 
 if [ ! -f "$app_dir/out/csp-manifest.json" ]; then
   echo "playwright-docker: no out/csp-manifest.json; run 'sh apps/web/scripts/in-docker.sh pnpm build' first" >&2
@@ -65,6 +68,7 @@ chmod a+rwx "$app_dir/test-results" 2>/dev/null || true
 if windows_dir=$(cd "$app_dir" && pwd -W 2>/dev/null); then
   app_dir=$windows_dir
   contract_dir=$(cd "$contract_dir" && pwd -W)
+  research_dir=$(cd "$research_dir" && pwd -W)
   export MSYS_NO_PATHCONV=1
 fi
 
@@ -80,6 +84,7 @@ exec docker run --rm \
   --volume "$app_dir:/app:ro" \
   --volume "$app_dir/test-results:/app/test-results" \
   --volume "$contract_dir:/contracts:ro" \
+  --volume "$research_dir:/research:ro" \
   --workdir /app \
   "$IMAGE" \
   sh -c '[ -w /app/test-results ] || { echo "playwright-docker: test-results/ is not writable by pwuser (left by an earlier run as root?); delete apps/web/test-results and retry" >&2; exit 73; }; umask 0 && export CI=1 && exec node node_modules/@playwright/test/cli.js test "$@"' \

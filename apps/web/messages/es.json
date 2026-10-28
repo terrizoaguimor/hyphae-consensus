@@ -475,7 +475,9 @@
       "ndjsonUnavailable": "El registro literal de eventos de esta ejecución no se publica en la superficie pública: los registros de un modelo en vivo pueden citar texto externo. El recibo lleva su vista depurada.",
       "cancel": "Cancelar esta ejecución",
       "cancelling": "Cancelación solicitada: la ejecución se detiene en su próximo punto de control.",
-      "cancelHint": "Solo se puede cancelar una ejecución que sigue deliberando."
+      "cancelHint": "Solo se puede cancelar una ejecución que sigue deliberando.",
+      "archiveLog": "Descargar el archivo de log archivado {name} (esta ejecución es un tramo de él)",
+      "recordedReadOnly": "Una ejecución grabada del archivo de investigación es solo para lectura: aquí no se puede registrar ninguna decisión."
     },
     "failure": {
       "title": "La ejecución falló",
@@ -527,7 +529,8 @@
       "modelNote": "Texto escrito por un modelo o tomado de la tarea, mostrado tal como se registró.",
       "originalRecord": "Texto original (en inglés).",
       "originalModel": "Salida original del modelo (en inglés).",
-      "serverNote": "El texto propio del servidor, tal como lo escribió."
+      "serverNote": "El texto propio del servidor, tal como lo escribió.",
+      "archiveNote": "La nota del propio archivo, tal como la indica su manifiesto."
     },
     "evidence": {
       "heading": "Evidencia recuperada",
@@ -819,11 +822,45 @@
     }
   },
   "Showcase": {
-    "lead": "Ejecuciones reales grabadas el 26 y el 27 de octubre de 2026, que se reproducirán desde un archivo que las conserva sin cambios.",
+    "lead": "Ejecuciones reales grabadas el 26 y el 27 de octubre de 2026, leídas desde un archivo que las conserva sin cambios.",
     "planned": {
       "recorded": "reproducirá cada ejecución desde el archivo, con la etiqueta GRABADO; una reproducción nunca se presenta como una ejecución en vivo;",
       "corrections": "mostrará las correcciones fechadas que se aplican a cada ejecución;",
       "manifest": "enlazará cada ejecución con su registro archivado, cuyo SHA-256 está fijado en el manifiesto del archivo."
+    },
+    "loading": "Leyendo el archivo de investigación…",
+    "empty": "Este servidor no sirve ningún archivo de investigación.",
+    "count": "{count, plural, =0 {Ninguna ejecución grabada} one {# ejecución grabada} many {# de ejecuciones grabadas} other {# ejecuciones grabadas}} ({events, plural, =0 {ningún registro} one {# registro} many {# de registros} other {# registros}}), tal como el servidor las lista a partir de las cadenas archivadas.",
+    "recordedNote": "Cada ejecución de aquí está GRABADA: se muestra desde el archivo, solo para lectura, nunca como en curso. Sus etiquetas de modelo y de evidencia son las que llevan sus registros.",
+    "batteryCount": "{count, plural, =0 {Ninguna ejecución} one {# ejecución} many {# de ejecuciones} other {# ejecuciones}}",
+    "logFile": "Archivo de log {file}, SHA-256 {sha256}… (fijado por el manifiesto del archivo).",
+    "download": "Descargar {name}",
+    "noteHeading": "La nota del archivo sobre este fichero (MANIFEST.json, en inglés):",
+    "noteHeadingDated": "La nota del archivo sobre este fichero (MANIFEST.json del {created}, en inglés):",
+    "open": "Abrir la ejecución grabada {label}: {title}",
+    "authorization": "Autorización",
+    "otherAuthorization": "autorización {authorization}",
+    "schema": "Esquema",
+    "schemaValue": "{version}",
+    "unchained": "anterior a 1.1, sin cadena",
+    "failedAt": "falló en la etapa {stage} — con evidencia {evidence}",
+    "otherOutcome": "{outcome} — con evidencia {evidence}",
+    "manifest": {
+      "pinned": "Manifiesto {file}, SHA-256 {sha256}… tal como lo publica el servidor.",
+      "download": "Descargar {file}",
+      "checking": "Comprobando el SHA-256 del manifiesto en este navegador…",
+      "matches": "Comprobado en este navegador: los bytes del manifiesto dan el SHA-256 publicado.",
+      "differs": "Comprobado en este navegador: los bytes del manifiesto dan {sha256}…, no el SHA-256 publicado, así que sus notas no se muestran.",
+      "trust": "Esto solo es tan sólido como la copia del resumen con la que compares, por ejemplo un MANIFEST.json de un commit etiquetado."
+    },
+    "run": {
+      "heading": "Ejecución grabada, solo para lectura",
+      "banner": "Ejecución {label} de la batería {battery}, mostrada desde el archivo de investigación: nada se transmite, nada se ejecuta y aquí no se puede registrar ninguna decisión.",
+      "bannerNoEntry": "Una ejecución del archivo de investigación, mostrada solo para lectura: nada se transmite, nada se ejecuta y aquí no se puede registrar ninguna decisión.",
+      "unchainedNote": "Sus registros se escribieron antes de que existiera la cadena de hashes (esquema 1.0): nada en ellos delata una alteración, y su recomendación se muestra tal como se registró, sin volver a derivarse.",
+      "generationFailed": "{count, plural, =0 {Ninguna generación de prueba falló.} one {Bloqueada porque no se pudo generar aguas arriba ninguna prueba para el # registro cuya prueba figura como inválida (informa un error de prueba): ese estado registra un fallo al producir la prueba, no una comprobación que haya encontrado el registro alterado. La nota del propio archivo sobre este log nombra la causa.} many {Bloqueada porque no se pudo generar aguas arriba ninguna prueba para los # de registros cuyas pruebas figuran como inválidas (cada uno informa un error de prueba): ese estado registra un fallo al producir las pruebas, no una comprobación que haya encontrado un registro alterado. La nota del propio archivo sobre este log nombra la causa.} other {Bloqueada porque no se pudo generar aguas arriba ninguna prueba para los # registros cuyas pruebas figuran como inválidas (cada uno informa un error de prueba): ese estado registra un fallo al producir las pruebas, no una comprobación que haya encontrado un registro alterado. La nota del propio archivo sobre este log nombra la causa.}}",
+      "awaiting": "detenida en su punto de decisión; no se registró ninguna decisión",
+      "back": "Volver a la vitrina"
     }
   },
   "Settings": {
@@ -949,7 +986,7 @@
       "description": "Registros de una ejecución del modelo de Meta mostrados después (reproducidos, listados o archivados): llamadas reales al modelo, pero que no ocurren ahora. META EN VIVO solo se muestra para registros que llegan mientras miras."
     },
     "hyphaeLive": {
-      "label": "HYPHAE EN VIVO"
+      "label": "CONSULTA A HYPHAE"
     },
     "noEvidence": {
       "label": "SIN EVIDENCIA"

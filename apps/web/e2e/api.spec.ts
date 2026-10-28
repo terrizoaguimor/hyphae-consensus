@@ -36,61 +36,10 @@ import {
   storedRun,
 } from "./api-mock";
 import { fixture } from "./contract";
-import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
+import { expect, hydrated, locales, t, test, useTheme } from "./fixtures";
+import { dropProblems, expectNoLive, liveBadge, openRun, takeProblem } from "./helpers";
 
 const LIVE_RUN_ID = "run-00000000-0000-4000-8000-000000000006";
-
-/** Removes an expected API error response from the page's problem list, asserting it happened. */
-function takeProblem(problems: string[], text: string): void {
-  const index = problems.indexOf(text);
-  expect(index, `expected ${text} among ${JSON.stringify(problems)}`).toBeGreaterThanOrEqual(0);
-  problems.splice(index, 1);
-}
-
-/** Removes the browser's own console lines about a failure a test provokes on purpose. */
-function dropProblems(problems: string[], pattern: RegExp): void {
-  for (let i = problems.length - 1; i >= 0; i -= 1) {
-    if (pattern.test(problems[i] ?? "")) {
-      problems.splice(i, 1);
-    }
-  }
-}
-
-/** The exact LIVE badge text of a locale; never present on a replayed or flagged run. */
-function liveBadge(page: Page, locale: Locale) {
-  return page.getByText(t(locale, "Provenance.live.label"), { exact: true });
-}
-
-/** The locale's LIVE word (LIVE, EN VIVO, AO VIVO, EN DIRECT) as a whole word. */
-function liveWord(locale: Locale): RegExp {
-  const word = t(locale, "Provenance.live.label").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^\\p{L}])${word}([^\\p{L}]|$)`, "iu");
-}
-
-/**
- * Nothing of the LIVE family is on the page: no LIVE delivery badge, no LIVE
- * META model badge, no "Meta model · live" note, no tab named Live, and no
- * badge or provenance note carrying the locale's LIVE word at all.
- */
-async function expectNoLive(page: Page, locale: Locale) {
-  await expect(liveBadge(page, locale)).toHaveCount(0);
-  await expect(page.getByText(t(locale, "Provenance.liveMeta.label"), { exact: true })).toHaveCount(0);
-  await expect(page.getByText(t(locale, "Provenance.liveMeta.live"), { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("tab", { name: t(locale, "Run.tabs.live"), exact: true })).toHaveCount(0);
-  await expect(page.locator("[data-frame-label='live.label']")).toHaveCount(0);
-  const labels = await page
-    .locator(".hc-badges, .hc-frame-badge, [data-provenance-note], [role=tab]")
-    .allInnerTexts();
-  for (const text of labels) {
-    expect(text, `a label with the LIVE word: ${text}`).not.toMatch(liveWord(locale));
-  }
-}
-
-async function openRun(page: Page, locale: Locale, runId = RUN_ID) {
-  await page.goto(runPath(locale, runId));
-  await hydrated(page);
-  await expect(page.locator("[data-run-id]")).toBeVisible();
-}
 
 test("new -> run -> frames -> decision -> receipt link", async ({ page, pageProblems }) => {
   const mock = await mockApi(page, { detail: awaitingDecisionDetail() });

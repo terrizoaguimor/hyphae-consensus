@@ -1,0 +1,288 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// The research showcase over a mocked GET /showcase and /research
+// (e2e/api-mock.ts, e2e/research.ts): entries built from the archive's own
+// manifest and logs (run ids, batteries, titles, outcomes, files, pinned
+// digests, record counts, heads) plus the server's own F03 entry from the
+// contract, and the archive's real bytes at /research. The list reads as
+// RECORDED, grouped by battery, every outcome next to its evidence axis; a
+// recorded run opens in the run workspace in RECORDED mode (no stream, no
+// stage, the Decision tab read-only) with the archive's labels: recorded
+// proofs verified at run time, schema 1.0 pre-1.1 and unchained, a run
+// blocked because no proof could be generated upstream with the archive's
+// own note; and nothing reads LIVE, in any locale. axe on the list and on
+// the recorded run's tabs, in four locales and both themes.
+
+import AxeBuilder from "@axe-core/playwright";
+import type { Page } from "@playwright/test";
+
+import { localePath, showcaseRunPath } from "../src/lib/site";
+
+import { AXE_TAGS, blocking, type ScanSummary, summarize, writeScans } from "./axe-results";
+import { mockApi, recordedRun } from "./api-mock";
+import { fixture } from "./contract";
+import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
+import { expectNoLive, takeProblem } from "./helpers";
+import { archiveEntry, manifestRun, metaRequestIds } from "./research";
+
+type Json = Record<string, unknown>;
+
+/** The server's own showcase entry for F03 (contract fixture). */
+const F03 = fixture<Json>("showcase-entry-F03.json");
+
+/** Archived runs as the server lists them: fields from the archive, provenance as the server derives it. */
+function entries() {
+  const live = (label: string) => {
+    const run = manifestRun(label);
+    return {
+      model: "live_meta",
+      evidence: "hyphae_live",
+      flags: ["mode_undeclared"],
+      meta_request_ids: metaRequestIds(run.file, run.run_id),
+    };
+  };
+  const c01 = archiveEntry("C01", {
+    model: "scripted",
+    evidence: "simulated",
+    flags: ["mode_undeclared", "unchained"],
+    meta_request_ids: [],
+  });
+  const l01 = archiveEntry("L01", live("L01"));
+  const r06 = archiveEntry("R06", live("R06"));
+  return { c01, l01, r06, list: [c01, l01, r06, F03] };
+}
+
+async function openShowcase(page: Page, locale: Locale) {
+  await page.goto(localePath(locale, "showcase"));
+  await hydrated(page);
+  await expect(page.locator("[data-showcase='list']")).toBeVisible();
+}
+
+async function openRecorded(page: Page, locale: Locale, runId: string) {
+  await page.goto(showcaseRunPath(locale, runId));
+  await hydrated(page);
+  await expect(page.locator("[data-run-mode='recorded']")).toBeVisible();
+}
+
+test("the showcase lists the archive as RECORDED, by battery, every outcome next to its evidence @smoke", async ({
+  page,
+}) => {
+  const { c01, l01, r06, list } = entries();
+  await mockApi(page, { showcase: list });
+  await openShowcase(page, "en");
+  await expect(page.locator("[data-showcase-run]")).toHaveCount(4);
+  await expect(page.locator("[data-battery]")).toHaveCount(4);
+  // Every entry is RECORDED, with the model badge of a list: never LIVE META.
+  await expect(page.getByText(t("en", "Provenance.recorded.label"), { exact: true })).toHaveCount(4);
+  const f03 = page.locator(`[data-showcase-run='${String(F03.run_id)}']`);
+  await expect(f03.locator("[data-showcase-outcome='contested']")).toHaveText(
+    t("en", "Run.outcome", { kind: t("en", "Run.kinds.contested"), evidence: t("en", "Provenance.hyphaeLive.label") }),
+  );
+  await expect(f03.getByText(t("en", "Provenance.metaModel.label"), { exact: true })).toBeVisible();
+  const scripted = page.locator(`[data-showcase-run='${String(c01.run_id)}']`);
+  await expect(scripted).toContainText(t("en", "Showcase.unchained"));
+  await expect(scripted.locator("[data-showcase-outcome='supported']")).toHaveText(
+    "supported — on SIMULATED evidence",
+  );
+  await expect(page.locator(`[data-showcase-run='${String(l01.run_id)}'] [data-showcase-outcome='blocked']`)).toBeVisible();
+  // The card opens the run in the workspace, in RECORDED mode.
+  await expect(page.locator(`[data-showcase-run='${String(r06.run_id)}'] a`)).toHaveAttribute(
+    "href",
+    showcaseRunPath("en", String(r06.run_id)),
+  );
+  // Each battery's log, with the digest the manifest pins, and the manifest checked here.
+  const battery = page.locator("[data-battery='live-battery-2026-10-26']");
+  await expect(battery.locator("[data-archive-download]")).toHaveAttribute(
+    "href",
+    "/research/2026-10-26/live-battery-2026-10-26.jsonl",
+  );
+  await expect(battery).toContainText(String(l01.sha256).slice(0, 12));
+  await expect(page.locator("[data-manifest-check='matches']")).toHaveText(t("en", "Showcase.manifest.matches"));
+  // The archive's own note on the 2026-10-26 battery names the cause of its blocked runs.
+  await expect(battery.locator("[data-archive-note] blockquote")).toContainText("a deployment misconfiguration");
+  await expectNoLive(page, "en");
+});
+
+test("a recorded run opens read-only in RECORDED mode, never as running @smoke", async ({ page }) => {
+  const { r06, list } = entries();
+  const recorded = recordedRun(r06, { base: "retry" });
+  const mock = await mockApi(page, { showcase: list, recordedRuns: [recorded] });
+  const runId = String(r06.run_id);
+  await openRecorded(page, "en", runId);
+  // No stage and no stream: the tabs a recorded run has, Decision first.
+  await expect(page.getByRole("tab")).toHaveCount(6);
+  await expect(page.getByRole("tab", { name: t("en", "Run.tabs.playback") })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: t("en", "Run.tabs.decision") })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-run-field='state']")).toHaveText(t("en", "Showcase.run.awaiting"));
+  const header = page.locator("header.hc-run-header");
+  await expect(header.getByText(t("en", "Provenance.recorded.label"), { exact: true }).first()).toBeVisible();
+  await expect(header.getByText(t("en", "Provenance.metaModel.label"), { exact: true })).toBeVisible();
+  await expect(header.locator("[data-provenance-note='liveMeta.recorded']")).toBeVisible();
+  await expect(header.locator("[data-recorded-run]")).toContainText(
+    t("en", "Showcase.run.banner", { label: "R06", battery: "live-battery-2026-10-27" }),
+  );
+  // Read-only decision: no form, the archive's receipt and log.
+  await expect(page.locator("[data-decision-form]")).toHaveCount(0);
+  await expect(page.locator("[data-decision-unavailable]")).toHaveText(t("en", "Run.decision.recordedReadOnly"));
+  await expect(page.locator("[data-receipt-link]")).toHaveAttribute("href", `/api/v1/showcase/${runId}/receipt`);
+  await expect(page.locator("[data-ndjson-link]")).toHaveAttribute(
+    "href",
+    "/research/2026-10-27/live-battery-2026-10-27.jsonl",
+  );
+  await expectNoLive(page, "en");
+
+  // Evidence and proofs: verified at run time, re-verifiable chain, not these proofs.
+  await page.getByRole("tab", { name: t("en", "Run.tabs.evidence") }).click();
+  const reading = page.locator("[data-proof-reading='accepted']").first();
+  await expect(reading).toContainText("Verified at run time on");
+  await expect(reading).toContainText("by hyphae proof verify");
+  await expect(reading).toContainText("so the public can re-verify the event chain, not these proofs");
+  await expect(page.locator("[data-coverage='unrecorded']").first()).toContainText("recorded before schema 1.3");
+  await expectNoLive(page, "en");
+  await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
+  await expect(page.locator("[data-limits-translated]")).toBeVisible();
+  await expect(page.locator("[data-proof-plain='accepted'] [data-proof-reading='accepted']").first()).toBeVisible();
+  // The audit trail: the archived log this run is a segment of, its pinned digest, the check.
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-chain-scope='log']")).toHaveText(t("en", "Run.audit.scopes.log"));
+  await expect(page.locator("[data-log-link]")).toHaveAttribute("href", "/research/2026-10-27/live-battery-2026-10-27.jsonl");
+  await expect(page.locator("[data-log-sha256]")).toHaveText(String(r06.sha256));
+  await expect(page.locator("[data-cli]")).toHaveText(
+    `consensus-api verify live-battery-2026-10-27.jsonl --run ${runId} --receipt receipt-${runId}.json`,
+  );
+  await expect(page.locator("[data-receipt-download]")).toHaveAttribute("href", `/api/v1/showcase/${runId}/receipt`);
+  // Recorded Meta calls: request ids are the archive's own.
+  await page.getByRole("tab", { name: t("en", "Run.tabs.meta") }).click();
+  const ids = (r06.provenance as { meta_request_ids: string[] }).meta_request_ids;
+  await expect(page.locator("[data-invocation-scripted='false']").first()).toContainText(String(ids[0]));
+  await expectNoLive(page, "en");
+  // Nothing streams and nothing of this server's runs is asked for.
+  expect(mock.calls.filter((c) => c.path.includes("/events"))).toEqual([]);
+  expect(mock.calls.filter((c) => c.path.startsWith("/api/v1/runs/"))).toEqual([]);
+  expect(mock.calls.filter((c) => c.path === `/api/v1/showcase/${runId}`)).toHaveLength(1);
+});
+
+test("a run blocked because no proof could be generated reads so, with the archive's own note", async ({ page }) => {
+  const { l01, list } = entries();
+  await mockApi(page, {
+    showcase: list,
+    recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true })],
+  });
+  await openRecorded(page, "en", String(l01.run_id));
+  const header = page.locator("[data-recorded-run]");
+  await expect(header.locator("[data-archive-label='generation-failed']")).toContainText(
+    "Blocked because no proof could be generated upstream",
+  );
+  await expect(header.locator("[data-archive-label='generation-failed']")).toContainText(
+    "not a check that found a record altered",
+  );
+  await expect(header.locator("[data-archive-note] blockquote")).toContainText("a deployment misconfiguration");
+  await page.getByRole("tab", { name: t("en", "Run.tabs.evidence") }).click();
+  await expect(page.locator("[data-coverage='proof_error']").first()).toHaveText(
+    t("en", "Run.evidence.coverage.proofError"),
+  );
+  await expect(page.locator("[data-proof-reading='generation_failed']").first()).toHaveText(
+    t("en", "Run.proofs.reading.generationFailed"),
+  );
+  await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
+  await expect(page.locator("[data-proof-plain='generation_failed']").first()).toHaveText(
+    t("en", "Run.proofs.plain.generationFailed"),
+  );
+  await expectNoLive(page, "en");
+});
+
+test("a schema-1.0 run reads pre-1.1, unchained", async ({ page }) => {
+  const { c01, list } = entries();
+  await mockApi(page, { showcase: list, recordedRuns: [recordedRun(c01, { base: "retry" })] });
+  await openRecorded(page, "en", String(c01.run_id));
+  await expect(page.locator("[data-archive-label='unchained']")).toContainText(t("en", "Showcase.unchained"));
+  await expect(page.locator("[data-archive-label='unchained']")).toContainText(t("en", "Showcase.run.unchainedNote"));
+  await expect(page.getByText(t("en", "Provenance.flags.unchained"), { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-chain-scope='unchained']")).toHaveText(t("en", "Run.audit.scopes.unchained"));
+  await expect(page.locator("[data-chain-field='head']")).toHaveText(t("en", "Run.audit.noHead"));
+  await expectNoLive(page, "en");
+});
+
+test("a showcase that cannot be read is said, with a retry", async ({ page, pageProblems }) => {
+  const { list } = entries();
+  await mockApi(page, {
+    showcase: list,
+    showcaseFailures: { count: 1, answer: { status: 503, body: { code: "shutting_down", message: "shutting down" } } },
+  });
+  await page.goto(localePath("en", "showcase"));
+  await hydrated(page);
+  const error = page.locator("[data-showcase='error']");
+  await expect(error.locator("[data-error-code='shutting_down']")).toContainText(t("en", "Api.errors.shutting_down"));
+  await expect(page.getByText(t("en", "Showcase.loading"))).toHaveCount(0);
+  await error.getByRole("button", { name: t("en", "Api.retry") }).click();
+  await expect(page.locator("[data-showcase-run]")).toHaveCount(4);
+  takeProblem(pageProblems, "HTTP 503: /api/v1/showcase");
+});
+
+test("a manifest that does not match its published digest lends no note", async ({ page }) => {
+  const { list } = entries();
+  const forged = Buffer.from(
+    JSON.stringify({ created: "2026-10-27", files: [{ path: "2026-10-26/live-battery-2026-10-26.jsonl", sha256: "0", kind: "event_log", description: "forged note" }] }),
+  );
+  await mockApi(page, { showcase: list, research: { "MANIFEST.json": forged } });
+  await openShowcase(page, "en");
+  await expect(page.locator("[data-manifest-check='differs']")).toBeVisible();
+  await expect(page.locator("[data-archive-note]")).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText("forged note");
+});
+
+for (const locale of locales) {
+  test(`no LIVE word on the showcase or a recorded run (${locale})`, async ({ page }) => {
+    const { r06, list } = entries();
+    await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })] });
+    await openShowcase(page, locale);
+    await expect(page.locator("[data-showcase-run]")).toHaveCount(4);
+    await expectNoLive(page, locale);
+    await openRecorded(page, locale, String(r06.run_id));
+    await expect(page.locator("[data-run-field='state']")).toHaveText(t(locale, "Showcase.run.awaiting"));
+    await expectNoLive(page, locale);
+    for (const tab of ["evidence", "proofs", "audit", "meta", "explorer"] as const) {
+      await page.getByRole("tab", { name: t(locale, `Run.tabs.${tab}`) }).click();
+      await expectNoLive(page, locale);
+    }
+  });
+}
+
+const themes = ["light", "dark"] as const;
+
+async function scan(page: Page, name: string): Promise<ScanSummary> {
+  const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+  return summarize(name, results);
+}
+
+for (const locale of locales) {
+  for (const theme of themes) {
+    test(`axe: /showcase and a recorded run (${locale}, ${theme})`, async ({ page }) => {
+      test.setTimeout(240_000);
+      await useTheme(page, theme);
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      const { l01, list } = entries();
+      await mockApi(page, {
+        showcase: list,
+        recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true })],
+      });
+      const scans: ScanSummary[] = [];
+      await openShowcase(page, locale);
+      await expect(page.locator("[data-manifest-check='matches']")).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      scans.push(await scan(page, `${locale} ${theme} /showcase (connected)`));
+      await openRecorded(page, locale, String(l01.run_id));
+      await expect(page.locator("[data-archive-note]")).toBeVisible();
+      scans.push(await scan(page, `${locale} ${theme} /run recorded decision`));
+      for (const tab of ["explorer", "evidence", "proofs", "audit", "meta"] as const) {
+        await page.getByRole("tab", { name: t(locale, `Run.tabs.${tab}`) }).click();
+        await expect(page.locator(`[data-tab='${tab}']`)).toBeVisible();
+        scans.push(await scan(page, `${locale} ${theme} /run recorded ${tab}`));
+      }
+      await writeScans(`showcase-${locale}-${theme}`, scans);
+      expect(scans).toHaveLength(7);
+      expect(blocking(scans)).toEqual([]);
+    });
+  }
+}

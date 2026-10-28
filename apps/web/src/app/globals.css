@@ -1807,6 +1807,24 @@
     margin: 0;
   }
 
+  /* A wide table scrolls inside its own focusable region. */
+  .hc-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    border-radius: var(--radius-element);
+  }
+
+  .hc-table-scroll:focus-visible {
+    outline: var(--focus-outline-width) var(--focus-outline-style)
+      var(--focus-outline-color);
+    outline-offset: var(--focus-outline-offset);
+  }
+
+  .hc-invocations td,
+  .hc-invocations th {
+    white-space: nowrap;
+  }
+
   /* A command to copy: wrapped, never a scrolling box. */
   .hc-cli {
     margin: 0;

@@ -257,7 +257,8 @@
       "decision": "Decision",
       "evidence": "Evidence",
       "proofs": "Proof inspector",
-      "audit": "Audit trail"
+      "audit": "Audit trail",
+      "meta": "Meta API"
     },
     "header": {
       "state": "State",
@@ -714,6 +715,42 @@
       "verificationsSimulated": "{count, plural, =0 {No SIMULATED proof among them.} one {# of them is a SIMULATED proof: scripted, nothing checked.} other {# of them are SIMULATED proofs: scripted, nothing checked.}}",
       "limitationsHeading": "Proof limitations, as the receipt states them (English)",
       "receiptJson": "The receipt as JSON"
+    },
+    "meta": {
+      "heading": "Meta API panel",
+      "count": "{count, plural, =0 {No model invocation} one {# model invocation} other {# model invocations}}",
+      "intro": "One row per model invocation the run recorded. A recorded request id is evidence that a Meta call was recorded, never that anything is happening now; a scripted double made no model call.",
+      "partial": "The server’s copy of this run could not be read: only the invocations the stream delivered are listed.",
+      "mismatch": "The records carry {rows} invocations and the run’s list carries {recorded}: both are shown as received.",
+      "none": "This run recorded no model invocation.",
+      "caption": "Model invocations",
+      "columns": {
+        "record": "Record",
+        "role": "Role",
+        "model": "Model",
+        "requestId": "Recorded request id",
+        "latency": "Latency",
+        "input": "Input tokens",
+        "output": "Output tokens",
+        "reasoning": "Reasoning tokens",
+        "maxCompletion": "Output bound",
+        "finish": "Finish reason",
+        "attempts": "Attempts",
+        "schema": "Schema",
+        "prompt": "Prompt SHA-256"
+      },
+      "notRecorded": "not recorded",
+      "unknownRole": "role not recorded",
+      "failedAt": "(failed at {stage})",
+      "model": "{model} via {provider}",
+      "ms": "{value} ms",
+      "totalsHeading": "Totals over the recorded model calls",
+      "noCall": "{scripted, plural, =0 {No model call was recorded.} one {No model call was made: the # invocation is the scripted double.} other {No model call was made: all # invocations are the scripted double.}}",
+      "calls": "{count, plural, =0 {No model call} one {# model call} other {# model calls}}{scripted, plural, =0 {.} one {, and # invocation of the scripted double, which made no call.} other {, and # invocations of the scripted double, which made no call.}}",
+      "total": "{sum} (reported by {reported} of {calls, plural, =0 {no call} one {# call} other {# calls}})",
+      "requestIds": "Request ids are the ones the runtime recorded for Meta’s API; the logs are unsigned, so they show what was recorded, not that Meta returned it.",
+      "operatorOnly": "No row carries the output bound, the attempt count or the schema and prompt digests: the public surface does not publish them.",
+      "noCost": "No cost is shown: the API publishes no prices."
     }
   },
   "Showcase": {

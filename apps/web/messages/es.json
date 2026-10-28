@@ -257,7 +257,8 @@
       "decision": "Decisión",
       "evidence": "Evidencia",
       "proofs": "Inspector de pruebas",
-      "audit": "Rastro de auditoría"
+      "audit": "Rastro de auditoría",
+      "meta": "API de Meta"
     },
     "header": {
       "state": "Estado",
@@ -714,6 +715,42 @@
       "verificationsSimulated": "{count, plural, =0 {Ninguna prueba SIMULADA entre ellas.} one {# de ellas es una prueba SIMULADA: con guion, sin nada comprobado.} many {# de ellas son pruebas SIMULADAS: con guion, sin nada comprobado.} other {# de ellas son pruebas SIMULADAS: con guion, sin nada comprobado.}}",
       "limitationsHeading": "Limitaciones de las pruebas, tal como las indica el recibo (en inglés)",
       "receiptJson": "El recibo en JSON"
+    },
+    "meta": {
+      "heading": "Panel de la API de Meta",
+      "count": "{count, plural, =0 {Ninguna invocación de modelo} one {# invocación de modelo} many {# de invocaciones de modelo} other {# invocaciones de modelo}}",
+      "intro": "Una fila por cada invocación de modelo que registró la ejecución. Un id de solicitud registrado es prueba de que se registró una llamada a Meta, nunca de que algo esté ocurriendo ahora; un doble con guion no hizo ninguna llamada a un modelo.",
+      "partial": "No se pudo leer la copia de esta ejecución en el servidor: solo se listan las invocaciones que entregó la transmisión.",
+      "mismatch": "Los registros contienen {rows} invocaciones y la lista de la ejecución contiene {recorded}: ambas se muestran tal como llegaron.",
+      "none": "Esta ejecución no registró ninguna invocación de modelo.",
+      "caption": "Invocaciones de modelo",
+      "columns": {
+        "record": "Registro",
+        "role": "Rol",
+        "model": "Modelo",
+        "requestId": "Id de solicitud registrado",
+        "latency": "Latencia",
+        "input": "Tokens de entrada",
+        "output": "Tokens de salida",
+        "reasoning": "Tokens de razonamiento",
+        "maxCompletion": "Límite de salida",
+        "finish": "Motivo de finalización",
+        "attempts": "Intentos",
+        "schema": "Esquema",
+        "prompt": "SHA-256 del prompt"
+      },
+      "notRecorded": "no registrado",
+      "unknownRole": "rol no registrado",
+      "failedAt": "(falló en {stage})",
+      "model": "{model} vía {provider}",
+      "ms": "{value} ms",
+      "totalsHeading": "Totales de las llamadas al modelo registradas",
+      "noCall": "{scripted, plural, =0 {No se registró ninguna llamada a un modelo.} one {No se hizo ninguna llamada a un modelo: la # invocación es el doble con guion.} many {No se hizo ninguna llamada a un modelo: las # de invocaciones son el doble con guion.} other {No se hizo ninguna llamada a un modelo: las # invocaciones son el doble con guion.}}",
+      "calls": "{count, plural, =0 {Ninguna llamada a un modelo} one {# llamada a un modelo} many {# de llamadas a un modelo} other {# llamadas a un modelo}}{scripted, plural, =0 {.} one {, y # invocación del doble con guion, que no hizo ninguna llamada.} many {, y # de invocaciones del doble con guion, que no hicieron ninguna llamada.} other {, y # invocaciones del doble con guion, que no hicieron ninguna llamada.}}",
+      "total": "{sum} (informado por {reported} de {calls, plural, =0 {ninguna llamada} one {# llamada} many {# de llamadas} other {# llamadas}})",
+      "requestIds": "Los id de solicitud son los que el entorno de ejecución registró para la API de Meta; los logs no están firmados, así que muestran lo que se registró, no que Meta lo haya devuelto.",
+      "operatorOnly": "Ninguna fila contiene el límite de salida, el número de intentos ni los resúmenes del esquema y del prompt: la superficie pública no los publica.",
+      "noCost": "No se muestra ningún costo: la API no publica precios."
     }
   },
   "Showcase": {

@@ -113,6 +113,39 @@ export function liveModelDetail(flags: string[] = []): Json {
   return detail;
 }
 
+/**
+ * The live-model run with every invocation a recorded Meta call (test
+ * values in the record format: request ids, latencies, token counts and a
+ * finish reason), as the public surface shows them: no output bound, no
+ * attempt count, no schema or prompt digests. Built from the retry fixture.
+ */
+export function metaCallsDetail(): Json {
+  const detail = liveModelDetail();
+  const invocations: Json[] = [];
+  for (const event of detail.events as Json[]) {
+    const payload = event.payload as Json;
+    if (payload.invocation !== undefined && payload.invocation !== null) {
+      const n = invocations.length + 1;
+      const invocation: Json = {
+        provider: "meta",
+        model: "muse-wonder-1.0",
+        request_id: `chatcmpl-fixture-${n}`,
+        latency_ms: 1000 * n,
+        input_tokens: 100 * n,
+        output_tokens: 10 * n,
+        finish_reason: "stop",
+        scripted: false,
+      };
+      payload.invocation = invocation;
+      invocations.push(invocation);
+    }
+  }
+  detail.model_invocations = invocations;
+  const provenance = (detail.summary as Json).provenance as Json;
+  provenance.meta_request_ids = invocations.map((i) => i.request_id);
+  return detail;
+}
+
 /** Test values of a sealed-snapshot capture (ADR-0008), in the record format. */
 export const SNAPSHOT_ANCHOR = "d91ac10d17ce58a641f89a5337f3d0266c3b5eb0acb87db3ff3202c79f19f168";
 

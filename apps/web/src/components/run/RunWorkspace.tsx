@@ -32,6 +32,7 @@ import { DecisionTab } from "./DecisionTab";
 import { EvidenceTab } from "./EvidenceTab";
 import { ExplorerTab } from "./ExplorerTab";
 import { FailureSentence } from "./FailureSentence";
+import { MetaTab } from "./MetaTab";
 import { ProofsTab } from "./ProofsTab";
 import { StageTab } from "./StageTab";
 import { tabId, Tabs } from "./Tabs";
@@ -42,7 +43,7 @@ type RunWorkspaceProps = {
   locale: Locale;
 };
 
-type TabKey = "stage" | "explorer" | "evidence" | "proofs" | "audit" | "decision";
+type TabKey = "stage" | "explorer" | "evidence" | "proofs" | "audit" | "meta" | "decision";
 
 /** Tabs that show the receipt. */
 const RECEIPT_TABS: ReadonlySet<TabKey> = new Set<TabKey>(["proofs", "audit"]);
@@ -212,6 +213,7 @@ function RunView({ locale, runId }: RunViewProps) {
           { value: "evidence", label: t("tabs.evidence") },
           { value: "proofs", label: t("tabs.proofs") },
           { value: "audit", label: t("tabs.audit") },
+          { value: "meta", label: t("tabs.meta") },
           { value: "decision", label: t("tabs.decision") },
         ]}
       />
@@ -250,6 +252,7 @@ function RunView({ locale, runId }: RunViewProps) {
             archive={null}
           />
         ) : null}
+        {tab === "meta" ? <MetaTab detail={detail} frames={frames} detailError={detailError} /> : null}
         {tab === "decision" ? <DecisionTab runId={runId} data={data} /> : null}
       </div>
     </div>

@@ -26,6 +26,7 @@ import {
   inProgressLiveRun,
   liveModelDetail,
   liveR01Run,
+  metaCallsDetail,
   mockApi,
   PUBLIC_DEMO_NOTICE,
   RUN_ID,
@@ -838,6 +839,50 @@ test("a live-declared run's Audit trail names the operator's log for the check",
   await expectNoLive(page, "en");
 });
 
+test("the Meta API panel lists every invocation with its role; a scripted double made no call @smoke", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.meta") }).click();
+  const rows = page.locator("[data-invocation-sequence]");
+  await expect(rows).toHaveCount(6);
+  await expect(rows.first().locator("td").nth(1)).toHaveText(t("en", "Run.explorer.roles.proposer"));
+  await expect(rows.nth(1).locator("td").nth(1)).toHaveText(t("en", "Run.explorer.roles.critic"));
+  await expect(page.locator("[data-invocation-scripted='true'] [data-model-note='scripted']")).toHaveCount(6);
+  await expect(page.locator("[data-model-note='scripted']").first()).toHaveText(t("en", "Provenance.scripted.note"));
+  // A scripted double's id is never shown as evidence of a call.
+  await expect(page.locator("[data-meta-tab]")).not.toContainText("fake-propose-1");
+  await expect(page.locator("[data-meta-no-call]")).toContainText("No model call was made");
+  await expect(page.locator("[data-meta-no-cost]")).toHaveText(t("en", "Run.meta.noCost"));
+  await expectNoLive(page, "en");
+});
+
+test("recorded Meta calls: request ids, tokens and totals computed from the rows", async ({ page }) => {
+  const detail = metaCallsDetail();
+  const provenance = (detail.summary as { provenance: Record<string, unknown> }).provenance;
+  await mockApi(page, { detail, frames: framesWith(provenance, "replay") });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.meta") }).click();
+  const first = page.locator("[data-invocation-sequence='2']");
+  await expect(first).toContainText("chatcmpl-fixture-1");
+  await expect(first).toContainText(t("en", "Run.meta.model", { model: "muse-wonder-1.0", provider: "meta" }));
+  await expect(first).toContainText("1,000 ms");
+  await expect(page.locator("[data-invocation-scripted='false']")).toHaveCount(6);
+  await expect(page.locator("[data-meta-calls='6']")).toBeVisible();
+  await expect(page.locator("[data-total='latency']")).toHaveText("21,000 ms (reported by 6 of 6 calls)");
+  await expect(page.locator("[data-total='input']")).toHaveText("2,100 (reported by 6 of 6 calls)");
+  await expect(page.locator("[data-total='output']")).toHaveText("210 (reported by 6 of 6 calls)");
+  await expect(page.locator("[data-total='reasoning']")).toHaveText("0 (reported by 0 of 6 calls)");
+  await expect(page.locator("[data-meta-operator-only]")).toHaveText(t("en", "Run.meta.operatorOnly"));
+  // A recorded request id is evidence of a recorded call, never of anything live.
+  await expectNoLive(page, "en");
+});
+
 test("the scope change sits under the recommendation it qualifies", async ({ page }) => {
   await mockApi(page, { detail: awaitingDecisionDetail() });
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -1125,12 +1170,15 @@ for (const locale of locales) {
       await page.locator("[data-audit-links] > summary").click();
       await expect(page.locator("[data-link-sequence]").first()).toBeVisible();
       scans.push(await scan(page, `${locale} ${theme} /run audit`));
+      await page.getByRole("tab", { name: t(locale, "Run.tabs.meta") }).click();
+      await expect(page.locator("[data-invocation-sequence]").first()).toBeVisible();
+      scans.push(await scan(page, `${locale} ${theme} /run meta`));
       await page.getByRole("tab", { name: t(locale, "Run.tabs.decision") }).click();
       await expect(page.locator("[data-decision-form]")).toBeVisible();
       scans.push(await scan(page, `${locale} ${theme} /run decision`));
 
       await writeScans(`api-${locale}-${theme}`, scans);
-      expect(scans).toHaveLength(8);
+      expect(scans).toHaveLength(9);
       expect(blocking(scans)).toEqual([]);
     });
   }

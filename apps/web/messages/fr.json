@@ -257,7 +257,8 @@
       "decision": "Décision",
       "evidence": "Éléments probants",
       "proofs": "Inspecteur de preuves",
-      "audit": "Piste d’audit"
+      "audit": "Piste d’audit",
+      "meta": "API Meta"
     },
     "header": {
       "state": "État",
@@ -714,6 +715,42 @@
       "verificationsSimulated": "{count, plural, =0 {Aucune preuve SIMULÉE parmi eux.} one {# d’entre eux est une preuve SIMULÉE : scénarisée, rien de vérifié.} many {# d’entre eux sont des preuves SIMULÉES : scénarisées, rien de vérifié.} other {# d’entre eux sont des preuves SIMULÉES : scénarisées, rien de vérifié.}}",
       "limitationsHeading": "Limites des preuves, telles que le reçu les énonce (en anglais)",
       "receiptJson": "Le reçu en JSON"
+    },
+    "meta": {
+      "heading": "Panneau de l’API Meta",
+      "count": "{count, plural, =0 {Aucune invocation de modèle} one {# invocation de modèle} many {# d’invocations de modèle} other {# invocations de modèle}}",
+      "intro": "Une ligne par invocation de modèle que l’exécution a enregistrée. Un id de requête enregistré prouve qu’un appel à Meta a été enregistré, jamais que quelque chose se passe maintenant ; une doublure scénarisée n’a fait aucun appel à un modèle.",
+      "partial": "La copie de cette exécution sur le serveur n’a pas pu être lue : seules les invocations livrées par le flux sont listées.",
+      "mismatch": "Les enregistrements portent {rows} invocations et la liste de l’exécution en porte {recorded} : les deux sont affichées telles qu’elles sont arrivées.",
+      "none": "Cette exécution n’a enregistré aucune invocation de modèle.",
+      "caption": "Invocations de modèle",
+      "columns": {
+        "record": "Enregistrement",
+        "role": "Rôle",
+        "model": "Modèle",
+        "requestId": "Id de requête enregistré",
+        "latency": "Latence",
+        "input": "Jetons d’entrée",
+        "output": "Jetons de sortie",
+        "reasoning": "Jetons de raisonnement",
+        "maxCompletion": "Limite de sortie",
+        "finish": "Motif de fin",
+        "attempts": "Tentatives",
+        "schema": "Schéma",
+        "prompt": "SHA-256 du prompt"
+      },
+      "notRecorded": "non enregistré",
+      "unknownRole": "rôle non enregistré",
+      "failedAt": "(échec à l’étape {stage})",
+      "model": "{model} via {provider}",
+      "ms": "{value} ms",
+      "totalsHeading": "Totaux des appels au modèle enregistrés",
+      "noCall": "{scripted, plural, =0 {Aucun appel à un modèle n’a été enregistré.} one {Aucun appel à un modèle n’a été fait : la # invocation est la doublure scénarisée.} many {Aucun appel à un modèle n’a été fait : les # d’invocations sont la doublure scénarisée.} other {Aucun appel à un modèle n’a été fait : les # invocations sont la doublure scénarisée.}}",
+      "calls": "{count, plural, =0 {Aucun appel à un modèle} one {# appel à un modèle} many {# d’appels à un modèle} other {# appels à un modèle}}{scripted, plural, =0 {.} one {, et # invocation de la doublure scénarisée, qui n’a fait aucun appel.} many {, et # d’invocations de la doublure scénarisée, qui n’ont fait aucun appel.} other {, et # invocations de la doublure scénarisée, qui n’ont fait aucun appel.}}",
+      "total": "{sum} (indiqué par {reported} sur {calls, plural, =0 {aucun appel} one {# appel} many {# d’appels} other {# appels}})",
+      "requestIds": "Les id de requête sont ceux que l’environnement d’exécution a enregistrés pour l’API de Meta ; les journaux ne sont pas signés : ils montrent ce qui a été enregistré, pas que Meta l’a renvoyé.",
+      "operatorOnly": "Aucune ligne ne porte la limite de sortie, le nombre de tentatives ni les empreintes du schéma et du prompt : la surface publique ne les publie pas.",
+      "noCost": "Aucun coût n’est affiché : l’API ne publie aucun prix."
     }
   },
   "Showcase": {

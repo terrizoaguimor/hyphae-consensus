@@ -1,20 +1,28 @@
 "use client";
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Overview's main call to action, decided at runtime from the health
-// probe. The main button promises only what the server can do: until the
-// probe answers, and when the API is unreachable, it reads "How guided
-// examples will work" and opens the Modes article (with the build note and
-// the caveat under it); once the API answered it reads "Run a guided example"
-// and opens New deliberation, and a status line names the server's schema,
-// policy and contract versions from the health answer itself.
+// The Overview's main call to action, decided at runtime. The main button
+// promises only what the server can do: until the health probe answers, and
+// when the API is unreachable, it reads "How guided examples will work" and
+// opens the Modes article (with the build note and the caveat under it);
+// once the API answered it opens New deliberation, and reads "Run a guided
+// example" only when the server's capabilities say guided runs are enabled
+// (until they answer, or when they are not, it names the page instead). A
+// status line names the server's schema, policy and contract versions from
+// the health answer itself, and says so when the server's contract is not
+// the one this build was generated from.
 
 import { Button } from "@astryxdesign/core/Button";
 import { useTranslations } from "next-intl";
+import { useEffect, useState } from "react";
 
 import type { Locale } from "@/i18n/routing";
+import { api } from "@/lib/api/client";
+import { CONTRACT_SHA256 } from "@/lib/api/types";
 import { useApiHealth } from "@/lib/api/useApiHealth";
 import { docPath, localePath } from "@/lib/site";
+
+import { ContractMismatch } from "./ApiGate";
 
 type OverviewActionsProps = {
   locale: Locale;
@@ -27,6 +35,30 @@ export function OverviewActions({ locale, buildNote }: OverviewActionsProps) {
   const gate = useTranslations("ApiGate");
   const health = useApiHealth();
   const connected = health.status === "ok";
+  const [guided, setGuided] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!connected) {
+      return;
+    }
+    let cancelled = false;
+    api
+      .capabilities()
+      .then((capabilities) => {
+        if (!cancelled) {
+          setGuided(capabilities.guided_enabled);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGuided(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected]);
+
   return (
     <>
       {health.status === "unreachable" ? (
@@ -37,7 +69,7 @@ export function OverviewActions({ locale, buildNote }: OverviewActionsProps) {
           <Button
             href={localePath(locale, "new")}
             variant="primary"
-            label={t("primaryAction")}
+            label={guided === true ? t("primaryAction") : t("primaryActionNeutral")}
           />
         ) : (
           <Button
@@ -56,13 +88,18 @@ export function OverviewActions({ locale, buildNote }: OverviewActionsProps) {
         <p className="hc-supporting">{t("primaryActionNote")}</p>
       ) : null}
       {connected ? (
-        <p className="hc-supporting" data-api-status="connected">
-          {gate("connected", {
-            schema: health.health.schema_version,
-            policy: health.health.policy_version,
-            contract: health.health.contract_sha256.slice(0, 12),
-          })}
-        </p>
+        <>
+          <p className="hc-supporting" data-api-status="connected">
+            {gate("connected", {
+              schema: health.health.schema_version,
+              policy: health.health.policy_version,
+              contract: health.health.contract_sha256.slice(0, 12),
+            })}
+          </p>
+          {health.health.contract_sha256 === CONTRACT_SHA256 ? null : (
+            <ContractMismatch server={health.health.contract_sha256} />
+          )}
+        </>
       ) : null}
     </>
   );

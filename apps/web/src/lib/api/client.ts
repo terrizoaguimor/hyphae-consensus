@@ -130,6 +130,27 @@ export function newIdempotencyKey(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/** Longest judge code the contract accepts, in characters once trimmed. */
+export const JUDGE_CODE_MAX_CHARS = 256;
+
+/**
+ * The judge code as the server verifies it (`CreateLiveRunRequest.judge_code`:
+ * 1 to 256 characters once trimmed): the trimmed code, `undefined` when
+ * nothing remains (no code is sent, the run takes the public lane), or
+ * `null` when it is longer than the contract allows (the form refuses to
+ * start). Characters are counted as Unicode code points, as the server does.
+ */
+export function judgeCodeForRequest(raw: string | undefined): string | undefined | null {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return undefined;
+  }
+  return [...trimmed].length > JUDGE_CODE_MAX_CHARS ? null : trimmed;
+}
+
 const RUN_ID = /^run-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** True for the only run id shape the server serves (`run-` + UUID). */
@@ -295,6 +316,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
         idempotencyKey,
       }),
 
+    /**
+     * `POST /live-runs`. The judge code is sent trimmed, and only when 1 to
+     * 256 characters remain (`judgeCodeForRequest`); the Turnstile token goes
+     * in the `cf-turnstile-response` header. A token is single-use: the
+     * server spends it at Siteverify before reserving the budget, so the
+     * caller must never send the same token twice.
+     */
     createLiveRun: (
       presetId: string,
       gate: { turnstileToken: string | null; attestAdult: boolean; judgeCode?: string },
@@ -304,8 +332,9 @@ export function createApiClient(options: ApiClientOptions = {}) {
         preset_id: presetId,
         attest_adult: gate.attestAdult,
       };
-      if (gate.judgeCode !== undefined && gate.judgeCode !== "") {
-        body.judge_code = gate.judgeCode;
+      const judgeCode = judgeCodeForRequest(gate.judgeCode);
+      if (typeof judgeCode === "string") {
+        body.judge_code = judgeCode;
       }
       const headers: Record<string, string> = {};
       if (gate.turnstileToken !== null && gate.turnstileToken !== "") {

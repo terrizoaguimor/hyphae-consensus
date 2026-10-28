@@ -1,13 +1,17 @@
 "use client";
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Live / Playback tab: the stream status, the readability pacing (label
-// and skip control; off under reduced motion), the three-agent stage where
-// each card shows the latest document of its role from the frames (proposal
-// claims, challenge items by kind, evaluation assessments and verdicts) with
-// the delivery badge of the frame that carried it, the runtime lane (evidence
-// retrieved, proofs checked, recalls proven) and the recommendation. Every
-// number is counted from the frames.
+// The Live / Playback tab: the stream status (with a reconnect when the
+// stream failed), the readability pacing of a scripted run (label, waiting
+// count and skip control while replayed frames are queued; off under reduced
+// motion; never shown for a live or mixed model run), the three-agent stage
+// where each card shows the latest document of its role (proposal claims,
+// challenge items by kind, evaluation assessments and verdicts) with the
+// delivery badge of the record that carried it, the runtime lane (evidence
+// retrieved, proofs checked, recalls proven) and the recommendation. The
+// records are the frames shown so far plus what the detail holds and the
+// stream did not deliver (src/lib/run/view.ts stageRecords), so every count
+// matches the run.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
@@ -17,99 +21,23 @@ import type { ReactNode } from "react";
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type {
   Challenge,
-  ConsensusFrameV1,
   Evaluation,
   ModelInvocationV1,
   Proposal,
+  ProvenanceV1,
   Recommendation,
   VerificationV1,
 } from "@/lib/api/types";
 import {
   deliveryLabel,
   evidenceLabel,
+  isScriptedRun,
   proofToken,
   RECOMMENDATION_VARIANTS,
 } from "@/lib/provenance";
+import { type Carried, type ShownRecord, stageOf, stageRecords } from "@/lib/run/view";
 
 import type { RunData } from "./useRunData";
-
-type Carried<T> = { document: T; frame: ConsensusFrameV1 };
-
-type Stage = {
-  proposal: Carried<{ proposal: Proposal; supersedes: string | null; invocation: ModelInvocationV1 }> | null;
-  challenge: Carried<{ challenge: Challenge; invocation: ModelInvocationV1 }> | null;
-  evaluation: Carried<{ evaluation: Evaluation; invocation: ModelInvocationV1 }> | null;
-  recommendation: Carried<Recommendation> | null;
-  retrieved: number;
-  unavailable: number;
-  proven: number;
-  verifications: Carried<VerificationV1>[];
-};
-
-/** The latest document of each role, from the frames shown so far. */
-export function stageOf(frames: ConsensusFrameV1[]): Stage {
-  const stage: Stage = {
-    proposal: null,
-    challenge: null,
-    evaluation: null,
-    recommendation: null,
-    retrieved: 0,
-    unavailable: 0,
-    proven: 0,
-    verifications: [],
-  };
-  for (const frame of frames) {
-    const payload = frame.event.payload;
-    switch (payload.type) {
-      case "proposal_submitted":
-        stage.proposal = {
-          frame,
-          document: { proposal: payload.proposal, supersedes: null, invocation: payload.invocation },
-        };
-        break;
-      case "revision_submitted":
-        stage.proposal = {
-          frame,
-          document: {
-            proposal: payload.revision.proposal,
-            supersedes: payload.revision.supersedes,
-            invocation: payload.invocation,
-          },
-        };
-        break;
-      case "challenge_submitted":
-        stage.challenge = {
-          frame,
-          document: { challenge: payload.challenge, invocation: payload.invocation },
-        };
-        break;
-      case "evaluation_submitted":
-        stage.evaluation = {
-          frame,
-          document: { evaluation: payload.evaluation, invocation: payload.invocation },
-        };
-        break;
-      case "recommendation_issued":
-        stage.recommendation = { frame, document: payload.recommendation };
-        break;
-      case "evidence_retrieved":
-        stage.retrieved += 1;
-        break;
-      case "evidence_unavailable":
-        stage.unavailable += 1;
-        break;
-      case "recall_proven":
-        stage.proven += 1;
-        break;
-      case "evidence_verified":
-        stage.verifications.push({ frame, document: payload.verification });
-        break;
-      default:
-        break;
-    }
-  }
-  return stage;
-}
 
 type StageTabProps = {
   data: RunData;
@@ -117,12 +45,19 @@ type StageTabProps = {
 
 export function StageTab({ data }: StageTabProps) {
   const t = useTranslations("Run");
-  const { frames, stream, end, notices, pending, pacing, skipPacing, summary } = data;
-  const stage = stageOf(frames);
+  const { detail, frames, stream, end, notices, pending, pacing, pacedFrames, skipPacing, summary } =
+    data;
+  const settled = stream === "ended" || stream === "error" || stream === "closed";
+  const records = stageRecords(detail, frames, { settled, pending });
+  const stage = stageOf(records);
   const streamText =
     stream === "ended" && end !== null
       ? t("stream.ended", { reason: t(`stream.endReasons.${end.reason}`) })
       : t(`stream.${stream}`);
+  // Pacing exists only for scripted runs (the guided examples); a live or
+  // mixed model run is never paced and never labelled simulated.
+  const scripted = summary !== null && isScriptedRun(summary.provenance);
+  const queued = pacing === "on" && pending > 0;
 
   return (
     <div className="hc-stage-tab">
@@ -133,23 +68,45 @@ export function StageTab({ data }: StageTabProps) {
         {notices.invalid > 0 ? (
           <p className="hc-supporting">{t("stream.invalid", { count: notices.invalid })}</p>
         ) : null}
+        {stream === "error" ? (
+          <>
+            <p className="hc-supporting" data-stage-source={detail === null ? "none" : "stored"}>
+              {detail === null ? t("stream.noStoredRecords") : t("stream.storedRecords")}
+            </p>
+            <div className="hc-actions">
+              <Button
+                variant="secondary"
+                size="sm"
+                label={t("stream.reconnect")}
+                onClick={data.reconnect}
+              />
+            </div>
+          </>
+        ) : null}
       </div>
 
-      <div className="hc-pacing" data-pacing={pacing}>
-        {pacing === "reduced" ? (
-          <p className="hc-supporting">{t("pacing.off")}</p>
-        ) : (
-          <>
-            <Badge variant="purple" label={t("pacing.label")} />
-            <p className="hc-supporting hc-tabular-nums" role="status">
-              {t("pacing.pending", { count: pending })}
-            </p>
-            {pacing === "on" ? (
+      {scripted ? (
+        <div className="hc-pacing" data-pacing={pacing}>
+          {/* Announced twice only, when pacing starts and when it ends; the
+              waiting count below is not a live region. */}
+          <p className="hc-visually-hidden" role="status">
+            {queued ? t("pacing.started") : pacedFrames > 0 ? t("pacing.done") : ""}
+          </p>
+          {pacing === "reduced" ? (
+            <p className="hc-supporting">{t("pacing.off")}</p>
+          ) : pacing === "skipped" ? (
+            <p className="hc-supporting">{t("pacing.skipped")}</p>
+          ) : queued ? (
+            <>
+              <Badge variant="purple" label={t("pacing.label")} />
+              <p className="hc-supporting hc-tabular-nums" data-pacing-pending={pending}>
+                {t("pacing.pending", { count: pending })}
+              </p>
               <Button variant="secondary" size="sm" label={t("pacing.skip")} onClick={skipPacing} />
-            ) : null}
-          </>
-        )}
-      </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       <section className="hc-section" aria-labelledby="stage-heading">
         <h3 id="stage-heading">{t("stage.heading")}</h3>
@@ -213,8 +170,8 @@ export function StageTab({ data }: StageTabProps) {
         </ul>
         {stage.verifications.length === 0 ? null : (
           <ul className="hc-list" role="list">
-            {stage.verifications.map(({ document, frame }) => (
-              <li key={`${frame.event.sequence}`}>
+            {stage.verifications.map(({ document, record }) => (
+              <li key={`${record.event.sequence}`}>
                 <ProofStatus verification={document} />
               </li>
             ))}
@@ -232,7 +189,7 @@ export function StageTab({ data }: StageTabProps) {
               kind={stage.recommendation.document.kind}
               evidence={summary.provenance.evidence}
             />
-            <FrameBadge frame={stage.recommendation.frame} summary={summary} />
+            <FrameBadge record={stage.recommendation.record} summary={summary} />
             <p>{stage.recommendation.document.rationale}</p>
           </div>
         )}
@@ -246,7 +203,7 @@ export function RecommendationLine({
   evidence,
 }: {
   kind: Recommendation["kind"];
-  evidence: ConsensusFrameV1["summary"]["provenance"]["evidence"];
+  evidence: ProvenanceV1["evidence"];
 }) {
   const t = useTranslations("Run");
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
@@ -263,17 +220,29 @@ export function RecommendationLine({
   );
 }
 
-/** The delivery badge of one frame, per the honesty rules (LIVE needs a live model). */
-function FrameBadge({ frame, summary }: { frame: ConsensusFrameV1; summary: RunData["summary"] }) {
+/** Provenance that never reads LIVE, for the (unreachable) case of a record without a summary. */
+const UNKNOWN_PROVENANCE: Pick<ProvenanceV1, "model" | "flags"> = { model: "undetermined" };
+
+/**
+ * The delivery badge of one record, per the honesty rules (LIVE needs a live
+ * frame of a live-model run without a blocking flag); a record known only
+ * from the detail reads REPLAY.
+ */
+function FrameBadge({ record, summary }: { record: ShownRecord; summary: RunData["summary"] }) {
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const format = useFormatter();
-  const provenance = summary?.provenance ?? frame.summary.provenance;
-  const label = deliveryLabel(frame.delivery, provenance);
+  const provenance = summary?.provenance ?? UNKNOWN_PROVENANCE;
+  const label = deliveryLabel(record.delivery, provenance);
   return (
-    <p className="hc-frame-badge hc-supporting" data-frame-delivery={frame.delivery} data-frame-label={label.key}>
+    <p
+      className="hc-frame-badge hc-supporting"
+      data-frame-delivery={record.delivery}
+      data-frame-label={label.key}
+      data-from-detail={record.fromDetail}
+    >
       <Badge variant={label.variant} label={tProvenance(label.key)} />
       <span className="hc-tabular-nums">
-        {format.dateTime(new Date(frame.event.occurred_at), {
+        {format.dateTime(new Date(record.event.occurred_at), {
           dateStyle: "medium",
           timeStyle: "medium",
         })}
@@ -301,7 +270,7 @@ function RoleCard({
     <article className="hc-stage-card" data-role-card={title}>
       <header className="hc-stage-card-head">
         <h4>{title}</h4>
-        {carried === null ? null : <FrameBadge frame={carried.frame} summary={summary} />}
+        {carried === null ? null : <FrameBadge record={carried.record} summary={summary} />}
       </header>
       {invocation === null ? null : (
         <p className="hc-supporting" data-model-note={invocation.scripted ? "scripted" : "model"}>

@@ -15,6 +15,8 @@ import {
   ApiError,
   createApiClient,
   isRunId,
+  JUDGE_CODE_MAX_CHARS,
+  judgeCodeForRequest,
   newIdempotencyKey,
   parseRetryAfter,
   TURNSTILE_HEADER,
@@ -99,6 +101,28 @@ describe("requests", () => {
     const call = calls[0] as Call;
     expect(headerOf(call, TURNSTILE_HEADER)).toBeUndefined();
     expect(JSON.parse(String(call.init.body))).toEqual({ preset_id: "p", attest_adult: false });
+  });
+
+  it("sends the judge code trimmed, and only when 1 to 256 characters remain", async () => {
+    const created = { status: 202, body: fixtureText("run-created-live-R01-reference.json") };
+    const { calls, client } = server([created, created, created, created]);
+    const send = (judgeCode: string) =>
+      client.createLiveRun(
+        "R01-reference",
+        { turnstileToken: "tok", attestAdult: true, judgeCode },
+        newIdempotencyKey(),
+      );
+    await send("  alpha-7231 \t");
+    await send("   ");
+    await send("x".repeat(JUDGE_CODE_MAX_CHARS + 1));
+    await send(` ${"x".repeat(JUDGE_CODE_MAX_CHARS)} `);
+    const bodies = calls.map((call) => JSON.parse(String(call.init.body)) as Record<string, unknown>);
+    expect(bodies[0]?.judge_code).toBe("alpha-7231");
+    expect(bodies[1]).not.toHaveProperty("judge_code");
+    expect(bodies[2]).not.toHaveProperty("judge_code");
+    expect(bodies[3]?.judge_code).toBe("x".repeat(JUDGE_CODE_MAX_CHARS));
+    // Every request carries its own Idempotency-Key.
+    expect(new Set(calls.map((call) => headerOf(call, "Idempotency-Key"))).size).toBe(4);
   });
 
   it("builds the decision body with the expected block, note only when given", async () => {
@@ -257,6 +281,18 @@ describe("helpers", () => {
     const b = newIdempotencyKey();
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(a).not.toBe(b);
+  });
+
+  it("judgeCodeForRequest trims and counts code points, as the server does", () => {
+    expect(judgeCodeForRequest(undefined)).toBeUndefined();
+    expect(judgeCodeForRequest("")).toBeUndefined();
+    expect(judgeCodeForRequest(" \n\t ")).toBeUndefined();
+    expect(judgeCodeForRequest("  JUDGE-1 ")).toBe("JUDGE-1");
+    // 256 astral characters are 512 UTF-16 units but 256 characters.
+    const astral = "\u{1F600}".repeat(JUDGE_CODE_MAX_CHARS);
+    expect(judgeCodeForRequest(astral)).toBe(astral);
+    expect(judgeCodeForRequest(`${astral}x`)).toBeNull();
+    expect(judgeCodeForRequest("x".repeat(JUDGE_CODE_MAX_CHARS + 1))).toBeNull();
   });
 
   it("isRunId accepts run- + UUID only", () => {

@@ -52,12 +52,14 @@
   },
   "ApiGate": {
     "checking": "Vérification de la connexion à l’API de Hyphae Consensus…",
-    "connected": "Connecté à l’API : schéma {schema}, politique {policy}, contrat {contract}."
+    "connected": "Connecté à l’API : schéma {schema}, politique {policy}, contrat {contract}.",
+    "contractMismatch": "Cette version a été construite pour le contrat d’API {build}, et le serveur annonce le contrat {server} : chaque réponse reste vérifiée avec le contrat de cette version, mais ce qui est nouveau sur le serveur peut ne pas s’afficher."
   },
   "Api": {
     "errorTitle": "Le serveur a refusé la requête",
     "errorDetail": "Code {code}, HTTP {status}.",
     "retryAfter": "{seconds, plural, =0 {Vous pouvez réessayer maintenant.} one {Réessayez dans # seconde.} other {Réessayez dans # secondes.}}",
+    "retry": "Réessayer",
     "errors": {
       "invalid_request": "Le serveur n’a pas accepté la requête telle qu’envoyée (un champ inconnu, une valeur incorrecte ou un champ manquant).",
       "payload_too_large": "La requête dépassait la taille que le serveur accepte.",
@@ -87,6 +89,22 @@
       "upstream_unavailable": "Un service externe dont le serveur dépend est injoignable.",
       "ndjson_unavailable": "Le journal d’événements brut d’une exécution en direct n’est pas publié sur la surface publique ; le détail et le reçu en portent la vue épurée.",
       "request_timeout": "Le serveur n’a pas traité la requête dans son délai.",
+      "live_budget_daily": "Le budget quotidien du mode en direct ne peut pas accueillir une autre exécution pour le moment ; le serveur indique quand réessayer.",
+      "live_budget_lifetime": "Le budget total du mode en direct est épuisé : le mode en direct n’admet plus d’exécution.",
+      "live_budget_judge_daily": "Le budget du jour de la voie des codes d’invitation est épuisé ; il se renouvelle au prochain jour UTC.",
+      "live_budget_judge_slice": "Le budget de la voie des codes d’invitation est épuisé.",
+      "live_concurrency": "Toutes les places du mode en direct sont occupées ; réessayez bientôt.",
+      "live_hourly_admissions": "La limite horaire d’exécutions en direct est atteinte ; le serveur indique quand réessayer.",
+      "live_tripped": "Le mode en direct est en pause jusqu’à ce que l’opérateur le réarme.",
+      "live_unavailable": "Le mode en direct est indisponible pour le moment ; rien n’a été facturé.",
+      "turnstile_required": "Le mode en direct exige d’abord la vérification humaine (Cloudflare Turnstile).",
+      "turnstile_failed": "Cloudflare n’a pas accepté la vérification humaine ; effectuez-en une nouvelle et réessayez.",
+      "turnstile_unavailable": "La vérification humaine n’a pas pu être contrôlée, car Cloudflare était injoignable ; réessayez bientôt.",
+      "attestation_required": "Le mode en direct exige que vous confirmiez avoir 18 ans ou plus et ne pas l’utiliser depuis un territoire restreint.",
+      "geo_blocked_portal": "Ce portail n’est pas disponible depuis votre pays.",
+      "geo_blocked_live": "Le mode en direct n’est pas disponible depuis votre pays.",
+      "geo_unknown": "Votre pays n’a pas pu être déterminé, le serveur a donc refusé la requête.",
+      "preset_unknown": "Le serveur ne connaît pas cette tâche prédéfinie.",
       "internal": "Quelque chose a échoué sur le serveur.",
       "unreachable": "Le serveur est injoignable.",
       "unexpected_status": "Le serveur a répondu avec un statut que ce client ne comprend pas.",
@@ -101,6 +119,7 @@
   },
   "Overview": {
     "primaryAction": "Lancer un exemple guidé",
+    "primaryActionNeutral": "Aller à Nouvelle délibération",
     "primaryActionPlanned": "Comment fonctionneront les exemples guidés",
     "primaryActionNote": "Les exécutions guidées nécessitent l’API de Hyphae Consensus, qui n’est pas connectée dans cette version.",
     "secondaryAction": "Comment ça marche",
@@ -139,42 +158,63 @@
     },
     "guided": {
       "heading": "Exemples guidés",
-      "intro": "Cinq scénarios scénarisés. Les rôles sont des doublures scénarisées et les éléments probants sont simulés : aucun modèle n’est appelé et aucune preuve n’est réelle. Chacun atteint son résultat documenté en quelques millisecondes ; la page de l’exécution le rejoue ensuite.",
+      "intro": "Les rôles sont des doublures scénarisées et les éléments probants sont simulés : aucun modèle n’est appelé et aucune preuve n’est réelle. Chaque scénario atteint son résultat documenté en quelques millisecondes ; la page de l’exécution le rejoue ensuite.",
+      "count": "{count, plural, =0 {Le serveur ne liste aucun scénario guidé.} one {Le serveur liste # scénario guidé.} many {Le serveur liste # de scénarios guidés.} other {Le serveur liste # scénarios guidés.}}",
       "modelBadge": "Modèle SIMULÉ",
       "evidenceBadge": "Éléments probants SIMULÉS",
       "expected": "Résultat attendu",
       "run": "Lancer",
       "runScenario": "Lancer {title}",
       "starting": "Démarrage…",
-      "empty": "Le serveur ne liste aucun scénario guidé.",
       "disabled": "Les exemples guidés ne sont pas activés sur ce serveur."
     },
     "live": {
       "heading": "Tâches prédéfinies en direct",
-      "intro": "Des tâches sélectionnées, délibérées par le modèle de Meta avec la clé du propriétaire, avec des éléments probants issus d’un instantané scellé de Hyphae. Tâches prédéfinies uniquement : aucun texte libre n’atteint un modèle.",
-      "modelBadge": "META EN DIRECT",
-      "evidenceBadge": "Éléments probants d’INSTANTANÉ SCELLÉ",
+      "intro": "Des tâches sélectionnées, délibérées par le modèle de Meta avec la clé du propriétaire. Tâches prédéfinies uniquement : aucun texte libre n’atteint un modèle. Chaque tâche indique d’où viennent ses éléments probants sur ce serveur.",
       "disabled": "Le mode en direct n’est pas activé sur ce serveur.",
       "disabledHint": "Les exécutions enregistrées de la vitrine de recherche montrent à quoi ressemble une exécution en direct.",
       "showcaseLink": "Ouvrir la vitrine de recherche",
       "noPresets": "Le mode en direct est activé, mais le serveur ne liste encore aucune tâche prédéfinie.",
       "presetLegend": "Tâche prédéfinie",
-      "untitledPreset": "Tâche prédéfinie {id}",
-      "budgetHeading": "Budget public",
-      "attest": "Je confirme avoir 18 ans ou plus.",
-      "attestDescription": "Le mode en direct appelle le modèle de Meta ; les Conditions d’utilisation n’admettent que des visiteurs adultes.",
+      "budget": {
+        "heading": "Budget public du mode en direct",
+        "availableNow": "Disponible maintenant",
+        "dailyRemaining": "Reste aujourd’hui (UTC)",
+        "lifetimeRemaining": "Reste au total",
+        "note": "En dollars américains, tels que le registre budgétaire du serveur les annonce. Chaque exécution en direct réserve son coût maximal avant de démarrer : une exécution peut donc être refusée alors qu’il reste du budget."
+      },
+      "attest": "Je confirme avoir 18 ans ou plus et ne pas utiliser le mode en direct depuis un territoire restreint.",
+      "attestDescription": "Le mode en direct appelle le modèle de Meta avec la clé du propriétaire ; le serveur ne lance une exécution en direct qu’avec cette confirmation.",
+      "attestTerms": "Les territoires restreints et la règle d’âge figurent dans les <terms>Conditions d’utilisation</terms>.",
       "inviteSummary": "J’ai un code d’invitation",
       "inviteLabel": "Code d’invitation",
-      "inviteDescription": "Facultatif. Un code de jury admet une exécution hors du budget public.",
+      "inviteDescription": "Facultatif, jusqu’à {max} caractères. Un code de jury admet une exécution hors du budget public.",
       "turnstileHeading": "Vérification humaine",
-      "turnstileMissing": "Le mode en direct exige le défi Turnstile de Cloudflare, et cette version a été construite sans clé de site Turnstile ; le serveur refusera la requête tant qu’une clé n’est pas configurée à la construction.",
+      "turnstileMissing": "Le mode en direct exige le défi Turnstile de Cloudflare, et cette version a été construite sans clé de site Turnstile : aucune exécution en direct ne peut donc être lancée depuis elle.",
       "turnstileLoading": "Chargement du défi Turnstile de Cloudflare…",
       "turnstilePassed": "Défi réussi.",
-      "turnstileFailed": "Le défi n’a pas abouti ; rechargez la page pour réessayer.",
+      "turnstileFailed": "Le défi n’a pas abouti ; réessayez-le ou rechargez la page.",
+      "turnstileRetry": "Réessayer le défi",
+      "turnstileClosed": "La vérification humaine apparaît lorsque le mode en direct peut lancer une exécution.",
       "start": "Lancer l’exécution en direct",
       "starting": "Démarrage…",
       "needsPreset": "Choisissez d’abord une tâche prédéfinie.",
-      "needsAttestation": "Confirmez d’abord la déclaration d’âge."
+      "needsAttestation": "Confirmez d’abord la déclaration ci-dessus.",
+      "needsShorterCode": "Le code d’invitation peut compter au plus {max} caractères.",
+      "needsTurnstile": "Effectuez d’abord la vérification humaine.",
+      "closed": {
+        "tripped": "Le mode en direct est en pause : son registre budgétaire refuse toute exécution en direct jusqu’à ce que l’opérateur le réarme.",
+        "budgetUnknown": "Le budget du mode en direct n’a pas pu être lu : aucune exécution en direct ne peut démarrer pour le moment."
+      },
+      "trip": {
+        "kill_switch": "L’opérateur a désactivé le mode en direct.",
+        "lifetime_cap": "Le budget total du mode en direct est épuisé.",
+        "output_bound": "Un appel au modèle a renvoyé plus de sortie que sa limite ne le permettait : le registre s’est arrêté de lui-même.",
+        "charge_bound": "Un appel au modèle a coûté plus que son estimation réservée : le registre s’est arrêté de lui-même.",
+        "provider_refused_key": "La Model API de Meta a refusé la clé du serveur : le registre s’est arrêté de lui-même.",
+        "inconsistent": "Les enregistrements du registre ne concordent pas : il s’est arrêté de lui-même.",
+        "other": "Le registre s’est arrêté de lui-même (code {code})."
+      }
     }
   },
   "Runs": {
@@ -207,6 +247,7 @@
     "invalidId": "Cette adresse ne désigne pas une exécution.",
     "loading": "Chargement de l’exécution…",
     "goToRuns": "Aller à Mes exécutions",
+    "detailError": "La copie de cette exécution sur le serveur n’a pas pu être lue ; ce qui s’affiche vient du flux et de la dernière lecture réussie.",
     "tabs": {
       "label": "Vues de l’exécution",
       "live": "Direct",
@@ -218,7 +259,10 @@
       "state": "État",
       "outcome": "Résultat",
       "noOutcome": "Pas encore de recommandation",
-      "revision": "Tour de révision {round}",
+      "recordsLabel": "Enregistrements",
+      "revision": "Tour de révision",
+      "runId": "Id de l’exécution",
+      "forRevision": "pour la proposition révisée {id}",
       "records": "{count, plural, =0 {Aucun enregistrement} one {# enregistrement} many {# d’enregistrements} other {# enregistrements}}",
       "provenance": "Provenance",
       "flags": "Signalements",
@@ -261,13 +305,19 @@
       },
       "gap": "Des enregistrements manquaient dans le flux ; l’exécution a été relue depuis le serveur.",
       "resync": "Le serveur a relu son journal ; l’exécution a été relue depuis le serveur.",
-      "invalid": "{count, plural, one {# trame ne correspondait pas} other {# trames ne correspondaient pas}} au contrat et {count, plural, one {a été écartée} other {ont été écartées}}."
+      "invalid": "{count, plural, =0 {Toutes les trames correspondaient au contrat.} one {# trame ne correspondait pas au contrat et a été écartée.} other {# trames ne correspondaient pas au contrat et ont été écartées.}}",
+      "storedRecords": "Le flux n’a pas pu être ouvert ; la scène affiche les enregistrements stockés sur le serveur.",
+      "noStoredRecords": "Le flux n’a pas pu être ouvert, et les enregistrements stockés de l’exécution n’ont pas pu être lus non plus.",
+      "reconnect": "Se reconnecter"
     },
     "pacing": {
       "label": "simulé · cadencé pour la lecture",
       "skip": "Passer la cadence",
       "pending": "{count, plural, =0 {Tous les enregistrements sont affichés.} one {# enregistrement en attente.} many {# d’enregistrements en attente.} other {# enregistrements en attente.}}",
-      "off": "Cadence désactivée : animations réduites."
+      "off": "Cadence désactivée : animations réduites.",
+      "started": "Cadence activée : les enregistrements stockés de cette exécution scénarisée s’affichent un par un.",
+      "done": "Tous les enregistrements sont affichés.",
+      "skipped": "Cadence passée : tous les enregistrements sont affichés."
     },
     "stage": {
       "heading": "Scène de la délibération",
@@ -308,8 +358,9 @@
       "retrieved": "{count, plural, =0 {Aucun élément probant récupéré} one {# enregistrement récupéré} many {# d’enregistrements récupérés} other {# enregistrements récupérés}}",
       "verified": "{count, plural, =0 {Aucune preuve vérifiée} one {# preuve vérifiée} many {# de preuves vérifiées} other {# preuves vérifiées}}",
       "proven": "{count, plural, =0 {Aucune requête prouvée} one {# requête prouvée} many {# de requêtes prouvées} other {# requêtes prouvées}}",
-      "unavailable": "{count, plural, one {# récupération a échoué} many {# de récupérations ont échoué} other {# récupérations ont échoué}}",
+      "unavailable": "{count, plural, =0 {Aucune récupération n’a échoué} one {# récupération a échoué} many {# de récupérations ont échoué} other {# récupérations ont échoué}}",
       "simulatedProof": "Preuve SIMULÉE : résultat scénarisé « {status} », aucune cryptographie vérifiée",
+      "simulatedProofShort": "Preuve SIMULÉE (résultat scénarisé « {status} »)",
       "proofStatus": "preuve {status}",
       "recommendation": "Recommandation",
       "noRecommendation": "Aucune recommandation émise pour l’instant.",
@@ -326,7 +377,8 @@
       "summary": "Résumé",
       "json": "Événement public (JSON)",
       "empty": "Aucun enregistrement ne correspond à ce filtre.",
-      "count": "{shown, plural, one {# enregistrement} many {# d’enregistrements} other {# enregistrements}} sur {total}",
+      "count": "{shown, plural, =0 {aucun enregistrement} one {# enregistrement} many {# d’enregistrements} other {# enregistrements}} sur {total}",
+      "partial": "La copie de cette exécution sur le serveur n’a pas pu être lue : la chronologie n’affiche que les enregistrements livrés par le flux.",
       "actors": {
         "runtime": "environnement d’exécution",
         "human": "humain {id}"
@@ -350,15 +402,32 @@
         "human_decision_recorded": "décision humaine enregistrée",
         "run_failed": "exécution échouée"
       },
+      "factual": {
+        "corroborated": "corroboré",
+        "uncorroborated": "non corroboré",
+        "contradicted": "contredit",
+        "not_assessed": "non évalué"
+      },
+      "relevance": {
+        "relevant": "pertinent",
+        "irrelevant": "non pertinent",
+        "not_assessed": "non évalué"
+      },
+      "authority": {
+        "operator": "opérateur",
+        "public_demo": "démonstration publique, sans autorité opérationnelle",
+        "unspecified": "non précisée (avant 1.3)",
+        "other": "autorité {authority}"
+      },
       "summaries": {
         "task_created": "{title}",
         "proposal_submitted": "{id} : {summary}",
         "evidence_retrieved": "{id} ({kind})",
         "evidence_unavailable": "{message}",
         "recall_proven": "{count, plural, =0 {aucun enregistrement} one {# enregistrement} many {# d’enregistrements} other {# enregistrements}} sous l’ancre {anchor}",
-        "evidence_verified": "{id} : intégrité {integrity}, factuel {factual}, pertinence {relevance}",
+        "evidence_verified": "{id} : {proof} ; état factuel : {factual} ; pertinence : {relevance}",
         "challenge_submitted": "{count, plural, =0 {aucune objection} one {# objection} many {# d’objections} other {# objections}} sur {target}",
-        "evaluation_submitted": "{corroborated} affirmations corroborées sur {claims}, {unresolved} non résolues",
+        "evaluation_submitted": "affirmations corroborées : {corroborated} sur {claims} ; non résolues : {unresolved}",
         "revision_submitted": "{id} remplace {supersedes} : {summary}",
         "recommendation_issued": "{kind}",
         "human_decision_recorded": "{decision} par {by} ({authority})",
@@ -375,7 +444,8 @@
       "objections": "Objections ouvertes",
       "noObjections": "Aucune objection ouverte.",
       "pending": "Pas encore de recommandation : l’exécution délibère encore.",
-      "superseded": "La recommandation porte sur la proposition révisée ; l’originale demandait autre chose.",
+      "superseded": "Cette recommandation porte sur la proposition révisée {revised}, qui a remplacé la proposition d’origine {original}.",
+      "supersededTask": "Tâche : {title}",
       "original": "Proposition d’origine {id}",
       "revised": "Proposition révisée {id}",
       "publicDemo": "Les décisions prises sur ce portail public n’ont aucune autorité opérationnelle : approuver ou rejeter enregistre votre choix sur cette exécution et n’exécute rien.",
@@ -386,6 +456,7 @@
       "noteDescription": "Facultative, 2000 caractères au plus. Obligatoire pour approuver une exécution bloquée ou en abstention (un passage outre).",
       "overrideRequired": "Approuver une exécution {kind} est un passage outre : écrivez d’abord une note.",
       "notAwaiting": "L’exécution n’attend pas de décision.",
+      "detailUnavailable": "La décision a besoin de la copie de cette exécution sur le serveur, qui n’a pas pu être lue ; utilisez Réessayer ci-dessus.",
       "submitting": "Enregistrement…",
       "recorded": "Décision enregistrée : {decision} par {by} le {date}.",
       "approved": "approuvée",
@@ -393,9 +464,55 @@
       "withNote": "Note : {note}",
       "receipt": "Ouvrir le reçu (JSON)",
       "ndjson": "Télécharger le journal d’événements brut",
+      "ndjsonUnavailable": "Le journal d’événements brut de cette exécution n’est pas publié sur la surface publique : les enregistrements d’un modèle en direct peuvent citer du texte externe. Le reçu en porte la vue épurée.",
       "cancel": "Annuler cette exécution",
       "cancelling": "Annulation demandée : l’exécution s’arrête à son prochain point de contrôle.",
       "cancelHint": "Seule une exécution encore en délibération peut être annulée."
+    },
+    "failure": {
+      "title": "L’exécution a échoué",
+      "detail": "Étape {stage}, code {code}.",
+      "detailNoCode": "Étape {stage}.",
+      "unknownCode": "L’exécution a échoué (code {code}).",
+      "noCode": "L’exécution a échoué à l’étape {stage}.",
+      "codes": {
+        "cancelled": "L’exécution a été annulée par son propriétaire.",
+        "shutdown": "Le serveur s’est arrêté avant la fin de l’exécution.",
+        "deadline": "Le délai de l’exécution est dépassé.",
+        "interrupted": "Le serveur a redémarré avant la fin de l’exécution.",
+        "panic": "L’exécution s’est arrêtée à cause d’une erreur interne.",
+        "model_timeout": "Un appel au modèle a expiré.",
+        "model_unavailable": "Le service du modèle était indisponible.",
+        "model_malformed_output": "Le modèle a renvoyé une sortie qui a été refusée.",
+        "evaluation_contract": "Un document du modèle a enfreint le protocole de délibération et a été refusé.",
+        "challenge_contract": "Un document du modèle a enfreint le protocole de délibération et a été refusé.",
+        "proposal_contract": "Un document du modèle a enfreint le protocole de délibération et a été refusé.",
+        "token_budget_exceeded": "L’exécution a dépassé son budget de jetons.",
+        "token_usage_missing": "Un appel au modèle n’a indiqué aucune consommation de jetons : le budget n’a donc pas pu être appliqué.",
+        "persistence": "L’enregistrement de l’exécution n’a pas pu être écrit.",
+        "budget_refused": "Le budget du mode en direct a refusé de financer l’appel suivant au modèle : plus rien n’a été envoyé.",
+        "budget_unsettled": "Le budget du mode en direct n’a pas pu enregistrer le coût d’un appel au modèle : l’exécution s’est arrêtée, et l’appel reste compté à son estimation.",
+        "meta_unauthorized": "La Model API de Meta a refusé la clé du serveur.",
+        "meta_billing": "La Model API de Meta a signalé un problème de facturation sur le compte du propriétaire.",
+        "meta_forbidden": "La Model API de Meta n’a pas autorisé cet appel avec la clé du serveur.",
+        "meta_bad_request": "La Model API de Meta a refusé la requête.",
+        "meta_rate_limited": "La limite de requêtes de la Model API de Meta a été atteinte.",
+        "meta_unavailable": "La Model API de Meta était indisponible.",
+        "meta_timeout": "Un appel à la Model API de Meta ne s’est pas terminé à temps.",
+        "meta_transport": "La connexion à la Model API de Meta a échoué.",
+        "meta_config": "La configuration de la Model API du serveur n’a pas pu être utilisée.",
+        "model_output_truncated": "La sortie du modèle a atteint sa limite de longueur avant que le document soit complet.",
+        "model_refusal": "Le modèle a refusé de produire le document."
+      }
+    },
+    "unavailable": {
+      "noCode": "Les éléments probants n’ont pas pu être récupérés.",
+      "unknownCode": "Les éléments probants n’ont pas pu être récupérés (code {code}).",
+      "codes": {
+        "memory_unavailable": "Le backend de mémoire était injoignable.",
+        "memory_error": "Le backend de mémoire a répondu par une erreur.",
+        "evidence_cap": "Les enregistrements au-delà de la limite d’éléments probants par exécution n’ont pas été traités."
+      }
     }
   },
   "Showcase": {
@@ -523,6 +640,10 @@
       "recorded": "Modèle de Meta · enregistré le {date}",
       "live": "Modèle de Meta · en direct",
       "description": "Une exécution en cours : des appels en direct à muse-wonder-1.0 de Meta, avec des éléments probants issus d’un instantané scellé de Hyphae dont les preuves sont revérifiées à chaque exécution. META EN DIRECT n’apparaît jamais seule ; l’étiquette des éléments probants est toujours à côté."
+    },
+    "metaModel": {
+      "label": "MODÈLE META",
+      "description": "Enregistrements d’une exécution du modèle de Meta affichés après coup (rejoués, listés ou archivés) : de vrais appels au modèle, mais qui n’ont pas lieu maintenant. META EN DIRECT ne s’affiche que pour des enregistrements qui arrivent pendant que vous regardez."
     },
     "hyphaeLive": {
       "label": "HYPHAE EN DIRECT"

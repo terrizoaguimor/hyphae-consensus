@@ -7,9 +7,16 @@
 //
 // - LIVE only when the frame's delivery is `live` AND the model axis is
 //   `live_meta` AND no flag is raised; a `provenance_inconsistent`,
-//   `unchained` or `mode_undeclared` flag never renders as LIVE.
+//   `unchained` or `mode_undeclared` flag never renders as LIVE. Every label
+//   with a LIVE word (the LIVE delivery badge, the LIVE META model badge, the
+//   "Meta model · live" note, the Live tab) goes through `isLive`; a view
+//   without a frame (a list, a preset) never shows one.
 // - A replayed frame of a live-model run reads "Meta model · recorded <date>"
-//   next to REPLAY; a scripted model reads "scripted double, no model call".
+//   next to REPLAY and the model badge META MODEL; a scripted model reads
+//   "scripted double, no model call".
+// - Client-side pacing ("simulated · paced for readability") only for the
+//   replayed frames of a scripted run (`isPaceable`), never for a live or
+//   mixed model run.
 // - Simulated evidence is always named next to the outcome ("supported, on
 //   SIMULATED evidence"), and a simulated proof is never a green "valid": it
 //   gets the neutral SIMULATED token with its scripted outcome as text.
@@ -63,11 +70,28 @@ export function isLive(
   );
 }
 
-/** The model axis as a label. LIVE META never stands alone: callers always place the evidence label next to it. */
-export function modelLabel(model: ModelProvenance): ProvenanceLabel {
-  switch (model) {
+/**
+ * The model axis as a label. The LIVE-worded LIVE META only when `isLive`
+ * holds for the delivery given (the latest frame of a run being watched);
+ * without a delivery (a list entry, a preset) or for a replayed frame it is
+ * META MODEL, and with a blocking flag META MODEL in the warning variant. No
+ * other label of the model axis carries a LIVE word in any locale
+ * (tests/provenance.test.ts). Callers always place the evidence label next
+ * to it.
+ */
+export function modelLabel(
+  provenance: Pick<ProvenanceV1, "model" | "flags">,
+  delivery?: Delivery,
+): ProvenanceLabel {
+  switch (provenance.model) {
     case "live_meta":
-      return { key: "liveMeta.label", variant: "info" };
+      if (delivery !== undefined && isLive(delivery, provenance)) {
+        return { key: "liveMeta.label", variant: "info" };
+      }
+      return {
+        key: "metaModel.label",
+        variant: hasBlockingFlag(provenance) ? "warning" : "info",
+      };
     case "scripted":
       return { key: "scripted.label", variant: "purple" };
     case "mixed":
@@ -76,6 +100,14 @@ export function modelLabel(model: ModelProvenance): ProvenanceLabel {
       return { key: "undetermined.label", variant: "neutral" };
   }
 }
+
+/** Every model axis value, for tests and exhaustive views. */
+export const MODEL_PROVENANCES: readonly ModelProvenance[] = [
+  "scripted",
+  "live_meta",
+  "mixed",
+  "undetermined",
+];
 
 export function evidenceLabel(evidence: EvidenceProvenance): ProvenanceLabel {
   switch (evidence) {
@@ -127,21 +159,74 @@ export function deliveryLabel(
 }
 
 /**
- * The sentence under a model label: for a live model that is being replayed,
- * "Meta model · recorded <date>" (the date is the record's own); for a
- * scripted double, that no model was called.
+ * The sentence under a model label: "Meta model · live" only when `isLive`;
+ * for a live model that is replayed, listed or flagged, "Meta model ·
+ * recorded <date>" (the date is the record's own); for a scripted double,
+ * that no model was called. Without a delivery (a list) a live model is
+ * always "recorded".
  */
 export function modelNoteKey(
-  delivery: Delivery,
+  delivery: Delivery | undefined,
   provenance: Pick<ProvenanceV1, "model" | "flags">,
 ): "liveMeta.recorded" | "scripted.note" | "liveMeta.live" | null {
   if (provenance.model === "scripted") {
     return "scripted.note";
   }
   if (provenance.model === "live_meta") {
-    return isLive(delivery, provenance) ? "liveMeta.live" : "liveMeta.recorded";
+    return delivery !== undefined && isLive(delivery, provenance)
+      ? "liveMeta.live"
+      : "liveMeta.recorded";
   }
   return null;
+}
+
+/**
+ * A run whose roles are scripted doubles: by its records (model axis
+ * `scripted`), or, before any model call is recorded, by the mode it was
+ * declared with (a guided run is declared `scripted`). A live, mixed or
+ * live-declared run is never one.
+ */
+export function isScriptedRun(provenance: Pick<ProvenanceV1, "model" | "declared">): boolean {
+  if (provenance.model === "scripted") {
+    return true;
+  }
+  return provenance.model === "undetermined" && provenance.declared?.model === "scripted";
+}
+
+/**
+ * Whether a frame may be paced client-side and shown under "simulated ·
+ * paced for readability": a replayed frame of a scripted run, nothing else.
+ * Live frames are never delayed, and a live-model run is never labelled
+ * simulated.
+ */
+export function isPaceable(
+  delivery: Delivery,
+  provenance: Pick<ProvenanceV1, "model" | "declared">,
+): boolean {
+  return delivery === "replay" && isScriptedRun(provenance);
+}
+
+/**
+ * Whether the public surface publishes the run's verbatim log
+ * (`events.ndjson`), mirroring the server's rule
+ * (`public_view::ndjson_publishable`): declared with a scripted model over
+ * simulated or no evidence, and recording nothing else. Any other run
+ * answers `404 ndjson_unavailable`; its detail and receipt carry the
+ * sanitized view.
+ */
+export function ndjsonPublishable(
+  provenance: Pick<ProvenanceV1, "model" | "evidence" | "declared">,
+): boolean {
+  const declared = provenance.declared;
+  if (declared === undefined || declared === null) {
+    return false;
+  }
+  return (
+    declared.model === "scripted" &&
+    (declared.evidence === "simulated" || declared.evidence === "offline") &&
+    (provenance.model === "scripted" || provenance.model === "undetermined") &&
+    (provenance.evidence === "simulated" || provenance.evidence === "none")
+  );
 }
 
 /** Outcome as text: the kind, always with its evidence axis next to it. */

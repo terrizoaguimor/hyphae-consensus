@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The provenance axes of one run or frame as badges, from the recorded
-// provenance (never from a request): model next to its evidence label (LIVE
-// META never stands alone), the source, the delivery of the latest frame when
-// one is known, and every flag the server raised. The predicates and the
-// label vocabulary live in src/lib/provenance.ts; the legend on the Overview
-// (ProvenanceLabels) uses the same variants.
+// provenance (never from a request): model next to its evidence label, the
+// source, the delivery of the latest frame when one is known, and every flag
+// the server raised. The model badge reads LIVE META only when the latest
+// frame passes isLive; a list entry (no delivery), a replayed frame or a
+// flagged run reads META MODEL, with "Meta model · recorded <date>" under it.
+// The predicates and the label vocabulary live in src/lib/provenance.ts; the
+// legend on the Overview (ProvenanceLabels) uses the same variants.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { useFormatter, useTranslations } from "next-intl";
@@ -28,7 +30,7 @@ type ProvenanceBadgesProps = {
   delivery?: Delivery;
   /** The latest record's own time, for "Meta model · recorded <date>". */
   recordedAt?: string;
-  /** Adds the axis names (for a header) instead of badges alone. */
+  /** Adds the model note and the flag notes (for a header) to the badges. */
   withNote?: boolean;
 };
 
@@ -42,11 +44,15 @@ export function ProvenanceBadges({
   // is checked against every catalog by tests/provenance.test.ts.
   const t = dynamicTranslator(useTranslations("Provenance"));
   const format = useFormatter();
-  const model = modelLabel(provenance.model);
+  const model = modelLabel(provenance, delivery);
   const evidence = evidenceLabel(provenance.evidence);
   const source = sourceLabel(provenance.source);
   const flags = provenance.flags ?? [];
-  const noteKey = delivery === undefined ? null : modelNoteKey(delivery, provenance);
+  const noteKey = modelNoteKey(delivery, provenance);
+  // A list (no delivery) names only the recorded date of a live-model run;
+  // a header (withNote) names the model note whatever the model.
+  const showNote =
+    noteKey !== null && (withNote || (noteKey === "liveMeta.recorded" && recordedAt !== undefined));
   return (
     <div className="hc-provenance-badges">
       <ul className="hc-badges" role="list" aria-label={t("heading")}>
@@ -73,7 +79,7 @@ export function ProvenanceBadges({
           </li>
         ))}
       </ul>
-      {withNote && noteKey !== null ? (
+      {showNote && noteKey !== null ? (
         <p className="hc-supporting" data-provenance-note={noteKey}>
           {noteKey === "liveMeta.recorded"
             ? t("liveMeta.recorded", {

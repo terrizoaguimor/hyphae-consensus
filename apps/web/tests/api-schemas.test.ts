@@ -45,11 +45,11 @@ describe("contract fixtures parse", () => {
       "api-error-samples.json",
       "capabilities-public.json",
       "health.json",
-      "run-created-retry.json",
       "scenarios.json",
       "session.json",
       "showcase-entry-F03.json",
       "sse-frames-retry.json",
+      ...byPrefix("run-created-"),
       ...byPrefix("run-detail-"),
       ...byPrefix("run-summary-"),
       ...byPrefix("receipt-v2-"),
@@ -82,10 +82,38 @@ describe("contract fixtures parse", () => {
     expect(created.links.events).toMatch(/\/events$/);
   });
 
+  it.each(byPrefix("run-created-"))("%s", (name) => {
+    const created = runCreatedSchema.parse(fixture(name));
+    expect(created.run.state).toBe("created");
+    expect(created.run.active).toBe(true);
+    // Nothing is recorded yet but the task: the model axis is undetermined.
+    expect(created.run.provenance.model).toBe("undetermined");
+    expect(created.links.self).toBe(`/api/v1/runs/${created.run.run_id}`);
+  });
+
+  // What each summary fixture records, by name: a fixture without an entry
+  // here fails, so a new one is looked at instead of assumed to be guided.
+  const summaries: Record<
+    string,
+    { model: string; active: boolean; declaredModel: string; evidence: string }
+  > = {
+    "run-summary-abstain.json": { model: "scripted", active: false, declaredModel: "scripted", evidence: "none" },
+    "run-summary-injection.json": { model: "scripted", active: false, declaredModel: "scripted", evidence: "simulated" },
+    "run-summary-invalid_proof.json": { model: "scripted", active: false, declaredModel: "scripted", evidence: "simulated" },
+    "run-summary-offline.json": { model: "scripted", active: false, declaredModel: "scripted", evidence: "none" },
+    "run-summary-retry.json": { model: "scripted", active: false, declaredModel: "scripted", evidence: "simulated" },
+    // A public live run just created: declared Meta model, nothing recorded yet.
+    "run-summary-live-R01-reference.json": { model: "undetermined", active: true, declaredModel: "meta", evidence: "none" },
+  };
+
   it.each(byPrefix("run-summary-"))("%s", (name) => {
     const summary = runSummarySchema.parse(fixture(name));
-    expect(summary.provenance.model).toBe("scripted");
-    expect(summary.active).toBe(false);
+    const expected = summaries[name];
+    expect(expected, `no expectation for ${name}`).toBeDefined();
+    expect(summary.provenance.model).toBe(expected?.model);
+    expect(summary.active).toBe(expected?.active);
+    expect(summary.provenance.declared?.model).toBe(expected?.declaredModel);
+    expect(summary.provenance.evidence).toBe(expected?.evidence);
   });
 
   it.each(byPrefix("run-detail-"))("%s", (name) => {
@@ -172,5 +200,65 @@ describe("mirrors are tolerant of additions, strict on enumerations", () => {
     expect(runSummarySchema.safeParse(without("provenance")).success).toBe(false);
     expect(runSummarySchema.safeParse(without("active")).success).toBe(false);
     expect(runSummarySchema.safeParse(without("state")).success).toBe(false);
+  });
+});
+
+describe("the live section of the capabilities (LiveCapabilitiesV1)", () => {
+  const base = fixture("capabilities-public.json") as Record<string, unknown>;
+  // The shape the live gate publishes (crates/consensus-api/src/live/gate.rs
+  // capabilities): the preset of the live R01 fixture, the factory's
+  // evidence axis, six-decimal USD strings.
+  const task = (fixture("run-detail-live-R01-reference.json") as { task: Record<string, string> }).task;
+  const preset = {
+    id: "R01-reference",
+    title: task.title,
+    description: task.description,
+    project: task.project_id,
+    model: "live_meta",
+    evidence: "hyphae_snapshot",
+  };
+  const live = {
+    presets: [preset],
+    budget: {
+      daily_available_now: "4.250000",
+      daily_remaining: "9.120000",
+      lifetime_remaining: "51.300000",
+      tripped: false,
+    },
+    requires_turnstile: true,
+    requires_adult_attestation: true,
+  };
+  const withLive = (section: unknown) => ({ ...base, live_enabled: true, live: section });
+  const omit = (value: Record<string, unknown>, key: string) =>
+    Object.fromEntries(Object.entries(value).filter(([k]) => k !== key));
+
+  it("parses the published shape, budget and requirements included", () => {
+    const parsed = capabilitiesSchema.parse(withLive(live));
+    expect(parsed.live?.presets[0]?.model).toBe("live_meta");
+    expect(parsed.live?.presets[0]?.evidence).toBe("hyphae_snapshot");
+    expect(parsed.live?.presets[0]?.project).toBe("demo-repo");
+    expect(parsed.live?.budget?.daily_remaining).toBe("9.120000");
+    expect(parsed.live?.requires_turnstile).toBe(true);
+    expect(parsed.live?.requires_adult_attestation).toBe(true);
+  });
+
+  it("accepts a tripped ledger with its code, and an unreadable one (no budget)", () => {
+    const tripped = { ...live, budget: { ...live.budget, tripped: true, trip_code: "kill_switch" } };
+    expect(capabilitiesSchema.parse(withLive(tripped)).live?.budget?.trip_code).toBe("kill_switch");
+    const unreadable = omit(live, "budget");
+    expect(capabilitiesSchema.parse(withLive(unreadable)).live?.budget).toBeUndefined();
+  });
+
+  it("refuses a preset axis outside the contract and missing requirements", () => {
+    const badModel = { ...live, presets: [{ ...preset, model: "LIVE" }] };
+    expect(capabilitiesSchema.safeParse(withLive(badModel)).success).toBe(false);
+    const badEvidence = { ...live, presets: [{ ...preset, evidence: "sealed" }] };
+    expect(capabilitiesSchema.safeParse(withLive(badEvidence)).success).toBe(false);
+    expect(capabilitiesSchema.safeParse(withLive(omit(live, "requires_turnstile"))).success).toBe(false);
+    expect(
+      capabilitiesSchema.safeParse(withLive(omit(live, "requires_adult_attestation"))).success,
+    ).toBe(false);
+    const noProject = omit(preset, "project");
+    expect(capabilitiesSchema.safeParse(withLive({ ...live, presets: [noProject] })).success).toBe(false);
   });
 });

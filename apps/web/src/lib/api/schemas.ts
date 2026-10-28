@@ -707,32 +707,42 @@ export const limitsSchema = z.looseObject({
 }) satisfies z.ZodType<T.LimitsV1>;
 
 /**
- * One curated live preset, as the live-gate lane will list it under
- * `capabilities.live.presets`. Not in the contract yet: only the id is
- * required, every other field is read defensively.
+ * One curated live preset (`PresetV1`): a canned task the recorded batteries
+ * ran. Its model and evidence axes are the contract's enumerations, so a
+ * preset badge is computed from what the server publishes, never assumed.
  */
-export const livePresetSchema = z.looseObject({
+export const presetSchema = z.looseObject({
   id: z.string(),
-  title: optionalText,
-  description: optionalText,
-  evidence: optionalText,
-  model: optionalText,
-});
+  title: z.string(),
+  description: z.string(),
+  project: z.string(),
+  model: modelProvenanceSchema,
+  evidence: evidenceProvenanceSchema,
+}) satisfies z.ZodType<T.PresetV1>;
 
 /**
- * The `live` section of the capabilities (live-gate lane): the presets and
- * the public budget. Absent or null until that lane lands; every field is
- * optional, and the budget is shown as the key/value pairs it carries.
+ * The visitor-safe budget (`PublicBudgetV1`): remaining amounts as the
+ * ledger renders them (USD strings with six decimals), whether live mode is
+ * tripped, and the coarse reason code.
  */
-export const capabilitiesLiveSchema = z.looseObject({
-  presets: z.array(livePresetSchema).optional(),
-  budget: z.record(z.string(), z.unknown()).nullable().optional(),
-  judge_codes_enabled: z.boolean().nullable().optional(),
-  turnstile_required: z.boolean().nullable().optional(),
-});
+export const publicBudgetSchema = z.looseObject({
+  daily_remaining: z.string(),
+  daily_available_now: z.string(),
+  lifetime_remaining: z.string(),
+  tripped: z.boolean(),
+  trip_code: optionalText,
+}) satisfies z.ZodType<T.PublicBudgetV1>;
 
-export type LivePreset = z.infer<typeof livePresetSchema>;
-export type CapabilitiesLive = z.infer<typeof capabilitiesLiveSchema>;
+/**
+ * The live section of the capabilities (`LiveCapabilitiesV1`). `budget` is
+ * absent when the ledger could not be read: no run can be admitted then.
+ */
+export const liveCapabilitiesSchema = z.looseObject({
+  presets: z.array(presetSchema),
+  budget: publicBudgetSchema.nullable().optional(),
+  requires_turnstile: z.boolean(),
+  requires_adult_attestation: z.boolean(),
+}) satisfies z.ZodType<T.LiveCapabilitiesV1>;
 
 export const capabilitiesSchema = z.looseObject({
   surface: surfaceSchema,
@@ -744,10 +754,10 @@ export const capabilitiesSchema = z.looseObject({
   policy_version: z.string(),
   protocol: z.string(),
   decision_authority: authoritySchema,
-  live: capabilitiesLiveSchema.nullable().optional(),
+  live: liveCapabilitiesSchema.nullable().optional(),
 }) satisfies z.ZodType<T.CapabilitiesV1>;
 
-/** `CapabilitiesV1` plus the optional `live` block. */
+/** `CapabilitiesV1` as parsed (unknown extra fields kept). */
 export type Capabilities = z.infer<typeof capabilitiesSchema>;
 
 export const healthSchema = z.looseObject({

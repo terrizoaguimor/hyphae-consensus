@@ -2,29 +2,34 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The run workspace: the header (title, state, outcome with its evidence
-// axis, the four provenance axes with the latest frame's delivery, the
-// flags), and the tabs Live (named Playback once the run is at rest),
-// Explorer and Decision. The other tabs of the design (Evidence, Proof
-// inspector, Audit trail, Meta API panel) belong to another lane and are not
-// stubbed here.
+// axis and, for a revised proposal, which proposal it is for, the record
+// count, the revision round, the run id, the failure sentence of a failed
+// run, the four provenance axes with the latest frame's delivery, the
+// flags), the error of a failed detail request with a retry, and the tabs
+// Live (named Playback unless the latest frame is LIVE by
+// src/lib/provenance.ts isLive), Explorer and Decision. The other tabs of the
+// design (Evidence, Proof inspector, Audit trail, Meta API panel) belong to
+// another lane and are not stubbed here.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
 import { isRunId } from "@/lib/api/client";
-import { evidenceLabel, RECOMMENDATION_VARIANTS } from "@/lib/provenance";
+import { evidenceLabel, isLive, RECOMMENDATION_VARIANTS } from "@/lib/provenance";
+import { supersededProposal } from "@/lib/run/view";
 import { localePath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { DecisionTab } from "./DecisionTab";
 import { ExplorerTab } from "./ExplorerTab";
+import { FailureSentence } from "./FailureSentence";
 import { StageTab } from "./StageTab";
 import { tabId, Tabs } from "./Tabs";
 import { useRunData } from "./useRunData";
@@ -67,15 +72,16 @@ type RunViewProps = {
 function RunView({ locale, runId }: RunViewProps) {
   const t = useTranslations("Run");
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
+  const format = useFormatter();
   const data = useRunData(runId);
   const [tab, setTab] = useState<TabKey>("stage");
-  const { detail, detailError, summary, frames } = data;
+  const { detail, detailError, summary, frames, reloadDetail } = data;
 
   if (summary === null) {
     if (detailError !== null) {
       return (
         <div className="hc-section" data-run="error">
-          <ApiErrorNotice error={detailError} />
+          <ApiErrorNotice error={detailError} onRetry={reloadDetail} />
           <div className="hc-actions">
             <Button variant="secondary" label={t("goToRuns")} href={localePath(locale, "runs")} />
           </div>
@@ -91,7 +97,16 @@ function RunView({ locale, runId }: RunViewProps) {
 
   const latest = frames.at(-1);
   const title = detail?.task?.title ?? summary.title ?? t("title");
-  const stageLabel = summary.active ? t("tabs.live") : t("tabs.playback");
+  // The stage tab says Live only when its newest frame is LIVE (isLive: a
+  // live frame of a live-model run without a blocking flag); a replayed,
+  // flagged, scripted or still undetermined run is a playback.
+  const liveNow = latest !== undefined && isLive(latest.delivery, summary.provenance);
+  const stageLabel = liveNow ? t("tabs.live") : t("tabs.playback");
+  // When the recommendation is for a revision, the header says which one.
+  const revisedId =
+    detail !== null && supersededProposal(detail) !== null
+      ? (detail.current_proposal?.id ?? null)
+      : null;
 
   return (
     <div className="hc-run" data-run-id={runId} data-run-state={summary.state}>
@@ -108,44 +123,62 @@ function RunView({ locale, runId }: RunViewProps) {
               {summary.recommendation === undefined || summary.recommendation === null ? (
                 t("header.noOutcome")
               ) : (
-                <Badge
-                  variant={RECOMMENDATION_VARIANTS[summary.recommendation]}
-                  label={t("outcome", {
-                    kind: t(`kinds.${summary.recommendation}`),
-                    evidence: tProvenance(evidenceLabel(summary.provenance.evidence).key),
-                  })}
-                />
+                <>
+                  <Badge
+                    variant={RECOMMENDATION_VARIANTS[summary.recommendation]}
+                    label={t("outcome", {
+                      kind: t(`kinds.${summary.recommendation}`),
+                      evidence: tProvenance(evidenceLabel(summary.provenance.evidence).key),
+                    })}
+                  />
+                  {revisedId === null ? null : (
+                    <span className="hc-supporting" data-outcome-revision>
+                      {t("header.forRevision", { id: revisedId })}
+                    </span>
+                  )}
+                </>
               )}
             </dd>
           </div>
           <div>
-            <dt>{t("header.records")}</dt>
-            <dd className="hc-tabular-nums">
+            <dt>{t("header.recordsLabel")}</dt>
+            <dd className="hc-tabular-nums" data-run-field="records">
               {t("header.records", { count: summary.event_count })}
             </dd>
           </div>
           <div>
-            <dt>{t("header.revision", { round: summary.revision_round })}</dt>
+            <dt>{t("header.revision")}</dt>
+            <dd className="hc-tabular-nums" data-run-field="revision">
+              {format.number(summary.revision_round)}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("header.runId")}</dt>
             <dd>
               <code className="hc-code">{summary.run_id}</code>
             </dd>
           </div>
         </dl>
         {summary.failure === undefined || summary.failure === null ? null : (
-          <p className="hc-error" role="status">
-            {summary.failure.message}
-          </p>
+          <FailureSentence failure={summary.failure} />
         )}
         <div>
           <p className="hc-supporting">{t("header.provenance")}</p>
           <ProvenanceBadges
             provenance={summary.provenance}
             delivery={latest?.delivery}
-            recordedAt={latest?.event.occurred_at}
+            recordedAt={latest?.event.occurred_at ?? summary.updated_at}
             withNote
           />
         </div>
       </header>
+
+      {detailError === null ? null : (
+        <div className="hc-section" data-run="detail-error">
+          <p className="hc-supporting">{t("detailError")}</p>
+          <ApiErrorNotice error={detailError} onRetry={reloadDetail} />
+        </div>
+      )}
 
       <Tabs<TabKey>
         label={t("tabs.label")}
@@ -167,7 +200,9 @@ function RunView({ locale, runId }: RunViewProps) {
         data-tab={tab}
       >
         {tab === "stage" ? <StageTab data={data} /> : null}
-        {tab === "explorer" ? <ExplorerTab detail={detail} frames={frames} /> : null}
+        {tab === "explorer" ? (
+          <ExplorerTab detail={detail} frames={frames} detailError={detailError} />
+        ) : null}
         {tab === "decision" ? <DecisionTab runId={runId} data={data} /> : null}
       </div>
     </div>

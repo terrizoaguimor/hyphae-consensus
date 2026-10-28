@@ -4,16 +4,29 @@
 // The Explorer tab: the event timeline (sequence, type, actor, time, a
 // one-line summary, and the public event as expandable JSON), filterable by
 // type. The rows are the union of the detail's events and the frames'
-// events, by sequence, so the list follows the stream.
+// events, by sequence, so the list follows the stream. Every status in a
+// summary is translated from its enumeration: a simulated proof reads
+// SIMULATED with its scripted outcome (never "integrity valid"), the
+// factual and relevance statuses and a decision's authority have their own
+// words, and a failure or an unavailable retrieval reads the sentence of its
+// code, never the server's English message.
 
 import { useFormatter, useTranslations } from "next-intl";
 import { useId, useMemo, useState } from "react";
 
-import type { ConsensusFrameV1, EventV1, RunDetailV1 } from "@/lib/api/types";
+import { dynamicTranslator } from "@/i18n/dynamic";
+import type { ApiError } from "@/lib/api/client";
+import type { ConsensusFrameV1, EventV1, RunDetailV1, VerificationV1 } from "@/lib/api/types";
+import { proofToken } from "@/lib/provenance";
+import { mergeEvents } from "@/lib/run/view";
+
+import { useFailureText, useUnavailableText } from "./FailureSentence";
 
 type ExplorerTabProps = {
   detail: RunDetailV1 | null;
   frames: ConsensusFrameV1[];
+  /** The detail request failed: the timeline holds only what the stream delivered. */
+  detailError?: ApiError | null;
 };
 
 const EVENT_TYPES = [
@@ -33,23 +46,16 @@ const EVENT_TYPES = [
 
 type EventType = (typeof EVENT_TYPES)[number];
 
-export function mergeEvents(detail: RunDetailV1 | null, frames: ConsensusFrameV1[]): EventV1[] {
-  const bySequence = new Map<number, EventV1>();
-  for (const event of detail?.events ?? []) {
-    bySequence.set(event.sequence, event);
-  }
-  for (const frame of frames) {
-    if (!bySequence.has(frame.event.sequence)) {
-      bySequence.set(frame.event.sequence, frame.event);
-    }
-  }
-  return [...bySequence.values()].sort((a, b) => a.sequence - b.sequence);
-}
+/** Authorities with their own word (`Run.explorer.authority.<value>`); DecisionV1.authority is free text. */
+const AUTHORITIES = ["operator", "public_demo", "unspecified"] as const;
 
-export function ExplorerTab({ detail, frames }: ExplorerTabProps) {
+export function ExplorerTab({ detail, frames, detailError = null }: ExplorerTabProps) {
   const t = useTranslations("Run.explorer");
   const tRun = useTranslations("Run");
+  const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const format = useFormatter();
+  const failureText = useFailureText();
+  const unavailableText = useUnavailableText();
   const [filter, setFilter] = useState<EventType | "all">("all");
   const filterId = useId();
   const events = useMemo(() => mergeEvents(detail, frames), [detail, frames]);
@@ -65,6 +71,20 @@ export function ExplorerTab({ detail, frames }: ExplorerTabProps) {
         return t("actors.runtime");
     }
   };
+
+  /** A proof's status in words: SIMULATED with the scripted outcome, or "proof <status>". */
+  const proofText = (verification: VerificationV1): string => {
+    const token = proofToken(verification.integrity_status, verification.simulated);
+    const status = tProvenance(token.key);
+    return token.simulated
+      ? tRun("stage.simulatedProofShort", { status })
+      : tRun("stage.proofStatus", { status });
+  };
+
+  const authorityText = (authority: string): string =>
+    (AUTHORITIES as readonly string[]).includes(authority)
+      ? t(`authority.${authority as (typeof AUTHORITIES)[number]}`)
+      : t("authority.other", { authority });
 
   const summaryText = (event: EventV1): string => {
     const payload = event.payload;
@@ -82,7 +102,7 @@ export function ExplorerTab({ detail, frames }: ExplorerTabProps) {
           kind: payload.evidence.kind,
         });
       case "evidence_unavailable":
-        return t("summaries.evidence_unavailable", { message: payload.message });
+        return t("summaries.evidence_unavailable", { message: unavailableText(payload.code) });
       case "recall_proven":
         return t("summaries.recall_proven", {
           count: payload.evidence_ids.length,
@@ -91,9 +111,9 @@ export function ExplorerTab({ detail, frames }: ExplorerTabProps) {
       case "evidence_verified":
         return t("summaries.evidence_verified", {
           id: payload.verification.evidence_id,
-          integrity: payload.verification.integrity_status,
-          factual: payload.verification.factual_status,
-          relevance: payload.verification.relevance_status,
+          proof: proofText(payload.verification),
+          factual: t(`factual.${payload.verification.factual_status}`),
+          relevance: t(`relevance.${payload.verification.relevance_status}`),
         });
       case "challenge_submitted":
         return t("summaries.challenge_submitted", {
@@ -122,10 +142,13 @@ export function ExplorerTab({ detail, frames }: ExplorerTabProps) {
             ? tRun("decision.approved")
             : tRun("decision.rejected"),
           by: payload.decision.authorized_by,
-          authority: payload.decision.authority,
+          authority: authorityText(payload.decision.authority),
         });
       case "run_failed":
-        return t("summaries.run_failed", { stage: payload.stage, message: payload.message });
+        return t("summaries.run_failed", {
+          stage: payload.stage,
+          message: failureText({ code: payload.code, stage: payload.stage }),
+        });
     }
   };
 
@@ -137,6 +160,11 @@ export function ExplorerTab({ detail, frames }: ExplorerTabProps) {
           {t("count", { shown: shown.length, total: events.length })}
         </p>
       </div>
+      {detailError === null ? null : (
+        <p className="hc-supporting" data-explorer-partial>
+          {t("partial")}
+        </p>
+      )}
       <div className="hc-field hc-field--inline">
         <label htmlFor={filterId}>{t("filter")}</label>
         <select

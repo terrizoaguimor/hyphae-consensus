@@ -1,15 +1,19 @@
 "use client";
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Decision tab: the recommendation kind with its evidence axis, the
-// rationale, the unresolved assumptions and uncertainties, the open
-// objections, the superseded-proposal notice when the recommendation is for a
-// revision (both summaries side by side), and the public decision form
-// (approve or reject, optional note) with the fixed public_demo notice,
-// enabled only while the run awaits a human decision and belongs to this
-// session (GET /runs/{id} answers 404 for anyone else). The recorded decision
-// carries the server's notice; the receipt and the verbatim log are linked.
-// A run still deliberating can be cancelled.
+// The Decision tab: the recommendation kind with its evidence axis and,
+// right under it, the scope line when the recommendation is for a revised
+// proposal (which proposal it is for, which one it replaced, the task, both
+// summaries side by side: K03/K04), the rationale, the unresolved
+// assumptions and uncertainties, the open objections, and the public
+// decision form (approve or reject, optional note) with the fixed
+// public_demo notice, enabled only while the run awaits a human decision and
+// belongs to this session (GET /runs/{id} answers 404 for anyone else). The
+// recorded decision carries the server's notice; the receipt is linked, and
+// the verbatim log only when the public surface publishes it
+// (src/lib/provenance.ts ndjsonPublishable; a live run's answers 404
+// ndjson_unavailable). A run still deliberating can be cancelled. A failed
+// detail request is said as such, never shown as loading.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
@@ -18,7 +22,9 @@ import { useFormatter, useTranslations } from "next-intl";
 import { useState } from "react";
 
 import { api, ApiError, isApiError, newIdempotencyKey } from "@/lib/api/client";
-import type { DecisionResponseV1, DecisionV1, Proposal, RunDetailV1 } from "@/lib/api/types";
+import type { DecisionResponseV1, DecisionV1 } from "@/lib/api/types";
+import { ndjsonPublishable } from "@/lib/provenance";
+import { supersededProposal } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { RecommendationLine } from "./StageTab";
@@ -30,46 +36,6 @@ type DecisionTabProps = {
 };
 
 const OVERRIDE_KINDS = new Set(["blocked", "abstained"]);
-
-/** The original proposal when the current one supersedes it (K03/K04: a revision that departs from the task). */
-export function supersededProposal(detail: RunDetailV1): Proposal | null {
-  const current = detail.current_proposal;
-  if (current === undefined || current === null) {
-    return null;
-  }
-  const proposals = new Map<string, Proposal>();
-  let supersedes: string | null = null;
-  for (const event of detail.events) {
-    const payload = event.payload;
-    if (payload.type === "proposal_submitted") {
-      proposals.set(payload.proposal.id, payload.proposal);
-    } else if (payload.type === "revision_submitted") {
-      proposals.set(payload.revision.proposal.id, payload.revision.proposal);
-      if (payload.revision.proposal.id === current.id) {
-        supersedes = payload.revision.supersedes;
-      }
-    }
-  }
-  if (supersedes === null) {
-    return null;
-  }
-  // Follow the chain of revisions back to the first proposal.
-  let original = proposals.get(supersedes) ?? null;
-  const seen = new Set<string>();
-  while (original !== null && !seen.has(original.id)) {
-    seen.add(original.id);
-    const earlier = detail.events.find(
-      (event) =>
-        event.payload.type === "revision_submitted" &&
-        event.payload.revision.proposal.id === original?.id,
-    );
-    if (earlier === undefined || earlier.payload.type !== "revision_submitted") {
-      break;
-    }
-    original = proposals.get(earlier.payload.revision.supersedes) ?? original;
-  }
-  return original;
-}
 
 function toApiError(error: unknown, path: string): ApiError {
   return isApiError(error)
@@ -86,7 +52,7 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
   const t = useTranslations("Run.decision");
   const tRun = useTranslations("Run");
   const format = useFormatter();
-  const { detail, summary, setDetail } = data;
+  const { detail, detailError, summary, setDetail } = data;
   const [approvedChoice, setApprovedChoice] = useState<boolean | null>(null);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -95,7 +61,13 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
   const [cancelling, setCancelling] = useState<"idle" | "requested">("idle");
 
   if (detail === null || summary === null) {
-    return (
+    // A settled failure is said as such (the error and its retry are in the
+    // workspace above); only a request still in flight reads "Loading".
+    return detailError !== null ? (
+      <p className="hc-supporting" data-decision-unavailable="detail-error">
+        {t("detailUnavailable")}
+      </p>
+    ) : (
       <p role="status" className="hc-supporting">
         {tRun("loading")}
       </p>
@@ -105,6 +77,14 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
   const recommendation = detail.recommendation ?? null;
   const openItems = detail.challenge_items.filter((item) => item.status === "open");
   const original = supersededProposal(detail);
+  const current = detail.current_proposal ?? null;
+  // The recommendation is for a revision: say which proposal it is for and
+  // which one it replaced, from the records (K03/K04).
+  const revised =
+    original !== null && current !== null
+      ? { id: current.id, summary: current.summary, original }
+      : null;
+  const publishesLog = ndjsonPublishable(detail.summary.provenance);
   const recorded: DecisionV1 | null = result?.decision ?? detail.decision ?? null;
   const awaiting =
     detail.summary.state === "awaiting_human_approval" &&
@@ -174,6 +154,26 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
         ) : (
           <div className="hc-panel">
             <RecommendationLine kind={recommendation.kind} evidence={detail.summary.provenance.evidence} />
+            {revised === null ? null : (
+              <div className="hc-scope-change" data-superseded>
+                <p data-superseded-line>
+                  {t("superseded", { revised: revised.id, original: revised.original.id })}
+                </p>
+                {detail.task === undefined || detail.task === null ? null : (
+                  <p className="hc-supporting">{t("supersededTask", { title: detail.task.title })}</p>
+                )}
+                <div className="hc-side-by-side">
+                  <div className="hc-panel">
+                    <h4>{t("original", { id: revised.original.id })}</h4>
+                    <p>{revised.original.summary}</p>
+                  </div>
+                  <div className="hc-panel">
+                    <h4>{t("revised", { id: revised.id })}</h4>
+                    <p>{revised.summary}</p>
+                  </div>
+                </div>
+              </div>
+            )}
             <h4>{t("rationale")}</h4>
             <p>{recommendation.rationale}</p>
             <p className="hc-supporting">
@@ -222,22 +222,6 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
           </ul>
         )}
       </section>
-
-      {original !== null && detail.current_proposal !== undefined && detail.current_proposal !== null ? (
-        <section className="hc-section" aria-labelledby="decision-superseded" data-superseded>
-          <h3 id="decision-superseded">{t("superseded")}</h3>
-          <div className="hc-side-by-side">
-            <div className="hc-panel">
-              <h4>{t("original", { id: original.id })}</h4>
-              <p>{original.summary}</p>
-            </div>
-            <div className="hc-panel">
-              <h4>{t("revised", { id: detail.current_proposal.id })}</h4>
-              <p>{detail.current_proposal.summary}</p>
-            </div>
-          </div>
-        </section>
-      ) : null}
 
       <section className="hc-section" aria-labelledby="decision-form">
         <h3 id="decision-form">{t("formHeading")}</h3>
@@ -310,9 +294,15 @@ export function DecisionTab({ runId, data }: DecisionTabProps) {
             </a>
           </li>
           <li>
-            <a href={api.ndjsonUrl(runId)} className="hc-link" data-ndjson-link>
-              {t("ndjson")}
-            </a>
+            {publishesLog ? (
+              <a href={api.ndjsonUrl(runId)} className="hc-link" data-ndjson-link>
+                {t("ndjson")}
+              </a>
+            ) : (
+              <span className="hc-supporting" data-ndjson-unavailable>
+                {t("ndjsonUnavailable")}
+              </span>
+            )}
           </li>
         </ul>
       </section>

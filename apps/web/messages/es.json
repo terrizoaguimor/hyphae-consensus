@@ -52,12 +52,14 @@
   },
   "ApiGate": {
     "checking": "Comprobando la conexión con la API de Hyphae Consensus…",
-    "connected": "Conectado a la API: esquema {schema}, política {policy}, contrato {contract}."
+    "connected": "Conectado a la API: esquema {schema}, política {policy}, contrato {contract}.",
+    "contractMismatch": "Esta versión se hizo para el contrato de API {build} y el servidor informa el contrato {server}: cada respuesta se sigue comprobando con el contrato de esta versión, pero lo nuevo del servidor puede no mostrarse."
   },
   "Api": {
     "errorTitle": "El servidor rechazó la solicitud",
     "errorDetail": "Código {code}, HTTP {status}.",
     "retryAfter": "{seconds, plural, =0 {Puedes reintentar ahora.} one {Reintenta en # segundo.} other {Reintenta en # segundos.}}",
+    "retry": "Intentar de nuevo",
     "errors": {
       "invalid_request": "El servidor no aceptó la solicitud tal como se envió (un campo desconocido, un valor incorrecto o un campo que falta).",
       "payload_too_large": "La solicitud era más grande de lo que el servidor acepta.",
@@ -87,6 +89,22 @@
       "upstream_unavailable": "No se pudo alcanzar un servicio externo que el servidor necesita.",
       "ndjson_unavailable": "El registro literal de eventos de una ejecución en vivo no se publica en la superficie pública; el detalle y el recibo llevan su vista depurada.",
       "request_timeout": "El servidor no atendió la solicitud dentro de su límite de tiempo.",
+      "live_budget_daily": "El presupuesto diario del modo en vivo no admite otra ejecución en este momento; el servidor indica cuándo reintentar.",
+      "live_budget_lifetime": "El presupuesto total del modo en vivo se agotó: el modo en vivo no admite más ejecuciones.",
+      "live_budget_judge_daily": "El presupuesto de hoy del carril de códigos de invitación se agotó; se renueva el próximo día UTC.",
+      "live_budget_judge_slice": "El presupuesto del carril de códigos de invitación se agotó.",
+      "live_concurrency": "Todas las plazas del modo en vivo están ocupadas; reintenta en breve.",
+      "live_hourly_admissions": "Se alcanzó el límite por hora de ejecuciones en vivo; el servidor indica cuándo reintentar.",
+      "live_tripped": "El modo en vivo está en pausa hasta que el operador lo restablezca.",
+      "live_unavailable": "El modo en vivo no está disponible en este momento; no se cobró nada.",
+      "turnstile_required": "El modo en vivo necesita que primero completes la verificación humana (Cloudflare Turnstile).",
+      "turnstile_failed": "Cloudflare no aceptó la verificación humana; completa una nueva y vuelve a intentarlo.",
+      "turnstile_unavailable": "No se pudo comprobar la verificación humana porque no se pudo contactar con Cloudflare; reintenta en breve.",
+      "attestation_required": "El modo en vivo necesita que confirmes que tienes 18 años o más y que no lo usas desde un territorio restringido.",
+      "geo_blocked_portal": "Este portal no está disponible desde tu país.",
+      "geo_blocked_live": "El modo en vivo no está disponible desde tu país.",
+      "geo_unknown": "No se pudo determinar tu país, así que el servidor rechazó la solicitud.",
+      "preset_unknown": "El servidor no conoce esta tarea predefinida.",
       "internal": "Algo falló en el servidor.",
       "unreachable": "No se pudo alcanzar el servidor.",
       "unexpected_status": "El servidor respondió con un estado que este cliente no entiende.",
@@ -101,6 +119,7 @@
   },
   "Overview": {
     "primaryAction": "Ejecutar un ejemplo guiado",
+    "primaryActionNeutral": "Ir a Nueva deliberación",
     "primaryActionPlanned": "Cómo funcionarán los ejemplos guiados",
     "primaryActionNote": "Las ejecuciones guiadas necesitan la API de Hyphae Consensus, que no está conectada en esta versión.",
     "secondaryAction": "Cómo funciona",
@@ -139,42 +158,63 @@
     },
     "guided": {
       "heading": "Ejemplos guiados",
-      "intro": "Cinco escenarios con guion. Los roles son dobles que siguen un guion y la evidencia es simulada: no se llama a ningún modelo y ninguna prueba es real. Cada uno alcanza su resultado documentado en milisegundos; la página de la ejecución lo reproduce después.",
+      "intro": "Los roles son dobles que siguen un guion y la evidencia es simulada: no se llama a ningún modelo y ninguna prueba es real. Cada escenario alcanza su resultado documentado en milisegundos; la página de la ejecución lo reproduce después.",
+      "count": "{count, plural, =0 {El servidor no lista ningún escenario guiado.} one {El servidor lista # escenario guiado.} many {El servidor lista # de escenarios guiados.} other {El servidor lista # escenarios guiados.}}",
       "modelBadge": "Modelo SIMULADO",
       "evidenceBadge": "Evidencia SIMULADA",
       "expected": "Resultado esperado",
       "run": "Ejecutar",
       "runScenario": "Ejecutar {title}",
       "starting": "Iniciando…",
-      "empty": "El servidor no lista ningún escenario guiado.",
       "disabled": "Los ejemplos guiados no están habilitados en este servidor."
     },
     "live": {
       "heading": "Tareas predefinidas en vivo",
-      "intro": "Tareas seleccionadas que delibera el modelo de Meta con la clave del propietario, con evidencia de una instantánea sellada de Hyphae. Solo tareas predefinidas: ningún texto libre llega a un modelo.",
-      "modelBadge": "META EN VIVO",
-      "evidenceBadge": "Evidencia de INSTANTÁNEA SELLADA",
+      "intro": "Tareas seleccionadas que delibera el modelo de Meta con la clave del propietario. Solo tareas predefinidas: ningún texto libre llega a un modelo. Cada tarea indica de dónde proviene su evidencia en este servidor.",
       "disabled": "El modo en vivo no está habilitado en este servidor.",
       "disabledHint": "Las ejecuciones grabadas de la vitrina de investigación muestran cómo es una ejecución en vivo.",
       "showcaseLink": "Abrir la vitrina de investigación",
       "noPresets": "El modo en vivo está habilitado, pero el servidor todavía no lista ninguna tarea predefinida.",
       "presetLegend": "Tarea predefinida",
-      "untitledPreset": "Tarea predefinida {id}",
-      "budgetHeading": "Presupuesto público",
-      "attest": "Confirmo que tengo 18 años o más.",
-      "attestDescription": "El modo en vivo llama al modelo de Meta; los Términos de uso solo admiten visitantes adultos.",
+      "budget": {
+        "heading": "Presupuesto público del modo en vivo",
+        "availableNow": "Disponible ahora",
+        "dailyRemaining": "Queda hoy (UTC)",
+        "lifetimeRemaining": "Queda en total",
+        "note": "En dólares estadounidenses, tal como los informa el libro de presupuesto del servidor. Cada ejecución en vivo reserva su costo máximo antes de empezar, así que puede rechazarse aunque quede algo de presupuesto."
+      },
+      "attest": "Confirmo que tengo 18 años o más y que no uso el modo en vivo desde un territorio restringido.",
+      "attestDescription": "El modo en vivo llama al modelo de Meta con la clave del propietario; el servidor solo inicia una ejecución en vivo con esta confirmación.",
+      "attestTerms": "Los territorios restringidos y la regla de edad están en los <terms>Términos de uso</terms>.",
       "inviteSummary": "Tengo un código de invitación",
       "inviteLabel": "Código de invitación",
-      "inviteDescription": "Opcional. Un código de jurado admite una ejecución fuera del presupuesto público.",
+      "inviteDescription": "Opcional, hasta {max} caracteres. Un código de jurado admite una ejecución fuera del presupuesto público.",
       "turnstileHeading": "Verificación humana",
-      "turnstileMissing": "El modo en vivo necesita el desafío Turnstile de Cloudflare, y esta versión se construyó sin una clave de sitio de Turnstile; el servidor rechazará la solicitud hasta que se configure una clave al construir.",
+      "turnstileMissing": "El modo en vivo necesita el desafío Turnstile de Cloudflare, y esta versión se construyó sin una clave de sitio de Turnstile, así que desde ella no se puede iniciar ninguna ejecución en vivo.",
       "turnstileLoading": "Cargando el desafío Turnstile de Cloudflare…",
       "turnstilePassed": "Desafío superado.",
-      "turnstileFailed": "El desafío no se completó; recarga la página para intentarlo de nuevo.",
+      "turnstileFailed": "El desafío no se completó; vuelve a intentarlo o recarga la página.",
+      "turnstileRetry": "Volver a intentar el desafío",
+      "turnstileClosed": "La verificación humana aparece cuando el modo en vivo puede iniciar una ejecución.",
       "start": "Iniciar ejecución en vivo",
       "starting": "Iniciando…",
       "needsPreset": "Elige primero una tarea predefinida.",
-      "needsAttestation": "Confirma primero la declaración de edad."
+      "needsAttestation": "Confirma primero la declaración de arriba.",
+      "needsShorterCode": "El código de invitación puede tener como máximo {max} caracteres.",
+      "needsTurnstile": "Completa primero la verificación humana.",
+      "closed": {
+        "tripped": "El modo en vivo está en pausa: su libro de presupuesto rechaza toda ejecución en vivo hasta que el operador lo restablezca.",
+        "budgetUnknown": "No se pudo leer el presupuesto del modo en vivo, así que ahora no puede iniciarse ninguna ejecución en vivo."
+      },
+      "trip": {
+        "kill_switch": "El operador desactivó el modo en vivo.",
+        "lifetime_cap": "El presupuesto total del modo en vivo se agotó.",
+        "output_bound": "Una llamada al modelo devolvió más salida de la que permitía su límite, así que el libro se detuvo solo.",
+        "charge_bound": "Una llamada al modelo costó más que su estimación reservada, así que el libro se detuvo solo.",
+        "provider_refused_key": "La Model API de Meta rechazó la clave del servidor, así que el libro se detuvo solo.",
+        "inconsistent": "Los registros del libro no coinciden, así que se detuvo solo.",
+        "other": "El libro se detuvo solo (código {code})."
+      }
     }
   },
   "Runs": {
@@ -207,6 +247,7 @@
     "invalidId": "Esta dirección no nombra una ejecución.",
     "loading": "Cargando la ejecución…",
     "goToRuns": "Ir a Mis ejecuciones",
+    "detailError": "No se pudo leer la copia de esta ejecución en el servidor; lo que se muestra viene de la transmisión y de la última lectura correcta.",
     "tabs": {
       "label": "Vistas de la ejecución",
       "live": "En vivo",
@@ -218,7 +259,10 @@
       "state": "Estado",
       "outcome": "Resultado",
       "noOutcome": "Todavía no hay recomendación",
-      "revision": "Ronda de revisión {round}",
+      "recordsLabel": "Registros",
+      "revision": "Ronda de revisión",
+      "runId": "Id de la ejecución",
+      "forRevision": "para la propuesta revisada {id}",
       "records": "{count, plural, =0 {Sin registros} one {# registro} many {# de registros} other {# registros}}",
       "provenance": "Procedencia",
       "flags": "Avisos",
@@ -261,13 +305,19 @@
       },
       "gap": "Faltaban registros en la transmisión; la ejecución se volvió a leer del servidor.",
       "resync": "El servidor volvió a leer su registro; la ejecución se volvió a leer del servidor.",
-      "invalid": "{count, plural, one {# cuadro no coincidía} other {# cuadros no coincidían}} con el contrato y se {count, plural, one {descartó} other {descartaron}}."
+      "invalid": "{count, plural, =0 {Todos los cuadros coincidían con el contrato.} one {# cuadro no coincidía con el contrato y se descartó.} other {# cuadros no coincidían con el contrato y se descartaron.}}",
+      "storedRecords": "No se pudo abrir la transmisión; el escenario muestra los registros almacenados en el servidor.",
+      "noStoredRecords": "No se pudo abrir la transmisión, y tampoco se pudieron leer los registros almacenados de la ejecución.",
+      "reconnect": "Reconectar"
     },
     "pacing": {
       "label": "simulado · ritmo ajustado para la lectura",
       "skip": "Omitir el ritmo",
       "pending": "{count, plural, =0 {Todos los registros mostrados.} one {# registro en espera.} many {# de registros en espera.} other {# registros en espera.}}",
-      "off": "Ritmo desactivado: movimiento reducido."
+      "off": "Ritmo desactivado: movimiento reducido.",
+      "started": "Ritmo activado: los registros almacenados de esta ejecución con guion se muestran uno a uno.",
+      "done": "Todos los registros mostrados.",
+      "skipped": "Ritmo omitido: se muestran todos los registros."
     },
     "stage": {
       "heading": "Escenario de la deliberación",
@@ -308,8 +358,9 @@
       "retrieved": "{count, plural, =0 {Ninguna evidencia obtenida} one {# registro obtenido} many {# de registros obtenidos} other {# registros obtenidos}}",
       "verified": "{count, plural, =0 {Ninguna prueba comprobada} one {# prueba comprobada} many {# de pruebas comprobadas} other {# pruebas comprobadas}}",
       "proven": "{count, plural, =0 {Ninguna consulta probada} one {# consulta probada} many {# de consultas probadas} other {# consultas probadas}}",
-      "unavailable": "{count, plural, one {# obtención falló} many {# de obtenciones fallaron} other {# obtenciones fallaron}}",
+      "unavailable": "{count, plural, =0 {Ninguna obtención falló} one {# obtención falló} many {# de obtenciones fallaron} other {# obtenciones fallaron}}",
       "simulatedProof": "Prueba SIMULADA: resultado con guion «{status}», sin criptografía comprobada",
+      "simulatedProofShort": "Prueba SIMULADA (resultado con guion «{status}»)",
       "proofStatus": "prueba {status}",
       "recommendation": "Recomendación",
       "noRecommendation": "Todavía no se emitió ninguna recomendación.",
@@ -326,7 +377,8 @@
       "summary": "Resumen",
       "json": "Evento público (JSON)",
       "empty": "Ningún registro coincide con este filtro.",
-      "count": "{shown, plural, one {# registro} many {# de registros} other {# registros}} de {total}",
+      "count": "{shown, plural, =0 {0 registros} one {# registro} many {# de registros} other {# registros}} de {total}",
+      "partial": "No se pudo leer la copia de esta ejecución en el servidor: la línea de tiempo muestra solo los registros que entregó la transmisión.",
       "actors": {
         "runtime": "entorno de ejecución",
         "human": "humano {id}"
@@ -350,15 +402,32 @@
         "human_decision_recorded": "decisión humana registrada",
         "run_failed": "ejecución fallida"
       },
+      "factual": {
+        "corroborated": "corroborado",
+        "uncorroborated": "no corroborado",
+        "contradicted": "contradicho",
+        "not_assessed": "sin evaluar"
+      },
+      "relevance": {
+        "relevant": "relevante",
+        "irrelevant": "irrelevante",
+        "not_assessed": "sin evaluar"
+      },
+      "authority": {
+        "operator": "operador",
+        "public_demo": "demostración pública, sin autoridad operativa",
+        "unspecified": "sin especificar (antes de 1.3)",
+        "other": "autoridad {authority}"
+      },
       "summaries": {
         "task_created": "{title}",
         "proposal_submitted": "{id}: {summary}",
         "evidence_retrieved": "{id} ({kind})",
         "evidence_unavailable": "{message}",
         "recall_proven": "{count, plural, =0 {ningún registro} one {# registro} many {# de registros} other {# registros}} bajo el anclaje {anchor}",
-        "evidence_verified": "{id}: integridad {integrity}, factual {factual}, relevancia {relevance}",
+        "evidence_verified": "{id}: {proof}; estado factual: {factual}; relevancia: {relevance}",
         "challenge_submitted": "{count, plural, =0 {ninguna objeción} one {# objeción} many {# de objeciones} other {# objeciones}} sobre {target}",
-        "evaluation_submitted": "{corroborated} de {claims} afirmaciones corroboradas, {unresolved} sin resolver",
+        "evaluation_submitted": "afirmaciones corroboradas: {corroborated} de {claims}; sin resolver: {unresolved}",
         "revision_submitted": "{id} reemplaza a {supersedes}: {summary}",
         "recommendation_issued": "{kind}",
         "human_decision_recorded": "{decision} por {by} ({authority})",
@@ -375,7 +444,8 @@
       "objections": "Objeciones abiertas",
       "noObjections": "Ninguna objeción abierta.",
       "pending": "Todavía no hay recomendación: la ejecución sigue deliberando.",
-      "superseded": "La recomendación es para la propuesta revisada; la original pedía otra cosa.",
+      "superseded": "Esta recomendación es para la propuesta revisada {revised}, que reemplazó a la propuesta original {original}.",
+      "supersededTask": "Tarea: {title}",
       "original": "Propuesta original {id}",
       "revised": "Propuesta revisada {id}",
       "publicDemo": "Las decisiones en este portal público no tienen autoridad operativa: aprobar o rechazar registra tu elección sobre esta ejecución y no ejecuta nada.",
@@ -386,6 +456,7 @@
       "noteDescription": "Opcional, hasta 2000 caracteres. Obligatoria para aprobar una ejecución bloqueada o con abstención (una anulación).",
       "overrideRequired": "Aprobar una ejecución {kind} es una anulación: escribe primero una nota.",
       "notAwaiting": "La ejecución no está esperando una decisión.",
+      "detailUnavailable": "La decisión necesita la copia de esta ejecución en el servidor, que no se pudo leer; usa Intentar de nuevo arriba.",
       "submitting": "Registrando…",
       "recorded": "Decisión registrada: {decision} por {by} el {date}.",
       "approved": "aprobada",
@@ -393,9 +464,55 @@
       "withNote": "Nota: {note}",
       "receipt": "Abrir el recibo (JSON)",
       "ndjson": "Descargar el registro literal de eventos",
+      "ndjsonUnavailable": "El registro literal de eventos de esta ejecución no se publica en la superficie pública: los registros de un modelo en vivo pueden citar texto externo. El recibo lleva su vista depurada.",
       "cancel": "Cancelar esta ejecución",
       "cancelling": "Cancelación solicitada: la ejecución se detiene en su próximo punto de control.",
       "cancelHint": "Solo se puede cancelar una ejecución que sigue deliberando."
+    },
+    "failure": {
+      "title": "La ejecución falló",
+      "detail": "Etapa {stage}, código {code}.",
+      "detailNoCode": "Etapa {stage}.",
+      "unknownCode": "La ejecución falló (código {code}).",
+      "noCode": "La ejecución falló en la etapa {stage}.",
+      "codes": {
+        "cancelled": "Su propietario canceló la ejecución.",
+        "shutdown": "El servidor se apagó antes de que terminara la ejecución.",
+        "deadline": "Venció el plazo de la ejecución.",
+        "interrupted": "El servidor se reinició antes de que terminara la ejecución.",
+        "panic": "La ejecución se detuvo por un error interno.",
+        "model_timeout": "Una llamada al modelo agotó su tiempo.",
+        "model_unavailable": "El servicio del modelo no estaba disponible.",
+        "model_malformed_output": "El modelo devolvió una salida que fue rechazada.",
+        "evaluation_contract": "Un documento del modelo incumplió el protocolo de deliberación y fue rechazado.",
+        "challenge_contract": "Un documento del modelo incumplió el protocolo de deliberación y fue rechazado.",
+        "proposal_contract": "Un documento del modelo incumplió el protocolo de deliberación y fue rechazado.",
+        "token_budget_exceeded": "La ejecución superó su presupuesto de tokens.",
+        "token_usage_missing": "Una llamada al modelo no informó su uso de tokens, así que no se pudo aplicar el presupuesto.",
+        "persistence": "No se pudo escribir el registro de la ejecución.",
+        "budget_refused": "El presupuesto del modo en vivo se negó a financiar la siguiente llamada al modelo, así que no se envió nada más.",
+        "budget_unsettled": "El presupuesto del modo en vivo no pudo registrar lo que costó una llamada al modelo, así que la ejecución se detuvo; la llamada sigue contada por su estimación.",
+        "meta_unauthorized": "La Model API de Meta rechazó la clave del servidor.",
+        "meta_billing": "La Model API de Meta informó un problema de facturación en la cuenta del propietario.",
+        "meta_forbidden": "La Model API de Meta no permitió esta llamada con la clave del servidor.",
+        "meta_bad_request": "La Model API de Meta rechazó la solicitud.",
+        "meta_rate_limited": "Se alcanzó el límite de solicitudes de la Model API de Meta.",
+        "meta_unavailable": "La Model API de Meta no estaba disponible.",
+        "meta_timeout": "Una llamada a la Model API de Meta no terminó a tiempo.",
+        "meta_transport": "Falló la conexión con la Model API de Meta.",
+        "meta_config": "No se pudo usar la configuración de la Model API del servidor.",
+        "model_output_truncated": "La salida del modelo llegó a su límite de longitud antes de completar el documento.",
+        "model_refusal": "El modelo se negó a producir el documento."
+      }
+    },
+    "unavailable": {
+      "noCode": "No se pudo obtener evidencia.",
+      "unknownCode": "No se pudo obtener evidencia (código {code}).",
+      "codes": {
+        "memory_unavailable": "No se pudo alcanzar el backend de memoria.",
+        "memory_error": "El backend de memoria respondió con un error.",
+        "evidence_cap": "Los registros que superaban el límite de evidencia por ejecución no se procesaron."
+      }
     }
   },
   "Showcase": {
@@ -523,6 +640,10 @@
       "recorded": "Modelo de Meta · grabado el {date}",
       "live": "Modelo de Meta · en vivo",
       "description": "Una ejecución en curso: llamadas en vivo a muse-wonder-1.0 de Meta, con evidencia de una instantánea sellada de Hyphae cuyas pruebas se verifican de nuevo en cada ejecución. META EN VIVO nunca aparece sola; la etiqueta de la evidencia siempre va a su lado."
+    },
+    "metaModel": {
+      "label": "MODELO META",
+      "description": "Registros de una ejecución del modelo de Meta mostrados después (reproducidos, listados o archivados): llamadas reales al modelo, pero que no ocurren ahora. META EN VIVO solo se muestra para registros que llegan mientras miras."
     },
     "hyphaeLive": {
       "label": "HYPHAE EN VIVO"

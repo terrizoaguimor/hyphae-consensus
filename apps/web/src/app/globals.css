@@ -1634,4 +1634,29 @@
     font-size: var(--text-heading-4-size);
     line-height: var(--text-heading-4-leading);
   }
+
+  /* The scope line under a recommendation for a revised proposal (K03/K04):
+     marked by a bar, not by color alone. */
+  .hc-scope-change {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
+    padding-inline-start: var(--spacing-3);
+    border-inline-start: 3px solid var(--color-warning);
+  }
+
+  .hc-scope-change > p {
+    margin: 0;
+  }
+
+  /* A live preset's text and the badges of its own recorded axes. */
+  .hc-preset {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .hc-preset-text {
+    white-space: normal;
+  }
 }

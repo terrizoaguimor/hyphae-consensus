@@ -4,7 +4,7 @@
 // JSON Schemas of contracts/api-v1 (`pnpm api:types`); tests/api-types.test.ts
 // regenerates it in memory and fails on drift (`pnpm api:check`).
 //
-// contract-sha256: 282d9f3293e10f7b435a6d766af0477c0712835314228fce0f8d5188cbdccbe9
+// contract-sha256: cc890dc030ba418fb15872cb11789c43565b172e7c2131b98122d0861c2b2dbc
 // schemas (28): ApiError, CancelResponseV1, CapabilitiesV1, ConsensusFrameV1, CreateGuidedRunRequest, CreateLiveRunRequest, CreateOperatorRunRequest, DecisionRequest, DecisionResponseV1, EventV1, EventsQuery, HealthV1, ListRunsQuery, PolicyTrace, ProvenanceV1, ReadyV1, ResyncV1, RunCreatedV1, RunDetailV1, RunListV1, RunReceiptV2, RunSummaryV1, ScenariosV1, SessionV1, ShowcaseEntryV1, ShowcaseV1, SseFrameV1, StreamEndV1
 
 /**
@@ -12,7 +12,7 @@
  * (contracts/api-v1/contract-sha256.txt); GET /api/v1/health reports the
  * server's as `contract_sha256`.
  */
-export const CONTRACT_SHA256 = "282d9f3293e10f7b435a6d766af0477c0712835314228fce0f8d5188cbdccbe9";
+export const CONTRACT_SHA256 = "cc890dc030ba418fb15872cb11789c43565b172e7c2131b98122d0861c2b2dbc";
 
 /** The schema files of the contract, one per request, response or frame type. */
 export const CONTRACT_SCHEMAS = [
@@ -98,6 +98,10 @@ export type CapabilitiesV1 = {
   decision_authority: Authority;
   guided_enabled: boolean;
   limits: LimitsV1;
+  /**
+   * Presets, budget and requirements of the public live mode; absent when live mode is not wired on this server.
+   */
+  live?: LiveCapabilitiesV1 | null;
   live_enabled: boolean;
   policy_version: string;
   protocol: string;
@@ -202,9 +206,17 @@ export type CreateGuidedRunRequest = {
 };
 
 /**
- * `POST /api/v1/live-runs` (public): start a live run from a preset. Answered `503 live_disabled` until the live admission is wired.
+ * `POST /api/v1/live-runs` (public): start a live run from a preset, on the owner's key (ADR-0007). Admission needs a Turnstile token in the `cf-turnstile-response` header, `attest_adult: true`, and a country Cloudflare reports; `503 live_disabled` when live mode is off.
  */
 export type CreateLiveRunRequest = {
+  /**
+   * The visitor's 18+ and territory acknowledgment. Absent reads as false, which the gate refuses (`422 attestation_required`).
+   */
+  attest_adult?: boolean;
+  /**
+   * A judge-lane invite code, 1 to 256 characters once trimmed. An unknown code is not an error: the run takes the public lane, and nothing in the response says whether codes exist.
+   */
+  judge_code?: string | null;
   preset_id: string;
 };
 
@@ -335,6 +347,22 @@ export type ErrorCode =
   | "upstream_unavailable"
   | "ndjson_unavailable"
   | "request_timeout"
+  | "live_budget_daily"
+  | "live_budget_lifetime"
+  | "live_budget_judge_daily"
+  | "live_budget_judge_slice"
+  | "live_concurrency"
+  | "live_hourly_admissions"
+  | "live_tripped"
+  | "live_unavailable"
+  | "turnstile_required"
+  | "turnstile_failed"
+  | "turnstile_unavailable"
+  | "attestation_required"
+  | "geo_blocked_portal"
+  | "geo_blocked_live"
+  | "geo_unknown"
+  | "preset_unknown"
   | "internal";
 
 export type Evaluation = {
@@ -620,6 +648,33 @@ export type ListRunsQuery = {
   limit?: number | null;
 };
 
+/** The live section of `/capabilities`, present when live mode is wired. */
+export type LiveCapabilitiesV1 = {
+  /**
+   * The visitor-safe budget. Absent when the ledger could not be read: no run can be admitted until it can (`/ready` then reports `live.ledger_ok: false`), and no figure is invented in its place.
+   */
+  budget?: PublicBudgetV1 | null;
+  presets: PresetV1[];
+  /** Always true: `attest_adult` must be true on every live run. */
+  requires_adult_attestation: boolean;
+  /** Always true: a Turnstile token must accompany every live run. */
+  requires_turnstile: boolean;
+};
+
+/**
+ * The live mode as `/ready` reports it. `ready` is false while the ledger is tripped or unreadable, or the evidence source is not ok.
+ */
+export type LiveReadyV1 = {
+  /**
+   * The evidence source (the sealed snapshot in production) passed its check.
+   */
+  evidence_ok: boolean;
+  /** The ledger could be read. */
+  ledger_ok: boolean;
+  trip_code?: string | null;
+  tripped: boolean;
+};
+
 /**
  * Metadata for one model call, recorded so Meta model participation is demonstrable from receipts. `model` preserves the exact Model API identity string returned/configured for the call.
  */
@@ -730,6 +785,24 @@ export type PolicyTrace = {
 };
 
 /**
+ * One curated live preset, as `/capabilities` lists it: a canned task the recorded batteries ran, never visitor text.
+ */
+export type PresetV1 = {
+  description: string;
+  /**
+   * Where the evidence comes from in this deployment (the sealed snapshot in production).
+   */
+  evidence: EvidenceProvenance;
+  /** The battery tag, e.g. `R03-raise-to-10`: the `preset_id` to send. */
+  id: string;
+  /** Always `live_meta`: the owner's Meta key answers every role. */
+  model: ModelProvenance;
+  /** The project every preset runs against (`demo-repo`). */
+  project: string;
+  title: string;
+};
+
+/**
  * The request a memory proof seals (schema 1.3): the operation and arguments the proof's own result answers.
  */
 export type ProofRequest = {
@@ -772,9 +845,30 @@ export type ProvenanceV1 = {
   source: SourceProvenance;
 };
 
+/**
+ * What `/capabilities` publishes about the live budget: remaining amounts as the ledger renders them (USD, six decimals), whether live mode is tripped and the coarse reason code. Never an amount spent, a detail string, an upstream status or a path; the judge lane is not mentioned.
+ */
+export type PublicBudgetV1 = {
+  /** What the public lane could reserve right now, pacing included. */
+  daily_available_now: string;
+  /** Today's remaining public budget (UTC day). */
+  daily_remaining: string;
+  lifetime_remaining: string;
+  /**
+   * `kill_switch`, `lifetime_cap`, `output_bound`, `charge_bound`, `provider_refused_key` or `inconsistent`, when tripped.
+   */
+  trip_code?: string | null;
+  /**
+   * True when the ledger refuses every admission until an operator resets it, or when the operator's kill-switch file exists (reported at once, before the next admission records the trip).
+   */
+  tripped: boolean;
+};
+
 /** `GET /api/v1/ready`. */
 export type ReadyV1 = {
   active_runs: number;
+  /** Present when live mode is wired on this server. */
+  live?: LiveReadyV1 | null;
   queued_runs: number;
   ready: boolean;
   run_store: RunStoreStatusV1;

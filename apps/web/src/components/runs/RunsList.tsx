@@ -23,6 +23,7 @@ import { localePath, runPath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProvenanceBadges } from "../ProvenanceBadges";
+import { useFailureText } from "../run/FailureSentence";
 
 type RunsListProps = {
   locale: Locale;
@@ -58,6 +59,7 @@ export function RunsList({ locale }: RunsListProps) {
   const tRun = useTranslations("Run");
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const format = useFormatter();
+  const failureText = useFailureText();
   const [state, setState] = useState<ListState>({ status: "loading" });
   const [loadingMore, setLoadingMore] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -207,7 +209,13 @@ export function RunsList({ locale }: RunsListProps) {
                     </dd>
                   </div>
                 </dl>
-                <ProvenanceBadges provenance={run.provenance} />
+                {run.failure === undefined || run.failure === null ? null : (
+                  <p className="hc-supporting" data-run-failure={run.failure.code ?? ""}>
+                    {failureText(run.failure)}
+                  </p>
+                )}
+                {/* A list never reads LIVE: a live-model run is META MODEL, recorded <date>. */}
+                <ProvenanceBadges provenance={run.provenance} recordedAt={run.updated_at} />
                 <ul className="hc-run-dates hc-supporting" role="list">
                   <li>{t("created", { date: dateTime(run.created_at) })}</li>
                   <li>{t("updated", { date: dateTime(run.updated_at) })}</li>

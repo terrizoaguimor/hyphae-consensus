@@ -3,10 +3,13 @@
 // The provenance legend (Overview): what each label will mean once the portal
 // is connected, aligned with the Modes article (messages/docs). Every label is
 // text; color only repeats it. The labels sit on separate axes (plan B4), so
-// LIVE META is never shown alone: it always stands next to the evidence label
+// a model label never stands alone: it is always next to the evidence label
 // (SEALED SNAPSHOT for public live runs, SIMULATED for the archived hybrid
-// runs of a live model with simulated proofs). Hyphae cyan stays reserved for
-// proof and evidence, so no badge here uses the cyan or teal variants.
+// runs of a live model with simulated proofs). LIVE META is the label of a
+// record delivered live while it is watched; the same model shown afterwards
+// (replayed, listed, archived) reads META MODEL (src/lib/provenance.ts). Hyphae
+// cyan stays reserved for proof and evidence, so no badge here uses the cyan
+// or teal variants.
 
 import { Badge, type BadgeVariant } from "@astryxdesign/core/Badge";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -17,25 +20,26 @@ type LabelKey =
   | "simulated.label"
   | "liveMeta.label"
   | "liveMeta.evidence"
+  | "metaModel.label"
   | "recorded.label"
   | "replay.label";
 
 type Sample = {
   /** `Provenance.<key>.description` */
-  key: "simulated" | "liveMeta" | "hybrid" | "recorded" | "replay";
+  key: "simulated" | "liveMeta" | "metaModel" | "hybrid" | "recorded" | "replay";
   badges: ReadonlyArray<{ label: LabelKey; variant: BadgeVariant }>;
 };
 
 const liveMeta = { label: "liveMeta.label", variant: "info" } as const;
+const metaModel = { label: "metaModel.label", variant: "info" } as const;
+const sealed = { label: "liveMeta.evidence", variant: "neutral" } as const;
 const simulated = { label: "simulated.label", variant: "purple" } as const;
 
 const samples: readonly Sample[] = [
   { key: "simulated", badges: [simulated] },
-  {
-    key: "liveMeta",
-    badges: [liveMeta, { label: "liveMeta.evidence", variant: "neutral" }],
-  },
-  { key: "hybrid", badges: [liveMeta, simulated] },
+  { key: "liveMeta", badges: [liveMeta, sealed] },
+  { key: "metaModel", badges: [metaModel, sealed] },
+  { key: "hybrid", badges: [metaModel, simulated] },
   { key: "recorded", badges: [{ label: "recorded.label", variant: "neutral" }] },
   { key: "replay", badges: [{ label: "replay.label", variant: "blue" }] },
 ];

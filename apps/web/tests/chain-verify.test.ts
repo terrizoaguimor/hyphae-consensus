@@ -368,3 +368,117 @@ describe("the textual recipe", () => {
     }
   }, 120_000);
 });
+
+// RECORDED-UX-2: a copy of the receipt or of the detail's chain read before
+// the run's newest records were appended describes an earlier state of the
+// same log. It reads "earlier" (never a difference) only when the file
+// verified link by link and the record at the copy's own last position
+// hashes to the copy's head; a wrong head, a copy that counts more records
+// than the file holds, or a file that fails is still a difference.
+describe("a copy read before the newest records were appended", () => {
+  const run = async () => {
+    const result = await verifyLog(researchBytes(F03.file));
+    const records = result.records.filter((r) => r.runId === F03.run_id);
+    expect(records.length).toBe(F03.event_count);
+    expect(records.length).toBeGreaterThan(3);
+    return { result, records };
+  };
+
+  it("a receipt whose head is the hash of the record at its own count reads earlier, and the chain still verifies", async () => {
+    const { result, records } = await run();
+    const at = records[records.length - 3];
+    const segment = checkSegment(result, {
+      runId: F03.run_id,
+      sha256: F03.sha256,
+      receiptHead: at?.hash ?? null,
+      receiptEventCount: records.length - 2,
+    });
+    expect(segment).toMatchObject({ chain: "pass", head_matches: "earlier", count: "earlier", outcome: "verified", pass: true });
+  });
+
+  it("a detail's chain that ends at an earlier record with that record's hash reads earlier", async () => {
+    const { result, records } = await run();
+    const at = records[records.length - 2];
+    const segment = checkSegment(result, {
+      runId: F03.run_id,
+      firstSequence: records[0]?.sequence,
+      lastSequence: at?.sequence,
+      chainHead: at?.hash,
+    });
+    expect(segment).toMatchObject({ range: "earlier", outcome: "verified" });
+    // Without the head, or with another one, the shorter range is a difference.
+    expect(
+      checkSegment(result, { runId: F03.run_id, firstSequence: records[0]?.sequence, lastSequence: at?.sequence }),
+    ).toMatchObject({ range: "fail", outcome: "failed" });
+    expect(
+      checkSegment(result, {
+        runId: F03.run_id,
+        firstSequence: records[0]?.sequence,
+        lastSequence: at?.sequence,
+        chainHead: records[0]?.hash,
+      }),
+    ).toMatchObject({ range: "fail", outcome: "failed" });
+    // A range that starts elsewhere differs whatever its head.
+    expect(
+      checkSegment(result, {
+        runId: F03.run_id,
+        firstSequence: (records[0]?.sequence ?? 0) + 1,
+        lastSequence: at?.sequence,
+        chainHead: at?.hash,
+      }),
+    ).toMatchObject({ range: "fail", outcome: "failed" });
+  });
+
+  it("a receipt with a head that is not the hash at its count, or that counts more records than the file holds, differs", async () => {
+    const { result, records } = await run();
+    // The head of another position: a rewrite, not an extension.
+    expect(
+      checkSegment(result, {
+        runId: F03.run_id,
+        receiptHead: records[records.length - 4]?.hash ?? null,
+        receiptEventCount: records.length - 2,
+      }),
+    ).toMatchObject({ head_matches: "fail", count: "fail", outcome: "failed", pass: false });
+    // The right head, but a count that does not place it: still a difference.
+    expect(
+      checkSegment(result, {
+        runId: F03.run_id,
+        receiptHead: records[records.length - 3]?.hash ?? null,
+        receiptEventCount: records.length - 1,
+      }),
+    ).toMatchObject({ head_matches: "fail", count: "fail", outcome: "failed" });
+    // A receipt that counts more than the file holds: the file was truncated.
+    expect(
+      checkSegment(result, {
+        runId: F03.run_id,
+        receiptHead: "0".repeat(64),
+        receiptEventCount: records.length + 1,
+      }),
+    ).toMatchObject({ head_matches: "fail", count: "fail", outcome: "failed" });
+    // The same count and another head (the last record changed and re-hashed).
+    expect(
+      checkSegment(result, { runId: F03.run_id, receiptHead: "0".repeat(64), receiptEventCount: records.length }),
+    ).toMatchObject({ head_matches: "fail", count: "pass", outcome: "failed" });
+  });
+
+  it("a file that fails never reads a copy as earlier", async () => {
+    const original = researchBytes(PREFIX_LOG);
+    const good = await verifyLog(original);
+    const runId = good.records.at(-1)?.runId ?? "";
+    expect(good.records.filter((r) => r.runId === runId).length).toBeGreaterThan(4);
+    // The last record of the file changed: the check stops there.
+    const lines = decoder.decode(original).split("\n").filter((line) => line !== "").length;
+    const changed = editLine(original, lines, (line) => line.replace('"sequence":', '"sequence": '));
+    const result = await verifyLog(changed);
+    expect(result.failure).not.toBeNull();
+    const kept = result.records.filter((r) => r.runId === runId);
+    const segment = checkSegment(result, {
+      runId,
+      receiptHead: kept[kept.length - 2]?.hash ?? null,
+      receiptEventCount: kept.length - 1,
+    });
+    expect(segment.head_matches).toBe("fail");
+    expect(segment.count).toBe("fail");
+    expect(segment.outcome).toBe("failed");
+  });
+});

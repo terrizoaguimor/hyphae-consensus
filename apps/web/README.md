@@ -197,7 +197,19 @@ turns the pacing off. Server timestamps are shown untouched.
   reads as a neutral "checked in part" naming its unverified records: the
   green "Chain checks out" only for a run whose every record was verified
   link by link, and its record count only over the records that carry a
-  hash). Every redacted view (the links, the receipt
+  hash). The receipt the check compares is the one it reads itself when it
+  starts, just before downloading the log, and the panel says so; the
+  workspace also reads the receipt again whenever the detail moves on (a
+  decision, the end of the stream). The log is append-only, so a log that
+  grew in between reads the receipt or the detail's chain as "matches an
+  earlier state" (neutral, never a difference) only when the file verified
+  link by link and the record at that copy's own last position hashes to
+  its head; any other mismatch fails. The button stays focusable while the
+  check runs (busy, `aria-disabled`, never natively disabled), and one
+  always-mounted, visually hidden status region announces the progress and
+  then the short verdict once (the manifest check on `/showcase` does the
+  same with its outcome); the detailed results are not a live region.
+  Every redacted view (the links, the receipt
   JSON, the Explorer's public event) says it is a display copy, not the
   hashed bytes.
 - **Meta API** (`MetaTab`): one row per recorded model invocation

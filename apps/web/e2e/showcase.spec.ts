@@ -658,6 +658,53 @@ test("a manifest that does not match its published digest lends no note", async 
   await expect(page.locator("[data-manifest-check='differs']")).toBeVisible();
   await expect(page.locator("[data-archive-note]")).toHaveCount(0);
   await expect(page.locator("main")).not.toContainText("forged note");
+  // The outcome is announced by the status region that was there, empty, while the manifest was checked.
+  await expect(page.locator("[data-manifest-announcement]")).toContainText(
+    "Checked in this browser: the manifest’s bytes hash to",
+  );
+  await expect(page.locator("[data-manifest-announcement]")).toContainText("not to the published SHA-256");
+});
+
+// A11Y-I18N-2: the manifest check's status region is mounted empty while the
+// manifest is checked, and only the outcome is written into it (once); the
+// visible "checking" line and the outcome line are not live regions.
+test("the manifest check announces its outcome through a region that was there before", async ({ page }) => {
+  const { list } = entries();
+  await mockApi(page, { showcase: list });
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested: () => void = () => undefined;
+  const asked = new Promise<void>((resolve) => {
+    requested = resolve;
+  });
+  // Registered after mockApi, so it holds the manifest open; fallback() then
+  // hands the request to the archive route, which serves the real bytes.
+  await page.route("**/research/MANIFEST.json", async (route) => {
+    requested();
+    await held;
+    await route.fallback();
+  });
+  await openShowcase(page, "en");
+  await asked;
+  const announcement = page.locator("[data-manifest-announcement]");
+  await expect(announcement).toHaveAttribute("role", "status");
+  await expect(announcement).toHaveText("");
+  await expect(page.locator("[data-manifest-checking]")).toHaveText(t("en", "Showcase.manifest.checking"));
+  await expect(page.locator("[data-manifest-checking]")).not.toHaveAttribute("role", /.+/);
+  const region = await announcement.elementHandle();
+  release();
+  await expect(page.locator("[data-manifest-check='matches']")).toHaveText(t("en", "Showcase.manifest.matches"));
+  await expect(announcement).toHaveText(t("en", "Showcase.manifest.matches"));
+  expect(await region?.evaluate((el) => el.isConnected)).toBe(true);
+  await expect(page.locator("[data-manifest-check='matches']")).not.toHaveAttribute("role", /.+/);
+  const live = await page
+    .locator("[data-manifest]")
+    .evaluate((root) =>
+      [...root.querySelectorAll("[role='status'], [role='alert'], [aria-live]")].map((el) => el.textContent ?? ""),
+    );
+  expect(live).toEqual([t("en", "Showcase.manifest.matches")]);
 });
 
 for (const locale of locales) {

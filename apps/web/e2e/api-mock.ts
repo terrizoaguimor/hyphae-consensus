@@ -67,6 +67,10 @@ export type ApiMockOptions = {
   detail?: Json;
   /** The detail served once a decision was recorded; default the retry fixture. */
   decidedDetail?: Json;
+  /** What GET /runs/{id}/receipt answers once a decision was recorded; default `receipt`. */
+  decidedReceipt?: Json;
+  /** What GET /runs/{id}/events.ndjson serves once a decision was recorded, by run id; default `ndjson`. */
+  decidedNdjson?: Record<string, Buffer>;
   frames?: Json[];
   /** Other runs, served by the run_id of their detail. */
   extraRuns?: MockRun[];
@@ -766,7 +770,9 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
       });
     }
     if (run !== undefined && method === "GET" && suffix === "/events.ndjson") {
-      const ndjson = options.ndjson?.[match?.[1] ?? ""];
+      const decided = state.decided && match?.[1] === RUN_ID;
+      const ndjson =
+        (decided ? options.decidedNdjson?.[match?.[1] ?? ""] : undefined) ?? options.ndjson?.[match?.[1] ?? ""];
       if (ndjson === undefined) {
         return route.fulfill(
           error(404, "ndjson_unavailable", "the verbatim event log of a live run is not published on the public surface"),
@@ -784,7 +790,10 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
         state.receiptFailures -= 1;
         return route.fulfill(answer(options.receiptFailures.answer));
       }
-      return route.fulfill(json(200, options.receipt ?? fixture("receipt-v2-retry.json")));
+      const decided = state.decided && match?.[1] === RUN_ID;
+      return route.fulfill(
+        json(200, (decided ? options.decidedReceipt : undefined) ?? options.receipt ?? fixture("receipt-v2-retry.json")),
+      );
     }
     if (run !== undefined && method === "POST" && suffix === "/decision") {
       if (options.decision !== undefined) {

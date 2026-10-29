@@ -915,8 +915,16 @@
         "pass": "corresponde",
         "fail": "difere",
         "not_compared": "não comparado",
-        "not_checked": "não verificado"
+        "not_checked": "não verificado",
+        "earlier": "corresponde a um estado anterior"
       },
+      "announcement": "{verdict}. {detail}",
+      "receiptRead": "Comparado com o recibo lido do servidor quando esta verificação começou, logo antes de baixar o log (gerado {date}).",
+      "receiptUnread": "Não foi possível ler o recibo quando esta verificação começou, então o hash final e o número de registros não são comparados.",
+      "earlierSentence": "Uma cópia comparada acima foi lida antes de os registros mais recentes desta execução serem acrescentados: o arquivo contém, sem alteração, todos os registros que ela conta, e continua depois deles.",
+      "headEarlier": "Hash final desta execução, o hash do último registro dela: {head}. O hash final do recibo é o hash do registro {sequence} desta execução no arquivo: o recibo foi gerado antes de {appended, plural, =0 {qualquer registro posterior ser acrescentado} one {# registro posterior ser acrescentado} many {# de registros posteriores serem acrescentados} other {# registros posteriores serem acrescentados}}.",
+      "countEarlier": "{count, plural, =0 {O recibo não conta nenhum registro} one {O recibo conta # registro} many {O recibo conta # de registros} other {O recibo conta # registros}}; o arquivo contém {total} desta execução, e os posteriores foram acrescentados depois que o recibo foi gerado.",
+      "segmentEarlier": "Os registros desta execução no arquivo: sequências {first} a {last} ({count, plural, =0 {nenhum} one {# registro} many {# de registros} other {# registros}}). A cadeia do detalhe foi lida quando a execução estava na sequência {detailLast}, e o registro {detailLast} do arquivo tem como hash o hash final dessa cadeia: os registros posteriores foram acrescentados depois dele.",
       "sha256": "SHA-256 do arquivo {sha256} ({bytes} bytes), em relação ao resumo que o manifesto do arquivo fixa.",
       "sha256Own": "SHA-256 do arquivo {sha256} ({bytes} bytes); o log deste servidor não tem nenhum resumo fixado para comparar.",
       "records": "{count, plural, =0 {Nenhum registro do arquivo verificado.} one {# registro do arquivo verificado: o hash recalculado, o vínculo seguido.} many {# de registros do arquivo verificados: cada hash recalculado, cada vínculo seguido.} other {# registros do arquivo verificados: cada hash recalculado, cada vínculo seguido.}}",

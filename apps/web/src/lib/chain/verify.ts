@@ -364,14 +364,22 @@ export type SegmentExpectation = {
   /** The detail's chain: first and last sequence of the run's records. */
   firstSequence?: number | null;
   lastSequence?: number | null;
+  /** The detail's chain head (the hash of the record at lastSequence): it tells an append from a rewrite. */
+  chainHead?: string | null;
 };
 
 /**
  * One comparison. "not_checked" is the chain of a run whose records carry no
  * hash (schema 1.0): there was nothing to recompute and no link to follow, so
- * it neither passed nor failed.
+ * it neither passed nor failed. "earlier" is a copy (the receipt, the
+ * detail's chain) that describes an earlier state of this same log: the file
+ * verified link by link, holds more of the run's records than the copy
+ * counts, and the record at the copy's last position hashes to the copy's
+ * head, so the later records were appended after it and nothing it attests
+ * was rewritten. A copy whose head is not that record's hash, or that counts
+ * more records than the file holds, still differs.
  */
-export type Verdict = "pass" | "fail" | "not_compared" | "not_checked";
+export type Verdict = "pass" | "fail" | "not_compared" | "not_checked" | "earlier";
 
 /**
  * The segment's overall outcome: "verified" only when the run's chain was
@@ -381,7 +389,8 @@ export type Verdict = "pass" | "fail" | "not_compared" | "not_checked";
  * file's digest, the count and the sequences, say anything); "partial" when
  * nothing differs and the run's chained records verified link by link, but
  * the run began before schema 1.1, so its first records carry no hash and
- * are not chain-verified: never shown as a chain that checks out.
+ * are not chain-verified: never shown as a chain that checks out. A copy
+ * read "earlier" (an extension of the copy, never a rewrite) does not differ.
  */
 export type SegmentOutcome = "verified" | "failed" | "unchained" | "partial";
 
@@ -431,20 +440,42 @@ export function checkSegment(result: ChainResult, expected: SegmentExpectation):
   const sha256 = compare(expected.sha256, result.sha256);
   // No head on either side (an unchained run, a receipt without a head) is
   // nothing to compare, not a match.
+  // The record at a copy's last position hashes to the copy's head, the file
+  // verified link by link, and later records of the run follow it: the copy
+  // was taken before those were appended (an extension, not a rewrite).
+  const extendsCopy = (position: number, copyHead: string | null | undefined): boolean =>
+    result.failure === null &&
+    chain === "pass" &&
+    position >= 0 &&
+    position < records.length - 1 &&
+    typeof copyHead === "string" &&
+    copyHead !== "" &&
+    records[position]?.hash === copyHead;
+  const receiptEarlier =
+    typeof expected.receiptEventCount === "number" &&
+    expected.receiptEventCount > 0 &&
+    extendsCopy(expected.receiptEventCount - 1, expected.receiptHead);
   const headMatches: Verdict =
     expected.receiptHead === undefined || ((expected.receiptHead ?? null) === null && head === null)
       ? "not_compared"
       : (expected.receiptHead ?? null) === head
         ? "pass"
-        : "fail";
-  const count = compare(expected.receiptEventCount, records.length);
+        : receiptEarlier
+          ? "earlier"
+          : "fail";
+  const countCompared = compare(expected.receiptEventCount, records.length);
+  const count: Verdict = countCompared === "fail" && receiptEarlier ? "earlier" : countCompared;
+  const detailLastPosition =
+    typeof expected.lastSequence === "number" ? records.findIndex((r) => r.sequence === expected.lastSequence) : -1;
   const range =
     (expected.firstSequence === undefined || expected.firstSequence === null) &&
     (expected.lastSequence === undefined || expected.lastSequence === null)
       ? "not_compared"
       : (expected.firstSequence ?? first) === first && (expected.lastSequence ?? last) === last
         ? "pass"
-        : "fail";
+        : (expected.firstSequence ?? first) === first && extendsCopy(detailLastPosition, expected.chainHead)
+          ? "earlier"
+          : "fail";
   const verdicts = [chain, sha256, headMatches, count, range];
   const outcome: SegmentOutcome = verdicts.some((v) => v === "fail")
     ? "failed"

@@ -89,8 +89,16 @@ export function ManifestLine({
           {t("download", { file })}
         </a>
       </p>
+      {/* Mounted empty while the manifest is checked; only the outcome is announced, once. */}
+      <p className="hc-visually-hidden" role="status" data-manifest-announcement>
+        {state.status !== "ready"
+          ? null
+          : state.matches
+            ? t("matches")
+            : t("differs", { sha256: digestPrefix(state.sha256) ?? state.sha256 })}
+      </p>
       {state.status === "loading" ? (
-        <p role="status" className="hc-supporting">
+        <p className="hc-supporting" data-manifest-checking>
           {t("checking")}
         </p>
       ) : state.status === "error" ? (

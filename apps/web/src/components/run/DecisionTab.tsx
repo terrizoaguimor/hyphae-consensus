@@ -319,6 +319,11 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
             <a href={links.receipt} className="hc-link" data-receipt-link>
               {t("receipt")}
             </a>
+            {detail.summary.provenance.source === "research_archive" ? (
+              <p className="hc-supporting" data-receipt-rebuilt>
+                {t("receiptRebuilt")}
+              </p>
+            ) : null}
           </li>
           <li>
             {links.log !== null ? (

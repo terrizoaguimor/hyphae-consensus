@@ -197,6 +197,23 @@ describe("the archive's own figures", () => {
     expect(text).toMatch(new RegExp(`(^|\\D)${figures.metaRuns}(\\D|$)`));
     expect(String(format.format({ count: 0, runs: 0 }))).not.toMatch(/\d/);
   });
+
+  it("says the scripted double makes no call, and names every unanswered call as recording none", () => {
+    const catalog = JSON.parse(readFileSync(new URL("../messages/en.json", import.meta.url), "utf8")) as {
+      Overview: { figures: { requests: string } };
+    };
+    const text = String(
+      new IntlMessageFormat(catalog.Overview.figures.requests, "en").format({
+        count: figures.metaRequestIds,
+        runs: figures.metaRuns,
+      }),
+    );
+    // The double makes no Meta call (meta.rs records none for it), so none is "left out".
+    expect(text).toContain("The scripted double makes no Meta call and records no id");
+    expect(text).not.toContain("calls are not counted");
+    // A non-2xx answer after retries records no invocation either (meta.rs send()).
+    expect(text).toContain("timed out, failed in transport or was refused with an error status");
+  });
 });
 
 describe("a recorded run never reads LIVE", () => {

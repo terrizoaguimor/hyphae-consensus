@@ -126,6 +126,10 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
   await expect(page.locator("[data-decision-form]")).toHaveCount(0);
   await expect(page.locator("[data-decision-unavailable]")).toHaveText(t("en", "Run.decision.recordedReadOnly"));
   await expect(page.locator("[data-receipt-link]")).toHaveAttribute("href", `/api/v1/showcase/${runId}/receipt`);
+  // Beside that link: the receipt is this server's rebuild, in today's wording.
+  await expect(page.locator("li:has([data-receipt-link]) [data-receipt-rebuilt]")).toHaveText(
+    t("en", "Run.decision.receiptRebuilt"),
+  );
   await expect(page.locator("[data-ndjson-link]")).toHaveAttribute(
     "href",
     "/research/2026-10-27/live-battery-2026-10-27.jsonl",
@@ -231,7 +235,7 @@ test("a recorded run's receipt says it is this server's rebuild and quotes the r
   await expectNoLive(page, "en");
 });
 
-test("a run record that cannot be read is said, with a retry", async ({ page, pageProblems }) => {
+test("a run record that cannot be read is said, and nothing of it is quoted", async ({ page, pageProblems }) => {
   const { r06, list } = entries();
   const record = String(r06.record_file);
   await mockApi(page, {

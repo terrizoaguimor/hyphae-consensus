@@ -228,6 +228,8 @@ turns the pacing off. Server timestamps are shown untouched.
   the receipt downloaded at run time (`record_file`, at `/research/<path>`),
   and on request quote that receipt's own limitations and time
   (`runTimeReceipt` in `src/lib/run/receipt.ts`), saying whether they differ.
+  The Decision tab's receipt link says the same in one sentence
+  (`Run.decision.receiptRebuilt`) and points to the Audit trail.
 
 Honesty rules the views follow (release gate G7; `src/lib/provenance.ts`,
 each with a unit test): LIVE only when a frame's delivery is `live`, the

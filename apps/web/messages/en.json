@@ -170,7 +170,7 @@
       "modelCount": "{label} {count}",
       "authorizations": "By authorization: {list}.",
       "authorizationCount": "{authorization} {count}",
-      "requests": "{count, plural, =0 {No recorded Meta request id.} one {# recorded Meta request id, in {runs, plural, =0 {no run} one {# run} other {# runs}}: one per Meta model call recorded with its response (a retried call counts once). The scripted double’s calls are not counted, and a call that timed out or failed in transport recorded none. Evidence of a recorded model call, not of anything happening now.} other {# recorded Meta request ids, in {runs, plural, =0 {no run} one {# run} other {# runs}}: one per Meta model call recorded with its response (a retried call counts once). The scripted double’s calls are not counted, and a call that timed out or failed in transport recorded none. Evidence of recorded model calls, not of anything happening now.}}",
+      "requests": "{count, plural, =0 {No recorded Meta request id.} one {# recorded Meta request id, in {runs, plural, =0 {no run} one {# run} other {# runs}}: one per Meta model call recorded with its response (a retried call counts once). The scripted double makes no Meta call and records no id, and a call that got no answer (it timed out, failed in transport or was refused with an error status) recorded none. Evidence of a recorded model call, not of anything happening now.} other {# recorded Meta request ids, in {runs, plural, =0 {no run} one {# run} other {# runs}}: one per Meta model call recorded with its response (a retried call counts once). The scripted double makes no Meta call and records no id, and a call that got no answer (it timed out, failed in transport or was refused with an error status) recorded none. Evidence of recorded model calls, not of anything happening now.}}",
       "unchained": "{count, plural, =0 {No run predates the hash chain.} one {# run predates the hash chain (schema 1.0, unchained).} other {# runs predate the hash chain (schema 1.0, unchained).}}",
       "note": "These figures say what was recorded, not that any recommendation was right: integrity is not truth, and runs on simulated evidence are counted under that label.",
       "showcaseLink": "Open the research showcase"
@@ -498,6 +498,7 @@
       "rejected": "rejected",
       "withNote": "Note: {note}",
       "receipt": "Open the receipt (JSON)",
+      "receiptRebuilt": "This server builds this receipt from the archived log each time it is opened; its proof limitations are this software’s current wording. The Audit trail compares them with the run’s record, where the archive holds one.",
       "ndjson": "Download the verbatim event log",
       "ndjsonUnavailable": "The verbatim event log of this run is not published on the public surface: a live model’s records may quote upstream text. The receipt carries its sanitized view.",
       "cancel": "Cancel this run",

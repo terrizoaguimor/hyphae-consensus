@@ -28,7 +28,7 @@ publishing are in [`recording-checklist.md`](recording-checklist.md).
 | Marker | Work | Status on 2026-10-29 |
 |---|---|---|
 | STAGING | Access-protected staging deployment with live mode on (`docs/deployment/runbook.md` §8) | pending |
-| SNAPSHOT | Sealed Hyphae snapshot capture; live mode cannot start without it (`docs/deployment/runbook.md` §4.1, `CONSENSUS_SNAPSHOT_DIR`) | captured 2026-10-29 (`b0375df`); boots only with `0515f29`, not yet merged; not on the server |
+| SNAPSHOT | Sealed Hyphae snapshot capture; live mode cannot start without it (`docs/deployment/runbook.md` §4.1, `CONSENSUS_SNAPSHOT_DIR`) | captured 2026-10-29 (`b0375df`); boots with `0515f29` (merged as `7e26866`); not on the server |
 | BATTERY-1.3 | Counted protocol 1.3 battery on `prompt-freeze-2` (`docs/evaluation.md` §6); the public presets repeat battery tasks, and no 1.3 figure may be shown before it is in §6 | pending; not run on 2026-10-29 (no Meta key on the development machine) |
 | STAGING-REC | The live preset runs recorded on staging (`recording-checklist.md` §2) | pending; needs STAGING, SNAPSHOT, BATTERY-1.3 |
 | CHAIN-BROWSER | The in-browser chain check (merged with web lane W2 at `bc3b262`) passes its review | review running |

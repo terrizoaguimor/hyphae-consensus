@@ -392,7 +392,7 @@ The Hyphae container is on the new development machine. The sealed snapshot
 `snap-2026-10-29-demo-repo` was captured there on 2026-10-29 (`b0375df`; digests under
 "Published snapshot digests"). A test boot on the real snapshot found a format mismatch:
 the server code at `6e202eb` rejects it, because Hyphae 4.0.0 wraps its answer differently
-from what the loader expected. A fix (`0515f29`) is written and tested but not yet merged.
+from what the loader expected. The fix (`0515f29`, merged as `7e26866`) is tested.
 With it, the snapshot loads, Hyphae 4.0.0 re-verifies both proofs, and a local test run
 over it served all 7 records as verified, against a stand-in for the Meta API (no real
 Meta call). Not done yet: merging that fix; comparing the published

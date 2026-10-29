@@ -498,7 +498,7 @@ Two things to know when copying it (observed in the boot check of 2026-10-29, `0
 
 The runtime at `6e202eb` refuses this snapshot at boot (`response_invalid: …
 no memories array`): `hyphae agent ui` 4.0.0 wraps the result object in an envelope with
-`result`. The fix is `0515f29` (branch `test/snapshot-boot`); build the server binary of
+`result`. The fix is `0515f29` (merged as `7e26866`); build the server binary of
 section 3.1 from a commit that contains it.
 
 ### 3.4 Users, directories, binary, units, templates: `install.sh`

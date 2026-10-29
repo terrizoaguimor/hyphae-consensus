@@ -222,8 +222,7 @@ catches and what it does not.
 - **The boot check on the real snapshot.** The runtime at `6e202eb` refused it:
   `response_invalid: captures/list-demo-repo.response.json: no memories array`, because
   `agent ui` 4.0.0 puts the result object under `result` and the loader read only the top
-  level. Fixed in `0515f29` (branch `test/snapshot-boot`, not yet merged into
-  `feat/public-portal`). With the fix, the strict boot (`SnapshotFactory`) accepted the real
+  level. Fixed in `0515f29` (merged as `7e26866`). With the fix, the strict boot (`SnapshotFactory`) accepted the real
   snapshot with the anchor and manifest pins (verifier-binary pin unset on the development
   machine), both proofs were re-verified by hyphae 4.0.0 in the container, mutated copies
   were refused with `checksums_mismatch`, `digest_mismatch`, `manifest_pin_mismatch` and

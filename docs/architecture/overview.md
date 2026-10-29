@@ -32,7 +32,7 @@ Runs come in three honest modes, fixed server-side per route (ADR-0006, ADR-0008
 | Mode | Model | Evidence | Where |
 |---|---|---|---|
 | Guided | scripted doubles (`provider: "fake"`) | seeded records, proofs labelled SIMULATED | public `POST /api/v1/runs` (scenario id only) |
-| Live | Meta Model API on the owner's key | the sealed Hyphae snapshot | public `POST /api/v1/live-runs` (preset id only), off by default; not deployed. The snapshot `snap-2026-10-29-demo-repo` was captured on 2026-10-29 (`b0375df`), but the code at `bc3b262` (and at `6e202eb`) refuses it at boot (`response_invalid`, section 2.4); with the fix `0515f29` (branch `test/snapshot-boot`, not yet merged) one live run went through the public router in-process over the real snapshot, against a local fake Meta server. No live run has used the real Meta API in this mode |
+| Live | Meta Model API on the owner's key | the sealed Hyphae snapshot | public `POST /api/v1/live-runs` (preset id only), off by default; not deployed. The snapshot `snap-2026-10-29-demo-repo` was captured on 2026-10-29 (`b0375df`), but the code at `bc3b262` (and at `6e202eb`) refuses it at boot (`response_invalid`, section 2.4); with the fix `0515f29` (merged as `7e26866`) one live run went through the public router in-process over the real snapshot, against a local fake Meta server. No live run has used the real Meta API in this mode |
 | Recorded showcase | as recorded | as recorded | `GET /api/v1/showcase*`, `/research/*`: the archived 2026-10-26/27 runs, read-only |
 
 The operator console (`serve-operator`) can also run `model=meta` with `memory=hyphae`
@@ -135,8 +135,7 @@ metered operator run every HTTP attempt is drawn on the ledger before it is sent
   (`{"id":1,"ok":true,"result":{…},"schema":…}`), so it refuses the real snapshot with
   `response_invalid: captures/list-demo-repo.response.json: no memories array`.
   `snapshot_manifest.py` accepts both shapes, which is why the capture's `build` and
-  `check --reverify` passed. `0515f29` (branch `test/snapshot-boot`, not yet merged into
-  `feat/public-portal`) adds `snapshot::result_object` (top level or `result`; an error
+  `check --reverify` passed. `0515f29` (merged as `7e26866`) adds `snapshot::result_object` (top level or `result`; an error
   envelope, `ok` not true or a non-object `result` is refused); with it the real snapshot
   boots and both proofs are re-verified at boot.
 
@@ -627,4 +626,4 @@ This overview follows the code in each case:
    committed capture holds it under `result`
    (`snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.response.json` begins
    `{"id":1,"ok":true,"result":{`), and the code at `bc3b262` reads the root only
-   (section 2.4). Both the code and that sentence are corrected in `0515f29`, not yet merged.
+   (section 2.4). Both the code and that sentence are corrected in `0515f29`, merged as `7e26866`.

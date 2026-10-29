@@ -212,7 +212,9 @@ and the account holder pays any overage.
   under it, so the former default refused every snapshot-backed run at its first
   evaluation after two paid calls. A run's worst case is then (70,000 + 16,000 + 32,000) ×
   $20/M = $2.36, inside the $2.50 the day offers at 00:00 UTC (25% burst).
-- Follow-ups: the public snapshot itself is to be captured on 2026-10-29.
+- Follow-ups: the public snapshot was captured on 2026-10-29 as `snap-2026-10-29-demo-repo`
+  (`b0375df`; ADR-0008, "Capture"); it is not yet on the server, and the runtime boots it
+  only with `0515f29` (not yet merged).
 
 ## Consequences
 

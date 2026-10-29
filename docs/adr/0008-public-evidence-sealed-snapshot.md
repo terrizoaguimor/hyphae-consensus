@@ -4,7 +4,8 @@ Date: 2026-10-27 · Status: accepted; `SnapshotMemoryClient` implemented and wir
 public live mode as its evidence factory (`SnapshotFactory`, `CONSENSUS_SNAPSHOT_DIR`;
 integrated 2026-10-28 with the fixes of its review, see "Wiring" below); the record texts, the
 manifest and the verifier binary bound before the capture (2026-10-28, review R6, see
-"Binding" below); the capture session (plan item B11, 2026-10-29) pending · Scope: the public
+"Binding" below); the capture session (plan item B11) held on 2026-10-29, snapshot
+`snap-2026-10-29-demo-repo` (`b0375df`, see "Capture" below) · Scope: the public
 portal's live mode
 
 ## Context
@@ -98,7 +99,7 @@ the recorded batteries cannot sit behind a public server:
 - The capture session is the only authorized container mutation of the plan; the demo
   and lab stores are not touched by it.
 
-## Implementation (2026-10-27, lane A; capture pending 2026-10-29)
+## Implementation (2026-10-27, lane A; the capture followed on 2026-10-29)
 
 - `scripts/hyphae-container/capture-snapshot.sh` is the session script of decision 2
   (POSIX sh, runs inside the container, `--dry-run`, every mutation printed and logged,
@@ -155,7 +156,7 @@ factory; `server.rs` `serve_public_with` decides when it is built.
 - What stays open: the honest label of decision 6 and the "proof covers" sentence of
   decision 4 in the receipt and the web app (not in this lane), and the behaviour of the
   real `hyphae proof verify` on the 2026-10-29 snapshot (every verifier result in the
-  tests comes from a fake binary).
+  tests comes from a fake binary). The latter was observed on 2026-10-29 ("Capture" below).
 
 ## Binding (2026-10-28, review R6)
 
@@ -197,3 +198,42 @@ machine's container wrapper cannot be pinned; the verifier build the pins name, 
 session and its script are trusted, and the texts are still not byte-compared with what the
 proofs seal (HY-1). `docs/architecture/sealed-snapshot.md` section 6 lists what each check
 catches and what it does not.
+
+## Capture (2026-10-29)
+
+- **The session.** Held in the `hyphae-consensus` container on the new development machine,
+  2026-10-29 17:16–17:17 UTC (`session.json`: `captured_at` 17:16:12Z, `finished_at`
+  17:17:00Z; two scratch sessions ran before it from 17:11), committed in `b0375df` as `snapshots/snap-2026-10-29-demo-repo/`
+  (the public subset; `.proof` and `.witness` stay git-ignored, decision 3). Hyphae 4.0.0;
+  7 records whose ids equal the research ids; both required captures verified (`kind memory`,
+  `scope semantic_reexecution`, one anchor); `snapshot_manifest.py check --reverify` through
+  `scripts\hyphae-docker.cmd` reproduced both verifier reports; `check --public-only` passed.
+  The first scratch session showed that `hyphae agent ui` refuses a string request id; the
+  script now sends an integer. Details: `docs/architecture/sealed-snapshot.md`, "Observed in
+  the capture session".
+- **The three published values (decision 2).** Anchor
+  `43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02`; SHA-256 of
+  `manifest.json` `b731346c8464796ec17641d5099819cd1ff99525f1ee51409ac8ad790bc1014a`; SHA-256
+  of the Hyphae binary `79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f`. They
+  are in the README ("Published snapshot digests"). The binary digest is the container
+  binary's as the capture recorded it; the match against the GitHub release asset that
+  decision 2 requires (runbook 3.2, tarball `cf92ed6d…`) is not done yet. The release tag
+  does not exist yet.
+- **The boot check on the real snapshot.** The runtime at `6e202eb` refused it:
+  `response_invalid: captures/list-demo-repo.response.json: no memories array`, because
+  `agent ui` 4.0.0 puts the result object under `result` and the loader read only the top
+  level. Fixed in `0515f29` (branch `test/snapshot-boot`, not yet merged into
+  `feat/public-portal`). With the fix, the strict boot (`SnapshotFactory`) accepted the real
+  snapshot with the anchor and manifest pins (verifier-binary pin unset on the development
+  machine), both proofs were re-verified by hyphae 4.0.0 in the container, mutated copies
+  were refused with `checksums_mismatch`, `digest_mismatch`, `manifest_pin_mismatch` and
+  `pinned_anchor_mismatch`, the committed checkout without its git-ignored proofs and
+  witnesses was refused with `checksums_incomplete`, and one in-process live run through
+  the public router, against a local fake Meta server, retrieved the 7 records with every
+  `integrity_status` valid and each per-run report's digests equal to the captured
+  `list-demo-repo.verify.json`. No real Meta call was made.
+- **Still open.** Merging `0515f29`; the binary-digest comparison above; the snapshot on the
+  server (owner authorization; runbook 3.3 lists the values the server pins). A git checkout
+  of the snapshot directory does not boot (`checksums_incomplete`), so the server copy comes
+  from the container or the owner's main checkout, under the directory name
+  `snap-2026-10-29-demo-repo` (`snapshot_id_mismatch` otherwise).

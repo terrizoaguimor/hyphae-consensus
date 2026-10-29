@@ -29,8 +29,10 @@ and bound to every run's proof checks. The operator console meters its own `mode
 runs on the same ledger when it is given the ledger directory, and `consensus-api ledger`
 lets an operator read, reset and reconcile the ledger from a shell. The deployment exists
 as templates only. **The public portal is not exposed.** Nothing is tunneled until every
-gate G1–G12 reads PASS. At `e915b6d` live mode can be enabled only over a sealed snapshot,
-and none has been captured yet (section 5).
+gate G1–G12 reads PASS. At `e915b6d` live mode can be enabled only over a sealed snapshot.
+The one sealed snapshot, `snap-2026-10-29-demo-repo`, was captured on 2026-10-29
+(`b0375df`); the code at `e915b6d` (and at `6e202eb`) refuses it at boot until the fix
+`0515f29` (not yet merged) is in (section 5).
 
 **How this document was verified.** Every mitigation below names its code (file and
 function or module) and the tests that cover it; where no test exists, the text says so.
@@ -468,7 +470,9 @@ next start; unpinned (a development bind), a consistent rewrite of `manifest.jso
 published digests detects it; the pinned anchor detects another store's artifacts, not a
 lying server; `proof_blake3` cannot be recomputed here (no BLAKE3 in the workspace), and
 the record texts are bound to the manifest, not to the proofs (T8). The capture session
-has not happened yet, so no anchor or digest is published (section 5).
+took place on 2026-10-29 (`b0375df`); the anchor, the manifest digest and the binary digest
+are published in the README ("Published snapshot digests"), and the binary digest is not yet
+matched against the release asset (section 5).
 
 **T11. Witness exposure.** Witnesses and proofs are never served: `public_view::evidence_v1`
 drops `proof_file`, `witness_file`, `backend_ref` and the `proof_error` text on the public
@@ -562,7 +566,8 @@ orchestrator drops with a recorded reason (`hyphae.rs::map_record`, `Recall::for
 `fake_memory_honors_project_isolation_like_hyphae`. Residual: the operator surface still
 takes a caller-chosen project by design (authenticated operator, lab stores); the live
 isolation evidence is two empty recalls (L10, R08) plus the snapshot's captured empty
-recall once the capture happens.
+recall `recall-other-repo-isolation` (captured 2026-10-29, `b0375df`; verified by
+`hyphae proof verify`).
 
 ### 3.3 Public surface
 
@@ -1348,7 +1353,7 @@ anywhere in the tree.
 | Id | Finding (short) | Status at `e915b6d` | Where |
 |---|---|---|---|
 | SEC-1 | No auth or ownership on reads; loopback is no boundary behind a tunnel | closed in code; pending deployment probe (G1, G2) | sessions + owner-scoped 404 (`session.rs`, `runs.rs`, `run_store.rs`), listener split (`server.rs`); `another_session_sees_nothing_of_a_run`; lane S-b1 |
-| SEC-2 | Anonymous callers start unlimited live runs on the server key | closed in code (two-phase gate, ledger, per-client daily quota; startable over a verified snapshot since `2f0efe0`); deployment and capture pending | `live/gate.rs`, `live/budget.rs`, `limits.rs::DailyCounts`, `runs.rs::reserve`; `admission_refuses_in_order_and_charges_nothing`, `a_client_starts_its_daily_share_of_public_runs_and_no_more`; `d1e58f1`, `2f0efe0`, `561c25e` |
+| SEC-2 | Anonymous callers start unlimited live runs on the server key | closed in code (two-phase gate, ledger, per-client daily quota; startable over a verified snapshot since `2f0efe0`); deployment pending (snapshot captured 2026-10-29, `b0375df`; it boots only with `0515f29`, not yet merged) | `live/gate.rs`, `live/budget.rs`, `limits.rs::DailyCounts`, `runs.rs::reserve`; `admission_refuses_in_order_and_charges_nothing`, `a_client_starts_its_daily_share_of_public_runs_and_no_more`; `d1e58f1`, `2f0efe0`, `561c25e` |
 | SEC-3 | Caller-chosen `project_id` reads any project | closed for the public surface; accepted on the operator surface | no project field in public requests (`api/types.rs`), presets fixed to `demo-repo`, the snapshot serves one project and must be `demo-repo` to boot; `requests_refuse_unknown_fields_and_free_strings`, `a_snapshot_of_another_project_does_not_boot_for_live_mode` |
 | SEC-4 | One std mutex held for whole runs inside async handlers | closed | per-run `SharedRunLog`, blocking pool, `RunManager` (`runs.rs`); `a_decision_during_deliberation_is_refused_and_live_frames_say_live`; `200b0df`, `92bb836` |
 | SEC-5 | Synchronous POST outlasts the edge timeout | closed in code; heartbeat through a tunnel pending (G11; `deploy/scripts/sse-heartbeat-test.sh` not yet run) | `202` + SSE with 15 s heartbeats (`v1.rs`, `stream.rs`); `a_guided_run_is_accepted_streamed_decided_and_receipted` |
@@ -1387,7 +1392,7 @@ anywhere in the tree.
 | MA-10 | `strict_schema` walk key-agnostic; no golden files | partly: per-call keyed schema asserted strict in tests; `strict_schema` still treats any object with `properties` as a schema; no golden files | `meta.rs::strict_schema`; `structured_output_is_strict_and_every_list_is_required`, `the_evaluate_request_is_keyed_by_this_calls_claim_and_item_ids` |
 | HY-1 | `Valid` not bound to the record | closed for kind, scope and anchor; open for the byte-binding of record text to the proof, which every receipt now states (`proof_limitations`, `821c217`, public receipts included) next to the operator's verifier detail | `hyphae.rs::check_artifacts`, `consensus-domain/src/receipt.rs::DEFAULT_LIMITATIONS`; `valid_requires_a_reexecuted_memory_proof_bound_to_the_anchor_given`, `committed_contract_matches_the_code` |
 | HY-2 | Verifier without a timeout | closed for the deadline and output caps; open for the temp-directory sweep and process-tree kill (the unit's `PrivateTmp` and `KillMode=mixed` act only at stop; untested) | `hyphae.rs::SystemCommandRunner`; `a_verifier_past_its_deadline_is_a_verification_error_with_its_code`, `the_system_runner_kills_a_command_past_its_deadline` |
-| HY-3 | Live Hyphae behind the public portal | closed by design: the sealed snapshot is the public live mode's evidence factory (`2f0efe0`), bound to every run (`BootBoundVerifier`) and pinned (`2a9d4ad`); live Hyphae stays operator-only; capture session pending | `live/snapshot_factory.rs`, `snapshot.rs`, `v1.rs::operator_meta_start`; `a_live_run_over_the_sealed_snapshot_is_proven_verified_and_published_without_paths`, `an_orchestrated_run_over_the_snapshot_is_proven_verified_and_recommended`; ADR-0008 |
+| HY-3 | Live Hyphae behind the public portal | closed by design: the sealed snapshot is the public live mode's evidence factory (`2f0efe0`), bound to every run (`BootBoundVerifier`) and pinned (`2a9d4ad`); live Hyphae stays operator-only; capture session held 2026-10-29 (`b0375df`); the real snapshot boots only with `0515f29` (not yet merged) | `live/snapshot_factory.rs`, `snapshot.rs`, `v1.rs::operator_meta_start`; `a_live_run_over_the_sealed_snapshot_is_proven_verified_and_published_without_paths`, `an_orchestrated_run_over_the_snapshot_is_proven_verified_and_recommended`; ADR-0008 |
 | HY-4 | Generic `corruption` becomes `Invalid` | accepted (fail-closed) with an honest detail | `orchestrator.rs::GENERIC_CORRUPTION_NOTE`, typed `ProofFailure`; `the_typed_corruption_category_widens_the_keyword_rule_and_never_narrows_it` |
 | HY-5 | 4 MiB ceiling; witnesses accumulate | accepted (operator hygiene; the snapshot avoids the ceiling); no code | `docs/architecture/sealed-snapshot.md`, container README |
 | HY-6 | Receipts cannot locate later-round proofs | closed | `RecallProven`, `EvidenceVerification.round`/`proof_ref` (schema 1.3); `recall_proven_is_accepted_where_evidence_events_are`, `a_verification_is_exactly_what_the_rounds_evaluation_implies` |
@@ -1395,7 +1400,7 @@ anywhere in the tree.
 | HY-8 | Keyword fallback marks stderr `Invalid` | accepted (not adopted, LC-10) | `hyphae.rs::check_artifacts`; `the_typed_corruption_category_widens_the_keyword_rule_and_never_narrows_it` |
 | HY-9 | stdio transport weaknesses | partly: one deadline per request with a cancellation notice, bounded lines, stderr tail kept, child killed on drop; process-tree kill on Windows still absent | `hyphae.rs::StdioTransport`; `mcp_lines_are_bounded`, `the_stdio_transport_reports_a_dead_child_and_keeps_its_stderr_tail` |
 | HY-10 | Pinned anchor neither validated nor normalized | closed (normalized and validated; required for the snapshot, where a malformed one is a boot error since `29b95aa`); the operator lab may still run unpinned (self-consistency only, its detail says so) | `config.rs::normalize_anchor`, `SnapshotConfig`; `the_pinned_anchor_is_normalized_and_validated_at_load`, `the_pinned_anchor_is_normalized_and_handed_to_the_verifier`, `a_set_snapshot_dir_with_a_missing_or_malformed_anchor_is_a_boot_error` |
-| HY-11 | `agent ui` path for capture | pending the capture session (unverified until then) | `capture-snapshot.sh`, `docs/architecture/sealed-snapshot.md` §9 |
+| HY-11 | `agent ui` path for capture | exercised in the capture session of 2026-10-29, used there only and never exposed: it works through the session's daemon, refuses a string request id (the script now sends an integer, `b0375df`), and wraps its result in an envelope with `result`, which the runtime at `6e202eb` did not read (`response_invalid` at boot; fixed in `0515f29`, not yet merged) | `capture-snapshot.sh`, `docs/architecture/sealed-snapshot.md` §9 and "Observed in the capture session" |
 | HY-12 | Empty-recall proofs discarded | closed | `Recall::proof`, `RecallProven{empty: true}`; `an_empty_proven_recall_still_returns_its_proof`, `foreign_records_are_dropped_and_proofs_recorded_even_when_empty` |
 | HY-13 | Verification cache keyed by path | closed; a fresh verifier per public live run | `hyphae.rs::HyphaeProofVerifier::verify`, `live/snapshot_factory.rs::run_verifier`; `results_are_reused_by_artifact_bytes_never_by_path`, `every_run_verifies_the_proofs_again_with_a_fresh_verifier` |
 | RT-1 | Earlier-round objections forgotten | closed in code; counted live battery pending | `state_machine.rs`, `contract.rs`, `meta.rs` prompts; `rt1_round_two_silence_cannot_reach_supported`; `1ee386a` |
@@ -1473,17 +1478,25 @@ outside `docs/reviews/` at `e915b6d`, and are outside this document.
 
 Nothing in this list is claimed fixed. Each item names where it stands in the code.
 
-1. **The sealed-snapshot capture session has not happened** (Day 2, planned for
-   2026-10-29). No `snapshots/` directory exists; the anchor, the manifest digest and the
-   verifier binary's digest are unpublished; nine points stay unverified until the session
-   (`docs/architecture/sealed-snapshot.md` §9), among them whether `hyphae agent ui` needs
-   the daemon and whether `proof_blake3` is the BLAKE3 of the proof bytes. Until then
-   live mode cannot be enabled on a deployment: without `CONSENSUS_SNAPSHOT_DIR`,
-   `serve-public` refuses to start with live mode on (`server.rs::build_live_gate`), and
-   on the socket it also needs both pins. Every snapshot test runs over a fixture and a
-   fake `hyphae` script.
+1. **The sealed snapshot is captured but not yet usable by this code** (update of
+   2026-10-29). The capture session ran on 2026-10-29 (`b0375df`,
+   `snapshots/snap-2026-10-29-demo-repo/`); the anchor, the manifest digest and the binary
+   digest are published in the README; `docs/architecture/sealed-snapshot.md`, "Observed in
+   the capture session", records items 1 to 8 of §9 as observed (whether `proof_blake3`
+   is the BLAKE3 of the proof bytes still cannot be recomputed here, and its item 2 is
+   corrected in `0515f29`: the result object is under `result`). The code at `e915b6d` (and at `6e202eb`)
+   refuses the real snapshot at boot (`response_invalid`: `hyphae agent ui` 4.0.0 holds the
+   result under `result`); the fix is `0515f29`, not yet merged. With it, the real snapshot
+   boots on the development machine and its mutated copies are refused (ADR-0008,
+   "Capture"); the committed tests still run over a fixture and a fake `hyphae` script (the
+   real-snapshot test of that check is not committed). Still open: the binary digest
+   matched against the release asset (runbook 3.2) and the snapshot on the server. Without
+   `CONSENSUS_SNAPSHOT_DIR`, `serve-public` refuses to start with live mode on
+   (`server.rs::build_live_gate`), and on the socket it also needs both pins.
 2. **The counted protocol-1.3 live battery is pending** (4 of the 8 authorized runs left;
-   K01–K04 were smoke runs). No claim about live behaviour under protocol 1.3 beyond
+   K01–K04 were smoke runs). It did not run on 2026-10-29: the Meta key is not set on the
+   new development machine, and the battery script stopped before starting the server (no
+   Meta call). No claim about live behaviour under protocol 1.3 beyond
    `docs/evaluation.md` §6 is made.
 3. **The verifier binary is checked at boot only** (`snapshot.rs::check_verifier_binary`):
    a binary replaced while the server runs, or a wrapper that prints the boot-accepted

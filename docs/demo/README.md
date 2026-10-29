@@ -30,8 +30,8 @@ shows (`script.md`, beat 4).
 
 | Work | Needed by | Status |
 |---|---|---|
-| Sealed Hyphae snapshot capture (`docs/architecture/sealed-snapshot.md`) | live mode on staging (beats 3–5, planned cut) | pending |
-| Counted protocol 1.3 battery on `prompt-freeze-2` (`docs/evaluation.md` §6) | the live presets shown on staging; any 1.3 figure in the video | pending; only the smoke runs K01–K04 exist, not counted as validation |
+| Sealed Hyphae snapshot capture (`docs/architecture/sealed-snapshot.md`) | live mode on staging (beats 3–5, planned cut) | captured 2026-10-29 (`b0375df`, digests in the README); the runtime boots it only with `0515f29`, not yet merged; not on the server |
+| Counted protocol 1.3 battery on `prompt-freeze-2` (`docs/evaluation.md` §6) | the live presets shown on staging; any 1.3 figure in the video | pending; only the smoke runs K01–K04 exist, not counted as validation; not run on 2026-10-29 (no Meta key on the development machine; `docs/evaluation.md` §6.3) |
 | Staging deployment (`docs/deployment/runbook.md`) | the planned cut of beats 3–5 | pending |
 | Review of the in-browser chain check (web lane W2, merged at `bc3b262`) | beat 5 in the browser; otherwise the Rust CLI | adversarial review running |
 | Legal sign-off of the portal texts | publishing a video that shows the Terms, Privacy or Limitations pages | pending (`docs/security/release-checklist.md`, G10) |

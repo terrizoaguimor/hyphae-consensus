@@ -266,9 +266,16 @@ turns the pacing off. Server timestamps are shown untouched.
   silently. Each log's listed SHA-256 is cross-checked against the checked
   manifest's own pin (`logPin` in `src/lib/showcase.ts`, `LogPinNote`): the
   showcase list and the Audit trail say whether it matches, differs (both
-  digests named), is not in the manifest, or could not be compared, and the
-  in-browser chain check compares the file with the manifest's pin when
-  there is one, saying when it fell back to the listed digest.
+  digests named), is not in the manifest, is still being checked (a loading
+  line), or could not be compared, and the in-browser chain check compares
+  the file with the manifest's pin when there is one, saying when it fell
+  back to the listed digest (and, once finished, keeping the wording of the
+  digest it actually used). The digest labelled pinned by the manifest is
+  the checked manifest's own (`pinDisplay`): when it differs, the listed one
+  is shown under its own label, and a file the checked manifest does not
+  name is labelled as the server lists it. On a blocked run the
+  generation-failed sentence points to the header's manifest notice rather
+  than repeating it.
 
 Honesty rules the views follow (release gate G7; `src/lib/provenance.ts`,
 each with a unit test): LIVE only when a frame's delivery is `live`, the

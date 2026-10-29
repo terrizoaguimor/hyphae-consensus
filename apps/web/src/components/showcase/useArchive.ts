@@ -17,7 +17,7 @@ import { verifyDigest } from "@/lib/chain/digest";
 import { api, ApiError, isApiError } from "@/lib/api/client";
 import { archiveManifestSchema } from "@/lib/api/schemas";
 import type { ShowcaseV1 } from "@/lib/api/types";
-import type { ArchiveManifest } from "@/lib/showcase";
+import { type ArchiveManifest, type LogPin, logPin } from "@/lib/showcase";
 
 export type ManifestState =
   | { status: "loading" }
@@ -35,6 +35,18 @@ export function checkedManifest(state: ArchiveState): ArchiveManifest | null {
   return state.status === "ready" && state.manifest.status === "ready" && state.manifest.matches
     ? state.manifest.manifest
     : null;
+}
+
+/**
+ * The pin of one archive file as the views show it: "checking" while the
+ * manifest is still being read and checked, else the listing's digest
+ * cross-checked against the checked manifest (src/lib/showcase.ts logPin).
+ */
+export function archivePin(state: ArchiveState, path: string, listing: string): LogPin {
+  if (state.status === "ready" && state.manifest.status === "loading") {
+    return { status: "checking", sha256: listing };
+  }
+  return logPin(checkedManifest(state), path, listing);
 }
 
 function toApiError(error: unknown, path: string): ApiError {

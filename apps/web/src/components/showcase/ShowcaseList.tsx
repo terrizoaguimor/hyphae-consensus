@@ -25,14 +25,14 @@ import type { ShowcaseEntryV1 } from "@/lib/api/types";
 import { evidenceLabel, RECOMMENDATION_VARIANTS } from "@/lib/provenance";
 import { digestPrefix } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
-import { byBattery, isUnchained, logPin, manifestNote, parseOutcome } from "@/lib/showcase";
+import { byBattery, isUnchained, manifestNote, parseOutcome, pinDisplay } from "@/lib/showcase";
 import { showcaseRunPath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { UntrustedText } from "../run/UntrustedText";
 import { LogPinNote } from "./LogPinNote";
-import { checkedManifest, type ManifestState, useArchive } from "./useArchive";
+import { archivePin, checkedManifest, type ManifestState, useArchive } from "./useArchive";
 
 type ShowcaseListProps = {
   locale: Locale;
@@ -167,15 +167,23 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
             {files.map((file) => {
               const sha256 = group.find((entry) => entry.file === file)?.sha256 ?? "";
               const note = manifestNote(notes, file);
+              const pin = archivePin(state, file, sha256);
+              // The manifest's own pin when it was checked (the listing's copy of it otherwise);
+              // the listing's digest, said to be the server's, when the checked manifest does not name the file.
+              const { pinned } = pinDisplay(pin);
               return (
                 <div key={file} className="hc-archive-file" data-archive-file={file}>
                   <p>
-                    {t("logFile", { file, sha256: digestPrefix(sha256) ?? sha256 })}{" "}
+                    <span data-log-file-sha256={pinned ?? sha256}>
+                      {pinned === null
+                        ? t("logFileListed", { file, sha256: digestPrefix(sha256) ?? sha256 })
+                        : t("logFile", { file, sha256: digestPrefix(pinned) ?? pinned })}
+                    </span>{" "}
                     <a href={api.researchUrl(file)} download={baseName(file)} className="hc-link" data-archive-download>
                       {t("download", { name: baseName(file) })}
                     </a>
                   </p>
-                  <LogPinNote pin={logPin(notes, file, sha256)} />
+                  <LogPinNote pin={pin} />
                   {note === null ? null : (
                     <div data-archive-note>
                       <p className="hc-supporting">

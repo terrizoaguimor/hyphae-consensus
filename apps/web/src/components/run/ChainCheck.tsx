@@ -49,12 +49,16 @@ export type ChainSource = {
   /** The file's pinned SHA-256 (a research file); null for this server's log. */
   sha256: string | null;
   /**
-   * Where `sha256` comes from: the manifest this browser checked ("manifest")
-   * or, with no checked manifest naming the file, the listing's copy of the
-   * pin ("listing"); null for this server's log.
+   * Where `sha256` comes from: the manifest this browser checked ("manifest");
+   * the listing's copy of the pin, because the checked manifest does not name
+   * the file ("unlisted") or because no manifest was checked ("listing");
+   * null for this server's log.
    */
-  pinSource: "manifest" | "listing" | null;
+  pinSource: "manifest" | "unlisted" | "listing" | null;
 };
+
+/** The digest a finished check compared the file with, and where it came from, as of when it ran. */
+type ComparedPin = Pick<ChainSource, "sha256" | "pinSource">;
 
 type ChainCheckProps = {
   runId: string;
@@ -67,7 +71,7 @@ type ChainCheckProps = {
 type CheckState =
   | { status: "idle" }
   | { status: "running" }
-  | { status: "done"; result: ChainResult; segment: SegmentResult }
+  | { status: "done"; result: ChainResult; segment: SegmentResult; pin: ComparedPin }
   | { status: "error"; error: ApiError }
   | { status: "unsupported" };
 
@@ -116,18 +120,22 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
       return;
     }
     setState({ status: "running" });
+    // The verdict and the sentence that says what it was compared with come
+    // from the same digest: the one in hand when the check ran, even if the
+    // manifest is read (or read again) afterwards.
+    const pin: ComparedPin = { sha256: source.sha256, pinSource: source.pinSource };
     try {
       const bytes = await api.bytes(source.url);
       const result = await verifyLog(bytes);
       const segment = checkSegment(result, {
         runId,
-        sha256: source.sha256,
+        sha256: pin.sha256,
         receiptHead: receipt === null ? undefined : (receipt.chain.head_hash ?? null),
         receiptEventCount: receipt?.event_count ?? null,
         firstSequence: chain?.first_sequence ?? null,
         lastSequence: chain?.last_sequence ?? null,
       });
-      setState({ status: "done", result, segment });
+      setState({ status: "done", result, segment, pin });
     } catch (error) {
       setState({
         status: "error",
@@ -231,11 +239,13 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
           <ul className="hc-list" data-chain-results>
             <li data-chain-result="sha256">
               {verdictBadge(state.segment.sha256)}{" "}
-              {source.sha256 === null
+              {state.pin.sha256 === null
                 ? t("sha256Own", { sha256: state.result.sha256, bytes: state.result.bytes })
-                : source.pinSource === "manifest"
+                : state.pin.pinSource === "manifest"
                   ? t("sha256", { sha256: state.result.sha256, bytes: state.result.bytes })
-                  : t("sha256Listing", { sha256: state.result.sha256, bytes: state.result.bytes })}
+                  : state.pin.pinSource === "unlisted"
+                    ? t("sha256Unlisted", { sha256: state.result.sha256, bytes: state.result.bytes })
+                    : t("sha256Listing", { sha256: state.result.sha256, bytes: state.result.bytes })}
             </li>
             <li data-chain-result="chain">
               {verdictBadge(state.segment.chain)}{" "}
@@ -271,7 +281,7 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
           <p className="hc-supporting">
             {!state.segment.unchained
               ? t("limits")
-              : source.sha256 === null
+              : state.pin.sha256 === null
                 ? t("limitsUnchainedOwn")
                 : t("limitsUnchained")}
           </p>

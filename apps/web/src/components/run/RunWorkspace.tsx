@@ -43,12 +43,12 @@ import {
 import { evidenceView, generationFailures } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
 import { supersededProposal } from "@/lib/run/view";
-import { logPin, manifestNote } from "@/lib/showcase";
+import { manifestNote } from "@/lib/showcase";
 import { localePath, SHOWCASE_SOURCE } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProvenanceBadges } from "../ProvenanceBadges";
-import { checkedManifest } from "../showcase/useArchive";
+import { archivePin, checkedManifest } from "../showcase/useArchive";
 import { AuditTab } from "./AuditTab";
 import { DecisionTab, type DecisionLinks } from "./DecisionTab";
 import { EvidenceTab } from "./EvidenceTab";
@@ -138,7 +138,7 @@ function Workspace({
   // The entry's log digest, cross-checked against the manifest this browser checked.
   const pin =
     mode.kind === "recorded" && archive !== null
-      ? logPin(checkedManifest(mode.data.archive), archive.file, archive.sha256)
+      ? archivePin(mode.data.archive, archive.file, archive.sha256)
       : null;
   // A recorded run's record (the receipt as downloaded at run time), read on request.
   const runTime = useRunTimeReceipt(runId, archive?.record_file ?? null);

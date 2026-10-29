@@ -35,7 +35,7 @@ import { ndjsonPublishable } from "@/lib/provenance";
 import { digestPrefix } from "@/lib/run/evidence";
 import { baseName, ownLogFileName, receiptFileName, verifyCommand } from "@/lib/run/receipt";
 import { mergeEvents } from "@/lib/run/view";
-import type { LogPin } from "@/lib/showcase";
+import { type LogPin, pinDisplay, pinSource } from "@/lib/showcase";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { LogPinNote } from "../showcase/LogPinNote";
@@ -107,10 +107,14 @@ export function AuditTab({
       ? null
       : pin === null
         ? { sha256: log.sha256, source: "listing" as const }
-        : {
-            sha256: pin.sha256,
-            source: pin.status === "matches" || pin.status === "differs" ? ("manifest" as const) : ("listing" as const),
-          };
+        : { sha256: pin.sha256, source: pinSource(pin) };
+  // The digest shown as the manifest's pin, and the listing's when the checked manifest contradicts it or does not name the file.
+  const shown =
+    log === null || log.sha256 === null
+      ? null
+      : pin === null
+        ? { pinned: log.sha256, listed: null }
+        : pinDisplay(pin);
 
   return (
     <div className="hc-audit-tab" data-audit-tab>
@@ -202,7 +206,9 @@ export function AuditTab({
           </p>
         ) : (
           <>
-            <p>{archive !== null ? t("logArchive") : t("logOwn")}</p>
+            <p>
+              {archive === null ? t("logOwn") : pin?.status === "unlisted" ? t("logArchiveUnlisted") : t("logArchive")}
+            </p>
             <ul className="hc-related" role="list">
               <li>
                 <a href={log.href} download={log.name} className="hc-link" data-log-link>
@@ -210,14 +216,24 @@ export function AuditTab({
                 </a>
               </li>
             </ul>
-            {log.sha256 === null ? null : (
+            {shown === null ? null : (
               <dl className="hc-kv">
-                <div className="hc-kv-wide">
-                  <dt>{t("pinnedSha256")}</dt>
-                  <dd data-log-sha256>
-                    <code className="hc-code">{log.sha256}</code>
-                  </dd>
-                </div>
+                {shown.pinned === null ? null : (
+                  <div className="hc-kv-wide">
+                    <dt>{t("pinnedSha256")}</dt>
+                    <dd data-log-sha256>
+                      <code className="hc-code">{shown.pinned}</code>
+                    </dd>
+                  </div>
+                )}
+                {shown.listed === null ? null : (
+                  <div className="hc-kv-wide">
+                    <dt>{t("listedSha256")}</dt>
+                    <dd data-log-listed-sha256>
+                      <code className="hc-code">{shown.listed}</code>
+                    </dd>
+                  </div>
+                )}
               </dl>
             )}
             {pin === null ? null : <LogPinNote pin={pin} />}

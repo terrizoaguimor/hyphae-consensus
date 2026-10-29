@@ -16,7 +16,7 @@ import { IntlMessageFormat } from "intl-messageformat";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { contractDir } from "../scripts/gen-api-types.mjs";
-import { readManifest } from "../src/components/showcase/useArchive";
+import { archivePin, readManifest } from "../src/components/showcase/useArchive";
 import { routing } from "../src/i18n/routing";
 import { api } from "../src/lib/api/client";
 import { archiveManifestSchema } from "../src/lib/api/schemas";
@@ -29,6 +29,8 @@ import {
   logPin,
   manifestNote,
   parseOutcome,
+  pinDisplay,
+  pinSource,
   policyRulesOf,
 } from "../src/lib/showcase";
 
@@ -171,6 +173,40 @@ describe("the archive's manifest", () => {
     expect(logPin(notes, "no/such/file.jsonl", rewritten)).toEqual({ status: "unlisted", sha256: rewritten });
     // No checked manifest: only the listing's digest is known, and said to be unchecked.
     expect(logPin(null, F03.file, rewritten)).toEqual({ status: "unchecked", sha256: rewritten });
+  });
+
+  // A digest is labelled pinned by the manifest only when no checked manifest contradicts that.
+  it("labels the manifest's own pin as pinned, and the listing's digest as listed where the manifest disagrees", () => {
+    const rewritten = "a".repeat(64);
+    expect(pinDisplay(logPin(notes, F03.file, F03.sha256))).toEqual({ pinned: F03.sha256, listed: null });
+    expect(pinDisplay(logPin(notes, F03.file, rewritten))).toEqual({ pinned: F03.sha256, listed: rewritten });
+    expect(pinDisplay(logPin(notes, "no/such/file.jsonl", rewritten))).toEqual({ pinned: null, listed: rewritten });
+    // No checked manifest: the listing's copy of the pin, as the contract defines it.
+    expect(pinDisplay(logPin(null, F03.file, rewritten))).toEqual({ pinned: rewritten, listed: null });
+    expect(pinDisplay({ status: "checking", sha256: rewritten })).toEqual({ pinned: rewritten, listed: null });
+  });
+
+  it("says where the digest a downloaded file is compared with comes from", () => {
+    const rewritten = "a".repeat(64);
+    expect(pinSource(logPin(notes, F03.file, F03.sha256))).toBe("manifest");
+    expect(pinSource(logPin(notes, F03.file, rewritten))).toBe("manifest");
+    expect(pinSource(logPin(notes, "no/such/file.jsonl", rewritten))).toBe("unlisted");
+    expect(pinSource(logPin(null, F03.file, rewritten))).toBe("listing");
+    expect(pinSource({ status: "checking", sha256: rewritten })).toBe("listing");
+  });
+
+  it("reads a pin as being checked while the manifest is read, never as unchecked", () => {
+    const showcase = { entries: [F03], manifest_file: "MANIFEST.json", manifest_sha256: "0".repeat(64) };
+    expect(archivePin({ status: "ready", showcase, manifest: { status: "loading" } }, F03.file, F03.sha256)).toEqual({
+      status: "checking",
+      sha256: F03.sha256,
+    });
+    expect(
+      archivePin({ status: "ready", showcase, manifest: { status: "ready", sha256: "0".repeat(64), matches: true, manifest: notes } }, F03.file, F03.sha256),
+    ).toEqual({ status: "matches", sha256: F03.sha256 });
+    expect(
+      archivePin({ status: "ready", showcase, manifest: { status: "ready", sha256: "1".repeat(64), matches: false, manifest: null } }, F03.file, F03.sha256),
+    ).toEqual({ status: "unchecked", sha256: F03.sha256 });
   });
 });
 

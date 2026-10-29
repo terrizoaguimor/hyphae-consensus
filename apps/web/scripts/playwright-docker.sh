@@ -72,6 +72,18 @@ if windows_dir=$(cd "$app_dir" && pwd -W 2>/dev/null); then
   export MSYS_NO_PATHCONV=1
 fi
 
+# HC_WEB_NODE_MODULES_VOLUME: the named volume in-docker.sh installed into
+# (see there); mounted read-only at /app/node_modules.
+modules_volume=${HC_WEB_NODE_MODULES_VOLUME:-}
+if [ -n "$modules_volume" ]; then
+  case $modules_volume in
+    *[!A-Za-z0-9_.-]* | [!A-Za-z0-9]*) echo "playwright-docker: HC_WEB_NODE_MODULES_VOLUME must be a plain Docker volume name" >&2; exit 64 ;;
+  esac
+  modules_mount="--volume=$modules_volume:/app/node_modules:ro"
+else
+  modules_mount=""
+fi
+
 # --init reaps the browser processes; --shm-size gives Chromium the shared
 # memory it needs without sharing the host's IPC namespace.
 exec docker run --rm \
@@ -81,7 +93,7 @@ exec docker run --rm \
   --user pwuser \
   --cap-drop ALL \
   --security-opt no-new-privileges \
-  --volume "$app_dir:/app:ro" \
+  --volume "$app_dir:/app:ro" ${modules_mount:+"$modules_mount"} \
   --volume "$app_dir/test-results:/app/test-results" \
   --volume "$contract_dir:/contracts:ro" \
   --volume "$research_dir:/research:ro" \

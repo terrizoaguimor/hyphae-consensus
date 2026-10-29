@@ -434,6 +434,21 @@ rest stays writable because the toolchain writes there: `node_modules/`
 `src/lib/api/types.ts` (`pnpm api:types`). Nothing else in `apps/web` is
 written by a command of this project.
 
+Where writes through the bind mount are slow (Docker Desktop on Windows: a
+`pnpm install` there took hours on 2026-10-29), set
+`HC_WEB_NODE_MODULES_VOLUME=<name>` on the host for both scripts. `node_modules/`
+(and pnpm's store with it) then lives in that named Docker volume, mounted
+read-only for Playwright, and the same install takes about 30 seconds. Use
+one volume per checkout and remove it with `docker volume rm <name>` when
+the checkout goes away:
+
+```sh
+export HC_WEB_NODE_MODULES_VOLUME=hcw-main
+sh apps/web/scripts/in-docker.sh pnpm install --frozen-lockfile
+sh apps/web/scripts/in-docker.sh pnpm check
+sh apps/web/scripts/playwright-docker.sh
+```
+
 `scripts/playwright-docker.sh` runs `playwright test` in
 `mcr.microsoft.com/playwright:v1.64.1-noble`, pinned by digest
 (`sha256:47b510dd…b8ea`, Node 24.22.1, the browsers of Playwright 1.64.1, the

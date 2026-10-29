@@ -36,6 +36,16 @@
 #   sh apps/web/scripts/in-docker.sh pnpm build
 #   sh apps/web/scripts/in-docker.sh sh -c 'pnpm typecheck && pnpm lint'
 
+#
+# Optional: with HC_WEB_NODE_MODULES_VOLUME=<name> set on the host, a named
+# Docker volume of that name is mounted at /app/node_modules instead of the
+# bind-mounted directory (pnpm's store then lives in the volume too). On
+# hosts where bind-mount writes are slow (Docker Desktop on a nested-virtual
+# Windows VM: an install there took hours) this makes install, build and
+# test fast. Use one volume per checkout and pass the same name to
+# playwright-docker.sh; nothing else changes (the variable is read on the
+# host and never passed into the container).
+
 set -eu
 
 # node:24-bookworm-slim, pinned by digest (pulled 2026-10-27, Node 24.22.1).
@@ -59,8 +69,18 @@ if windows_dir=$(cd "$app_dir" && pwd -W 2>/dev/null); then
   export MSYS_NO_PATHCONV=1
 fi
 
+modules_volume=${HC_WEB_NODE_MODULES_VOLUME:-}
+if [ -n "$modules_volume" ]; then
+  case $modules_volume in
+    *[!A-Za-z0-9_.-]* | [!A-Za-z0-9]*) echo "in-docker: HC_WEB_NODE_MODULES_VOLUME must be a plain Docker volume name" >&2; exit 64 ;;
+  esac
+  modules_mount="--volume=$modules_volume:/app/node_modules"
+else
+  modules_mount=""
+fi
+
 exec docker run --rm \
-  --volume "$app_dir:/app" \
+  --volume "$app_dir:/app" ${modules_mount:+"$modules_mount"} \
   --volume "$app_dir/scripts:/app/scripts:ro" \
   --volume "$app_dir/pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro" \
   --volume "$contract_dir:/contracts:ro" \

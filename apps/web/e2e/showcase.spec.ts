@@ -210,6 +210,9 @@ for (const locale of locales) {
     await expect(compare.locator("[data-claim-pairing-note]")).toContainText(
       t(locale, "Run.revision.unpaired", { original: "prop-1", revised: "prop-13" }),
     );
+    // Its revision went through the Meta model adapter (a live-model run):
+    // the adapter's numbering is named as the cause.
+    await expect(compare.locator("[data-claim-pairing-cause]")).toHaveText(t(locale, "Run.revision.unpairedMeta"));
     await expect(compare.locator("table")).toHaveCount(0);
     await expect(compare.locator("[data-claim-change]")).toHaveCount(0);
     for (const kind of ["unchanged", "changed", "added", "removed"]) {
@@ -243,6 +246,29 @@ for (const locale of locales) {
     await expectNoLive(page, locale);
   });
 }
+
+test("disjoint claim ids from a scripted revision: the two lists, and no cause named for them", async ({ page }) => {
+  const { r06, list } = entries();
+  const recorded = withArchivedRevision(r06);
+  // The same archived proposals, the revision now a scripted double's: the
+  // Meta model adapter wrote nothing here, so it is not named as the cause.
+  for (const event of recorded.detail.events as Json[]) {
+    const payload = event.payload as Json;
+    if (payload.type === "revision_submitted") {
+      payload.invocation = { provider: "fake", model: "muse-wonder-1.0", request_id: "fake-revise-1", scripted: true };
+    }
+  }
+  await mockApi(page, { showcase: list, recordedRuns: [recorded] });
+  await openRecorded(page, "en", String(r06.run_id));
+  const compare = page.locator("[data-superseded] [data-revision-compare]");
+  await expect(compare).toHaveAttribute("data-claim-pairing", "none");
+  await expect(compare.locator("[data-claim-pairing-note]")).toHaveText(
+    t("en", "Run.revision.unpaired", { original: "prop-1", revised: "prop-13" }),
+  );
+  await expect(compare.locator("[data-claim-pairing-cause]")).toHaveCount(0);
+  await expect(compare.getByText(t("en", "Run.revision.unpairedMeta"))).toHaveCount(0);
+  await expect(compare.locator("[data-claim-change]")).toHaveCount(0);
+});
 
 test("a recorded run's archived log is checked in this browser against the pinned digest and the receipt's head @smoke", async ({
   page,

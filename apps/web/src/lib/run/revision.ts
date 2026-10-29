@@ -19,14 +19,18 @@
 // is unchanged, with another statement or other citations it changed, an id
 // only in the revision was added, one only in the original was dropped (a
 // scripted run may reuse an id for a different claim, which reads as
-// changed). When no id is shared, it pairs nothing and returns the two
-// lists as recorded: no claim is said to be added, changed or dropped. The
+// changed). When only some ids are shared, `partial` is set and the view
+// says that ids alone cannot tell an added or dropped claim from one
+// restated under another id. When no id is shared, it pairs nothing and
+// returns the two lists as recorded: no claim is said to be added, changed
+// or dropped, and the Meta model adapter is named as the cause only when
+// every revision of the run went through it (revisedByMetaModel). The
 // revisions in between are listed with the items each says it addresses (a
 // claim of the revision, not a verdict). Pure functions, unit-tested in
 // tests/run-revision.test.ts over the contract fixtures and the archived
 // runs of research/.
 
-import type { Claim, Proposal, RunDetailV1 } from "../api/types";
+import type { Claim, ModelInvocationV1, Proposal, RunDetailV1 } from "../api/types";
 
 export type ClaimChange =
   | { kind: "unchanged"; id: string; claim: Claim }
@@ -65,17 +69,44 @@ export function compareClaims(original: Proposal, revised: Proposal): ClaimChang
 }
 
 export type ClaimComparison =
-  /** At least one claim id is in both proposals: the claims are paired by id. */
-  | { pairing: "id"; changes: ClaimChange[] }
+  /**
+   * At least one claim id is in both proposals: the claims are paired by id.
+   * `partial` when some id is in only one of them: ids alone cannot tell
+   * whether such a claim was added or dropped or restated under another id.
+   */
+  | { pairing: "id"; changes: ClaimChange[]; partial: boolean }
   /** No claim id is in both: nothing in the records pairs them; both lists, as recorded. */
   | { pairing: "none"; original: Claim[]; revised: Claim[] };
 
 /** How the records let the claims of `revised` relate to those of `original`. */
 export function claimComparison(original: Proposal, revised: Proposal): ClaimComparison {
   const originalIds = new Set(original.claims.map((claim) => claim.id));
-  return revised.claims.some((claim) => originalIds.has(claim.id))
-    ? { pairing: "id", changes: compareClaims(original, revised) }
-    : { pairing: "none", original: original.claims, revised: revised.claims };
+  if (!revised.claims.some((claim) => originalIds.has(claim.id))) {
+    return { pairing: "none", original: original.claims, revised: revised.claims };
+  }
+  const changes = compareClaims(original, revised);
+  return {
+    pairing: "id",
+    changes,
+    partial: changes.some((change) => change.kind === "added" || change.kind === "removed"),
+  };
+}
+
+/**
+ * True when the run records at least one revision and every revision's
+ * invocation names the Meta model adapter (provider "meta"): only then is
+ * the adapter's numbering the recorded reason no claim id is shared. A
+ * scripted double (provider "fake") keeps a script's ids as written, so for
+ * any other run the view states no cause.
+ */
+export function revisedByMetaModel(detail: RunDetailV1): boolean {
+  const providers = detail.events.flatMap((event) =>
+    event.payload.type === "revision_submitted"
+      ? // An archived record may predate the field: it then names no adapter.
+        [(event.payload.invocation as ModelInvocationV1 | null | undefined)?.provider ?? null]
+      : [],
+  );
+  return providers.length > 0 && providers.every((provider) => provider === "meta");
 }
 
 export type RevisionStep = {

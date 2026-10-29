@@ -216,9 +216,13 @@ turns the pacing off. Server timestamps are shown untouched.
   no link to an earlier claim but its id, and the Meta model adapter numbers
   every proposal's claims anew, so no live-model revision shares a claim id
   (none in research/ does; tests/run-revision.test.ts checks them all). When the two share ids (scripted runs),
-  claim by claim by id: unchanged, changed, added, dropped. When they share
-  none, the two lists side by side with a sentence saying nothing pairs
-  them, and no claim is marked added, changed or dropped.
+  claim by claim by id: unchanged, changed, added, dropped, with a sentence
+  when only some ids are shared (ids alone cannot tell a dropped claim from
+  one restated under another id). When they share none, the two lists side
+  by side with a sentence saying nothing pairs them, and no claim is marked
+  added, changed or dropped; the Meta model adapter is named as the cause
+  only when every revision of the run records it as provider
+  (`revisedByMetaModel`).
 - **RECORDED mode** (`?source=showcase`, `useRecordedRun`): a run of the
   research archive read once from `GET /showcase/{id}` with its showcase
   entry and the manifest's note, and its receipt from `/showcase/{id}/receipt`;

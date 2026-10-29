@@ -5,10 +5,13 @@
 // revised proposal (DecisionTab): the claims of the original and the revised
 // proposal (src/lib/run/revision.ts claimComparison). When the two share
 // claim ids (scripted runs), claim by claim by id: unchanged, changed, added
-// or dropped. When they share none (every live-model revision: the runtime
-// numbers each proposal's claims anew, and nothing else in the records links
-// a revised claim to an original one), the two lists side by side with a
-// sentence saying so, and no claim marked added, changed or dropped. Then
+// or dropped, with a sentence when only some ids are shared (ids alone
+// cannot tell an added or dropped claim from a restated one). When they
+// share none (every live-model revision: the runtime numbers each proposal's
+// claims anew, and nothing else in the records links a revised claim to an
+// original one), the two lists side by side with a sentence saying so, the
+// Meta model adapter named as the cause only when every revision of the run
+// went through it, and no claim marked added, changed or dropped. Then
 // each revision with the items it says it addresses (its own claim, not a
 // verdict). The statements are model output, shown as recorded, in English.
 
@@ -16,7 +19,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { useLocale, useTranslations } from "next-intl";
 
 import type { Claim, Proposal, RunDetailV1 } from "@/lib/api/types";
-import { claimComparison, revisionSteps } from "@/lib/run/revision";
+import { claimComparison, revisedByMetaModel, revisionSteps } from "@/lib/run/revision";
 
 type RevisionComparisonProps = {
   original: Proposal;
@@ -57,6 +60,7 @@ export function RevisionComparison({ original, revised, detail }: RevisionCompar
         <>
           <p className="hc-supporting" data-claim-pairing-note>
             {t("unpaired", { original: original.id, revised: revised.id })}
+            {revisedByMetaModel(detail) ? <span data-claim-pairing-cause>{` ${t("unpairedMeta")}`}</span> : null}
             {english}
           </p>
           <div className="hc-side-by-side">
@@ -68,6 +72,7 @@ export function RevisionComparison({ original, revised, detail }: RevisionCompar
         <>
           <p className="hc-supporting">
             {t("intro")}
+            {comparison.partial ? <span data-claim-pairing-partial>{` ${t("partialIds")}`}</span> : null}
             {english}
           </p>
           <div className="hc-table-scroll" role="region" aria-labelledby="revision-heading" tabIndex={0}>

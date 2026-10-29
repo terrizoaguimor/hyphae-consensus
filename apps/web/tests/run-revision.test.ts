@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { contractDir } from "../scripts/gen-api-types.mjs";
 import type { Proposal, RunDetailV1 } from "../src/lib/api/types";
-import { claimComparison, compareClaims, revisionSteps } from "../src/lib/run/revision";
+import { claimComparison, compareClaims, revisedByMetaModel, revisionSteps } from "../src/lib/run/revision";
 import { supersededProposal } from "../src/lib/run/view";
 
 import { manifest, researchBytes } from "./research";
@@ -194,6 +194,69 @@ describe("claimComparison", () => {
     const before = supersededProposal(detail) as Proposal;
     expect([before.id, detail.current_proposal?.id]).toEqual(["prop-1", "prop-25"]);
     expect(claimComparison(before, detail.current_proposal as Proposal).pairing).toBe("none");
+  });
+
+  it("is partial only when some claim id is in one proposal alone", () => {
+    const full = claimComparison(original, revised);
+    expect(full.pairing === "id" ? full.partial : null).toBe(false);
+    const base = original.claims[0];
+    if (base === undefined) {
+      throw new Error("the original has no claim");
+    }
+    const next: Proposal = {
+      ...revised,
+      claims: [{ ...base }, { id: "claim-9", statement: "A new claim", evidence_refs: [] }],
+    };
+    const partial = claimComparison(original, next);
+    expect(partial.pairing).toBe("id");
+    expect(partial.pairing === "id" ? partial.partial : null).toBe(true);
+    // The archive's scripted revisions reuse every id: never partial.
+    for (const label of ["C01", "C02", "C05"]) {
+      const run = archivedRun(label);
+      const comparison = claimComparison(supersededProposal(run.detail) as Proposal, run.detail.current_proposal as Proposal);
+      expect(comparison.pairing === "id" ? comparison.partial : null, label).toBe(false);
+    }
+  });
+});
+
+describe("revisedByMetaModel", () => {
+  it("is true for the archive's Meta-model revisions (R06, F01 revised twice) and false for the scripted ones", () => {
+    expect(revisedByMetaModel(archivedRun("R06").detail)).toBe(true);
+    expect(revisedByMetaModel(archivedRun("F01").detail)).toBe(true);
+    for (const run of archivedRuns().filter((r) => r.revisionProviders.length > 0)) {
+      expect(revisedByMetaModel(run.detail), run.label).toBe(run.revisionProviders.every((p) => p === "meta"));
+    }
+    for (const label of ["C01", "C02", "C05"]) {
+      expect(revisedByMetaModel(archivedRun(label).detail), label).toBe(false);
+    }
+  });
+
+  it("names no adapter for a scripted revision, even one whose claim ids are all new", () => {
+    // The retry fixture's revision is a scripted double's (provider fake).
+    expect(revisedByMetaModel(detail)).toBe(false);
+    const freshProposal: Proposal = {
+      ...revised,
+      claims: revised.claims.map((claim, i) => ({ ...claim, id: `claim-${10 + i}` })),
+    };
+    const fresh: RunDetailV1 = {
+      ...detail,
+      current_proposal: freshProposal,
+      events: detail.events.map((event) =>
+        event.payload.type === "revision_submitted"
+          ? { ...event, payload: { ...event.payload, revision: { ...event.payload.revision, proposal: freshProposal } } }
+          : event,
+      ),
+    };
+    expect(claimComparison(original, freshProposal).pairing).toBe("none");
+    expect(revisedByMetaModel(fresh)).toBe(false);
+  });
+
+  it("is false for a run with no revision", () => {
+    const unrevised: RunDetailV1 = {
+      ...detail,
+      events: detail.events.filter((event) => event.payload.type !== "revision_submitted"),
+    };
+    expect(revisedByMetaModel(unrevised)).toBe(false);
   });
 });
 

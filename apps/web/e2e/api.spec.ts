@@ -40,6 +40,8 @@ import { fixture } from "./contract";
 import { expect, hydrated, locales, t, test, useTheme } from "./fixtures";
 import { dropProblems, expectNoLive, liveBadge, openRun, takeProblem } from "./helpers";
 
+type Json = Record<string, unknown>;
+
 const LIVE_RUN_ID = "run-00000000-0000-4000-8000-000000000006";
 
 test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, pageProblems }) => {
@@ -1020,6 +1022,34 @@ test("the revision view compares the original and the revised proposal claim by 
   await expect(compare.locator("[data-revision-steps] li")).toHaveText(
     t("en", "Run.revision.step", { id: "prop-2", supersedes: "prop-1", items: "item-1, item-2" }),
   );
+  // Every id is in both proposals: nothing is only in one of them.
+  await expect(compare.locator("[data-claim-pairing-partial]")).toHaveCount(0);
+  await expectNoLive(page, "en");
+});
+
+test("a revision that shares only some claim ids says that ids alone cannot tell a dropped claim from a restated one", async ({
+  page,
+}) => {
+  const detail = awaitingDecisionDetail();
+  // The scripted revision keeps claim-1 and gives its second claim a new id.
+  for (const event of detail.events as Json[]) {
+    const payload = event.payload as Json;
+    if (payload.type === "revision_submitted") {
+      const proposal = (payload.revision as Json).proposal as Json;
+      ((proposal.claims as Json[])[1] as Json).id = "claim-9";
+      detail.current_proposal = proposal;
+    }
+  }
+  await mockApi(page, { detail });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const compare = page.locator("[data-superseded] [data-revision-compare]");
+  await expect(compare).toHaveAttribute("data-claim-pairing", "id");
+  await expect(compare.locator("[data-claim-id='claim-9'][data-claim-change='added']")).toHaveCount(1);
+  await expect(compare.locator("[data-claim-id='claim-2'][data-claim-change='removed']")).toHaveCount(1);
+  await expect(compare.locator("[data-claim-pairing-partial]")).toHaveText(t("en", "Run.revision.partialIds"));
   await expectNoLive(page, "en");
 });
 

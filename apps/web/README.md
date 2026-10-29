@@ -800,6 +800,11 @@ the axe scans.
   of the plan. (The root `README.md`, rewritten on 2026-10-29, describes
   protocol 1.3 and its stop rule and no longer says "fixes in progress".)
 - No `hreflang` alternates yet: they need the public hostname (Day 2).
+- The SIL OFL 1.1 texts of the self-hosted fonts ship with the export as
+  `/licenses/Inter-OFL.txt` and `/licenses/JetBrainsMono-OFL.txt`
+  (`public/licenses/`), but no page links to them yet: a link under the
+  About page's License section needs a new key in the four legal catalogs
+  and the owner's sign-off (2026-10-29).
 - The texts written for the unconnected build (the tour steps, the
   provenance legend's intro, the Settings description of the technical
   level, the Overview's build note) still speak in the future tense; the

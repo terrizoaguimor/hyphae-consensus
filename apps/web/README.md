@@ -34,7 +34,7 @@ the language-neutral root page `/` and the 404 page:
 | Docs | `docs/` | Index of 7 articles, tour launcher, explanation level |
 | Docs articles | `docs/<slug>/` | `what-is`, `three-roles`, `not-voting`, `verified-evidence`, `abstain-contested`, `human-authorization`, `modes`: summary, sections, technical details, previous/next |
 | Settings | `settings/` | Theme, language, motion, explanation level, remove saved settings |
-| Terms of use, Privacy notice, Limitations | `terms/`, `privacy/`, `limitations/` | Drafts for the planned public deployment, marked "Draft" while `LEGAL_TEXT_STATUS` is `"draft"`, dated from `LEGAL_TEXT_UPDATED` |
+| Terms of use, Privacy notice, Limitations | `terms/`, `privacy/`, `limitations/` | Drafts for the planned public deployment, marked "Draft" while `LEGAL_TEXT_STATUS` is `"draft"`, each dated from its own entry in `LEGAL_TEXT_CHANGED` (the day its own text last changed, pinned to a digest of that text by `tests/legal-dates.test.ts`) |
 | About | `about/` | Independence from Meta, Hyphae as the owner's earlier project (copyright Celiums Solutions LLC, Apache-2.0, docs CC-BY-SA-4.0), license, AI assistance, source repository (text until `SOURCE_REPOSITORY_URL` is set); marked "Draft" like the other legal pages |
 | Not found | `/404.html` | `src/app/global-not-found.tsx` (Next's experimental `globalNotFound`): `lang="en"`, the four language links, the non-affiliation line, the theme script and the app styles; served for every unknown path |
 
@@ -686,7 +686,7 @@ sets in all four locales, valid ICU, the same rich-text tags as English
 (`<en>` excepted, since English has nothing to mark), no URLs or HTML in the
 text, no shared top-level namespace, and the required facts in the legal
 drafts. The legal pages' date is an ICU argument (`{date, date, long}`),
-formatted per locale from `LEGAL_TEXT_UPDATED`; the contact address and the
+formatted per locale from the page's own `LEGAL_TEXT_CHANGED` entry; the contact address and the
 hosting country are ICU arguments too (`{contact}`, `{hostingCountry}`),
 filled from the constants in `src/lib/site.ts`. Counts use an explicit `=0`
 branch (CLDR maps 0 to "other" in Spanish but to "one" in Portuguese and

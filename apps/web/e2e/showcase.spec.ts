@@ -22,7 +22,7 @@ import { AXE_TAGS, blocking, type ScanSummary, summarize, writeScans } from "./a
 import { mockApi, recordedRun } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
-import { expectNoLive, liveWord, takeProblem } from "./helpers";
+import { dropProblems, expectNoLive, liveWord, takeProblem } from "./helpers";
 import { archiveEntry, logSegment, manifestRun, metaRequestIds, researchBytes } from "./research";
 
 type Json = Record<string, unknown>;
@@ -235,6 +235,10 @@ test("a run blocked because no proof could be generated reads so, with the archi
     "not a check that found a record altered",
   );
   await expect(header.locator("[data-archive-note] blockquote")).toContainText("a deployment misconfiguration");
+  // The sentence cites the archive's note only because the note is on the page.
+  await expect(header.locator("[data-archive-note-reference]")).toHaveText(
+    t("en", "Showcase.run.generationFailedNote.shown"),
+  );
   await page.getByRole("tab", { name: t("en", "Run.tabs.evidence") }).click();
   await expect(page.locator("[data-coverage='proof_error']").first()).toHaveText(
     t("en", "Run.evidence.coverage.proofError"),
@@ -247,6 +251,53 @@ test("a run blocked because no proof could be generated reads so, with the archi
     t("en", "Run.proofs.plain.generationFailed"),
   );
   await expectNoLive(page, "en");
+});
+
+test("a blocked run whose manifest does not match cites no note it does not show", async ({ page }) => {
+  const { l01, list } = entries();
+  const forged = Buffer.from(
+    JSON.stringify({ created: "2026-10-27", files: [{ path: l01.file, sha256: "0", kind: "event_log", description: "forged note" }] }),
+  );
+  await mockApi(page, {
+    showcase: list,
+    recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true })],
+    research: { "MANIFEST.json": forged },
+  });
+  await openRecorded(page, "en", String(l01.run_id));
+  const sentence = page.locator("[data-recorded-run] [data-archive-label='generation-failed']");
+  await expect(sentence.locator("[data-archive-note-reference='differs']")).toHaveText(
+    t("en", "Showcase.run.generationFailedNote.differs"),
+  );
+  await expect(sentence).toContainText("Blocked because no proof could be generated upstream");
+  await expect(sentence).not.toContainText(t("en", "Showcase.run.generationFailedNote.shown"));
+  await expect(sentence).not.toContainText("names the cause");
+  await expect(page.locator("[data-archive-note]")).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText("forged note");
+});
+
+test("a blocked run whose manifest cannot be read cites no note it does not show", async ({ page, pageProblems }) => {
+  const { l01, list } = entries();
+  await mockApi(page, {
+    showcase: list,
+    recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true })],
+  });
+  // Registered after mockApi, so it answers the manifest before the archive route does.
+  await page.route("**/research/MANIFEST.json", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "shutting_down", message: "shutting down" }),
+    }),
+  );
+  await openRecorded(page, "en", String(l01.run_id));
+  const sentence = page.locator("[data-recorded-run] [data-archive-label='generation-failed']");
+  await expect(sentence.locator("[data-archive-note-reference='unread']")).toHaveText(
+    t("en", "Showcase.run.generationFailedNote.unread"),
+  );
+  await expect(sentence).not.toContainText("names the cause");
+  await expect(page.locator("[data-archive-note]")).toHaveCount(0);
+  takeProblem(pageProblems, "HTTP 503: /research/MANIFEST.json");
+  dropProblems(pageProblems, /^console: Failed to load resource: the server responded with a status of 503/);
 });
 
 test("a schema-1.0 run reads pre-1.1, unchained", async ({ page }) => {

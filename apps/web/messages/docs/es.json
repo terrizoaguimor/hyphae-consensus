@@ -180,7 +180,7 @@
           },
           "showcase": {
             "heading": "Vitrina de investigación (GRABADO)",
-            "body": "Ejecuciones reales grabadas el 26 y el 27 de octubre de 2026, que se reproducirán desde un archivo que las conserva sin cambios. Llevarán la etiqueta GRABADO y nunca se presentarán como ejecuciones en vivo."
+            "body": "Ejecuciones grabadas, con guion o con el modelo de Meta, leídas desde un archivo que las conserva sin cambios. Cada una lleva la etiqueta GRABADO, conserva las etiquetas de modelo y de evidencia que traen sus registros y nunca se presenta como una ejecución en vivo."
           },
           "build": {
             "heading": "En esta versión",

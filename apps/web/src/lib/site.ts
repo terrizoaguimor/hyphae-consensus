@@ -54,8 +54,19 @@ export type LegalPage = (typeof legalPages)[number];
  */
 export const LEGAL_TEXT_STATUS: "draft" | "final" = "draft";
 
-/** Date the legal texts were last changed; shown on every legal page. */
-export const LEGAL_TEXT_UPDATED = new Date("2026-10-28T00:00:00Z");
+/**
+ * The day each legal document's own text last changed (its `Legal.<page>` or
+ * `About` subtree in messages/legal/<locale>.json, in any locale), shown on
+ * that page only: a change to one document never re-dates another.
+ * tests/legal-dates.test.ts pins each date to a digest of its document's
+ * text, so a text change without a new date fails.
+ */
+export const LEGAL_TEXT_CHANGED: Readonly<Record<LegalPage | "about", Date>> = {
+  terms: new Date("2026-10-27T00:00:00Z"),
+  privacy: new Date("2026-10-27T00:00:00Z"),
+  limitations: new Date("2026-10-28T00:00:00Z"),
+  about: new Date("2026-10-27T00:00:00Z"),
+};
 
 /**
  * Whether the portal talks to the Hyphae Consensus API is no longer a build

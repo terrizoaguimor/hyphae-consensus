@@ -2,12 +2,15 @@
 //
 // Each legal page (Terms, Privacy, Limitations, About) shows the day its own
 // text last changed (LEGAL_TEXT_CHANGED in src/lib/site.ts), never a date
-// shared with the others. Each date is pinned here to a SHA-256 of its
-// document's text in all four locales (its Legal.<page> or About subtree of
-// messages/legal/<locale>.json): when a document's text changes, its digest
-// below no longer matches, and the test fails until the date in site.ts is
-// set to the day of that change and the digest here is updated with it. A
-// change to one document never re-dates another.
+// shared with the others. Each date is pinned here to a SHA-256 of what its
+// document shows in all four locales: its Legal.<page> or About subtree of
+// messages/legal/<locale>.json, its title (Nav.<page> in
+// messages/<locale>.json), and the value of every ICU argument that text
+// interpolates from src/lib/site.ts (the contact address and the hosting
+// country, as LegalPageContent passes them). When any of it changes, its
+// digest below no longer matches, and the test fails until the date in
+// site.ts is set to the day of that change and the digest here is updated
+// with it. A change to one document never re-dates another.
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -15,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { routing } from "../src/i18n/routing";
-import { LEGAL_TEXT_CHANGED, legalPages } from "../src/lib/site";
+import { CONTACT_EMAIL, HOSTING_COUNTRY, LEGAL_TEXT_CHANGED, legalPages } from "../src/lib/site";
 
 type Catalog = { [key: string]: string | Catalog };
 
@@ -24,19 +27,25 @@ type LegalDocument = (typeof documents)[number];
 
 /** The day each document's text last changed, with the digest of that text. */
 const PINNED: Record<LegalDocument, { date: string; sha256: string }> = {
-  terms: { date: "2026-10-27", sha256: "3740c519eec1141ac59c8cfad43fb66a52c4a9260050a2c50bfb2ebe0f21b960" },
-  privacy: { date: "2026-10-27", sha256: "730cd623538eb38d9fbb65d3f8fd2db8121a5518d08fa549ddbdad93d9523414" },
-  limitations: { date: "2026-10-28", sha256: "d514d95006770fd7b27b4e2e0635bb5143f7732f9fb21a60e5d95c8d277939d1" },
-  about: { date: "2026-10-27", sha256: "029fa44967102b6041534f40679797b046d4a773e17b2d2f94c483ec8625de80" },
+  terms: { date: "2026-10-27", sha256: "eea6b0f1328cae634a9ef5eb1afe83d52976820766164eff50ecf101686e934f" },
+  privacy: { date: "2026-10-27", sha256: "99368e85299ae9803a131c74244a515f53f0a674c50cf7e33f811d90a2b8a2f8" },
+  limitations: { date: "2026-10-28", sha256: "07e65f817a05a539dc9e4518bce5c5c49cd777c0db01fd0bc17c2d2e8f879d6b" },
+  about: { date: "2026-10-27", sha256: "31f3dedb6371401c7e439f34bd4a538ee9cd0b39f437c2c7537230fc93a3c5be" },
 };
 
-function legalCatalog(locale: string): Catalog {
-  const url = new URL(`../messages/legal/${locale}.json`, import.meta.url);
+/** The ICU arguments LegalPageContent passes to every document's sections. */
+const DOCUMENT_ARGUMENTS: Readonly<Record<string, string>> = {
+  contact: CONTACT_EMAIL,
+  hostingCountry: HOSTING_COUNTRY,
+};
+
+function readCatalog(file: string): Catalog {
+  const url = new URL(`../messages/${file}.json`, import.meta.url);
   return JSON.parse(readFileSync(url, "utf8")) as Catalog;
 }
 
 function documentText(page: LegalDocument, locale: string): Catalog | string | undefined {
-  const catalog = legalCatalog(locale);
+  const catalog = readCatalog(`legal/${locale}`);
   if (page === "about") {
     return catalog.About;
   }
@@ -44,11 +53,31 @@ function documentText(page: LegalDocument, locale: string): Catalog | string | u
   return typeof legal === "object" ? legal[page] : undefined;
 }
 
-/** SHA-256 of the document's text in every locale, in a fixed order. */
+/** The document's title, the page heading LegalPageContent renders. */
+function documentTitle(page: LegalDocument, locale: string): Catalog | string | undefined {
+  const nav = readCatalog(locale).Nav;
+  return typeof nav === "object" ? nav[page] : undefined;
+}
+
+/** The arguments the document's text interpolates, with the values it shows. */
+function documentArguments(text: unknown): [string, string][] {
+  const serialized = JSON.stringify(text);
+  return Object.entries(DOCUMENT_ARGUMENTS)
+    .filter(([name]) => serialized.includes(`{${name}}`))
+    .sort(([a], [b]) => a.localeCompare(b));
+}
+
+/**
+ * SHA-256 of what the document shows in every locale, in a fixed order: its
+ * title, its catalog text, and the values of the arguments that text uses.
+ */
 function documentDigest(page: LegalDocument): string {
   const locales = [...routing.locales].sort();
-  const text = locales.map((locale) => [locale, documentText(page, locale)]);
-  return createHash("sha256").update(JSON.stringify(text)).digest("hex");
+  const shown = locales.map((locale) => {
+    const text = documentText(page, locale);
+    return [locale, documentTitle(page, locale), text, documentArguments(text)];
+  });
+  return createHash("sha256").update(JSON.stringify(shown)).digest("hex");
 }
 
 describe("legal page dates", () => {
@@ -56,6 +85,7 @@ describe("legal page dates", () => {
     expect(Object.keys(LEGAL_TEXT_CHANGED).sort()).toEqual([...documents].sort());
     for (const page of documents) {
       expect(documentText(page, "en"), page).toBeTypeOf("object");
+      expect(documentTitle(page, "en"), page).toBeTypeOf("string");
     }
   });
 
@@ -65,6 +95,23 @@ describe("legal page dates", () => {
       documentDigest(page),
       `the ${page} text changed: set LEGAL_TEXT_CHANGED.${page} in src/lib/site.ts to the day of the change, then pin its new digest here`,
     ).toBe(PINNED[page].sha256);
+  });
+
+  it("counts the site values a document shows as part of its text", () => {
+    // Terms names the contact address; Privacy the contact address and the
+    // hosting country. A change to either value changes those documents.
+    expect(documentArguments(documentText("terms", "en")).map(([name]) => name)).toEqual(["contact"]);
+    expect(documentArguments(documentText("privacy", "en")).map(([name]) => name)).toEqual([
+      "contact",
+      "hostingCountry",
+    ]);
+    for (const locale of routing.locales) {
+      for (const page of documents) {
+        expect(documentArguments(documentText(page, locale)), `${page} ${locale}`).toEqual(
+          documentArguments(documentText(page, "en")),
+        );
+      }
+    }
   });
 
   it("does not re-date Terms and Privacy for a change to Limitations only", () => {

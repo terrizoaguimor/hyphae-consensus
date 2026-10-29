@@ -959,7 +959,7 @@
       "generationFailed": "{count, plural, =0 {Ninguna generación de prueba falló.} one {Bloqueada porque no se pudo generar aguas arriba ninguna prueba para el # registro cuya prueba figura como inválida (informa un error de prueba): ese estado registra un fallo al producir la prueba, no una comprobación que haya encontrado el registro alterado.} many {Bloqueada porque no se pudo generar aguas arriba ninguna prueba para los # de registros cuyas pruebas figuran como inválidas (cada uno informa un error de prueba): ese estado registra un fallo al producir las pruebas, no una comprobación que haya encontrado un registro alterado.} other {Bloqueada porque no se pudo generar aguas arriba ninguna prueba para los # registros cuyas pruebas figuran como inválidas (cada uno informa un error de prueba): ese estado registra un fallo al producir las pruebas, no una comprobación que haya encontrado un registro alterado.}}",
       "generationFailedNote": {
         "shown": "La nota del propio archivo sobre este log, que se muestra abajo, nombra la causa.",
-        "unread": "El manifiesto del archivo no se pudo leer en este navegador, así que su nota sobre este log no se muestra.",
+        "unread": "El manifiesto del archivo no se pudo leer o interpretar en este navegador, así que su nota sobre este log no se muestra.",
         "differs": "Los bytes del manifiesto del archivo no dan el SHA-256 publicado, así que su nota sobre este log no se muestra."
       },
       "awaiting": "detenida en su punto de decisión; no se registró ninguna decisión",

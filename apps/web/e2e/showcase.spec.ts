@@ -300,6 +300,45 @@ test("a blocked run whose manifest cannot be read cites no note it does not show
   dropProblems(pageProblems, /^console: Failed to load resource: the server responded with a status of 503/);
 });
 
+test("a blocked run cites nothing about the note while its manifest is still being checked", async ({ page }) => {
+  const { l01, list } = entries();
+  await mockApi(page, {
+    showcase: list,
+    recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true })],
+  });
+  // Registered after mockApi, so it holds the manifest open; fallback() then
+  // hands the request to the archive route, which serves the real bytes.
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested: () => void = () => undefined;
+  const asked = new Promise<void>((resolve) => {
+    requested = resolve;
+  });
+  await page.route("**/research/MANIFEST.json", async (route) => {
+    requested();
+    await held;
+    await route.fallback();
+  });
+  await openRecorded(page, "en", String(l01.run_id));
+  await asked;
+  const sentence = page.locator("[data-recorded-run] [data-archive-label='generation-failed']");
+  await expect(sentence).toContainText("Blocked because no proof could be generated upstream");
+  // Still checking: neither "shown" nor a failure the check has not reached.
+  await expect(sentence.locator("[data-archive-note-reference]")).toHaveCount(0);
+  await expect(sentence).not.toContainText("names the cause");
+  await expect(sentence).not.toContainText(t("en", "Showcase.run.generationFailedNote.unread"));
+  await expect(page.locator("[data-archive-note]")).toHaveCount(0);
+  release();
+  await expect(sentence.locator("[data-archive-note-reference='shown']")).toHaveText(
+    t("en", "Showcase.run.generationFailedNote.shown"),
+  );
+  await expect(page.locator("[data-recorded-run] [data-archive-note] blockquote")).toContainText(
+    "a deployment misconfiguration",
+  );
+});
+
 test("a schema-1.0 run reads pre-1.1, unchained", async ({ page }) => {
   const { c01, list } = entries();
   await mockApi(page, { showcase: list, recordedRuns: [recordedRun(c01, { base: "retry" })] });

@@ -44,12 +44,16 @@ and the account holder pays any overage.
    **Note 2026-10-29:** the code accepts one piece of visitor free text, the optional
    decision note of `POST /api/v1/runs/{id}/decision` (`DecisionRequest.note` in
    `crates/consensus-api/src/api/types.rs`): at most 2,000 characters, no control
-   characters other than newline, tab and carriage return, no bidirectional controls or
-   zero-width characters (`check_text`), and required, non-blank, to approve a `blocked`
-   or `abstained` run (`runs.rs`, `OverrideNoteRequired`). The decision is recorded after
-   deliberation has ended: the note is stored in the `HumanAuthorization` event, shown in
-   the public run view and the receipt, and never sent to a model
-   (`orchestrator.rs::record_human_decision` makes no model call). "Nothing a visitor
+   characters other than newline, tab and carriage return, no bidirectional embedding,
+   override or isolate controls (U+202A to U+202E, U+2066 to U+2069), and no zero-width
+   space, word joiner or byte-order mark (U+200B, U+2060, U+FEFF); the zero-width
+   joiners U+200C and U+200D and the directional marks are accepted (`check_text`). It is
+   required, non-blank, to approve a `blocked` or `abstained` run (`runs.rs`,
+   `OverrideNoteRequired`). The decision is recorded after deliberation has ended: the
+   note is stored in the `HumanAuthorization` carried by the `HumanDecisionRecorded`
+   event, shown in the public run view and the receipt, and never sent to a model
+   (`runs.rs::RunManager::decide`, the server's path from `api/v1.rs::decide`, appends
+   that event and makes no model call). "Nothing a visitor
    types can reach a model" holds; "no visitor free text anywhere" does not.
 
 4. **Admission.** Turnstile verified server-side (success, action and hostname checked,

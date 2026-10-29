@@ -15,6 +15,8 @@ import {
   THEME_STORAGE_KEY,
 } from "../src/components/themeScriptSource";
 
+import { IO_BOUND_TEST_TIMEOUT_MS } from "./io-timeout";
+
 const srcDir = fileURLToPath(new URL("../src", import.meta.url));
 
 function sourceFiles(dir: string): string[] {
@@ -73,7 +75,8 @@ describe("theme script", () => {
       "utf8",
     );
     expect(themeScript.match(/dangerouslySetInnerHTML=/g)).toHaveLength(1);
-  });
+    // Reads every file of src/ through the bind mount: see tests/io-timeout.ts.
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 
   it("is one line and reads the storage key the toggle writes", () => {
     expect(THEME_SCRIPT).not.toMatch(/[\r\n]/);

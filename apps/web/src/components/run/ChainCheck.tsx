@@ -4,9 +4,12 @@
 // The chain checked in this browser (src/lib/chain/verify.ts): the verbatim
 // log is downloaded as bytes (a recorded run's research file, or this
 // server's events.ndjson of a run whose log the public surface publishes),
-// every record's hash is recomputed with WebCrypto exactly as
-// crates/consensus-runtime/src/event_log.rs does (the raw line with its hash
-// blanked textually, never re-serialized), every link is followed, and the
+// every record's hash is recomputed with WebCrypto from the raw line with
+// its hash blanked textually (crates/consensus-runtime/src/event_log.rs
+// hashes its re-serialization instead: the two agree on the canonical lines
+// the runtime writes, and this check is stricter on any other line; it reads
+// only the chain fields and replays nothing, see the header of verify.ts and
+// the Run.chain.limits text), every link is followed, and the
 // run's own segment is compared with what the views hold: the file's SHA-256
 // with the digest the archive's manifest pins (ShowcaseEntryV1.sha256), the
 // head (the hash of the run's last record) with the receipt's, the record

@@ -16,7 +16,8 @@
 // - es names the verbatim log "log", never "registro", which is its word
 //   for a record;
 // - the Limitations page does not promise that every recorded run can be
-//   re-checked: runs before schema 1.1 carry no chain.
+//   re-checked: runs before schema 1.1 carry no chain, and for them only the
+//   file's SHA-256 can be compared with the manifest's digest.
 
 import { readFileSync } from "node:fs";
 
@@ -61,6 +62,10 @@ describe.each(routing.locales)("numbers in sentences (%s)", (locale) => {
     ["Run.meta.mismatch", { rows: 12345, recorded: 2 }, 12345],
     ["Run.meta.mismatch", { rows: 2, recorded: 12345 }, 12345],
     ["Run.meta.total", { sum: "x", reported: 12345, calls: 2 }, 12345],
+    ["Run.explorer.summaries.evaluation_submitted", { corroborated: 12345, claims: 2, unresolved: 3 }, 12345],
+    ["Run.explorer.summaries.evaluation_submitted", { corroborated: 2, claims: 12345, unresolved: 3 }, 12345],
+    ["Run.explorer.summaries.evaluation_submitted", { corroborated: 2, claims: 3, unresolved: 12345 }, 12345],
+    ["Run.audit.claims", { count: 2, corroborated: 12345 }, 12345],
   ] as const)("%s groups its number as the locale does", (key, values, value) => {
     const text = format(locale, key, values);
     expect(text).toContain(grouped(value));
@@ -132,6 +137,24 @@ describe("translations of the review's round 2", () => {
     ]) {
       expect(message(es, key), key).toMatch(/(^|[^\p{L}])log([^\p{L}]|$)/iu);
     }
+  });
+
+  it("es names the log 'log' in the docs catalog and the planned showcase too", () => {
+    const docs = load("docs/es.json");
+    const es = load("es.json");
+    expect(JSON.stringify(docs)).not.toMatch(/registros? literal/iu);
+    expect(JSON.stringify(docs)).not.toMatch(/registro de eventos/iu);
+    expect(JSON.stringify(docs)).not.toMatch(/al abrir un registro/iu);
+    expect(message(es, "Showcase.planned.manifest")).not.toMatch(/registro archivado/iu);
+    expect(message(es, "Showcase.planned.manifest")).toMatch(/(^|[^\p{L}])log([^\p{L}]|$)/iu);
+  });
+
+  it.each(routing.locales)("the Limitations page says what an unchained run still allows: the file's SHA-256 (%s)", (locale) => {
+    const body = message(load(`legal/${locale}.json`), "Legal.limitations.sections.showcase.body");
+    // The old understatement ("nothing in them can be re-checked") is gone ...
+    expect(body).not.toMatch(/nothing in them can be re-checked|nada que volver a comprobar|nada nelas pode ser conferido|rien n’y peut être revérifié/u);
+    // ... and the SHA-256 clause appears twice: once for chained runs, once for the runs before 1.1.
+    expect(body.match(/SHA-256/gu)?.length).toBe(2);
   });
 
   it.each(routing.locales)("the Limitations page states which recorded runs can be re-checked (%s)", (locale) => {

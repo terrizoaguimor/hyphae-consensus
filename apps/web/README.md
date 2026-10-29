@@ -769,20 +769,25 @@ to their browser's preference, and sends visitors without JavaScript to
   /new, /runs and the run workspace's seven tabs × 4 locales × 2 themes, and
   the open live form, a failed run and a failed detail in both themes; the
   Overview's figures, /showcase and a recorded run's six tabs × 4 locales ×
-  2 themes): **0 violations of any impact**. The gate is the scan count and
-  zero serious or critical violations (`blocking` in `e2e/axe-results.ts`);
-  the other totals are only printed. How to reproduce them: run the full
+  2 themes): **0 violations of any impact**. The gate is zero serious or
+  critical violations (`blocking` in `e2e/axe-results.ts`, asserted by every
+  spec that scans); the scan count and the other totals are only printed,
+  and no code compares the scan count with 300. How to reproduce them: run the full
   suite (`sh apps/web/scripts/playwright-docker.sh --reporter=line` after
   `pnpm build`); `e2e/global-teardown.ts` adds up `test-results/axe/*.json`
   into `test-results/axe-summary.json` and prints the line
   `axe: <scans> scans, <rule passes> rule passes, <element checks> element
-  checks passed, …`. The scan count and the violations reproduce exactly;
-  the rule-pass and element-check counts do not: axe counts only what is in
-  the page when a scan runs, and a rule whose result is incomplete counts as
-  no pass, so they move a little from run to run: three full runs over the
-  same pages and specs gave 13,250 / 141,919 (the 2026-10-28 run quoted
-  here), 13,244 / 141,811 and 13,232 / 141,601 rule passes / element checks,
-  all with 300 scans and no violation. `color-contrast` stays "incomplete" on every scan:
+  checks passed, …`. For the same tree, the scan count and the violations
+  reproduce exactly; the rule-pass and element-check counts do not: axe
+  counts only what is in the page when a scan runs, and a rule whose result
+  is incomplete counts as no pass, so they move a little from run to run.
+  Three full runs of the tree as of 2026-10-28, over the same pages and
+  specs, gave 13,250 / 141,919 (the 2026-10-28 run quoted here), 13,244 /
+  141,811 and 13,232 / 141,601 rule passes / element checks, all with 300
+  scans and no violation. Any change to the pages changes these totals: the
+  W2 review's round-2 i18n lane (2026-10-29) adds elements, and its two full
+  runs gave 13,232 / 142,283 and 13,242 / 142,495, each with 300 scans and
+  no violation. `color-contrast` stays "incomplete" on every scan:
   axe cannot compute contrast over the body gradient and the translucent
   glass (the wordmark, the Menu button, the footer line); the solid
   surfaces are covered by `tests/contrast.test.ts`.
@@ -875,7 +880,9 @@ the axe scans.
   section says which recorded runs can be re-checked: those whose log
   carries a hash chain (schema 1.1 on), with the manifest digest compared
   against a tagged commit as advice, while runs before schema 1.1 carry no
-  chain (2026-10-29, pending that sign-off).
+  chain, so only their file's SHA-256 can be compared with the manifest's
+  digest, which shows the archived bytes and not that no record changed
+  before archiving (2026-10-29, pending that sign-off).
 - Lane W2: the public surface publishes no output bound, attempt count or
   schema and prompt digests of a model call (operator only), so the Meta API
   panel says they are not published; the contract publishes no prices, so no

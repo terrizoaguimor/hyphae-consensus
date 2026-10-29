@@ -461,7 +461,7 @@
         "recall_proven": "{count, plural, =0 {ningún registro} one {# registro} many {# de registros} other {# registros}} bajo el anclaje {anchor}",
         "evidence_verified": "{id}: {proof}; estado factual: {factual}; relevancia: {relevance}",
         "challenge_submitted": "{count, plural, =0 {ninguna objeción} one {# objeción} many {# de objeciones} other {# objeciones}} sobre {target}",
-        "evaluation_submitted": "afirmaciones corroboradas: {corroborated} de {claims}; sin resolver: {unresolved}",
+        "evaluation_submitted": "afirmaciones corroboradas: {corroborated, number} de {claims, number}; sin resolver: {unresolved, number}",
         "revision_submitted": "{id} reemplaza a {supersedes}: {summary}",
         "recommendation_issued": "{kind}",
         "human_decision_recorded": "{decision} por {by} ({authority})",
@@ -752,7 +752,7 @@
       "rounds": "{count, plural, =0 {Ninguna ronda de evaluación} one {# ronda de evaluación} many {# de rondas de evaluación} other {# rondas de evaluación}}",
       "finalProposal": "Propuesta final {id}; propuesta evaluada {evaluated}",
       "none": "ninguna",
-      "claims": "{count, plural, =0 {Ninguna afirmación en la propuesta final} one {# afirmación en la propuesta final} many {# de afirmaciones en la propuesta final} other {# afirmaciones en la propuesta final}}; corroboradas por la evaluación final: {corroborated}",
+      "claims": "{count, plural, =0 {Ninguna afirmación en la propuesta final} one {# afirmación en la propuesta final} many {# de afirmaciones en la propuesta final} other {# afirmaciones en la propuesta final}}; corroboradas por la evaluación final: {corroborated, number}",
       "revisions": "{count, plural, =0 {Ninguna revisión} one {# revisión} many {# de revisiones} other {# revisiones}}",
       "openItems": "{count, plural, =0 {Ningún elemento abierto en la evaluación final} one {# elemento abierto en la evaluación final} many {# de elementos abiertos en la evaluación final} other {# elementos abiertos en la evaluación final}}",
       "missingTests": "{count, plural, =0 {Ningún elemento abierto de prueba faltante} one {# elemento abierto de prueba faltante} many {# de elementos abiertos de prueba faltante} other {# elementos abiertos de prueba faltante}}",
@@ -966,7 +966,7 @@
     "planned": {
       "recorded": "reproducirá cada ejecución desde el archivo, con la etiqueta GRABADO; una reproducción nunca se presenta como una ejecución en vivo;",
       "corrections": "mostrará las correcciones fechadas que se aplican a cada ejecución;",
-      "manifest": "enlazará cada ejecución con su registro archivado, cuyo SHA-256 está fijado en el manifiesto del archivo."
+      "manifest": "enlazará cada ejecución con su log archivado, cuyo SHA-256 está fijado en el manifiesto del archivo."
     },
     "loading": "Leyendo el archivo de investigación…",
     "empty": "Este servidor no sirve ningún archivo de investigación.",

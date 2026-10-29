@@ -1198,6 +1198,35 @@ fn read_digested(dir: &Path, relative: &str, expected: &str, capture_id: &str) -
     Ok(bytes)
 }
 
+/// The list/recall result of a captured response (a JSON object): the
+/// response itself when `memories` is at its top level, or its `result`
+/// member when `hyphae agent ui` wrapped it. The 4.0.0 `agent ui` prints the
+/// envelope `{"id":…,"ok":true,"result":{…},"schema":…}` (observed in the
+/// capture session of 2026-10-29); `scripts/snapshot_manifest.py`
+/// (`result_object`) accepts the same two shapes. An envelope that reports
+/// an error, says `ok` is not true, or carries no result object is refused.
+fn result_object(response: &Value) -> std::result::Result<&Value, &'static str> {
+    if response.get("memories").is_some() {
+        return Ok(response);
+    }
+    if response.get("error").is_some_and(|e| !e.is_null()) {
+        return Err("the response is an error, not a result");
+    }
+    match response.get("result") {
+        Some(result) if result.is_object() => {
+            if response.get("ok").and_then(Value::as_bool) != Some(true) {
+                return Err("the response envelope does not say ok");
+            }
+            if result.get("memories").is_none() {
+                return Err("no memories array (neither at the top level nor under result)");
+            }
+            Ok(result)
+        }
+        Some(_) => Err("result is not an object"),
+        None => Err("no memories array (neither at the top level nor under result)"),
+    }
+}
+
 /// One capture's files against its manifest entry.
 fn check_capture(dir: &Path, manifest: &Manifest, capture: &Capture) -> Result<ParsedCapture> {
     let id = &capture.id;
@@ -1225,6 +1254,7 @@ fn check_capture(dir: &Path, manifest: &Manifest, capture: &Capture) -> Result<P
     if !response.is_object() {
         return Err(invalid("not a JSON object"));
     }
+    let response = result_object(&response).map_err(invalid)?;
     let items = response
         .get("memories")
         .and_then(Value::as_array)

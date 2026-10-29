@@ -618,7 +618,12 @@ Two scratch sessions, then the real one, all in `hyphae-consensus` (hyphae 4.0.0
 - `scratch-2026-10-29-b` and `snap-2026-10-29-demo-repo` passed every step. Items 1 to 8, as
   observed:
   1. `agent ui` works with the session's daemon running (`--ui-via-daemon`, the default).
-  2. It prints one compact line, the result object at the root next to `ok`, `schema` and `id`.
+  2. It prints one compact line, the envelope `{"id":…,"ok":true,"result":{…},"schema":…}`: the
+     result object (`memories`, `proof`, `snapshot`, …) is the `result` member, not the root. The
+     manifest builder accepted both shapes; the runtime's boot check read `memories` at the root
+     only and refused the real capture (`response_invalid: … no memories array`) until it was
+     taught the envelope as well (`snapshot::result_object`, found on 2026-10-29 booting the real
+     snapshot on the dev machine; an error envelope or `ok` not true is still refused).
   3. Request shape as above; `prove` is honoured for `list`; `proof.scope` is `memory-snapshot-v1`
      with `proof_path`, `witness_path`, `proof_blake3` and `anchor_hex`. The responses also report
      `retrieval_mode = lexical` and `semantic_status = disabled`.

@@ -15,6 +15,7 @@
 
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
+import { IntlMessageFormat } from "intl-messageformat";
 
 import { localePath, showcaseRunPath } from "../src/lib/site";
 
@@ -172,6 +173,7 @@ test("a recorded run's archived log is checked in this browser against the pinne
   await openRecorded(page, "en", runId);
   await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
   await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await expect(page.locator("[data-chain-intro='chained']")).toBeVisible();
   await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
   const verdict = page.locator("[data-chain-verdict='pass']");
   await expect(verdict).toBeVisible();
@@ -261,6 +263,64 @@ test("a schema-1.0 run reads pre-1.1, unchained", async ({ page }) => {
   await expect(page.locator("[data-chain-field='head']")).toHaveText(t("en", "Run.audit.noHead"));
   await expectNoLive(page, "en");
 });
+
+// HONESTY-01: the chain check on a schema-1.0 run says there is no chain to
+// check, in every locale: never the green "Chain checks out", never "All #
+// records hash and link", never a green "matches" on the chain or the head.
+/** A catalog plural with its count, formatted as next-intl formats it. */
+const tCount = (locale: Locale, key: string, count: number) =>
+  String(new IntlMessageFormat(t(locale, key), locale).format({ count }));
+/** A catalog message with plural arguments, formatted as next-intl formats it. */
+const tArgs = (locale: Locale, key: string, values: Record<string, string | number>) =>
+  String(new IntlMessageFormat(t(locale, key), locale).format(values));
+
+for (const locale of locales) {
+  test(`a schema-1.0 run's chain check reads "no chain to check", never checks out (${locale})`, async ({ page }) => {
+    const { c01, list } = entries();
+    const runId = String(c01.run_id);
+    const segment = logSegment(String(c01.file), runId);
+    await mockApi(page, { showcase: list, recordedRuns: [recordedRun(c01, { base: "retry" })] });
+    await openRecorded(page, locale, runId);
+    await page.getByRole("tab", { name: t(locale, "Run.tabs.audit") }).click();
+    await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+    // The method is described without recomputing any hash (CU2-01).
+    const intro = page.locator("[data-chain-intro='unchained']");
+    await expect(intro).toHaveText(t(locale, "Run.chain.introUnchained", { name: String(c01.file).split("/").at(-1) ?? "" }));
+    await expect(page.locator("[data-chain-intro='chained']")).toHaveCount(0);
+    await page.getByRole("button", { name: t(locale, "Run.chain.run") }).click();
+    const verdict = page.locator("[data-chain-verdict='unchained']");
+    await expect(verdict).toBeVisible();
+    await expect(page.locator("[data-chain-verdict='pass']")).toHaveCount(0);
+    await expect(verdict.locator(".hc-chain-verdict")).toContainText(t(locale, "Run.chain.unchainedVerdict"));
+    await expect(verdict).not.toContainText(t(locale, "Run.chain.pass"));
+    expect(segment.count).toBeGreaterThan(0);
+    // Neither over the run's records nor over the whole file's.
+    const counts = [segment.count, researchBytes(String(c01.file)).toString("utf8").trim().split("\n").length];
+    for (const n of counts) {
+      await expect(verdict).not.toContainText(tCount(locale, "Run.chain.passSentence", n));
+      for (const legacy of [0, ...counts]) {
+        await expect(verdict).not.toContainText(tArgs(locale, "Run.chain.passSentenceLegacy", { chained: n, legacy }));
+      }
+    }
+    // Nor "checked in part": no record of this run carries a hash.
+    await expect(verdict).not.toContainText(t(locale, "Run.chain.partialVerdict"));
+    await expect(page.locator("[data-chain-verdict='partial']")).toHaveCount(0);
+    await expect(verdict.locator(".hc-chain-verdict")).toContainText(
+      tCount(locale, "Run.chain.unchainedSentence", segment.count),
+    );
+    const result = (name: string) => verdict.locator(`[data-chain-result='${name}']`);
+    // What was compared reads as compared; what was not, as not.
+    await expect(result("sha256")).toContainText(t(locale, "Run.chain.verdicts.pass"));
+    await expect(result("chain")).toContainText(t(locale, "Run.chain.verdicts.not_checked"));
+    await expect(result("chain")).not.toContainText(t(locale, "Run.chain.verdicts.pass"));
+    await expect(result("head")).toContainText(t(locale, "Run.chain.verdicts.not_compared"));
+    await expect(result("head")).not.toContainText(t(locale, "Run.chain.verdicts.pass"));
+    await expect(result("count")).toContainText(t(locale, "Run.chain.verdicts.pass"));
+    await expect(verdict).toContainText(t(locale, "Run.chain.limitsUnchained"));
+    await expect(verdict).not.toContainText(t(locale, "Run.chain.limits"));
+    await expectNoLive(page, locale);
+  });
+}
 
 test("a recorded run the listing does not name offers no file it cannot name", async ({ page }) => {
   const { r06 } = entries();

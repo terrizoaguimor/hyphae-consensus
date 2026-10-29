@@ -11,9 +11,13 @@
 // with the digest the archive's manifest pins (ShowcaseEntryV1.sha256), the
 // head (the hash of the run's last record) with the receipt's, the record
 // count with the receipt's, the first and last sequence with the detail's
-// chain. The result is pass, or the first failing record. A chain that
-// checks out is consistent and matches those copies; it is unsigned, and it
-// says nothing about whether the content is true.
+// chain. The result is pass, the first failing record, or, for a run whose
+// records carry no hash (schema 1.0), a neutral "no chain to check" that says
+// what was and was not checked: it is never shown as a chain that checks out.
+// A run that began before schema 1.1 (its first records carry no hash, the
+// rest are chained) reads as checked in part, naming its unverified records.
+// A chain that checks out is consistent and matches those copies; it is
+// unsigned, and it says nothing about whether the content is true.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
@@ -27,6 +31,7 @@ import {
   type ChainProblem,
   type ChainResult,
   checkSegment,
+  type SegmentOutcome,
   type SegmentResult,
   type Verdict,
   verifyLog,
@@ -58,6 +63,14 @@ type CheckState =
   | { status: "error"; error: ApiError }
   | { status: "unsupported" };
 
+/** The verdict a finished check exposes (data-chain-verdict): "pass" only for a chain verified link by link. */
+const VERDICT_ATTRIBUTE: Record<SegmentOutcome, string> = {
+  verified: "pass",
+  failed: "fail",
+  unchained: "unchained",
+  partial: "partial",
+};
+
 const short = (value: string) => `${digestPrefix(value) ?? value}…`;
 
 /** The values a problem's sentence names, hashes cut to their prefix. */
@@ -85,6 +98,9 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
   const t = useTranslations("Run.chain");
   const tProblem = dynamicTranslator(useTranslations("Run.chain.problems"));
   const [state, setState] = useState<CheckState>({ status: "idle" });
+  // The detail says the run's records carry no hash (schema 1.0): the check
+  // recomputes nothing for them, so the method is described without hashing.
+  const unchainedScope = chain?.scope === "unchained";
 
   const run = async () => {
     if (globalThis.crypto?.subtle === undefined) {
@@ -124,14 +140,53 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
       <Badge variant="success" label={t("verdicts.pass")} />
     ) : verdict === "fail" ? (
       <Badge variant="error" label={t("verdicts.fail")} />
+    ) : verdict === "not_checked" ? (
+      <Badge variant="neutral" label={t("verdicts.not_checked")} />
     ) : (
       <Badge variant="neutral" label={t("verdicts.not_compared")} />
     );
 
+  /** The headline of a finished check: green only for a chain verified link by link. */
+  const headline = (segment: SegmentResult) => {
+    switch (segment.outcome) {
+      case "verified":
+        return (
+          <>
+            <Badge variant="success" label={t("pass")} />{" "}
+            {segment.legacyRecords === 0
+              ? t("passSentence", { count: segment.chainedRecords })
+              : t("passSentenceLegacy", { chained: segment.chainedRecords, legacy: segment.legacyRecords })}
+          </>
+        );
+      case "partial":
+        return (
+          <>
+            <Badge variant="neutral" label={t("partialVerdict")} />{" "}
+            {t("partialSentence", { chained: segment.runChainedRecords, legacy: segment.runLegacyRecords })}
+          </>
+        );
+      case "unchained":
+        return (
+          <>
+            <Badge variant="neutral" label={t("unchainedVerdict")} />{" "}
+            {t("unchainedSentence", { count: segment.records.length })}
+          </>
+        );
+      case "failed":
+        return (
+          <>
+            <Badge variant="error" label={t("fail")} /> {t("failSentence")}
+          </>
+        );
+    }
+  };
+
   return (
     <section className="hc-section" aria-labelledby="chain-check" data-chain-check={state.status}>
       <h4 id="chain-check">{t("heading")}</h4>
-      <p>{t("intro", { name: source.name })}</p>
+      <p data-chain-intro={unchainedScope ? "unchained" : "chained"}>
+        {unchainedScope ? t("introUnchained", { name: source.name }) : t("intro", { name: source.name })}
+      </p>
       <div className="hc-actions">
         <Button
           variant="secondary"
@@ -143,21 +198,14 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
       </div>
       {state.status === "running" ? (
         <p role="status" className="hc-supporting">
-          {t("running", { name: source.name })}
+          {unchainedScope ? t("runningUnchained", { name: source.name }) : t("running", { name: source.name })}
         </p>
       ) : null}
       {state.status === "unsupported" ? <p role="status">{t("unsupported")}</p> : null}
       {state.status === "error" ? <ApiErrorNotice error={state.error} /> : null}
       {state.status === "done" ? (
-        <div className="hc-panel" role="status" data-chain-verdict={state.segment.pass ? "pass" : "fail"}>
-          <p className="hc-chain-verdict">
-            {state.segment.pass ? (
-              <Badge variant="success" label={t("pass")} />
-            ) : (
-              <Badge variant="error" label={t("fail")} />
-            )}{" "}
-            {state.segment.pass ? t("passSentence", { count: state.result.records.length }) : t("failSentence")}
-          </p>
+        <div className="hc-panel" role="status" data-chain-verdict={VERDICT_ATTRIBUTE[state.segment.outcome]}>
+          <p className="hc-chain-verdict">{headline(state.segment)}</p>
           {state.result.failure === null ? null : (
             <p data-chain-failure={state.result.failure.problem.kind} data-chain-failure-sequence={state.result.failure.sequence ?? ""}>
               {state.result.failure.sequence === null
@@ -183,7 +231,9 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
               {verdictBadge(state.segment.chain)}{" "}
               {state.segment.unchained
                 ? t("unchained", { count: state.segment.records.length })
-                : t("records", { count: state.result.records.length })}
+                : state.segment.legacyRecords === 0
+                  ? t("records", { count: state.segment.chainedRecords })
+                  : t("recordsLegacy", { chained: state.segment.chainedRecords, legacy: state.segment.legacyRecords })}
             </li>
             <li data-chain-result="range">
               {verdictBadge(state.segment.range)}{" "}
@@ -208,7 +258,13 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
               {receipt === null ? t("countNoReceipt") : t("count", { count: receipt.event_count })}
             </li>
           </ul>
-          <p className="hc-supporting">{t("limits")}</p>
+          <p className="hc-supporting">
+            {!state.segment.unchained
+              ? t("limits")
+              : source.sha256 === null
+                ? t("limitsUnchainedOwn")
+                : t("limitsUnchained")}
+          </p>
         </div>
       ) : null}
     </section>

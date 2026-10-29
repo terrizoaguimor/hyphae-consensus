@@ -189,7 +189,14 @@ turns the pacing off. Server timestamps are shown untouched.
   does, the raw line with its top-level hash blanked textually, never
   re-serialized; every link followed; the run's segment compared with the
   pinned digest, the receipt's head and count and the detail's chain; pass,
-  or the first failing record). Every redacted view (the links, the receipt
+  or the first failing record, or, for a run whose records carry no hash
+  (schema 1.0), a neutral "no chain to check" with the chain "not checked"
+  and the head "not compared", introduced without any claim of hashing; a
+  run that began before schema 1.1 (hashless first records, chained after)
+  reads as a neutral "checked in part" naming its unverified records: the
+  green "Chain checks out" only for a run whose every record was verified
+  link by link, and its record count only over the records that carry a
+  hash). Every redacted view (the links, the receipt
   JSON, the Explorer's public event) says it is a display copy, not the
   hashed bytes.
 - **Meta API** (`MetaTab`): one row per recorded model invocation

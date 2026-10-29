@@ -10,7 +10,9 @@
 // stage, the Decision tab read-only) with the archive's labels: recorded
 // proofs verified at run time, schema 1.0 pre-1.1 and unchained, a run
 // blocked because no proof could be generated upstream with the archive's
-// own note; and nothing reads LIVE, in any locale. axe on the list and on
+// own note; a real archived revision (R06, its proposals from the log)
+// shown as two lists, since its claims share no id, never as claims added
+// or dropped; and nothing reads LIVE, in any locale. axe on the list and on
 // the recorded run's tabs, in four locales and both themes.
 
 import AxeBuilder from "@axe-core/playwright";
@@ -23,7 +25,7 @@ import { mockApi, recordedRun } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
 import { expectNoLive, liveWord, takeProblem } from "./helpers";
-import { archiveEntry, logSegment, manifestRun, metaRequestIds, researchBytes } from "./research";
+import { archivedProposals, archiveEntry, logSegment, manifestRun, metaRequestIds, researchBytes } from "./research";
 
 type Json = Record<string, unknown>;
 
@@ -161,6 +163,86 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
   expect(mock.calls.filter((c) => c.path.startsWith("/api/v1/runs/"))).toEqual([]);
   expect(mock.calls.filter((c) => c.path === `/api/v1/showcase/${runId}`)).toHaveLength(1);
 });
+
+/**
+ * The recorded R06 detail with its real proposals: the original and the
+ * revision exactly as the archived log records them (prop-1 with claim-2..4,
+ * prop-13 with claim-14..16, its addressed items), in place of the
+ * fixture's scripted prop-1 and prop-2.
+ */
+function withArchivedRevision(entry: Json): { detail: Json; receipt: Json } {
+  const { proposal, revisions } = archivedProposals(String(entry.file), String(entry.run_id));
+  const revision = revisions.at(-1);
+  if (revision === undefined) {
+    throw new Error(`${String(entry.label)} has no revision`);
+  }
+  const revisedId = String((revision.proposal as Json).id);
+  const recorded = recordedRun(entry, { base: "retry" });
+  const detail = JSON.parse(JSON.stringify(recorded.detail).split('"prop-2"').join(JSON.stringify(revisedId))) as Json;
+  for (const event of detail.events as Json[]) {
+    const payload = event.payload as Json;
+    if (payload.type === "proposal_submitted") {
+      payload.proposal = proposal;
+    } else if (payload.type === "revision_submitted") {
+      payload.revision = revision;
+    }
+  }
+  detail.current_proposal = revision.proposal;
+  return { detail, receipt: recorded.receipt };
+}
+
+for (const locale of locales) {
+  test(`a real archived revision (R06) is shown as two lists, never as claims added or dropped (${locale})`, async ({
+    page,
+  }) => {
+    const { r06, list } = entries();
+    const { proposal, revisions } = archivedProposals(String(r06.file), String(r06.run_id));
+    const revision = revisions.at(-1) as Json;
+    const revisedProposal = revision.proposal as Json;
+    await mockApi(page, { showcase: list, recordedRuns: [withArchivedRevision(r06)] });
+    await openRecorded(page, locale, String(r06.run_id));
+    const compare = page.locator("[data-superseded] [data-revision-compare]");
+    await expect(compare).toHaveAttribute("data-claim-pairing", "none");
+    await expect(compare.locator("h4")).toHaveText(
+      t(locale, "Run.revision.heading", { original: "prop-1", revised: "prop-13" }),
+    );
+    // The records share no claim id: said in plain words, and nothing is paired.
+    await expect(compare.locator("[data-claim-pairing-note]")).toContainText(
+      t(locale, "Run.revision.unpaired", { original: "prop-1", revised: "prop-13" }),
+    );
+    await expect(compare.locator("table")).toHaveCount(0);
+    await expect(compare.locator("[data-claim-change]")).toHaveCount(0);
+    for (const kind of ["unchanged", "changed", "added", "removed"]) {
+      await expect(compare.getByText(t(locale, `Run.revision.kinds.${kind}`), { exact: true })).toHaveCount(0);
+    }
+    // Each list as recorded, in its order, headed by its proposal's id.
+    for (const [side, recordedProposal, heading] of [
+      ["original", proposal, "Run.revision.originalColumn"],
+      ["revised", revisedProposal, "Run.revision.revisedColumn"],
+    ] as const) {
+      const claims = recordedProposal.claims as { id: string; statement: string }[];
+      const column = compare.locator(`[data-claim-list='${side}']`);
+      await expect(column.locator("h5")).toHaveText(t(locale, heading, { id: String(recordedProposal.id) }));
+      await expect(column.locator("li")).toHaveCount(claims.length);
+      for (const [i, claim] of claims.entries()) {
+        const item = column.locator("li").nth(i);
+        await expect(item).toHaveAttribute("data-claim-id", claim.id);
+        await expect(item.locator("[lang='en']")).toHaveText(claim.statement);
+      }
+    }
+    expect((proposal.claims as unknown[]).length).toBe(3);
+    expect((revisedProposal.claims as unknown[]).length).toBe(3);
+    // The revision's own claim of what it addresses, from the archive.
+    await expect(compare.locator("[data-revision-steps] li")).toHaveText(
+      t(locale, "Run.revision.step", {
+        id: "prop-13",
+        supersedes: "prop-1",
+        items: (revision.addressed_items as string[]).join(", "),
+      }),
+    );
+    await expectNoLive(page, locale);
+  });
+}
 
 test("a recorded run's archived log is checked in this browser against the pinned digest and the receipt's head @smoke", async ({
   page,

@@ -209,9 +209,16 @@ turns the pacing off. Server timestamps are shown untouched.
   (SIMULATED proof statuses; before protocol 1.3, the final round only and
   "earlier-round objections never re-judged: N").
 - **Revision view** (`RevisionComparison`, next to the scope line): the
-  original and the revised proposal claim by claim
-  (`src/lib/run/revision.ts`), and each revision's addressed items, said as
-  its own claim, not a verdict.
+  claims of the original and the revised proposal
+  (`src/lib/run/revision.ts` `claimComparison`), and each revision's
+  addressed items, said as its own claim, not a verdict. The records relate
+  a revision to the proposal it supersedes only as a whole; a claim carries
+  no link to an earlier claim but its id, and the Meta model adapter numbers
+  every proposal's claims anew, so no live-model revision shares a claim id
+  (none in research/ does; tests/run-revision.test.ts checks them all). When the two share ids (scripted runs),
+  claim by claim by id: unchanged, changed, added, dropped. When they share
+  none, the two lists side by side with a sentence saying nothing pairs
+  them, and no claim is marked added, changed or dropped.
 - **RECORDED mode** (`?source=showcase`, `useRecordedRun`): a run of the
   research archive read once from `GET /showcase/{id}` with its showcase
   entry and the manifest's note, and its receipt from `/showcase/{id}/receipt`;

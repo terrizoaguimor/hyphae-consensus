@@ -916,7 +916,9 @@
       },
       "refs": "éléments cités : {before} avant, {after} après",
       "step": "La révision {id} a remplacé {supersedes} et dit traiter {items} (sa propre affirmation, pas un verdict).",
-      "stepNoItems": "La révision {id} a remplacé {supersedes} et ne nomme aucun point qu’elle traite."
+      "stepNoItems": "La révision {id} a remplacé {supersedes} et ne nomme aucun point qu’elle traite.",
+      "unpaired": "Les enregistrements ne relient {revised} à {original} que dans leur ensemble : aucun id d’affirmation n’apparaît dans les deux (l’adaptateur du modèle Meta numérote à nouveau les affirmations de chaque proposition), et rien d’autre dans les enregistrements ne relie une affirmation révisée à une affirmation d’origine. Les deux listes sont présentées telles qu’enregistrées, côte à côte ; aucune affirmation n’est marquée comme ajoutée, modifiée ou retirée.",
+      "noClaims": "Aucune affirmation enregistrée."
     }
   },
   "Showcase": {

@@ -1002,6 +1002,8 @@ test("the revision view compares the original and the revised proposal claim by 
   await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
   // Next to the scope line: the claims of prop-1 and prop-2, by claim id.
   const compare = page.locator("[data-superseded] [data-revision-compare]");
+  // The scripted revision reuses claim-1 and claim-2: paired by id.
+  await expect(compare).toHaveAttribute("data-claim-pairing", "id");
   await expect(compare.locator("h4")).toHaveText(
     t("en", "Run.revision.heading", { original: "prop-1", revised: "prop-2" }),
   );

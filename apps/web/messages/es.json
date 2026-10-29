@@ -916,7 +916,9 @@
       },
       "refs": "evidencia citada: {before} antes, {after} después",
       "step": "La revisión {id} reemplazó a {supersedes} y dice atender {items} (una afirmación propia, no un veredicto).",
-      "stepNoItems": "La revisión {id} reemplazó a {supersedes} y no nombra ningún elemento que atienda."
+      "stepNoItems": "La revisión {id} reemplazó a {supersedes} y no nombra ningún elemento que atienda.",
+      "unpaired": "Los registros relacionan {revised} con {original} solo en su conjunto: ningún id de afirmación aparece en ambas (el adaptador del modelo de Meta numera de nuevo las afirmaciones de cada propuesta), y nada más en los registros vincula una afirmación revisada con una original. Las dos listas se muestran tal como se registraron, lado a lado; ninguna afirmación se marca como añadida, cambiada o eliminada.",
+      "noClaims": "No hay afirmaciones registradas."
     }
   },
   "Showcase": {

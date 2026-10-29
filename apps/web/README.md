@@ -795,10 +795,10 @@ the axe scans.
   know the visitor's locale before any script runs.
 - `CONTACT_EMAIL` and `HOSTING_COUNTRY` in `src/lib/site.ts` are marked
   placeholders until the owner provides them; the texts render them as such.
-- Outside this directory, and not changed from here: the root `README.md`
-  still describes the protocol 1.2 stop rule and "fixes in progress", and the
-  territory list of the Terms (owner decisions of 2026-10-27) has to go into
-  release gate G10 of the plan.
+- Outside this directory, and not changed from here: the territory list of
+  the Terms (owner decisions of 2026-10-27) has to go into release gate G10
+  of the plan. (The root `README.md`, rewritten on 2026-10-29, describes
+  protocol 1.3 and its stop rule and no longer says "fixes in progress".)
 - No `hreflang` alternates yet: they need the public hostname (Day 2).
 - The texts written for the unconnected build (the tour steps, the
   provenance legend's intro, the Settings description of the technical

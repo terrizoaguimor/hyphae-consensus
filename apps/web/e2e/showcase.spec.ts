@@ -22,7 +22,7 @@ import { AXE_TAGS, blocking, type ScanSummary, summarize, writeScans } from "./a
 import { mockApi, recordedRun } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
-import { expectNoLiveOnPage, liveWord, liveWordHits, takeProblem } from "./helpers";
+import { expectNoLive, expectNoLiveOnPage, liveWord, liveWordHits, takeProblem } from "./helpers";
 import { archiveEntry, logSegment, manifestRun, metaRequestIds, researchBytes } from "./research";
 
 type Json = Record<string, unknown>;
@@ -382,17 +382,20 @@ for (const locale of locales) {
       add(`<figure data-probe data-untrusted="model"><blockquote>${w} quoted</blockquote></figure>`);
     }, word);
     expect(await liveWordHits(page.locator("body"), locale, IDENTIFIERS)).toEqual([]);
-    // What it must report: a sentence, a hidden badge, an aria-label, a title.
+    // What it must report: a sentence, a hidden badge, an aria-label, a title,
+    // and the word split across text nodes by markup (EN</strong> VIVO), once.
     await page.locator("[data-recorded-run]").evaluate((section, w) => {
       const add = (html: string) => section.insertAdjacentHTML("beforeend", html);
       add(`<p data-probe>A run, ${w.toLowerCase()} here.</p>`);
       add(`<span data-probe hidden class="hc-badge">${w}</span>`);
       add(`<button data-probe type="button" aria-label="Open ${w}"></button>`);
       add(`<span data-probe title="${w} title"></span>`);
+      add(`<p data-probe>Split <strong>${w.slice(0, 2)}</strong>${w.slice(2)} here</p>`);
     }, word);
     expect(await liveWordHits(page.locator("body"), locale, IDENTIFIERS)).toEqual([
       `text: A run, ${word.toLowerCase()} here.`,
       `text: ${word}`,
+      `text: Split ${word} here`,
       `aria-label: Open ${word}`,
       `title: ${word} title`,
     ]);
@@ -407,6 +410,24 @@ for (const locale of locales) {
     await expect(figures).toBeVisible();
     await expect(figures.locator("[data-figures-models]")).toContainText(t(locale, "Provenance.metaModel.label"));
     expect(await liveWordHits(figures, locale, IDENTIFIERS)).toEqual([]);
+  });
+
+  test(`the not-connected showcase carries no LIVE word but its one stated negation (${locale})`, async ({
+    page,
+  }) => {
+    // No mock: the static server answers 404 (its HTML not-found page) for /api/v1.
+    await page.goto(localePath(locale, "showcase"));
+    await hydrated(page);
+    await expect(page.locator("[data-api-gate='unreachable']")).toBeVisible();
+    await expect(page.locator("[data-showcase-run]")).toHaveCount(0);
+    await expectNoLive(page, locale);
+    // Showcase.planned.recorded says a replay is never presented as a live
+    // run (allow-listed in tests/recorded-no-live.test.ts); it is the only
+    // text of this state that may carry the word, and only where it does.
+    const planned = t(locale, "Showcase.planned.recorded");
+    expect(await liveWordHits(page.locator("body"), locale, IDENTIFIERS)).toEqual(
+      liveWord(locale).test(planned) ? [`text: ${planned}`] : [],
+    );
   });
 }
 

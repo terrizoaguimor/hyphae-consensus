@@ -7,7 +7,10 @@
 // DIRECT, as a whole word), in any of the four locales. The few strings that
 // do name live mode are listed below, each with the reason it can never be
 // rendered as a label of a recorded run; anything else with the word fails.
-// (Provenance labels have their own scans: provenance.test.ts, showcase.test.ts.)
+// The whole Provenance namespace is scanned here too (badges, proof statuses,
+// flags and their notes, axes, the model notes, the integrity note); the
+// label functions of src/lib/provenance.ts have their own scans as well
+// (provenance.test.ts, showcase.test.ts).
 
 import { readFileSync } from "node:fs";
 
@@ -52,11 +55,14 @@ function liveWord(catalog: Catalog): RegExp {
  * The namespaces the recorded views and the shell around them read: the
  * showcase, the whole run workspace (Run.*: header, tabs, decision, explorer,
  * evidence, proofs, audit, chain check, Meta calls, explanations, revision,
- * failures), the Overview's figures, the API error sentences
- * (ApiErrorNotice), and the shell of every page.
+ * failures), the provenance labels and notes every run header and tab shows
+ * (Provenance: badges, proof statuses, flags, flag notes, axes, model notes),
+ * the Overview's figures, the API error sentences (ApiErrorNotice), and the
+ * shell of every page.
  */
 const NAMESPACES = [
   "Showcase",
+  "Provenance",
   "Run",
   "Overview.figures",
   "Api",
@@ -84,6 +90,23 @@ const ALLOWED: Record<string, string> = {
   // The tab of a live run's stream; a recorded run has no such tab (e2e
   // expectNoLive asserts there is no tab named Run.tabs.live).
   "Run.tabs.live": "a live run's tab, absent from recorded runs",
+  // The LIVE label itself, and the model label and note that only isLive()
+  // yields (delivery live and model live_meta, src/lib/provenance.ts
+  // modelLabel, deliveryLabel, modelNoteKey); a recorded run is a replay, so
+  // it reads META MODEL, REPLAY and "Meta model · recorded <date>" instead
+  // (provenance.test.ts, e2e expectNoLive).
+  "Provenance.live.label": "the LIVE label, isLive() only",
+  "Provenance.liveMeta.label": "the LIVE META label, isLive() only",
+  "Provenance.liveMeta.live": "the live model note, isLive() only",
+  // The Overview's legend of every label (ProvenanceLabels.tsx, rendered by
+  // the Overview page only): its introduction and the descriptions of the
+  // live labels, which say what LIVE means and when it is not shown.
+  "Provenance.intro": "Overview legend only",
+  "Provenance.liveMeta.description": "Overview legend only",
+  "Provenance.metaModel.description": "Overview legend only",
+  "Provenance.hybrid.description": "Overview legend only",
+  // A negation: a run with this flag "is never shown as live".
+  "Provenance.flagNotes.provenance_inconsistent": "negation",
   // Shown only for a run of this server whose log is withheld; a recorded run
   // reads Run.decision.archiveLogPending / Run.audit.archivePending instead.
   "Run.decision.ndjsonUnavailable": "this server's runs only",

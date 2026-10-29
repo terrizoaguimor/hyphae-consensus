@@ -73,53 +73,79 @@ export async function expectNoLive(page: Page, locale: Locale) {
  * English whatever the locale). `identifiers` are the archive's own names
  * that a sentence interpolates as plain text (battery ids such as
  * live-battery-2026-10-27, log paths); they are cut out before matching.
+ *
+ * A term of more than one word (EN VIVO, AO VIVO, EN DIRECT), or a word
+ * split by markup (`<strong>EN</strong> VIVO`, `{t("a")} {t("b")}`), may sit
+ * in adjacent text nodes, none of which carries it alone. So the joined text
+ * of every element (whitespace collapsed) is matched as well, and reported at
+ * the innermost element whose joined text carries the word while none of its
+ * own text nodes or child elements does: each hit is reported once.
  */
 export async function liveWordHits(
   root: Locator,
   locale: Locale,
   identifiers: readonly string[] = [],
 ): Promise<string[]> {
-  const texts = await root.evaluate((element) => {
-    const copy = element.cloneNode(true) as HTMLElement;
-    copy
-      .querySelectorAll("script, style, template, code, pre, kbd, samp, [data-untrusted] > blockquote")
-      .forEach((node) => node.remove());
-    const found: string[] = [];
-    if (element === document.body) {
-      found.push(`title: ${document.title}`);
-    }
-    const walker = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-      const text = node.textContent ?? "";
-      if (text.trim() !== "") {
-        found.push(`text: ${text}`);
+  const word = liveWord(locale);
+  const longestFirst = [...identifiers].sort((a, b) => b.length - a.length);
+  return root.evaluate(
+    (element, { source, flags, ids }) => {
+      const pattern = new RegExp(source, flags);
+      const carries = (text: string) =>
+        pattern.test(ids.reduce((rest, id) => rest.split(id).join(" "), text));
+      const copy = element.cloneNode(true) as HTMLElement;
+      copy
+        .querySelectorAll("script, style, template, code, pre, kbd, samp, [data-untrusted] > blockquote")
+        .forEach((node) => node.remove());
+      const found: string[] = [];
+      if (element === document.body) {
+        found.push(`title: ${document.title}`);
       }
-    }
-    const attributes = [
-      "aria-label",
-      "aria-description",
-      "aria-roledescription",
-      "aria-valuetext",
-      "title",
-      "alt",
-      "placeholder",
-    ];
-    for (const node of [copy, ...copy.querySelectorAll("*")]) {
-      for (const name of attributes) {
-        const value = node.getAttribute(name);
-        if (value !== null && value.trim() !== "") {
-          found.push(`${name}: ${value}`);
+      const walker = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const text = node.textContent ?? "";
+        if (text.trim() !== "") {
+          found.push(`text: ${text}`);
         }
       }
-      if (node instanceof HTMLInputElement && ["button", "submit", "reset"].includes(node.type)) {
-        found.push(`value: ${node.value}`);
+      const joined = (node: Element) => (node.textContent ?? "").replace(/\s+/g, " ").trim();
+      for (const node of [copy, ...copy.querySelectorAll("*")]) {
+        const text = joined(node);
+        if (
+          carries(text) &&
+          ![...node.childNodes].some(
+            (child) =>
+              (child.nodeType === Node.TEXT_NODE && carries(child.textContent ?? "")) ||
+              (child instanceof Element && carries(joined(child))),
+          )
+        ) {
+          found.push(`text: ${text}`);
+        }
       }
-    }
-    return found;
-  });
-  const longestFirst = [...identifiers].sort((a, b) => b.length - a.length);
-  const word = liveWord(locale);
-  return texts.filter((text) => word.test(longestFirst.reduce((rest, id) => rest.split(id).join(" "), text)));
+      const attributes = [
+        "aria-label",
+        "aria-description",
+        "aria-roledescription",
+        "aria-valuetext",
+        "title",
+        "alt",
+        "placeholder",
+      ];
+      for (const node of [copy, ...copy.querySelectorAll("*")]) {
+        for (const name of attributes) {
+          const value = node.getAttribute(name);
+          if (value !== null && value.trim() !== "") {
+            found.push(`${name}: ${value}`);
+          }
+        }
+        if (node instanceof HTMLInputElement && ["button", "submit", "reset"].includes(node.type)) {
+          found.push(`value: ${node.value}`);
+        }
+      }
+      return found.filter(carries);
+    },
+    { source: word.source, flags: word.flags, ids: longestFirst },
+  );
 }
 
 /**

@@ -249,6 +249,11 @@ function ReceiptSummary({ receipt, onReload }: { receipt: RunReceiptV2; onReload
   ).length;
   const rounds = [...new Set(receipt.verifications.map((v) => v.round))].sort((a, b) => a - b);
   const corroborated = deliberation.claims.filter((c) => c.assessment?.corroborated === true).length;
+  // Of the objections never judged again, those their own round's
+  // evaluation did not list as unresolved either.
+  const neverRejudgedUnlisted = deliberation.earlier_round_objections_never_rejudged.filter(
+    (objection) => !objection.unresolved_in_its_round,
+  ).length;
   return (
     <div className="hc-receipt" data-receipt>
       <dl className="hc-kv">
@@ -329,6 +334,11 @@ function ReceiptSummary({ receipt, onReload }: { receipt: RunReceiptV2; onReload
         <li data-receipt-never-rejudged={deliberation.earlier_round_objections_never_rejudged.length}>
           {t("neverRejudged", { count: deliberation.earlier_round_objections_never_rejudged.length })}
         </li>
+        {neverRejudgedUnlisted === 0 ? null : (
+          <li data-receipt-never-rejudged-unlisted={neverRejudgedUnlisted}>
+            {t("neverRejudgedUnlisted", { count: neverRejudgedUnlisted })}
+          </li>
+        )}
         <li>{t("unmatched", { count: deliberation.unmatched_assessments.length })}</li>
       </ul>
 

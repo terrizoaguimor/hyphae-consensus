@@ -952,6 +952,51 @@ test("a run before protocol 1.3 says how many earlier-round objections were neve
   await expect(context.locator("[data-context='context.neverRejudged']")).toHaveText(
     "Earlier-round objections never re-judged: 2.",
   );
+  // Both were listed unresolved by their own round: nothing more is said.
+  await expect(context.locator("[data-context='context.neverRejudgedUnlisted']")).toHaveCount(0);
+});
+
+test("an objection its own round left unlisted too is said apart, on the Decision and Audit tabs", async ({ page }) => {
+  // Round 1's evaluation listed item-1 only; item-2 was left out without a stated reason.
+  const detail = beforeCarryForwardDetail();
+  const first = (detail.rounds as Array<{ round: number; evaluation: { unresolved_items: string[] } }>).find(
+    (r) => r.round === 1,
+  );
+  if (first === undefined) {
+    throw new Error("no round 1");
+  }
+  first.evaluation.unresolved_items = ["item-1"];
+  const receipt = fixture<Record<string, unknown>>("receipt-v2-retry.json");
+  const items = detail.challenge_items as Array<Record<string, unknown>>;
+  (receipt.deliberation as Record<string, unknown>).earlier_round_objections_never_rejudged = items.map((item) => ({
+    id: item.id,
+    raised_in_round: item.raised_in_round,
+    kind: item.kind,
+    claim_id: item.claim_id,
+    description: item.description,
+    unresolved_in_its_round: item.id === "item-1",
+  }));
+  await mockApi(page, { detail, receipt });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const context = page.locator("[data-explain-context]");
+  await expect(context.locator("[data-context='context.neverRejudged']")).toHaveText(
+    "Earlier-round objections never re-judged: 2.",
+  );
+  await expect(context.locator("[data-context='context.neverRejudgedUnlisted']")).toHaveText(
+    "Of them, 1 was not listed as unresolved even by the evaluation of its own round, which left it out without a stated reason.",
+  );
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  const audit = page.locator("[data-audit-receipt='ready']");
+  await expect(audit.locator("[data-receipt-never-rejudged='2']")).toHaveText(
+    "Earlier-round objections never re-judged: 2",
+  );
+  await expect(audit.locator("[data-receipt-never-rejudged-unlisted='1']")).toHaveText(
+    "Of them, 1 was not listed as unresolved even by the evaluation of its own round, which left it out without a stated reason",
+  );
+  await expectNoLive(page, "en");
 });
 
 for (const locale of ["es", "pt-BR", "fr"] as const) {

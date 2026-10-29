@@ -7,10 +7,15 @@
 // explanation mentions exactly the trace's counts and its kind, nothing
 // else (tests/run-explain.test.ts renders it in the four locales and checks
 // both); what the trace does not carry, such as the objections earlier
-// rounds raised and no later round judged again, is said apart from it,
-// from the run's own records. Pure functions.
+// rounds raised and no later round judged again (and how many of them even
+// their own round left unlisted), is said apart from it, from the run's own
+// records. The records also say how to word one check: when every record
+// the invalid_proofs check names reports that no proof could be generated
+// upstream, the lead and that sentence say so (nothing was checked), never
+// that a check came back invalid. Pure functions.
 
 import type {
+  ChallengeItemV1,
   PolicyRule,
   PolicyTrace,
   RecommendationKind,
@@ -18,7 +23,7 @@ import type {
   TraceCounts,
   TraceReason,
 } from "../api/types";
-import { roundedVerifications } from "./evidence";
+import { evidenceView, proofReading, roundedVerifications } from "./evidence";
 
 /** One message under `Run.explain`; `kind` fills `{kind}` with the translated kind (`Run.kinds`). */
 export type ExplainMessage = {
@@ -66,11 +71,30 @@ export const COUNT_FIELDS: ReadonlyArray<keyof TraceCounts> = [
   "unresolved_items",
 ];
 
-/** The plain explanation of a trace: every number in it is one of the trace's counts. */
-export function plainExplanation(trace: PolicyTrace): PlainExplanation {
+/** What the records say about the trace's failed checks, beyond the trace itself. */
+export type TraceReading = {
+  /**
+   * Every record the invalid_proofs check names reports that no proof could
+   * be generated upstream (ungeneratedProofs): its invalid status records
+   * that failure, and nothing was checked.
+   */
+  proofsUngenerated: boolean;
+};
+
+/**
+ * The plain explanation of a trace: every number in it is one of the trace's
+ * counts. With `reading.proofsUngenerated`, the invalid_proof lead and the
+ * invalid_proofs sentence say that no proof could be generated (so nothing
+ * was checked), instead of a check that came back invalid.
+ */
+export function plainExplanation(trace: PolicyTrace, reading?: TraceReading): PlainExplanation {
   const { counts } = trace;
+  const ungenerated = reading?.proofsUngenerated === true && invalidProofIds(trace).length > 0;
   return {
-    lead: { key: `plain.rules.${trace.rule}`, kind: trace.kind },
+    lead: {
+      key: ungenerated && trace.rule === "invalid_proof" ? "plain.rules.invalid_proof_ungenerated" : `plain.rules.${trace.rule}`,
+      kind: trace.kind,
+    },
     counts: [
       {
         key: "plain.counts.claims",
@@ -86,8 +110,59 @@ export function plainExplanation(trace: PolicyTrace): PlainExplanation {
       },
       { key: "plain.counts.open", values: { unresolved: counts.unresolved_items } },
     ],
-    reasons: trace.reasons.map((reason) => ({ key: `plain.reasons.${reason.reason}` })),
+    reasons: trace.reasons.map((reason) => ({
+      key:
+        ungenerated && reason.reason === "invalid_proofs"
+          ? "plain.reasons.invalid_proofs_ungenerated"
+          : `plain.reasons.${reason.reason}`,
+    })),
   };
+}
+
+/** The evidence ids the trace's invalid_proofs check names (empty when it did not fail). */
+function invalidProofIds(trace: PolicyTrace): string[] {
+  return trace.reasons.flatMap((reason) => (reason.reason === "invalid_proofs" ? reason.evidence_ids : []));
+}
+
+/**
+ * Whether the trace's invalid proofs are all generation failures: the
+ * invalid_proofs check names at least one record, and every record it names
+ * (an evidence id the policy counted with integrity invalid,
+ * consensus-runtime policy.rs `explain`) was retrieved, every retrieval of
+ * it reports a proof error, and every invalid verification of it reads as
+ * a generation failure (proofReading: a real verifier's status, never the
+ * scripted verifier's). The runtime then recorded invalid because the
+ * proven recall failed upstream (orchestrator.rs upstream_proof_check):
+ * no verifier ran, and nothing was checked.
+ */
+export function ungeneratedProofs(trace: PolicyTrace, detail: RunDetailV1): boolean {
+  const ids = invalidProofIds(trace);
+  if (ids.length === 0) {
+    return false;
+  }
+  const view = evidenceView(detail, []);
+  return ids.every((id) => {
+    if (view.orphanVerifications.some((v) => v.verification.evidence_id === id)) {
+      return false;
+    }
+    const records = view.records.filter((r) => r.evidence.id === id);
+    const invalid = records.flatMap((r) =>
+      r.verifications
+        .filter((v) => v.verification.integrity_status === "invalid")
+        .map((v) => proofReading(v.verification, r.evidence).kind),
+    );
+    return (
+      records.length > 0 &&
+      records.every((r) => r.evidence.proof_error_reported) &&
+      invalid.length > 0 &&
+      invalid.every((kind) => kind === "generation_failed")
+    );
+  });
+}
+
+/** The trace's reading from the run's records. */
+export function traceReading(trace: PolicyTrace, detail: RunDetailV1): TraceReading {
+  return { proofsUngenerated: ungeneratedProofs(trace, detail) };
 }
 
 /** The ids a failed check names (evidence, claim or item ids), empty for the checks without ids. */
@@ -122,21 +197,51 @@ export type ExplainContext = {
    * round, or any run that has such items. Null otherwise.
    */
   neverRejudged: number | null;
+  /**
+   * Of those, the ones the evaluation of their own round did not list as
+   * unresolved either (RunReceiptV2 UnrejudgedObjection
+   * unresolved_in_its_round false): left out without a stated reason, which
+   * before protocol 1.3 counted as resolved. Present with neverRejudged.
+   */
+  neverRejudgedUnlisted?: number;
 };
 
 /** Schema versions recorded before protocol 1.3's carry-forward. */
 const BEFORE_CARRY_FORWARD = ["1.0", "1.1", "1.2"];
 
+/**
+ * Whether the evaluation of the round that raised `item` listed it as
+ * unresolved, as consensus-runtime receipts.rs `lists` reads it: by the
+ * item's id, or by its challenge's id for a pre-1.1 item (no id), whose
+ * evaluations listed challenge ids. False when that round has no
+ * evaluation or no challenge on record.
+ */
+function listedInItsRound(detail: RunDetailV1, item: ChallengeItemV1): boolean {
+  const round = detail.rounds.find((r) => r.round === item.raised_in_round);
+  const evaluation = round?.evaluation ?? null;
+  const challenge = round?.challenge ?? null;
+  if (evaluation === null || challenge === null) {
+    return false;
+  }
+  const id = item.id === "" ? challenge.id : item.id;
+  return (evaluation.unresolved_items ?? []).includes(id);
+}
+
 export function explainContext(detail: RunDetailV1): ExplainContext {
   const verifications = roundedVerifications(detail.events);
   const schema = detail.events[0]?.schema_version ?? detail.task?.schema_version ?? null;
   const beforeCarryForward = schema !== null && BEFORE_CARRY_FORWARD.includes(schema);
-  const never = detail.challenge_items.filter((item) => item.status === "never_rejudged").length;
+  const neverItems = detail.challenge_items.filter((item) => item.status === "never_rejudged");
+  const never = neverItems.length;
+  const shown = never > 0 || (beforeCarryForward && detail.rounds.length > 1);
   return {
     simulatedProofs:
       verifications.length > 0 && verifications.every((v) => v.verification.simulated),
     beforeCarryForward,
-    neverRejudged: never > 0 || (beforeCarryForward && detail.rounds.length > 1) ? never : null,
+    neverRejudged: shown ? never : null,
+    ...(shown
+      ? { neverRejudgedUnlisted: neverItems.filter((item) => !listedInItsRound(detail, item)).length }
+      : {}),
   };
 }
 
@@ -151,6 +256,12 @@ export function contextMessages(context: ExplainContext): ExplainMessage[] {
   }
   if (context.neverRejudged !== null) {
     out.push({ key: "context.neverRejudged", values: { count: context.neverRejudged } });
+    // Said when the two readings of the figure part: some of these
+    // objections were not listed unresolved even in their own round.
+    const unlisted = context.neverRejudgedUnlisted ?? 0;
+    if (unlisted > 0) {
+      out.push({ key: "context.neverRejudgedUnlisted", values: { count: unlisted } });
+    }
   }
   return out;
 }

@@ -736,6 +736,7 @@
       "missingTests": "{count, plural, =0 {No open missing-test item} one {# open missing-test item} other {# open missing-test items}}",
       "unevaluatedItems": "{count, plural, =0 {No objection left unevaluated} one {# objection left unevaluated} other {# objections left unevaluated}}",
       "neverRejudged": "{count, plural, =0 {Earlier-round objections never re-judged: none} one {Earlier-round objections never re-judged: #} other {Earlier-round objections never re-judged: #}}",
+      "neverRejudgedUnlisted": "{count, plural, =0 {Of them, none was left unlisted by the evaluation of its own round} one {Of them, # was not listed as unresolved even by the evaluation of its own round, which left it out without a stated reason} other {Of them, # were not listed as unresolved even by the evaluation of their own round, which left them out without a stated reason}}",
       "unmatched": "{count, plural, =0 {No assessment outside the final claims} one {# assessment outside the final claims} other {# assessments outside the final claims}}",
       "callsHeading": "Model calls",
       "calls": "{count, plural, =0 {No model invocation is recorded.} one {# model invocation is recorded; the Meta API panel lists it.} other {# model invocations are recorded; the Meta API panel lists them.}}",
@@ -791,6 +792,7 @@
       "plain": {
         "rules": {
           "invalid_proof": "A record’s integrity check came back invalid, and that check comes before every other one: the policy recommends {kind}.",
+          "invalid_proof_ungenerated": "None of the records whose integrity reads invalid got a proof: it could not be generated upstream, so nothing was checked. The policy still treats that status as invalid, and that rule comes before every other one: the policy recommends {kind}.",
           "recorded_contradiction": "The Evaluator recorded evidence that contradicts a claim: the policy recommends {kind}.",
           "abstention": "The Evaluator declined to judge the claims: the policy recommends {kind}.",
           "unresolved_items": "Objections are still open after the final evaluation: the policy recommends {kind}.",
@@ -804,6 +806,7 @@
         },
         "reasons": {
           "invalid_proofs": "A record’s proof was found invalid.",
+          "invalid_proofs_ungenerated": "Each record whose integrity reads invalid reports that no proof could be generated upstream for it; this does not show that a record was altered.",
           "contradicted_evidence": "Evidence was judged to contradict a claim.",
           "evaluator_abstained": "The Evaluator declined to judge.",
           "open_items": "Objections of the Critic are still open.",
@@ -817,7 +820,8 @@
       "context": {
         "simulated": "Every proof status of this run is SIMULATED: the scripted verifier recorded it, and nothing was checked.",
         "finalRoundOnly": "This run was recorded before protocol 1.3: each round’s evaluation judged only that round’s objections, and the policy read the final round only.",
-        "neverRejudged": "{count, plural, =0 {Earlier-round objections never re-judged: none.} one {Earlier-round objections never re-judged: #.} other {Earlier-round objections never re-judged: #.}}"
+        "neverRejudged": "{count, plural, =0 {Earlier-round objections never re-judged: none.} one {Earlier-round objections never re-judged: #.} other {Earlier-round objections never re-judged: #.}}",
+        "neverRejudgedUnlisted": "{count, plural, =0 {Each of them was listed as unresolved by the evaluation of its own round.} one {Of them, # was not listed as unresolved even by the evaluation of its own round, which left it out without a stated reason.} other {Of them, # were not listed as unresolved even by the evaluation of their own round, which left them out without a stated reason.}}"
       },
       "technicalSummary": "Technical details of the policy trace",
       "technical": {

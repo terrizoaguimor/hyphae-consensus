@@ -257,6 +257,18 @@ turns the pacing off. Server timestamps are shown untouched.
   (`runTimeReceipt` in `src/lib/run/receipt.ts`), saying whether they differ.
   The Decision tab's receipt link says the same in one sentence
   (`Run.decision.receiptRebuilt`) and points to the Audit trail.
+  A listing (`GET /showcase`) that cannot be read is shown in the header
+  with its retry and with what it leaves out (the log, its digest, the CLI
+  command, the chain check); the Audit and Decision tabs say so in place of
+  them, and keep the loading line for a listing still being read. A manifest
+  that cannot be read, parse or match says so in the header (with a retry
+  of the manifest alone when its download failed), never dropping its note
+  silently. Each log's listed SHA-256 is cross-checked against the checked
+  manifest's own pin (`logPin` in `src/lib/showcase.ts`, `LogPinNote`): the
+  showcase list and the Audit trail say whether it matches, differs (both
+  digests named), is not in the manifest, or could not be compared, and the
+  in-browser chain check compares the file with the manifest's pin when
+  there is one, saying when it fell back to the listed digest.
 
 Honesty rules the views follow (release gate G7; `src/lib/provenance.ts`,
 each with a unit test): LIVE only when a frame's delivery is `live`, the

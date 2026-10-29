@@ -8,7 +8,9 @@
 // crates/consensus-runtime/src/event_log.rs does (the raw line with its hash
 // blanked textually, never re-serialized), every link is followed, and the
 // run's own segment is compared with what the views hold: the file's SHA-256
-// with the digest the archive's manifest pins (ShowcaseEntryV1.sha256), the
+// with the digest the archive's manifest pins (the manifest's own entry once
+// this browser checked the manifest, else the listing's copy of it,
+// ShowcaseEntryV1.sha256, and said to be that), the
 // head (the hash of the run's last record) with the receipt's, the record
 // count with the receipt's, the first and last sequence with the detail's
 // chain. The result is pass, the first failing record, or, for a run whose
@@ -46,6 +48,12 @@ export type ChainSource = {
   name: string;
   /** The file's pinned SHA-256 (a research file); null for this server's log. */
   sha256: string | null;
+  /**
+   * Where `sha256` comes from: the manifest this browser checked ("manifest")
+   * or, with no checked manifest naming the file, the listing's copy of the
+   * pin ("listing"); null for this server's log.
+   */
+  pinSource: "manifest" | "listing" | null;
 };
 
 type ChainCheckProps = {
@@ -225,7 +233,9 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
               {verdictBadge(state.segment.sha256)}{" "}
               {source.sha256 === null
                 ? t("sha256Own", { sha256: state.result.sha256, bytes: state.result.bytes })
-                : t("sha256", { sha256: state.result.sha256, bytes: state.result.bytes })}
+                : source.pinSource === "manifest"
+                  ? t("sha256", { sha256: state.result.sha256, bytes: state.result.bytes })
+                  : t("sha256Listing", { sha256: state.result.sha256, bytes: state.result.bytes })}
             </li>
             <li data-chain-result="chain">
               {verdictBadge(state.segment.chain)}{" "}

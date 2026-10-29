@@ -8,9 +8,10 @@
 // are hashed in this browser and compared with the digest GET /showcase
 // published; its notes are shown only when they match (a manifest that does
 // not is said to differ, and nothing of it is used). Every failure is kept
-// as an error to show with a retry, never as a loading line.
+// as an error to show with a retry, never as a loading line: the listing's
+// retry reads both again, the manifest's own retry reads the manifest alone.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { verifyDigest } from "@/lib/chain/digest";
 import { api, ApiError, isApiError } from "@/lib/api/client";
@@ -28,6 +29,13 @@ export type ArchiveState =
   | { status: "loading" }
   | { status: "error"; error: ApiError }
   | { status: "ready"; showcase: ShowcaseV1; manifest: ManifestState };
+
+/** The manifest this browser checked: read, its bytes matching the published digest, and parsed; else null. */
+export function checkedManifest(state: ArchiveState): ArchiveManifest | null {
+  return state.status === "ready" && state.manifest.status === "ready" && state.manifest.matches
+    ? state.manifest.manifest
+    : null;
+}
 
 function toApiError(error: unknown, path: string): ApiError {
   return isApiError(error)
@@ -70,42 +78,76 @@ export async function readManifest(showcase: ShowcaseV1): Promise<ManifestState>
   }
 }
 
-export function useArchive(withManifest: boolean): { state: ArchiveState; reload: () => void } {
-  const [state, setState] = useState<ArchiveState>({ status: "loading" });
+type ListingState =
+  | { status: "loading" }
+  | { status: "error"; error: ApiError }
+  | { status: "ready"; showcase: ShowcaseV1 };
+
+export type Archive = {
+  state: ArchiveState;
+  /** Reads GET /showcase again (and then the manifest): the listing's retry. */
+  reload: () => void;
+  /** Reads the manifest again, the listing kept: the manifest's own retry. */
+  retryManifest: () => void;
+};
+
+export function useArchive(withManifest: boolean): Archive {
+  const [listing, setListing] = useState<ListingState>({ status: "loading" });
+  const [manifest, setManifest] = useState<ManifestState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const [manifestAttempt, setManifestAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     api
       .showcase()
       .then((showcase) => {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          setListing({ status: "ready", showcase });
         }
-        setState({ status: "ready", showcase, manifest: { status: "loading" } });
-        if (!withManifest) {
-          return;
-        }
-        void readManifest(showcase).then((manifest) => {
-          if (!cancelled) {
-            setState({ status: "ready", showcase, manifest });
-          }
-        });
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setState({ status: "error", error: toApiError(error, "/showcase") });
+          setListing({ status: "error", error: toApiError(error, "/showcase") });
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [attempt, withManifest]);
+  }, [attempt]);
+
+  // The manifest is read once the listing named it, and again on its own retry.
+  const showcase = listing.status === "ready" ? listing.showcase : null;
+  useEffect(() => {
+    if (showcase === null || !withManifest) {
+      return;
+    }
+    let cancelled = false;
+    void readManifest(showcase).then((read) => {
+      if (!cancelled) {
+        setManifest(read);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showcase, manifestAttempt, withManifest]);
 
   const reload = useCallback(() => {
-    setState({ status: "loading" });
+    setListing({ status: "loading" });
+    setManifest({ status: "loading" });
     setAttempt((n) => n + 1);
   }, []);
 
-  return { state, reload };
+  const retryManifest = useCallback(() => {
+    setManifest({ status: "loading" });
+    setManifestAttempt((n) => n + 1);
+  }, []);
+
+  const state = useMemo<ArchiveState>(
+    () => (listing.status === "ready" ? { status: "ready", showcase: listing.showcase, manifest } : listing),
+    [listing, manifest],
+  );
+
+  return { state, reload, retryManifest };
 }

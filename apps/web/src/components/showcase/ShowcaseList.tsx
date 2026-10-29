@@ -10,7 +10,9 @@
 // names its log file with the SHA-256 the archive's manifest pins and
 // links it for download; the manifest itself is hashed in this browser and
 // compared with the digest the server published, and only a manifest that
-// matches lends its notes (the archive's own words on each log, in English).
+// matches lends its notes (the archive's own words on each log, in English)
+// and its own pin of each log, compared here with the listed one (a
+// manifest that could not be read says so, with its own retry).
 
 import { Badge } from "@astryxdesign/core/Badge";
 import Link from "next/link";
@@ -23,13 +25,14 @@ import type { ShowcaseEntryV1 } from "@/lib/api/types";
 import { evidenceLabel, RECOMMENDATION_VARIANTS } from "@/lib/provenance";
 import { digestPrefix } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
-import { byBattery, isUnchained, manifestNote, parseOutcome } from "@/lib/showcase";
+import { byBattery, isUnchained, logPin, manifestNote, parseOutcome } from "@/lib/showcase";
 import { showcaseRunPath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { UntrustedText } from "../run/UntrustedText";
-import { type ManifestState, useArchive } from "./useArchive";
+import { LogPinNote } from "./LogPinNote";
+import { checkedManifest, type ManifestState, useArchive } from "./useArchive";
 
 type ShowcaseListProps = {
   locale: Locale;
@@ -75,10 +78,13 @@ export function ManifestLine({
   state,
   file,
   sha256,
+  onRetry,
 }: {
   state: ManifestState;
   file: string;
   sha256: string;
+  /** Reads the manifest again after a failed download. */
+  onRetry: () => void;
 }) {
   const t = useTranslations("Showcase.manifest");
   return (
@@ -94,7 +100,7 @@ export function ManifestLine({
           {t("checking")}
         </p>
       ) : state.status === "error" ? (
-        <ApiErrorNotice error={state.error} />
+        <ApiErrorNotice error={state.error} onRetry={onRetry} />
       ) : state.matches ? (
         <p data-manifest-check="matches">{t("matches")}</p>
       ) : (
@@ -110,7 +116,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
   const tRun = useTranslations("Run");
   const outcomeText = useOutcomeText();
   const authorizationText = useAuthorizationText();
-  const { state, reload } = useArchive(true);
+  const { state, reload, retryManifest } = useArchive(true);
 
   if (state.status === "loading") {
     return (
@@ -135,7 +141,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
       </p>
     );
   }
-  const notes = manifest.status === "ready" && manifest.matches ? manifest.manifest : null;
+  const notes = checkedManifest(state);
   const events = entries.reduce((sum, entry) => sum + entry.event_count, 0);
   return (
     <div className="hc-showcase" data-showcase="list">
@@ -143,7 +149,12 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
         {t("count", { count: entries.length, events })}
       </p>
       <p className="hc-supporting">{t("recordedNote")}</p>
-      <ManifestLine state={manifest} file={showcase.manifest_file} sha256={showcase.manifest_sha256} />
+      <ManifestLine
+        state={manifest}
+        file={showcase.manifest_file}
+        sha256={showcase.manifest_sha256}
+        onRetry={retryManifest}
+      />
       {byBattery(entries).map(({ battery, entries: group }, index) => {
         const files = [...new Set(group.map((entry) => entry.file))];
         const headingId = `battery-${index}`;
@@ -164,6 +175,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
                       {t("download", { name: baseName(file) })}
                     </a>
                   </p>
+                  <LogPinNote pin={logPin(notes, file, sha256)} />
                   {note === null ? null : (
                     <div data-archive-note>
                       <p className="hc-supporting">

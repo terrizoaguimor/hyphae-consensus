@@ -43,11 +43,12 @@ import {
 import { evidenceView, generationFailures } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
 import { supersededProposal } from "@/lib/run/view";
-import { manifestNote } from "@/lib/showcase";
+import { logPin, manifestNote } from "@/lib/showcase";
 import { localePath, SHOWCASE_SOURCE } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProvenanceBadges } from "../ProvenanceBadges";
+import { checkedManifest } from "../showcase/useArchive";
 import { AuditTab } from "./AuditTab";
 import { DecisionTab, type DecisionLinks } from "./DecisionTab";
 import { EvidenceTab } from "./EvidenceTab";
@@ -60,7 +61,7 @@ import { tabId, Tabs } from "./Tabs";
 import { UntrustedText } from "./UntrustedText";
 import { useRunTimeReceipt } from "./RunTimeReceipt";
 import { type RunReceipt, useReceipt } from "./useReceipt";
-import { type RecordedRunData, useRecordedRun } from "./useRecordedRun";
+import { missingEntry, type RecordedRunData, useRecordedRun } from "./useRecordedRun";
 import { type RunData, useRunData } from "./useRunData";
 
 type RunWorkspaceProps = {
@@ -134,6 +135,11 @@ function Workspace({
   const [tab, setTab] = useState<TabKey>(recorded ? "decision" : "stage");
   const { detail, detailError, summary, frames, reloadDetail } = mode.data;
   const archive = mode.kind === "recorded" ? mode.data.entry : null;
+  // The entry's log digest, cross-checked against the manifest this browser checked.
+  const pin =
+    mode.kind === "recorded" && archive !== null
+      ? logPin(checkedManifest(mode.data.archive), archive.file, archive.sha256)
+      : null;
   // A recorded run's record (the receipt as downloaded at run time), read on request.
   const runTime = useRunTimeReceipt(runId, archive?.record_file ?? null);
   // The receipt is read when a tab that shows it is first opened.
@@ -202,7 +208,7 @@ function Workspace({
             archive === null
               ? null
               : { href: api.researchUrl(archive.file), name: baseName(archive.file), archive: true },
-          logPending: archive === null,
+          logMissing: missingEntry(mode.data),
         }
       : {
           receipt: api.receiptUrl(runId),
@@ -337,6 +343,8 @@ function Workspace({
             summary={summary}
             receipt={receipt}
             archive={archive}
+            pin={pin}
+            archiveMissing={mode.kind === "recorded" ? missingEntry(mode.data) : null}
             runTime={runTime}
           />
         ) : null}
@@ -385,10 +393,37 @@ function generationFailedNote(
 }
 
 /**
+ * Why the archive's manifest lends nothing to this run's log, once that is
+ * known: it could not be downloaded ("unread", with its retry), it does not
+ * read as the archive's format ("unparsed"), or its bytes do not match the
+ * published digest ("differs"); null while it is being checked, when it was
+ * checked, or when there is no listing entry whose log it would speak of.
+ */
+function manifestProblem(
+  data: RecordedRunData,
+  entry: ShowcaseEntryV1 | null,
+): "unread" | "unparsed" | "differs" | null {
+  if (entry === null || data.archive.status !== "ready") {
+    return null;
+  }
+  const state = data.archive.manifest;
+  switch (state.status) {
+    case "loading":
+      return null;
+    case "error":
+      return "unread";
+    case "ready":
+      return !state.matches ? "differs" : state.manifest === null ? "unparsed" : null;
+  }
+}
+
+/**
  * What the archive data says about a recorded run: that it is recorded and
  * read-only, the pre-1.1 label of an unchained run, the reading of a run
  * blocked because no proof could be generated upstream, and the archive
- * manifest's own note on the log the run is a segment of.
+ * manifest's own note on the log the run is a segment of. A listing or a
+ * manifest that could not be read is said here, with its retry, and with
+ * what it leaves out.
  */
 function RecordedNotes({
   locale,
@@ -410,14 +445,10 @@ function RecordedNotes({
   const source = sourceLabel(summary?.provenance.source ?? "research_archive");
   const unchained =
     detail?.chain.scope === "unchained" || (summary?.provenance.flags ?? []).includes("unchained");
-  const manifest =
-    data.archive.status === "ready" &&
-    data.archive.manifest.status === "ready" &&
-    data.archive.manifest.matches
-      ? data.archive.manifest.manifest
-      : null;
+  const manifest = checkedManifest(data.archive);
   const note = entry === null ? null : manifestNote(manifest, entry.file);
   const noteReference = generationFailedNote(data, entry, note);
+  const problem = manifestProblem(data, entry);
   return (
     <section className="hc-recorded" aria-labelledby="recorded-heading" data-recorded-run>
       <h3 id="recorded-heading">
@@ -428,6 +459,20 @@ function RecordedNotes({
           ? t("bannerNoEntry")
           : t("banner", { label: entry.label, battery: entry.battery })}
       </p>
+      {data.archive.status === "error" ? (
+        <div data-archive-error>
+          <p>{t("listingFailed")}</p>
+          <ApiErrorNotice error={data.archive.error} onRetry={data.reloadArchive} />
+        </div>
+      ) : null}
+      {problem === null ? null : (
+        <div data-manifest-problem={problem}>
+          <p>{t(`manifestProblem.${problem}`)}</p>
+          {data.archive.status === "ready" && data.archive.manifest.status === "error" ? (
+            <ApiErrorNotice error={data.archive.manifest.error} onRetry={data.retryManifest} />
+          ) : null}
+        </div>
+      )}
       {unchained ? (
         <p data-archive-label="unchained">
           <Badge variant="warning" label={tShowcase("unchained")} /> {t("unchainedNote")}

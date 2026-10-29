@@ -17,10 +17,11 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 | M1: four-crate workspace, typed contracts and JSON Schemas, deterministic state machine, crash-safe JSONL event log, recommendation policy, ports and fakes, scripted demo | `adbbb66` | journal 2026-10-26 |
 | M2: Meta Model API adapter (structured output, timeouts, bounded retries); live Meta test passed (`muse-wonder-1.0`) | `adbbb66` | journal, ADR-0002 |
 | M3: Hyphae MCP read-only adapter and `hyphae proof verify` integration | `adbbb66` | journal, ADR-0003 |
-| Operator console (Axum, SSE replay) and the synthetic `demo-repo/` fixture | `adbbb66`, `83e71fb`, merged `c3ba8a1` | ADR-0004, `docs/mission-control.md` (superseded) |
+| Operator console (Axum, SSE replay) and the synthetic `demo-repo/` fixture | `adbbb66` | ADR-0004 |
+| First Mission Control dashboard, replacing the operator console's page; since superseded | `83e71fb`, merged `c3ba8a1` | `docs/mission-control.md` (superseded) |
 | Hyphae's pinned Linux build in a local Docker container, because the Windows build's Agent Memory surface does not start on the development machine | `371113f` | journal 2026-10-26 evening |
 | Independent audit and fix round: schema 1.1 (hash chain, policy order, per-item challenge ids) | `4faa6af` (dated 2026-10-27) | journal 2026-10-26 night, `docs/reviews/2026-10-26-claude-fix-report.md` |
-| Live battery of 12 Meta + Hyphae runs: 9 `blocked`, 1 `abstained`, 2 failed safely on 60 s timeouts, 0 `supported` | `89b03ca` (dated 2026-10-27) | `docs/evaluation.md` §2 |
+| Live battery of 12 Meta + Hyphae runs: 9 `blocked`, 1 `abstained`, 2 failed safely on 60 s timeouts, 0 `supported`. The blocks came from proofs reported invalid by an infrastructure fault, not corrupt evidence (the daemon's socket inside its data directory; later the store outgrew the 4 MiB MCP response), fixed on 2026-10-27 | `89b03ca` (dated 2026-10-27) | `docs/evaluation.md` §2, §5 |
 
 ### 2026-10-27 — live proofs, schema 1.2, the audit, protocol 1.3, the public API
 
@@ -28,7 +29,7 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 |---|---|---|
 | Hyphae proofs verify live (socket moved out of the data directory; store kept under the 4 MiB response cap); policy 1.2; per-run token cap | `addd4a8`, `a721955` | ADR-0001 (1.2 amendment), ADR-0003 |
 | Strict structured output; missing draft fields fail closed; a confirmed objection stays unresolved | `3d50baf`, `a1db715` | ADR-0002 |
-| 18 live runs with every proof `valid`: one counted `supported` (R06, whose 7 round-1 objections were never re-judged), the final battery F01–F06 all `contested` | `e513176`, `72e422a` | `docs/evaluation.md` §5 |
+| 18 live runs with every proof `valid`: one counted `supported` (R06, whose 7 round-1 objections were never re-judged and whose claim 3 cites a seeded record that misdescribes the fixture test; `docs/evaluation.md` Corrections 3 and 4), the final battery F01–F06 all `contested` | `e513176` (code `a1db715`, `3d50baf`) | `docs/evaluation.md` §5 |
 | Independent read-only audit of `72e422a` (91 findings, two fail-open paths MA-1 and RT-1) | `e4ef201` | `docs/reviews/2026-10-27-independent-audit.md` |
 | Apache-2.0 license, SPDX headers, `NOTICE` | `35297e7`, `e4ef201` | README, "License" |
 | Byte-identical research archive with `MANIFEST.json` and replay tests | `ff0d2fb` | `research/README.md` |
@@ -51,7 +52,7 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 |---|---|---|
 | Sealed-snapshot capture tooling (`capture-snapshot.sh`, `snapshot_manifest.py`) and its architecture document | merged `4d4f01a`; hardening `29b95aa`, `99c1b09` | `docs/architecture/sealed-snapshot.md` |
 | `SnapshotMemoryClient` with boot verification | merged `5455e69` | ADR-0008 |
-| Public live-mode wiring: `LiveGate`, portal-wide geo block, metered Meta adapter, key file, `/capabilities` and `/ready` live sections | merged `d1e58f1` | ADR-0007 (implementation) |
+| Public live-mode wiring: `LiveGate`, portal-wide geo block, metered Meta adapter, key file, `/capabilities` and `/ready` live sections (tested over the fixture snapshot; no public live run yet) | merged `d1e58f1` | ADR-0007 (implementation) |
 | Deployment runbook, systemd units, cloudflared ingress, tmpfiles and operator scripts | merged `2fecb32` | `docs/deployment/runbook.md`, `deploy/README.md` |
 | Hyphae children no longer see the credential-path variables | `6fb4ac3` | threat model v2 |
 | The operator's `consensus-api ledger` subcommand (`status`, `reset --by`, `release <id> --by`) | `4b8b5ae` | ADR-0007 (implementation) |
@@ -66,9 +67,9 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 
 ## In progress (2026-10-29)
 
-- The adversarial review of web lane W2 (`bc3b262`).
-- Documentation: this roadmap and the architecture overview (plan deliverables 2 and 4),
-  with the other documentation lanes of the same day.
+- An independent review of the W2 web views (`bc3b262`).
+- Documentation: this roadmap, the architecture overview and the other documents updated
+  on 2026-10-29.
 
 ## Pending before submission
 
@@ -78,8 +79,8 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
   synthetic `demo-repo` records, the two required captures, the manifest with its
   digests, then the store's credentials destroyed), followed by publishing the anchor,
   the manifest's SHA-256 and the Hyphae binary's SHA-256 in the README and the release
-  tag. Blocked at the time of writing: the Docker container that holds the Hyphae stores
-  is not on the current machine.
+  tag. Until it exists, live mode cannot be enabled. Blocked at the time of writing: the
+  Docker container that holds the Hyphae stores is not on the current machine.
 - **Counted protocol 1.3 battery.** Four of the eight authorized live re-validation runs
   remain; until it runs, no rate of any outcome under protocol 1.3 is claimed
   (`docs/evaluation.md` §6). Results go into `docs/evaluation.md` exactly as observed and
@@ -89,11 +90,14 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
   tag, the deployed-ingress review and probe (G1), the two-browser isolation probe (G2),
   the edge rules observed (G3), the deployment canary scan (G4), Playwright and the edge
   comparison through the hostname (G6, G7), the snapshot checks on the deployed directory
-  and a temp-directory sweep for the verifier (G9), the owner's legal sign-off (G10), the
-  staging rehearsal (G11), and a CI run on GitHub (G12).
+  (G9), the owner's legal sign-off (G10), the staging rehearsal (G11), and a CI run on
+  GitHub (G12). Open engineering items the checklist marks "not met as written": a
+  Hyphae child runs as the same user and can read the key file at its credentials path
+  (G4); no fuzzing harness exists (G5); no temp-directory sweep for the verifier exists,
+  and the verbatim `/research` files carry 541 container paths (G9).
 - **Staging deployment** on the server behind Cloudflare Access, per
-  `docs/deployment/runbook.md`, then go-live once the gates pass: guided mode and the
-  showcase first, live mode only if its gates are green.
+  `docs/deployment/runbook.md`, then go-live once every gate G1–G12 reads PASS; live mode
+  may stay off (`CONSENSUS_LIVE_ENABLED=false`) at launch if the owner chooses.
 - **Deliverables still to write:** the Mission Control design specification, the demo
   package and the rewritten demo script (`docs/demo-script.md` still describes the old
   console), the README section on how the project uses Meta's API, third-party notices

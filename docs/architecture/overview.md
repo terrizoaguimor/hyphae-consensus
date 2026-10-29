@@ -31,7 +31,7 @@ Runs come in three honest modes, fixed server-side per route (ADR-0006, ADR-0008
 | Mode | Model | Evidence | Where |
 |---|---|---|---|
 | Guided | scripted doubles (`provider: "fake"`) | seeded records, proofs labelled SIMULATED | public `POST /api/v1/runs` (scenario id only) |
-| Live | Meta Model API on the owner's key | the sealed Hyphae snapshot | public `POST /api/v1/live-runs` (preset id only), off by default |
+| Live | Meta Model API on the owner's key | the sealed Hyphae snapshot | public `POST /api/v1/live-runs` (preset id only), off by default; not yet runnable: the snapshot is not captured, so this mode has run only in tests over the fixture snapshot |
 | Recorded showcase | as recorded | as recorded | `GET /api/v1/showcase*`, `/research/*`: the archived 2026-10-26/27 runs, read-only |
 
 The operator console (`serve-operator`) can also run `model=meta` with `memory=hyphae`
@@ -58,8 +58,8 @@ The binary `consensus-api` has these entry points (`crates/consensus-api/src/mai
 [--receipt <receipt.json>]`, `ledger status | reset --by <operator> | release
 <reservation-id> --by <operator>`, and, with no argument or with `--approve` /
 `--reject` alone, the scripted CLI demo, which writes `scripted-demo/events.jsonl` under
-the current directory and refuses to run inside `demo-run/` or `research/`. Any other
-argument prints the usage and exits 2.
+the current directory and refuses to run inside `demo-run/` or `research/`. `-h`,
+`--help` and `help` print the usage; any other argument prints it and exits 2.
 
 ### 2.2 Runtime ports
 
@@ -88,9 +88,10 @@ open item id, so an omitted assessment or verdict cannot parse; an unknown, repe
 missing decision-relevant id is `MalformedOutput`. Untrusted inputs (task, evidence as a
 JSON array, objections, the evaluation under review) sit in separate delimited blocks
 with case-, whitespace- and fullwidth-insensitive neutralization; every invocation
-records `prompt_sha256` and `schema_sha256`. Retries: 429 and 503 only, with full-jitter
-backoff honouring `Retry-After`; one retry of a request that failed after it was sent
-without an HTTP status (`CONSENSUS_META_RETRY_TRANSPORT_ONCE`, on by default). Output is
+records `prompt_sha256` and `schema_sha256`. Retries: 429 and 503, with full-jitter
+backoff honouring `Retry-After`; a connection that failed before the request was sent;
+and one retry of a request that broke after it was sent without an HTTP status
+(`CONSENSUS_META_RETRY_TRANSPORT_ONCE`, on by default); nothing else. Output is
 bounded by `max_completion_tokens` (16,000 by default). The key is read from
 `CONSENSUS_META_API_KEY_FILE` first, then `CONSENSUS_META_API_KEY`, `MODEL_API_KEY`,
 `META_API_KEY`; it is zeroized on drop and never logged. In the public live mode and in a
@@ -108,7 +109,10 @@ metered operator run every HTTP attempt is drawn on the ledger before it is sent
 - **Every non-simulated mode:** `HyphaeProofVerifier` runs `hyphae proof verify --proof
   --witness --anchor` through a `CommandRunner`, under a deadline, with stdout and stderr
   capped and the Meta key variables and five credential-path variables removed from the
-  child's environment. `Valid` requires the report to say `verified`, semantic
+  child's environment. The environment is not otherwise cleared and the child runs as
+  the same user, so it can still read the credential files, the Meta key file included
+  (`docs/threat-model.md` T12, MA-2, MA-4; release gate G4 not met as written for
+  subprocesses). `Valid` requires the report to say `verified`, semantic
   re-execution performed, `kind = memory`, the memory scope, and an anchor equal to the
   pinned anchor.
 - **Public live mode:** `SnapshotMemoryClient` serves one fixed project (`demo-repo`) from
@@ -116,7 +120,9 @@ metered operator run every HTTP attempt is drawn on the ledger before it is sent
   query-independent: every recall returns the full proven `list` set (7 records by
   contract), and each evidence reference records the proof's own request next to the
   claim query, so the label reads "proof covers: complete record list of `demo-repo` at
-  anchor <prefix>". Another project returns empty with a reason. Each run's verifier is
+  anchor <prefix>". A recall of the isolation project returns no records with the
+  empty capture's proof (`RecallProven` with `empty: true`); a recall of any other
+  project is refused and recorded as `EvidenceUnavailable` with its reason. Each run's verifier is
   wrapped in `BootBoundVerifier`: a `Valid` stands only when the report's proof and
   result digests are the ones the boot check accepted. Witnesses are never served or
   committed. The capture itself (`scripts/hyphae-container/capture-snapshot.sh`,
@@ -144,7 +150,8 @@ the run's worst case:
 `Ledger` (`live/budget.rs`) is an append-only, fsynced USD ledger: one JSONL file per UTC
 day (`YYYY-MM-DD.jsonl`), `lifetime.json`, `ledger.lock`, and an optional `kill-switch`
 file whose presence trips it. Records are `reservation`, `draw`, `settlement`,
-`release`, `trip` and `reset`; money is integer micro-dollars. A run's worst case is
+`release`, `trip` and `reset`; amounts are six-place decimal strings in the records,
+computed in integer micro-dollars. A run's worst case is
 `(run token cap + max_completion_tokens + per-call input cap)` at the output rate; with
 the defaults `(70,000 + 16,000 + 32,000) × $20/M = $2.36`. Caps by default: $10.00 per
 UTC day, $60.00 lifetime, of which $15.00 is the judge slice (`live/config.rs`).
@@ -210,7 +217,7 @@ handlers (`api/v1.rs`) over their own `RunManager`.
 | `POST /api/v1/runs/{id}/decision`, `/runs/{id}/cancel` | yes, owner only | yes |
 | `GET /api/v1/showcase`, `/showcase/{run_id}`, `/showcase/{run_id}/receipt` | yes | yes |
 | `GET /research/{*path}` | yes | yes |
-| anything else | JSON 404 under `/api`, else the static export | `401` without the token, then 404 |
+| anything else | JSON 404 under `/api`, else the static export | under `/api`: `401` without the token, then 404; elsewhere 404 |
 
 **`serve-public`** listens on a unix socket (`CONSENSUS_PUBLIC_SOCKET`, default
 `/run/consensus/public.sock`, mode 0660) that only cloudflared reaches; there is no
@@ -229,10 +236,12 @@ on every route including the static export. Sessions are a 256-bit random id in 
 owner-checked; a non-owner gets `404`.
 
 **`serve-operator`** listens on loopback only (`CONSENSUS_OPERATOR_BIND`, default
-`127.0.0.1:8787`). Every request needs `Authorization: Bearer <token>` (from
+`127.0.0.1:8787`). Every `/api` request needs `Authorization: Bearer <token>` (from
 `CONSENSUS_OPERATOR_TOKEN_FILE`, at least 32 characters, or generated and printed once;
-compared in constant time); the fallbacks sit inside the bearer layer, so unknown paths
-answer `401` too. `Host` must be the bound address, `127.0.0.1:<port>` or
+compared in constant time); the fallbacks sit inside the bearer layer, so an unknown
+`/api` path or a wrong method on an `/api` route answers `401` without the token. The console page at `/`
+and the `/research/*` files are served without the token (loopback only; the console
+holds no data), and other unknown paths answer 404 (`api/mod.rs::operator_bearer`). `Host` must be the bound address, `127.0.0.1:<port>` or
 `localhost:<port>`. It accepts free task text and is where `memory=hyphae` exists; its
 views keep raw failure reasons and verifier output; its decisions carry `operator`
 authority.
@@ -247,7 +256,8 @@ route looks it up and records it after the start (ADR-0006, implementation note)
 
 ## 4. Data flow of a run, from creation to receipt
 
-The diagram shows a public live run. A guided run follows the same path without the
+The diagram shows a public live run as the code implements it. No public live run has
+happened yet: the sealed snapshot is not captured and nothing is deployed. A guided run follows the same path without the
 gate, Siteverify, the ledger and the Meta API: the scripted doubles and the simulated
 verifier answer in milliseconds, and the stream then delivers the stored records as
 `replay` frames, which the web client paces and labels "simulated · paced for
@@ -298,9 +308,10 @@ sequenceDiagram
         O->>META: evaluate (per-call keyed schema, metered)
         O->>M: EvaluationSubmitted (after contract::validate_evaluation)
         O->>M: EvidenceVerified per record of the round
+        O->>O: policy derives the round's kind (policy::explain)
         M-->>B: consensus frames, delivery: live
+        Note over O: revise only if not blocked, items open, progress, rounds left;<br/>else the round's kind is final
     end
-    O->>O: policy::explain on the recorded evaluation and verifications
     O->>M: RecommendationIssued, state AwaitingHumanApproval
     M->>L: release the reservation
     M-->>B: stream_end
@@ -322,8 +333,11 @@ Points the diagram compresses, from the code:
   appended after `EvaluationSubmitted` (`orchestrator.rs`).
 - Protocol 1.3 carries open items and uncleared contradictions across rounds:
   `open(k) = open(k-1) − resolved(k-1) + items(challenge k)`. A revision happens only
-  while items remain open, the result is not `blocked`, the round resolved at least one
-  previously open item, and the bound of 2 revision rounds allows (ADR-0010 decision 4).
+  while items remain open, the round's policy result is not `blocked`, the round resolved
+  at least one previously open item (the first evaluation counts as progress), and the
+  bound of 2 revision rounds allows (ADR-0010 decision 4). The policy runs after each
+  round's `EvidenceVerified` records; when no revision follows, that round's kind is the
+  recommendation (`orchestrator.rs`).
 - A violating proposal, challenge or evaluation is refused before it is recorded:
   `RunFailed` at that stage with code `proposal_contract`, `challenge_contract` or
   `evaluation_contract`, the refused call kept in `RunFailed.invocation`.
@@ -380,15 +394,18 @@ Points the diagram compresses, from the code:
 - **Cloudflare.** Trusted for `CF-Connecting-IP` and `CF-IPCountry` only on the socket
   (or a development bind with `CONSENSUS_TRUST_PROXY_HEADERS=true`). The origin repeats
   the country block (`live/geo.rs`): the whole portal is blocked for the configured list
-  (23 codes by default, Ukraine included), live mode also for `KR` and any unknown
-  country. Edge features that rewrite HTML must stay off (gate G6). Nothing at the edge
+  (23 codes by default, Ukraine included), live mode also for `KR`. A request without
+  `CF-IPCountry` is refused on the whole portal (`451 geo_unknown`); `XX`, `T1` or a
+  malformed code is refused only for live mode. Edge features that rewrite HTML must stay off (gate G6). Nothing at the edge
   is configured yet.
 - **Hyphae container.** Reached only by the operator lab through `docker exec`
   (`scripts/hyphae-docker.cmd`); it never sits behind the public server (ADR-0008
   context). The public server holds no Hyphae credential and runs only the verifier
-  binary over the sealed snapshot.
+  binary over the sealed snapshot. That verifier child runs as the same user as the
+  server and can read its credential files, the Meta key file included (T12, MA-2).
 - **Meta API.** Untrusted model output, paid calls with no hard spending cap; the ledger
-  reserves before any public call and meters every attempt.
+  reserves before any public call and meters every attempt. The key is withheld from
+  Hyphae children's environments but not from their file reads (section 2.4).
 
 ## 6. Event log and receipt formats
 
@@ -458,8 +475,9 @@ schema files: `ApiError`, `CreateGuidedRunRequest`, `CreateLiveRunRequest`,
 `CancelResponseV1`, `EventV1`, `ProvenanceV1`, `SseFrameV1`, `ConsensusFrameV1`,
 `StreamEndV1`, `ResyncV1`, `SessionV1`, `ScenariosV1`, `CapabilitiesV1`, `HealthV1`,
 `ReadyV1`, `ShowcaseV1`, `ShowcaseEntryV1`, `RunReceiptV2`, `PolicyTrace`) and
-`fixtures/` produced by the real view builders over the five guided scenarios with a
-fixed clock and sequential ids. The SSE event names are `consensus`, `resync` and
+`fixtures/` produced by the real view builders over the five guided scenarios, plus a
+live reference run (R01), a showcase entry (F03), the public capabilities and error
+samples, with a fixed clock and sequential ids. The SSE event names are `consensus`, `resync` and
 `stream_end`, with a 15 s heartbeat comment and a `retry` hint of 3,000 ms.
 
 The contract's digest is SHA-256 over the sorted schemas, `<name>\n<pretty JSON>\n` per
@@ -496,7 +514,7 @@ From `docs/deployment/runbook.md` and `deploy/`:
   socket's group is `consensus-sock`, cloudflared's only extra group: it can reach the
   socket and nothing else of the service.
 - Writable: `/var/lib/consensus/runs` and `/var/lib/consensus/ledger/{staging,public}`
-  (one ledger directory per phase). Read-only to the services: the web export, the
+  (one ledger directory per phase), plus `/run/consensus` for the public unit's socket. Read-only to the services: the web export, the
   research archive and `/var/lib/consensus/snapshots/` (`0700`, files `0640`). Hyphae
   4.0.0 lives under its own user in `/opt/hyphae/` and is used only as the offline
   verifier. No Docker on the server.
@@ -517,7 +535,7 @@ From `docs/deployment/runbook.md` and `deploy/`:
 | Policy order 1.2: a recorded contradiction outranks abstention | 0001 (1.2 amendment) |
 | Per-run token cap, `token_budget` failure | 0001 (1.2 amendment) |
 | Chat Completions with strict structured output; drafts, not domain documents | 0002 |
-| Keyed per-call Evaluator schema; retries on 429/503 only; one post-send transport retry | 0002 (2026-10-27 evening note) |
+| Keyed per-call Evaluator schema; retries on 429/503 and pre-send connection failures; one post-send transport retry | 0002 (2026-10-27 evening note) |
 | Key precedence and handling; prompt-injection posture as defense in depth | 0002, 0007 |
 | Hyphae memory profile without `--allow-write`; proof mapping; anchor pinning | 0003 |
 | One proof per recall; store size under the 4 MiB MCP response cap | 0003 |
@@ -558,8 +576,8 @@ From `docs/deployment/runbook.md` and `deploy/`:
   `live_hyphae_probe` and `live_meta_propose`. The fresh-clone run of G8 is still owed.
 - Release gates: G8 PASS; G12 partly; G1–G7 and G9–G11 pending
   (`docs/security/release-checklist.md`).
-- The gate results above predate lane W2's merge (`bc3b262`), which changed only
-  `apps/web`; this document does not re-run them.
+- Since `25c7867` the crates changed only in a doc comment (`ports.rs`, `88e85d5`), and
+  lane W2's merge (`bc3b262`) changed `apps/web`; the gates were not re-run at `bc3b262`.
 
 ## 11. Where the documents and the code differ (at `bc3b262`)
 
@@ -588,3 +606,6 @@ This overview follows the code in each case:
 7. README: the setup block says "494 tests (+2 ignored live)" and the 2026-10-28 status
    says the Evidence, Proof, Audit and Meta API views "are being built"; the gates at
    `25c7867` count 600 (Windows) and 603 (Linux), and those views landed with `bc3b262`.
+8. ADR-0007 decision 3: "The public server accepts no visitor free text anywhere." The
+   code accepts one, the optional decision note (at most 2,000 characters), which it
+   stores and shows and never sends to a model (`api/types.rs`; release checklist G10).

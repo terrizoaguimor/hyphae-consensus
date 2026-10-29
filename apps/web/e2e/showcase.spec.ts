@@ -925,6 +925,10 @@ type FigureEntry = {
   provenance: { evidence: string; model: string; flags?: string[]; meta_request_ids?: string[] };
 };
 
+/** Unchained as the page counts it (isUnchained in src/lib/showcase.ts): schema 1.0, the flag, or no head. */
+const unchainedEntry = (e: FigureEntry) =>
+  e.schema_version === "1.0" || (e.provenance.flags ?? []).includes("unchained") || e.head_hash === null;
+
 /** Another archive: several runs per battery, a failed run, three authorizations, two unchained runs. */
 function widerArchive(): Json[] {
   const live = (label: string) => {
@@ -966,9 +970,7 @@ for (const [archive, served] of Object.entries(FIGURE_ARCHIVES)) {
       const ids = (e: FigureEntry) => (e.provenance.meta_request_ids ?? []).length;
       const requests = runs.reduce((n, e) => n + ids(e), 0);
       const requestRuns = runs.filter((e) => ids(e) > 0).length;
-      const unchained = runs.filter(
-        (e) => e.schema_version === "1.0" || (e.provenance.flags ?? []).includes("unchained") || e.head_hash === null,
-      ).length;
+      const unchained = runs.filter(unchainedEntry).length;
       const manifestSha256 = createHash("sha256").update(researchBytes("MANIFEST.json")).digest("hex");
       expect(runs.length).toBeGreaterThan(0);
       // The lead sentence: runs, records, the manifest's digest.
@@ -1046,7 +1048,7 @@ test("the two archives the Overview's text is checked over differ in every figur
     events: runs.reduce((n, e) => n + e.event_count, 0),
     requests: runs.reduce((n, e) => n + (e.provenance.meta_request_ids ?? []).length, 0),
     requestRuns: runs.filter((e) => (e.provenance.meta_request_ids ?? []).length > 0).length,
-    unchained: runs.filter((e) => e.head_hash === null || e.schema_version === "1.0").length,
+    unchained: runs.filter(unchainedEntry).length,
     authorizationPending: runs.filter((e) => e.authorization === "pending").length,
     liveMeta: runs.filter((e) => e.provenance.model === "live_meta").length,
     largestBattery: Math.max(...runs.map((e) => runs.filter((other) => other.battery === e.battery).length)),
@@ -1134,8 +1136,8 @@ function hostileRun(entry: Json, options: Parameters<typeof recordedRun>[1]): { 
     actor: { kind: "runtime" },
     payload: { type: "evidence_unavailable", query: HOSTILE, message: "no record matched" },
   });
-  (detail.summary as Json).title = HOSTILE_MARKUP;
-  (detail.task as Json).title = HOSTILE_MARKUP;
+  (detail.summary as Json).title = HOSTILE;
+  (detail.task as Json).title = HOSTILE;
   const receipt: Json = { ...recorded.receipt, proof_limitations: HOSTILE };
   receipt.chain = { ...(receipt.chain as Json), note: HOSTILE };
   return { detail, receipt };
@@ -1246,7 +1248,7 @@ test("hostile markup, markdown and bidi controls in a recorded run render as ine
   const { l01, r06, list } = entries();
   const record = String(r06.record_file);
   const showcase = list.map((entry) =>
-    entry.run_id === r06.run_id || entry.run_id === l01.run_id ? { ...entry, title: HOSTILE_MARKUP, label: HOSTILE_MARKUP } : entry,
+    entry.run_id === r06.run_id || entry.run_id === l01.run_id ? { ...entry, title: HOSTILE, label: HOSTILE } : entry,
   );
   const hostileR06 = showcase.find((entry) => entry.run_id === r06.run_id) as Json;
   const hostileL01 = showcase.find((entry) => entry.run_id === l01.run_id) as Json;
@@ -1270,14 +1272,14 @@ test("hostile markup, markdown and bidi controls in a recorded run render as ine
   await expect(page.locator("[data-manifest-check='matches']")).toBeVisible();
   const battery = page.locator("[data-battery='live-battery-2026-10-26']");
   await expect(battery.locator("[data-archive-note] blockquote")).toHaveText(HOSTILE);
-  await expect(page.locator(`[data-showcase-run='${String(r06.run_id)}']`)).toContainText(HOSTILE_MARKUP);
+  await expect(page.locator(`[data-showcase-run='${String(r06.run_id)}']`)).toContainText(HOSTILE);
   await expectInert(page, "/showcase");
 
   // A recorded run blocked because no proof could be generated: the header's
   // title, label and manifest note, and every tab with the run's own text.
   await openRecorded(page, "en", String(l01.run_id));
-  await expect(page.locator("h2.hc-run-title")).toHaveText(HOSTILE_MARKUP);
-  await expect(page.locator("[data-recorded-run]")).toContainText(HOSTILE_MARKUP);
+  await expect(page.locator("h2.hc-run-title")).toHaveText(HOSTILE);
+  await expect(page.locator("[data-recorded-run]")).toContainText(HOSTILE);
   await expect(page.locator("[data-recorded-run] [data-archive-note] blockquote")).toHaveText(HOSTILE);
   await expectInert(page, "l01 decision");
   for (const tab of ["explorer", "evidence", "proofs", "audit", "meta", "decision"] as const) {
@@ -1623,15 +1625,27 @@ test("a recorded run's chain check runs from the keyboard", async ({ page }) => 
   await openRecorded(page, "en", String(r06.run_id));
   await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
   await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  // Every check downloads the run's log again: the downloads of the log are
+  // counted, so a key that does nothing cannot pass on the previous verdict.
+  const logUrl = `/research/${String(r06.file)}`;
+  let downloads = 0;
+  page.on("request", (request) => {
+    if (decodeURIComponent(new URL(request.url()).pathname) === logUrl) {
+      downloads += 1;
+    }
+  });
   // Enter on the button runs the check.
   await page.getByRole("button", { name: t("en", "Run.chain.run") }).focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("[data-chain-verdict='pass']")).toBeVisible();
-  // Space on "check again" runs it again. (Where focus goes once a check is
-  // done is A11Y-I18N-1, fixed with its own regression test.)
+  await expect.poll(() => downloads).toBe(1);
+  // Space on "check again" runs it again: one more download, and a verdict
+  // again. (Where focus goes once a check is done is A11Y-I18N-1, fixed with
+  // its own regression test.)
   const again = page.getByRole("button", { name: t("en", "Run.chain.again") });
   await again.focus();
   await page.keyboard.press("Space");
+  await expect.poll(() => downloads).toBe(2);
   await expect(page.locator("[data-chain-verdict='pass']")).toBeVisible();
   await expect(again).toBeVisible();
 });

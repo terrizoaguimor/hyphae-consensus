@@ -860,6 +860,10 @@
       "fail": "A verificação da cadeia falhou",
       "passSentence": "{count, plural, =0 {O arquivo não contém nenhum registro.} one {O # registro tem o hash e o vínculo registrados, e o trecho desta execução corresponde ao que as visões mostram.} many {Os # de registros têm o hash e o vínculo registrados, e o trecho desta execução corresponde ao que as visões mostram.} other {Os # registros têm o hash e o vínculo registrados, e o trecho desta execução corresponde ao que as visões mostram.}}",
       "failSentence": "Algo não corresponde; a primeira falha é nomeada abaixo.",
+      "unchainedVerdict": "Não há cadeia a verificar",
+      "unchainedSentence": "{count, plural, =0 {Esta execução não tem nenhum registro no arquivo.} one {O # registro desta execução não traz hash (anterior à 1.1): nenhum hash foi recalculado e nenhum vínculo foi seguido, então nada nele é verificado pela cadeia nem deixa rastro se for alterado. O que foi verificado: o arquivo se lê como registros em sequência, com ids únicos, e as comparações marcadas abaixo.} many {Os # de registros desta execução não trazem hash (anteriores à 1.1): nenhum hash foi recalculado e nenhum vínculo foi seguido, então nada neles é verificado pela cadeia nem deixa rastro se forem alterados. O que foi verificado: o arquivo se lê como registros em sequência, com ids únicos, e as comparações marcadas abaixo.} other {Os # registros desta execução não trazem hash (anteriores à 1.1): nenhum hash foi recalculado e nenhum vínculo foi seguido, então nada neles é verificado pela cadeia nem deixa rastro se forem alterados. O que foi verificado: o arquivo se lê como registros em sequência, com ids únicos, e as comparações marcadas abaixo.}}",
+      "passSentenceChained": "{count, plural, =0 {Nenhum registro do arquivo traz hash.} one {O # registro encadeado do arquivo tem o hash e o vínculo registrados, e o trecho desta execução corresponde ao que as visões mostram.} many {Os # de registros encadeados do arquivo têm o hash e o vínculo registrados, e o trecho desta execução corresponde ao que as visões mostram.} other {Os # registros encadeados do arquivo têm o hash e o vínculo registrados, e o trecho desta execução corresponde ao que as visões mostram.}}",
+      "legacyNote": "{count, plural, =0 {Todos os registros do arquivo trazem hash.} one {O # registro anterior a eles não traz hash (anterior à 1.1) e não é verificado pela cadeia.} many {Os # de registros anteriores a eles não trazem hash (anteriores à 1.1) e não são verificados pela cadeia.} other {Os # registros anteriores a eles não trazem hash (anteriores à 1.1) e não são verificados pela cadeia.}}",
       "failureAt": "A verificação para no registro {sequence} (linha {line}): {problem}.",
       "failureAtLine": "A verificação para na linha {line}: {problem}.",
       "problems": {
@@ -883,7 +887,8 @@
       "verdicts": {
         "pass": "corresponde",
         "fail": "difere",
-        "not_compared": "não comparado"
+        "not_compared": "não comparado",
+        "not_checked": "não verificado"
       },
       "sha256": "SHA-256 do arquivo {sha256} ({bytes} bytes), em relação ao resumo que o manifesto do arquivo fixa.",
       "sha256Own": "SHA-256 do arquivo {sha256} ({bytes} bytes); o log deste servidor não tem nenhum resumo fixado para comparar.",
@@ -896,7 +901,8 @@
       "noHead": "O último registro desta execução não traz hash, então não há hash final a comparar.",
       "count": "Número de registros em relação ao do recibo ({count}).",
       "countNoReceipt": "O recibo não foi lido, então o número de registros não é comparado.",
-      "limits": "Uma cadeia que confere mostra que estes bytes são coerentes entre si e com as cópias comparadas acima. A cadeia não é assinada: um log reescrito e com os hashes recalculados por inteiro também conferiria, a menos que um resumo obtido antes (um manifesto num commit com tag, um recibo guardado antes) diga o contrário; e ela não diz nada sobre se os registros são verdadeiros."
+      "limits": "Uma cadeia que confere mostra que estes bytes são coerentes entre si e com as cópias comparadas acima. A cadeia não é assinada: um log reescrito e com os hashes recalculados por inteiro também conferiria, a menos que um resumo obtido antes (um manifesto num commit com tag, um recibo guardado antes) diga o contrário; e ela não diz nada sobre se os registros são verdadeiros.",
+      "limitsUnchained": "Sem cadeia, um registro pode ser alterado sem deixar nenhum rastro dentro do arquivo: um SHA-256 que corresponde ao resumo que o manifesto do arquivo fixa mostra apenas que estes são os bytes arquivados, e só na medida em que se confia nesse manifesto. Nada aqui é assinado, e não diz nada sobre se os registros são verdadeiros."
     },
     "revision": {
       "heading": "Afirmações de {original} e {revised}, lado a lado",

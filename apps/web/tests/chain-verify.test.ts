@@ -83,6 +83,19 @@ describe("the archive's logs, as pinned", () => {
       expect(result.records).toHaveLength(file.events ?? -1);
       const chained = result.records.filter((r) => r.hash !== "").length;
       expect(chained).toBe(file.schema_versions.includes("1.0") ? 0 : result.records.length);
+      // Every run of a chained file is verified; every run of an unchained one
+      // has no chain to check, never verified (HONESTY-01).
+      const runs = manifest().runs.filter((r) => r.file === file.path);
+      expect(runs.length).toBeGreaterThan(0);
+      for (const run of runs) {
+        const segment = checkSegment(result, { runId: run.run_id, sha256: file.sha256 });
+        expect(segment, run.label).toMatchObject(
+          file.schema_versions.includes("1.0")
+            ? { chain: "not_checked", outcome: "unchained", pass: false, unchained: true, chainedRecords: 0 }
+            : { chain: "pass", outcome: "verified", pass: true, unchained: false, chainedRecords: result.records.length },
+        );
+        expect(segment.legacyRecords, run.label).toBe(result.records.length - chained);
+      }
     },
   );
 
@@ -98,6 +111,7 @@ describe("the archive's logs, as pinned", () => {
     expect(segment.head).toBe(F03.head_hash);
     expect(segment.records).toHaveLength(F03.event_count);
     expect(segment).toMatchObject({ chain: "pass", sha256: "pass", head_matches: "pass", count: "pass", pass: true });
+    expect(segment.outcome).toBe("verified");
     // The run's records are one contiguous segment of the multi-run log.
     expect((segment.last ?? 0) - (segment.first ?? 0) + 1).toBe(F03.event_count);
     expect(segment.first).toBeGreaterThan(1);
@@ -111,7 +125,64 @@ describe("the archive's logs, as pinned", () => {
     const segment = checkSegment(result, { runId: run?.run_id ?? "", receiptHead: null });
     expect(segment.unchained).toBe(true);
     expect(segment.head).toBeNull();
-    expect(segment.head_matches).toBe("pass");
+    // No head on either side is nothing compared, never a match (HONESTY-01).
+    expect(segment.head_matches).toBe("not_compared");
+    expect(segment).toMatchObject({ chain: "not_checked", outcome: "unchained", pass: false, chainedRecords: 0 });
+  });
+
+  // HONESTY-01: an unchained run never reads as a chain that checks out, even
+  // when every comparison the views allow (pinned digest, receipt count, the
+  // detail's sequences) matches.
+  it.each(manifest().runs.filter((r) => r.schema_version === "1.0").map((r) => [r.label, r] as const))(
+    "schema-1.0 run %s: no chain to check, never verified",
+    async (_label, run) => {
+      const file = manifest().files.find((f) => f.path === run.file);
+      expect(file?.schema_versions).toEqual(["1.0"]);
+      const result = await verifyLog(researchBytes(run.file));
+      expect(result.failure).toBeNull();
+      const records = result.records.filter((r) => r.runId === run.run_id);
+      expect(records.length).toBeGreaterThan(0);
+      const segment = checkSegment(result, {
+        runId: run.run_id,
+        sha256: file?.sha256,
+        receiptHead: null,
+        receiptEventCount: records.length,
+        firstSequence: records[0]?.sequence,
+        lastSequence: records.at(-1)?.sequence,
+      });
+      expect(segment).toMatchObject({
+        chain: "not_checked",
+        sha256: "pass",
+        head_matches: "not_compared",
+        count: "pass",
+        range: "pass",
+        outcome: "unchained",
+        pass: false,
+        unchained: true,
+        head: null,
+        chainedRecords: 0,
+        legacyRecords: result.records.length,
+      });
+      // Without a receipt read, still neither verified nor failed.
+      expect(checkSegment(result, { runId: run.run_id })).toMatchObject({ outcome: "unchained", pass: false });
+      // A receipt that claims a head for it is a difference, not a match.
+      expect(checkSegment(result, { runId: run.run_id, receiptHead: "0".repeat(64) })).toMatchObject({
+        head_matches: "fail",
+        outcome: "failed",
+        pass: false,
+      });
+      // A file that does not match its pin still fails.
+      expect(checkSegment(result, { runId: run.run_id, sha256: "0".repeat(64) })).toMatchObject({
+        sha256: "fail",
+        outcome: "failed",
+      });
+    },
+  );
+
+  it("there are schema-1.0 runs in the archive to check (C01-C07)", () => {
+    expect(manifest().runs.filter((r) => r.schema_version === "1.0").map((r) => r.label).sort()).toEqual(
+      expect.arrayContaining(["C01", "C07"]),
+    );
   });
 });
 
@@ -214,5 +285,33 @@ describe("the textual recipe", () => {
     expect(checkSegment(result, { runId: "run-y" })).toMatchObject({ chain: "fail", pass: false });
     const changed = encoder.encode(decoder.decode(bytes).replace("três", "tres"));
     expect((await verifyLog(changed)).failure).toMatchObject({ line: 3, sequence: 3, problem: { kind: "hash_mismatch" } });
+  });
+
+  it("a legacy run before a chained one: the chained run verifies, the legacy run has no chain, and the counts say which is which", async () => {
+    const legacy = [1, 2].map(
+      (n) =>
+        `{"schema_version":"1.0","sequence":${n},"event_id":"l${n}","run_id":"run-old","actor":{"kind":"runtime"},"occurred_at":"2026-10-28T00:00:00Z","prev_hash":"","hash":"","payload":{"type":"note"}}`,
+    );
+    const prev = "pre-1.1:2";
+    const blank = `{"schema_version":"1.3","sequence":3,"event_id":"c3","run_id":"run-new","actor":{"kind":"runtime"},"occurred_at":"2026-10-28T00:00:00Z","prev_hash":"${prev}","hash":"","payload":{"type":"note"}}`;
+    const hash = await recordHash(prev, blank);
+    expect(hash).not.toBeNull();
+    const bytes = encoder.encode(`${[...legacy, blank.replace('"hash":""', `"hash":"${hash}"`)].join("\n")}\n`);
+    const result = await verifyLog(bytes);
+    expect(result.failure).toBeNull();
+    expect(checkSegment(result, { runId: "run-new", receiptHead: hash, receiptEventCount: 1 })).toMatchObject({
+      chain: "pass",
+      head_matches: "pass",
+      outcome: "verified",
+      pass: true,
+      chainedRecords: 1,
+      legacyRecords: 2,
+    });
+    expect(checkSegment(result, { runId: "run-old", receiptHead: null, receiptEventCount: 2 })).toMatchObject({
+      chain: "not_checked",
+      head_matches: "not_compared",
+      outcome: "unchained",
+      pass: false,
+    });
   });
 });

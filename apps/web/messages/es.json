@@ -860,6 +860,10 @@
       "fail": "La comprobación de la cadena falló",
       "passSentence": "{count, plural, =0 {El archivo no contiene ningún registro.} one {Su # registro tiene el hash y el enlace registrados, y el tramo de esta ejecución coincide con lo que muestran las vistas.} many {Sus # de registros tienen el hash y el enlace registrados, y el tramo de esta ejecución coincide con lo que muestran las vistas.} other {Sus # registros tienen el hash y el enlace registrados, y el tramo de esta ejecución coincide con lo que muestran las vistas.}}",
       "failSentence": "Algo no coincide; el primer fallo se nombra abajo.",
+      "unchainedVerdict": "No hay cadena que comprobar",
+      "unchainedSentence": "{count, plural, =0 {Esta ejecución no tiene ningún registro en el archivo.} one {El # registro de esta ejecución no lleva hash (anterior a 1.1): no se recalculó ningún hash ni se siguió ningún enlace, así que nada en él está verificado por la cadena ni deja rastro si se altera. Lo que se comprobó: el archivo se lee como registros en secuencia, con ids únicos, y las comparaciones marcadas abajo.} many {Los # de registros de esta ejecución no llevan hash (anteriores a 1.1): no se recalculó ningún hash ni se siguió ningún enlace, así que nada en ellos está verificado por la cadena ni deja rastro si se altera. Lo que se comprobó: el archivo se lee como registros en secuencia, con ids únicos, y las comparaciones marcadas abajo.} other {Los # registros de esta ejecución no llevan hash (anteriores a 1.1): no se recalculó ningún hash ni se siguió ningún enlace, así que nada en ellos está verificado por la cadena ni deja rastro si se altera. Lo que se comprobó: el archivo se lee como registros en secuencia, con ids únicos, y las comparaciones marcadas abajo.}}",
+      "passSentenceChained": "{count, plural, =0 {Ningún registro del archivo lleva hash.} one {El # registro encadenado del archivo tiene el hash y el enlace registrados, y el tramo de esta ejecución coincide con lo que muestran las vistas.} many {Los # de registros encadenados del archivo tienen el hash y el enlace registrados, y el tramo de esta ejecución coincide con lo que muestran las vistas.} other {Los # registros encadenados del archivo tienen el hash y el enlace registrados, y el tramo de esta ejecución coincide con lo que muestran las vistas.}}",
+      "legacyNote": "{count, plural, =0 {Todos los registros del archivo llevan hash.} one {El # registro anterior a ellos no lleva hash (anterior a 1.1) y no está verificado por la cadena.} many {Los # de registros anteriores a ellos no llevan hash (anteriores a 1.1) y no están verificados por la cadena.} other {Los # registros anteriores a ellos no llevan hash (anteriores a 1.1) y no están verificados por la cadena.}}",
       "failureAt": "La comprobación se detiene en el registro {sequence} (línea {line}): {problem}.",
       "failureAtLine": "La comprobación se detiene en la línea {line}: {problem}.",
       "problems": {
@@ -883,7 +887,8 @@
       "verdicts": {
         "pass": "coincide",
         "fail": "difiere",
-        "not_compared": "no comparado"
+        "not_compared": "no comparado",
+        "not_checked": "no comprobado"
       },
       "sha256": "SHA-256 del archivo {sha256} ({bytes} bytes), frente al resumen que fija el manifiesto del archivo.",
       "sha256Own": "SHA-256 del archivo {sha256} ({bytes} bytes); el log de este servidor no tiene ningún resumen fijado con el que compararlo.",
@@ -896,7 +901,8 @@
       "noHead": "El último registro de esta ejecución no lleva hash, así que no hay hash final que comparar.",
       "count": "Número de registros frente al del recibo ({count}).",
       "countNoReceipt": "El recibo no se ha leído, así que el número de registros no se compara.",
-      "limits": "Una cadena que cuadra muestra que estos bytes son coherentes entre sí y con las copias comparadas arriba. La cadena no está firmada: un log reescrito y con los hashes recalculados por completo también cuadraría, salvo que un resumen obtenido antes (un manifiesto en un commit etiquetado, un recibo guardado antes) diga lo contrario; y no dice nada sobre si los registros son verdaderos."
+      "limits": "Una cadena que cuadra muestra que estos bytes son coherentes entre sí y con las copias comparadas arriba. La cadena no está firmada: un log reescrito y con los hashes recalculados por completo también cuadraría, salvo que un resumen obtenido antes (un manifiesto en un commit etiquetado, un recibo guardado antes) diga lo contrario; y no dice nada sobre si los registros son verdaderos.",
+      "limitsUnchained": "Sin cadena, un registro puede cambiarse sin dejar ningún rastro dentro del archivo: un SHA-256 que coincide con el resumen que fija el manifiesto del archivo solo muestra que estos son los bytes archivados, y solo en la medida en que se confíe en ese manifiesto. Nada aquí está firmado, y no dice nada sobre si los registros son verdaderos."
     },
     "revision": {
       "heading": "Afirmaciones de {original} y {revised}, lado a lado",

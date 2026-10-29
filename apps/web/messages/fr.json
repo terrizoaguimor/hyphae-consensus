@@ -860,6 +860,10 @@
       "fail": "La vérification de la chaîne a échoué",
       "passSentence": "{count, plural, =0 {Le fichier ne contient aucun enregistrement.} one {Son # enregistrement a l’empreinte et le lien enregistrés, et le segment de cette exécution correspond à ce que les vues affichent.} many {Ses # d’enregistrements ont l’empreinte et le lien enregistrés, et le segment de cette exécution correspond à ce que les vues affichent.} other {Ses # enregistrements ont l’empreinte et le lien enregistrés, et le segment de cette exécution correspond à ce que les vues affichent.}}",
       "failSentence": "Quelque chose ne correspond pas ; le premier échec est nommé ci-dessous.",
+      "unchainedVerdict": "Aucune chaîne à vérifier",
+      "unchainedSentence": "{count, plural, =0 {Cette exécution n’a aucun enregistrement dans le fichier.} one {Le # enregistrement de cette exécution ne porte aucune empreinte (antérieur à 1.1) : aucune empreinte n’a été recalculée et aucun lien suivi, donc rien en lui n’est vérifié par la chaîne ni ne laisse de trace s’il est modifié. Ce qui a été vérifié : le fichier se lit comme des enregistrements en séquence, aux identifiants uniques, et les comparaisons marquées ci-dessous.} many {Les # d’enregistrements de cette exécution ne portent aucune empreinte (antérieurs à 1.1) : aucune empreinte n’a été recalculée et aucun lien suivi, donc rien en eux n’est vérifié par la chaîne ni ne laisse de trace s’ils sont modifiés. Ce qui a été vérifié : le fichier se lit comme des enregistrements en séquence, aux identifiants uniques, et les comparaisons marquées ci-dessous.} other {Les # enregistrements de cette exécution ne portent aucune empreinte (antérieurs à 1.1) : aucune empreinte n’a été recalculée et aucun lien suivi, donc rien en eux n’est vérifié par la chaîne ni ne laisse de trace s’ils sont modifiés. Ce qui a été vérifié : le fichier se lit comme des enregistrements en séquence, aux identifiants uniques, et les comparaisons marquées ci-dessous.}}",
+      "passSentenceChained": "{count, plural, =0 {Aucun enregistrement du fichier ne porte d’empreinte.} one {Le # enregistrement chaîné du fichier a l’empreinte et le lien enregistrés, et le segment de cette exécution correspond à ce que les vues affichent.} many {Les # d’enregistrements chaînés du fichier ont l’empreinte et le lien enregistrés, et le segment de cette exécution correspond à ce que les vues affichent.} other {Les # enregistrements chaînés du fichier ont l’empreinte et le lien enregistrés, et le segment de cette exécution correspond à ce que les vues affichent.}}",
+      "legacyNote": "{count, plural, =0 {Tous les enregistrements du fichier portent une empreinte.} one {Le # enregistrement qui les précède ne porte aucune empreinte (antérieur à 1.1) et n’est pas vérifié par la chaîne.} many {Les # d’enregistrements qui les précèdent ne portent aucune empreinte (antérieurs à 1.1) et ne sont pas vérifiés par la chaîne.} other {Les # enregistrements qui les précèdent ne portent aucune empreinte (antérieurs à 1.1) et ne sont pas vérifiés par la chaîne.}}",
       "failureAt": "La vérification s’arrête à l’enregistrement {sequence} (ligne {line}) : {problem}.",
       "failureAtLine": "La vérification s’arrête à la ligne {line} : {problem}.",
       "problems": {
@@ -883,7 +887,8 @@
       "verdicts": {
         "pass": "correspond",
         "fail": "diffère",
-        "not_compared": "non comparé"
+        "not_compared": "non comparé",
+        "not_checked": "non vérifié"
       },
       "sha256": "SHA-256 du fichier {sha256} ({bytes} octets), par rapport à l’empreinte que fixe le manifeste de l’archive.",
       "sha256Own": "SHA-256 du fichier {sha256} ({bytes} octets) ; le journal de ce serveur n’a aucune empreinte fixée à laquelle le comparer.",
@@ -896,7 +901,8 @@
       "noHead": "Le dernier enregistrement de cette exécution ne porte aucune empreinte : il n’y a pas d’empreinte de tête à comparer.",
       "count": "Nombre d’enregistrements par rapport à celui du reçu ({count}).",
       "countNoReceipt": "Le reçu n’a pas été lu : le nombre d’enregistrements n’est donc pas comparé.",
-      "limits": "Une chaîne cohérente montre que ces octets sont cohérents entre eux et avec les copies comparées ci-dessus. La chaîne n’est pas signée : un journal réécrit et entièrement rehaché serait cohérent lui aussi, sauf si une empreinte obtenue plus tôt (un manifeste dans un commit étiqueté, un reçu enregistré avant) dit le contraire ; et elle ne dit rien de la vérité des enregistrements."
+      "limits": "Une chaîne cohérente montre que ces octets sont cohérents entre eux et avec les copies comparées ci-dessus. La chaîne n’est pas signée : un journal réécrit et entièrement rehaché serait cohérent lui aussi, sauf si une empreinte obtenue plus tôt (un manifeste dans un commit étiqueté, un reçu enregistré avant) dit le contraire ; et elle ne dit rien de la vérité des enregistrements.",
+      "limitsUnchained": "Sans chaîne, un enregistrement peut être modifié sans laisser aucune trace dans le fichier : un SHA-256 qui correspond à l’empreinte que fixe le manifeste de l’archive montre seulement que ce sont les octets archivés, et seulement dans la mesure où l’on se fie à ce manifeste. Rien ici n’est signé, et cela ne dit rien de la vérité des enregistrements."
     },
     "revision": {
       "heading": "Affirmations de {original} et de {revised}, côte à côte",

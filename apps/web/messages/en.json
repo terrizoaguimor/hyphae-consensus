@@ -860,6 +860,10 @@
       "fail": "Chain check failed",
       "passSentence": "{count, plural, =0 {The file holds no record.} one {Its # record hashes and links as recorded, and this run’s segment matches what the views hold.} other {All # records hash and link as recorded, and this run’s segment matches what the views hold.}}",
       "failSentence": "Something does not match; the first failure is named below.",
+      "unchainedVerdict": "No chain to check",
+      "unchainedSentence": "{count, plural, =0 {This run has no record in the file.} one {This run’s # record carries no hash (pre-1.1): no hash was recomputed and no link was followed, so nothing in it is chain-verified or tamper-evident. What was checked: the file reads as records in sequence, with unique ids, and the comparisons marked below.} other {This run’s # records carry no hash (pre-1.1): no hash was recomputed and no link was followed, so nothing in them is chain-verified or tamper-evident. What was checked: the file reads as records in sequence, with unique ids, and the comparisons marked below.}}",
+      "passSentenceChained": "{count, plural, =0 {No record of the file carries a hash.} one {The file’s # chained record hashes and links as recorded, and this run’s segment matches what the views hold.} other {The file’s # chained records hash and link as recorded, and this run’s segment matches what the views hold.}}",
+      "legacyNote": "{count, plural, =0 {Every record of the file carries a hash.} one {The # record before them carries no hash (pre-1.1) and is not chain-verified.} other {The # records before them carry no hash (pre-1.1) and are not chain-verified.}}",
       "failureAt": "The check stops at record {sequence} (line {line}): {problem}.",
       "failureAtLine": "The check stops at line {line}: {problem}.",
       "problems": {
@@ -883,7 +887,8 @@
       "verdicts": {
         "pass": "matches",
         "fail": "differs",
-        "not_compared": "not compared"
+        "not_compared": "not compared",
+        "not_checked": "not checked"
       },
       "sha256": "File SHA-256 {sha256} ({bytes} bytes), against the digest the archive’s manifest pins.",
       "sha256Own": "File SHA-256 {sha256} ({bytes} bytes); this server’s log has no pinned digest to compare it with.",
@@ -896,7 +901,8 @@
       "noHead": "This run’s last record carries no hash, so there is no head to compare.",
       "count": "Record count against the receipt’s ({count}).",
       "countNoReceipt": "The receipt has not been read, so the record count is not compared.",
-      "limits": "A chain that checks out shows that these bytes are consistent with each other and with the copies compared above. The chain is unsigned: a log rewritten and re-hashed as a whole would check out too, unless a digest obtained earlier (a manifest in a tagged commit, a receipt saved before) says otherwise; and it says nothing about whether the records are true."
+      "limits": "A chain that checks out shows that these bytes are consistent with each other and with the copies compared above. The chain is unsigned: a log rewritten and re-hashed as a whole would check out too, unless a digest obtained earlier (a manifest in a tagged commit, a receipt saved before) says otherwise; and it says nothing about whether the records are true.",
+      "limitsUnchained": "Without a chain, a record can be changed without leaving any trace inside the file: a SHA-256 that matches the digest the archive’s manifest pins shows only that these are the bytes archived, and only as far as that manifest is trusted. Nothing here is signed, and it says nothing about whether the records are true."
     },
     "revision": {
       "heading": "Claims of {original} and {revised}, side by side",

@@ -170,7 +170,7 @@
       "modelCount": "{label} {count}",
       "authorizations": "Por autorização: {list}.",
       "authorizationCount": "{authorization} {count}",
-      "requests": "{count, plural, =0 {Nenhum id de solicitação da Meta registrado.} one {# id de solicitação da Meta registrado: evidência de uma chamada ao modelo registrada, não de algo acontecendo agora.} many {# de ids de solicitação da Meta registrados: evidência de chamadas ao modelo registradas, não de algo acontecendo agora.} other {# ids de solicitação da Meta registrados: evidência de chamadas ao modelo registradas, não de algo acontecendo agora.}}",
+      "requests": "{count, plural, =0 {Nenhum id de solicitação da Meta registrado.} one {# id de solicitação da Meta registrado, em {runs, plural, =0 {nenhuma execução} one {# execução} many {# de execuções} other {# execuções}}: um por chamada ao modelo da Meta registrada com a resposta (uma chamada repetida conta uma só vez). O dublê roteirizado não faz nenhuma chamada à Meta nem registra nenhum id, e uma chamada que não obteve resposta (estourou o tempo limite, falhou no transporte ou foi recusada com um status de erro) não registrou nenhum. Evidência de uma chamada ao modelo registrada, não de algo acontecendo agora.} many {# de ids de solicitação da Meta registrados, em {runs, plural, =0 {nenhuma execução} one {# execução} many {# de execuções} other {# execuções}}: um por chamada ao modelo da Meta registrada com a resposta (uma chamada repetida conta uma só vez). O dublê roteirizado não faz nenhuma chamada à Meta nem registra nenhum id, e uma chamada que não obteve resposta (estourou o tempo limite, falhou no transporte ou foi recusada com um status de erro) não registrou nenhum. Evidência de chamadas ao modelo registradas, não de algo acontecendo agora.} other {# ids de solicitação da Meta registrados, em {runs, plural, =0 {nenhuma execução} one {# execução} many {# de execuções} other {# execuções}}: um por chamada ao modelo da Meta registrada com a resposta (uma chamada repetida conta uma só vez). O dublê roteirizado não faz nenhuma chamada à Meta nem registra nenhum id, e uma chamada que não obteve resposta (estourou o tempo limite, falhou no transporte ou foi recusada com um status de erro) não registrou nenhum. Evidência de chamadas ao modelo registradas, não de algo acontecendo agora.}}",
       "unchained": "{count, plural, =0 {Nenhuma execução é anterior à cadeia de hashes.} one {# execução é anterior à cadeia de hashes (esquema 1.0, sem cadeia).} many {# de execuções são anteriores à cadeia de hashes (esquema 1.0, sem cadeia).} other {# execuções são anteriores à cadeia de hashes (esquema 1.0, sem cadeia).}}",
       "note": "Estes números dizem o que foi registrado, não que alguma recomendação estava certa: integridade não é verdade, e as execuções com evidências simuladas são contadas sob esse rótulo.",
       "showcaseLink": "Abrir a vitrine de pesquisa"
@@ -498,6 +498,7 @@
       "rejected": "rejeitada",
       "withNote": "Nota: {note}",
       "receipt": "Abrir o recibo (JSON)",
+      "receiptRebuilt": "Este servidor monta este recibo a partir do log arquivado cada vez que ele é aberto; as limitações das provas dele são a redação atual deste software. A trilha de auditoria as compara com o registro da execução, quando o arquivo guarda um.",
       "ndjson": "Baixar o log literal de eventos",
       "ndjsonUnavailable": "O log literal de eventos desta execução não é publicado na superfície pública: os registros de um modelo ao vivo podem citar texto externo. O recibo traz a sua visão sanitizada.",
       "cancel": "Cancelar esta execução",
@@ -603,6 +604,24 @@
         "unrecorded": "Este registro não nomeia a solicitação que sua prova selou (foi registrado antes do esquema 1.3); sua âncora é {anchor}.",
         "unrecordedNoAnchor": "Este registro não nomeia nem a solicitação que sua prova selou nem uma âncora (foi registrado antes do esquema 1.3)."
       }
+    },
+    "runTimeReceipt": {
+      "regenerated": "Este servidor monta este recibo a partir do log arquivado cada vez que ele é solicitado; as limitações das provas dele são a redação atual deste software, que o recibo baixado no momento da execução pode não compartilhar.",
+      "regeneratedAt": "Este servidor montou este recibo a partir do log arquivado quando ele foi solicitado ({date}, o generated_at dele); as limitações das provas dele são a redação atual deste software, que o recibo baixado no momento da execução pode não compartilhar.",
+      "noRecord": "O arquivo não guarda nenhum registro desta execução, então não há um recibo do momento da execução para comparar.",
+      "record": "O registro da execução no arquivo guarda o recibo como ele foi baixado no momento da execução, com a própria redação.",
+      "recordDownload": "Baixar o registro da execução {name}",
+      "read": "Mostrar as limitações das provas do recibo do momento da execução",
+      "readAgain": "Ler o registro da execução de novo",
+      "reading": "Lendo o registro da execução…",
+      "unreadable": "O registro da execução não pôde ser lido como um recibo desta execução, então as limitações dele não são mostradas.",
+      "recordGenerated": "O recibo do registro da execução foi gerado em {date}.",
+      "recordUndated": "O recibo do registro da execução não informa quando foi gerado.",
+      "noLimitations": "O recibo do registro da execução não declara limitações das provas.",
+      "limitsVerbatim": "As limitações das provas dele, como ele as declara (em inglês):",
+      "limitsSame": "As limitações das provas dele, como ele as declara (em inglês), iguais às do recibo que este servidor montou:",
+      "limitsDiffer": "As limitações das provas dele, como ele as declara (em inglês), que diferem das do recibo que este servidor montou:",
+      "limitsToday": "Redação atual deste servidor: o recibo baixado no momento da execução, guardado no registro da execução, pode declará-las de outra forma."
     },
     "proofs": {
       "reading": {

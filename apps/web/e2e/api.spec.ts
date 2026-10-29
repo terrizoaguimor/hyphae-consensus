@@ -122,6 +122,8 @@ test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, p
     "href",
     `/api/v1/runs/${RUN_ID}/receipt`,
   );
+  // A live run's receipt is not an archive rebuild: no such note.
+  await expect(page.locator("[data-receipt-rebuilt]")).toHaveCount(0);
   await expect(page.locator("[data-run-field='state']")).toHaveText(t("en", "Run.states.approved"));
   expect(pageProblems).toEqual([]);
 });

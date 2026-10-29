@@ -175,7 +175,9 @@ function Figures({ locale }: { locale: Locale }) {
               .join(", "),
           })}
         </li>
-        <li data-figures-requests={figures.metaRequestIds}>{t("requests", { count: figures.metaRequestIds })}</li>
+        <li data-figures-requests={figures.metaRequestIds} data-figures-request-runs={figures.metaRuns}>
+          {t("requests", { count: figures.metaRequestIds, runs: figures.metaRuns })}
+        </li>
         <li data-figures-unchained={figures.unchained}>{t("unchained", { count: figures.unchained })}</li>
       </ul>
       <p className="hc-supporting">{t("note")}</p>

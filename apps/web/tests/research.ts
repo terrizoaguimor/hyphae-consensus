@@ -50,6 +50,8 @@ export type ManifestRun = {
   authorization: string;
   schema_version: string;
   file: string;
+  /** The run record (task, detail, receipt as downloaded at run time), when the archive has one. */
+  record?: string | null;
 };
 
 export function manifest(): { created: string; files: ManifestFile[]; runs: ManifestRun[] } {
@@ -58,4 +60,43 @@ export function manifest(): { created: string; files: ManifestFile[]; runs: Mani
     files: ManifestFile[];
     runs: ManifestRun[];
   };
+}
+
+type LogRecord = { run_id: string; payload: { invocation?: unknown } };
+
+const parsedLogs = new Map<string, LogRecord[]>();
+
+/** An archived log's records, parsed once per test file. */
+function logRecords(file: string): LogRecord[] {
+  let records = parsedLogs.get(file);
+  if (records === undefined) {
+    records = new TextDecoder()
+      .decode(researchBytes(file))
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => JSON.parse(line) as LogRecord);
+    parsedLogs.set(file, records);
+  }
+  return records;
+}
+
+/**
+ * The request ids of a run's Meta invocations in its archived log, in order:
+ * every record whose payload carries an invocation with `provider: meta` and
+ * a request id (the proposal, challenge, evaluation and revision records, and
+ * a failure that recorded its call), as the server derives
+ * `provenance.meta_request_ids` (crates/consensus-api/src/public_view.rs).
+ */
+export function metaRequestIds(file: string, runId: string): string[] {
+  return logRecords(file)
+    .filter((record) => record.run_id === runId)
+    .flatMap((record) => {
+      const invocation = record.payload.invocation as { provider?: unknown; request_id?: unknown } | null | undefined;
+      return invocation !== undefined &&
+        invocation !== null &&
+        invocation.provider === "meta" &&
+        typeof invocation.request_id === "string"
+        ? [invocation.request_id]
+        : [];
+    });
 }

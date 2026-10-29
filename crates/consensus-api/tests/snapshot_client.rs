@@ -2149,3 +2149,76 @@ fn an_orchestrated_run_over_the_snapshot_is_proven_verified_and_recommended() {
         );
     }
 }
+
+/// Rewrites a capture's response file as `hyphae agent ui` 4.0.0 prints it
+/// (observed in the capture session of 2026-10-29): one compact line, the
+/// list/recall result under `result`, next to `schema`, `id` and `ok`.
+fn wrap_response(dir: &Path, capture_id: &str, envelope: impl FnOnce(Value) -> Value) {
+    let path = dir
+        .join("captures")
+        .join(format!("{capture_id}.response.json"));
+    let result: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    std::fs::write(&path, serde_json::to_string(&envelope(result)).unwrap()).unwrap();
+}
+
+#[test]
+fn the_agent_ui_envelope_of_the_real_capture_loads_and_opens() {
+    // The real capture's response files hold the result under `result`
+    // (snapshots/snap-2026-10-29-demo-repo); the manifest builder accepts
+    // both shapes (`result_object`), and so must the runtime.
+    let dir = build("agent-ui-envelope");
+    for id in [LIST_ID, ISOLATION_ID] {
+        wrap_response(
+            &dir,
+            id,
+            |result| json!({"id": 1, "ok": true, "result": result, "schema": "hyphae-omarchy-control-v1"}),
+        );
+    }
+    recompute_digests(&dir);
+    let snapshot = Snapshot::load(&dir, None).expect("the agent ui envelope loads");
+    let ids: Vec<&str> = snapshot.records().iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids, RECORD_IDS, "capture order");
+    assert!(snapshot.records()[0]
+        .text
+        .starts_with("Constraint: outbound retries"));
+    let (client, verifier) = open(&dir);
+    assert_eq!(verifier.runner.calls.len(), 2);
+    assert_eq!(client.records().len(), 7);
+}
+
+#[test]
+fn an_agent_ui_error_or_a_failed_envelope_is_not_a_result() {
+    // What `agent ui` printed to a request it refused (scratch session of
+    // 2026-10-29), an envelope that says it failed while carrying a result,
+    // and a `result` that is not an object: none is a captured result.
+    let refused = json!({"error": {"code": "invalid_request", "message": "invalid request"}, "id": null, "ok": false, "schema": "hyphae-omarchy-control-v1"});
+    type Envelope = Box<dyn Fn(Value) -> Value>;
+    let cases: Vec<(&str, Envelope)> = vec![
+        ("error", Box::new(move |_| refused.clone())),
+        (
+            "not-ok",
+            Box::new(
+                |result| json!({"id": 1, "ok": false, "result": result, "schema": "hyphae-omarchy-control-v1"}),
+            ),
+        ),
+        (
+            "result-not-object",
+            Box::new(
+                |_| json!({"id": 1, "ok": true, "result": [], "schema": "hyphae-omarchy-control-v1"}),
+            ),
+        ),
+    ];
+    for (name, envelope) in cases {
+        let dir = build(&format!("agent-ui-{name}"));
+        wrap_response(&dir, LIST_ID, envelope);
+        recompute_digests(&dir);
+        let err = load_error(&dir);
+        assert_eq!(err.code, codes::RESPONSE_INVALID, "{name}: {err:?}");
+        assert!(
+            err.message
+                .starts_with("captures/list-demo-repo.response.json: "),
+            "{name}: {}",
+            err.message
+        );
+    }
+}

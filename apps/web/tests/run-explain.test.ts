@@ -211,6 +211,21 @@ describe.each(routing.locales)("the plain explanation (%s)", (locale) => {
       // Never the sentences of a check that came back invalid.
       expect(text).not.toContain(generic);
       expect(text).not.toContain(genericLead);
+      // The proofs count reads the same trace counts as integrity statuses:
+      // never proofs found invalid, never "none ... failed".
+      const proofs = plain.counts.map((c) => c.key).filter((key) => key.startsWith("plain.counts.proofs"));
+      expect(proofs).toEqual(["plain.counts.proofs_ungenerated"]);
+      const values = {
+        valid: trace.counts.proofs_valid,
+        invalid: trace.counts.proofs_invalid,
+        unavailable: trace.counts.proofs_unavailable_or_error,
+      };
+      expect(plain.counts.find((c) => c.key === "plain.counts.proofs_ungenerated")?.values).toEqual(values);
+      expect(text).not.toContain(render(locale, { key: "plain.counts.proofs", values }));
+      expect(text).toContain(render(locale, { key: "plain.counts.proofs_ungenerated", values }));
+      expect(lower).not.toMatch(/failed|fallida|com falha|en échec/);
+      // Without the reading the generic count stays.
+      expect(plainExplanation(trace).counts.map((c) => c.key)).toContain("plain.counts.proofs");
     }
     // A trace without an invalid proof is unchanged by the reading.
     for (const trace of all.filter((t) => !t.reasons.some((r) => r.reason === "invalid_proofs"))) {
@@ -233,6 +248,7 @@ describe.each(routing.locales)("the plain explanation (%s)", (locale) => {
     for (const key of [
       "plain.rules.invalid_proof_ungenerated",
       "plain.reasons.invalid_proofs_ungenerated",
+      "plain.counts.proofs_ungenerated",
       "context.neverRejudgedUnlisted",
     ]) {
       expect(() => message(locale, `Run.explain.${key}`)).not.toThrow();
@@ -445,8 +461,17 @@ describe("over the research archive's own records", () => {
     expect(render("en", plain.lead)).toBe(
       "None of the records whose integrity reads invalid got a proof: it could not be generated upstream, so nothing was checked. The policy still treats that status as invalid, and that rule comes before every other one: the policy recommends blocked.",
     );
+    const proofsCount = plain.counts.find((c) => c.key.startsWith("plain.counts.proofs"));
+    expect(proofsCount?.key).toBe("plain.counts.proofs_ungenerated");
+    expect([trace.counts.proofs_valid, trace.counts.proofs_invalid, trace.counts.proofs_unavailable_or_error]).toEqual([
+      0, 2, 0,
+    ]);
+    expect(render("en", proofsCount as ExplainMessage)).toBe(
+      "Integrity statuses of the final round: none valid, 2 invalid, with no proof generated, none unavailable or with a verification error.",
+    );
     for (const locale of routing.locales) {
-      const text = [plain.lead, ...plain.reasons].map((entry) => render(locale, entry)).join(" ");
+      const text = [plain.lead, ...plain.counts, ...plain.reasons].map((entry) => render(locale, entry)).join(" ");
+      expect(text, locale).not.toMatch(/failed|fallida|com falha|en échec/);
       expect(text, locale).not.toContain(render(locale, { key: "plain.rules.invalid_proof", kind: "blocked" }));
       expect(text, locale).not.toContain(render(locale, { key: "plain.reasons.invalid_proofs" }));
       expect(text, locale).toContain(message(locale, "Run.kinds.blocked"));

@@ -179,8 +179,9 @@ turns the pacing off. Server timestamps are shown untouched.
 - **Audit trail** (`AuditTab`): the chain (scope in words, first and last
   sequence, head; each record's link as the views carry it), the receipt
   (authorization, deliberation summary with the earlier-round objections
-  never re-judged and, apart, those their own round left unlisted, model calls, verifications by round and status, protocol,
-  proof limitations, the receipt as JSON), the verbatim log where it is
+  never re-judged and, apart, those their own round left unlisted, model
+  calls, verifications by round and status, protocol, proof limitations,
+  the receipt as JSON), the verbatim log where it is
   published (a guided run's `events.ndjson`; a recorded run's research file
   with its pinned SHA-256) with the receipt download, the exact check
   `consensus-api verify <log.jsonl> --run <id> --receipt <receipt.json>`, and
@@ -213,7 +214,9 @@ turns the pacing off. Server timestamps are shown untouched.
   When every record the invalid_proofs check names reports that no proof
   could be generated upstream, the lead and that sentence say nothing was
   checked, as the Proof inspector does, never that a check came back
-  invalid.
+  invalid, and the proofs count reads the same trace counts as integrity
+  statuses (`plain.counts.proofs_ungenerated`), never as proofs found
+  invalid or none failed.
 - **Revision view** (`RevisionComparison`, next to the scope line): the
   original and the revised proposal claim by claim
   (`src/lib/run/revision.ts`), and each revision's addressed items, said as

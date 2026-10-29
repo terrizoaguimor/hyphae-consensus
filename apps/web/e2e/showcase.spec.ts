@@ -256,6 +256,13 @@ test("a run blocked because no proof could be generated reads so, with the archi
     t("en", "Run.explain.plain.reasons.invalid_proofs_ungenerated"),
   );
   await expect(explanation).not.toContainText(t("en", "Run.explain.plain.reasons.invalid_proofs"));
+  // The proofs count reads as integrity statuses, never as proofs that failed.
+  await expect(explanation.locator("[data-explain-counts] li").nth(1)).toContainText(
+    "Integrity statuses of the final round:",
+  );
+  await expect(explanation.locator("[data-explain-counts] li").nth(1)).toContainText("with no proof generated");
+  await expect(explanation.locator("[data-explain-counts]")).not.toContainText("Proofs of the final round");
+  await expect(explanation.locator("[data-explain-counts]")).not.toContainText("failed");
   await expectNoLive(page, "en");
 });
 

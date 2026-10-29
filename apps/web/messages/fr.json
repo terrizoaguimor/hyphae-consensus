@@ -792,7 +792,7 @@
       "plain": {
         "rules": {
           "invalid_proof": "La vérification d’intégrité d’un enregistrement est revenue invalide, et cette vérification passe avant toutes les autres : la politique recommande {kind}.",
-          "invalid_proof_ungenerated": "Aucun des enregistrements dont l’intégrité est invalide n’a obtenu de preuve : elle n’a pas pu être générée en amont, donc rien n’a été vérifié. La politique traite tout de même cet état comme invalide, et cette règle passe avant toutes les autres : la politique recommande {kind}.",
+          "invalid_proof_ungenerated": "Aucun des enregistrements dont l’intégrité figure comme invalide n’a obtenu de preuve : elle n’a pas pu être générée en amont, donc rien n’a été vérifié. La politique traite tout de même cet état comme invalide, et cette règle passe avant toutes les autres : la politique recommande {kind}.",
           "recorded_contradiction": "L’évaluateur a enregistré des éléments qui contredisent une affirmation : la politique recommande {kind}.",
           "abstention": "L’évaluateur a refusé de juger les affirmations : la politique recommande {kind}.",
           "unresolved_items": "Des objections restent ouvertes après l’évaluation finale : la politique recommande {kind}.",
@@ -802,11 +802,12 @@
         "counts": {
           "claims": "{claims, plural, =0 {L’évaluation finale n’a apprécié aucune affirmation} one {L’évaluation finale a apprécié # affirmation} many {L’évaluation finale a apprécié # d’affirmations} other {L’évaluation finale a apprécié # affirmations}} ; {corroborated, plural, =0 {aucune n’a été corroborée} one {# a été corroborée} many {# d’entre elles ont été corroborées} other {# ont été corroborées}}.",
           "proofs": "Preuves du tour final : {valid, plural, =0 {aucune valide} one {# valide} many {# de valides} other {# valides}}, {invalid, plural, =0 {aucune invalide} one {# invalide} many {# d’invalides} other {# invalides}}, {unavailable, plural, =0 {aucune indisponible ou en échec} one {# indisponible ou en échec} many {# d’indisponibles ou en échec} other {# indisponibles ou en échec}}.",
+          "proofs_ungenerated": "États d’intégrité du tour final : {valid, plural, =0 {aucun valide} one {# valide} many {# de valides} other {# valides}}, {invalid, plural, =0 {aucun invalide} one {# invalide, sans preuve générée} many {# d’invalides, sans preuve générée} other {# invalides, sans preuve générée}}, {unavailable, plural, =0 {aucun indisponible ni en erreur de vérification} one {# indisponible ou en erreur de vérification} many {# d’indisponibles ou en erreur de vérification} other {# indisponibles ou en erreur de vérification}}.",
           "open": "{unresolved, plural, =0 {L’évaluation finale n’a indiqué aucune objection comme non résolue.} one {L’évaluation finale a indiqué # objection comme non résolue.} many {L’évaluation finale a indiqué # d’objections comme non résolues.} other {L’évaluation finale a indiqué # objections comme non résolues.}}"
         },
         "reasons": {
           "invalid_proofs": "La preuve d’un enregistrement a été jugée invalide.",
-          "invalid_proofs_ungenerated": "Chaque enregistrement dont l’intégrité est invalide signale qu’aucune preuve n’a pu être générée en amont pour lui ; cela ne montre pas qu’un enregistrement a été modifié.",
+          "invalid_proofs_ungenerated": "Chaque enregistrement dont l’intégrité figure comme invalide signale qu’aucune preuve n’a pu être générée en amont pour lui ; cela ne montre pas qu’un enregistrement a été modifié.",
           "contradicted_evidence": "Un élément a été jugé contraire à une affirmation.",
           "evaluator_abstained": "L’évaluateur a refusé de juger.",
           "open_items": "Des objections du critique restent ouvertes.",

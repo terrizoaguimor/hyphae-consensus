@@ -11,7 +11,8 @@
 // their own round left unlisted), is said apart from it, from the run's own
 // records. The records also say how to word one check: when every record
 // the invalid_proofs check names reports that no proof could be generated
-// upstream, the lead and that sentence say so (nothing was checked), never
+// upstream, the lead, the proofs count and that sentence say so (nothing was
+// checked; the counts are integrity statuses), never
 // that a check came back invalid. Pure functions.
 
 import type {
@@ -83,9 +84,10 @@ export type TraceReading = {
 
 /**
  * The plain explanation of a trace: every number in it is one of the trace's
- * counts. With `reading.proofsUngenerated`, the invalid_proof lead and the
- * invalid_proofs sentence say that no proof could be generated (so nothing
- * was checked), instead of a check that came back invalid.
+ * counts. With `reading.proofsUngenerated`, the invalid_proof lead, the
+ * proofs count sentence and the invalid_proofs sentence say that no proof
+ * could be generated (so nothing was checked), instead of a check that came
+ * back invalid.
  */
 export function plainExplanation(trace: PolicyTrace, reading?: TraceReading): PlainExplanation {
   const { counts } = trace;
@@ -101,7 +103,9 @@ export function plainExplanation(trace: PolicyTrace, reading?: TraceReading): Pl
         values: { claims: counts.claims, corroborated: counts.corroborated },
       },
       {
-        key: "plain.counts.proofs",
+        // The same three trace counts; with no proof generated they are
+        // integrity statuses, not proofs that were checked or that failed.
+        key: ungenerated ? "plain.counts.proofs_ungenerated" : "plain.counts.proofs",
         values: {
           valid: counts.proofs_valid,
           invalid: counts.proofs_invalid,

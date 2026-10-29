@@ -802,6 +802,7 @@
         "counts": {
           "claims": "{claims, plural, =0 {The final evaluation assessed no claim} one {The final evaluation assessed # claim} other {The final evaluation assessed # claims}}; {corroborated, plural, =0 {none was corroborated} one {# was corroborated} other {# were corroborated}}.",
           "proofs": "Proofs of the final round: {valid, plural, =0 {none valid} one {# valid} other {# valid}}, {invalid, plural, =0 {none invalid} one {# invalid} other {# invalid}}, {unavailable, plural, =0 {none unavailable or failed} one {# unavailable or failed} other {# unavailable or failed}}.",
+          "proofs_ungenerated": "Integrity statuses of the final round: {valid, plural, =0 {none valid} one {# valid} other {# valid}}, {invalid, plural, =0 {none invalid} one {# invalid, with no proof generated} other {# invalid, with no proof generated}}, {unavailable, plural, =0 {none unavailable or with a verification error} one {# unavailable or with a verification error} other {# unavailable or with a verification error}}.",
           "open": "{unresolved, plural, =0 {The final evaluation listed no objection as unresolved.} one {The final evaluation listed # objection as unresolved.} other {The final evaluation listed # objections as unresolved.}}"
         },
         "reasons": {

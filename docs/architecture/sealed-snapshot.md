@@ -130,11 +130,12 @@ snapshot id, `snap-2026-10-29-demo-repo` unless decided otherwise; it must match
    | 7 | `kill -INT <daemon pid>` (waits up to 30 s for the socket to vanish; a daemon still running 10 s later gets `SIGTERM`, one still running 10 s after that gets `SIGKILL`, each logged, so the wait is bounded and this step always runs; then the process is reaped); `rm -rf <HOME>/.config/hyphae/credentials` after listing every file in it (names and sizes only, never contents); `chmod -R a-w <data directory>` | the credentials directory must be gone afterwards; the files left under the HOME are listed again (the original proofs and witnesses, `serve.log`) |
    | 8 | writes `captures.index` and `session.json` into the output directory | |
 
-   The two requests (`id` is any string; the response is written verbatim):
+   The two requests (`id` must be an integer: a string id is refused as `invalid_request`, observed
+   on the first scratch session of 2026-10-29; the response is written verbatim):
 
    ```json
-   {"schema":"hyphae-omarchy-control-v1","id":"capture-list-demo-repo","operation":"list","arguments":{"project":"demo-repo","query":"","limit":64,"prove":true}}
-   {"schema":"hyphae-omarchy-control-v1","id":"capture-recall-other-repo-isolation","operation":"recall","arguments":{"project":"other-repo","query":"Fix payment client timeouts","limit":8,"prove":true}}
+   {"schema":"hyphae-omarchy-control-v1","id":1,"operation":"list","arguments":{"project":"demo-repo","query":"","limit":64,"prove":true}}
+   {"schema":"hyphae-omarchy-control-v1","id":2,"operation":"recall","arguments":{"project":"other-repo","query":"Fix payment client timeouts","limit":8,"prove":true}}
    ```
 
    If the session fails, the exit code says where (2 usage, 3 precondition/setup/daemon/seeding,
@@ -603,3 +604,34 @@ assumed silently.
    fresh store with its own catalog and key verifiers; the script warns if they are equal).
 9. The receipt wording is lane B's implementation; section 7 is the contract it is written
    against (the evidence status itself is implemented: section 7, "Status").
+
+### Observed in the capture session (2026-10-29, 17:11–17:17 UTC)
+
+Two scratch sessions, then the real one, all in `hyphae-consensus` (hyphae 4.0.0, binary sha256
+`79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f`).
+
+- `scratch-2026-10-29-a` failed at step 4 (exit 4) after seeding the 7 records: `agent ui`
+  answered `{"error":{"code":"invalid_request",…}}` to every request with a string `id`. Read-only
+  probes on that scratch instance showed that the request parses with an integer `id` (or none) and
+  that `list` is a valid operation. The script now sends `"id":1` and `"id":2` (item 3). That
+  instance's credentials were then destroyed by hand and its data made read-only, as step 7 does.
+- `scratch-2026-10-29-b` and `snap-2026-10-29-demo-repo` passed every step. Items 1 to 8, as
+  observed:
+  1. `agent ui` works with the session's daemon running (`--ui-via-daemon`, the default).
+  2. It prints one compact line, the result object at the root next to `ok`, `schema` and `id`.
+  3. Request shape as above; `prove` is honoured for `list`; `proof.scope` is `memory-snapshot-v1`
+     with `proof_path`, `witness_path`, `proof_blake3` and `anchor_hex`. The responses also report
+     `retrieval_mode = lexical` and `semantic_status = disabled`.
+  4. `setup` and `configure` left only the three key files (102 bytes each) under
+     `.config/hyphae/credentials` and the runtime socket directory. Step 7 removed the keys.
+  5. The 7 record ids equal the recorded research ids (`build --expect-ids` passed).
+  6. List proof 5,407 bytes, isolation proof 1,920 bytes, witness 3,277,640 bytes each.
+     `proof verify` took under a second per capture in the container.
+  7. `check --reverify` (through `scripts\hyphae-docker.cmd`) reproduced both verifier reports
+     field by field.
+  8. The sealed anchor is `43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02`,
+     which differs from the demo store's.
+- The manifest SHA-256 after the last `build` and `check` is
+  `b731346c8464796ec17641d5099819cd1ff99525f1ee51409ac8ad790bc1014a`.
+- Still owed before publishing: compare `hyphae-binary.sha256` with the binary extracted from the
+  release tarball checked against `cf92ed6d…` (runbook 3.2).

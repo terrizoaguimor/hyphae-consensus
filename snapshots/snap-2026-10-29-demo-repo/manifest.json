@@ -1,0 +1,82 @@
+{
+  "schema": "hyphae-consensus-snapshot-manifest-v1",
+  "snapshot_id": "snap-2026-10-29-demo-repo",
+  "captured_at": "2026-10-29T17:16:12Z",
+  "project": "demo-repo",
+  "anchor_hex": "43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02",
+  "hyphae": {
+    "version": "hyphae 4.0.0",
+    "binary_sha256": "79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f",
+    "control_schema": "hyphae-omarchy-control-v1"
+  },
+  "store": {
+    "record_count": 7,
+    "root_digest": "edcf9536005eb99ace353c558823b8d87bc4dab5d01b5c21d78e6af30b1e40fc",
+    "visible_csn": 28,
+    "logical_time_micros": 1793294218465505
+  },
+  "captures": [
+    {
+      "id": "list-demo-repo",
+      "operation": "list",
+      "arguments": {
+        "project": "demo-repo",
+        "query": "",
+        "limit": 64,
+        "prove": true
+      },
+      "response_file": "captures/list-demo-repo.response.json",
+      "proof_file": "captures/list-demo-repo.proof",
+      "witness_file": "captures/list-demo-repo.witness",
+      "verify_file": "captures/list-demo-repo.verify.json",
+      "proof_blake3": "e160a11f58a0f9e095b78cf8a9902ed5f139c82721f7754cc262586fc9c1d179",
+      "proof_sha256": "543f6b42c240e92e415934c99f68fbcd74ac7ba1af2a19e8c29b6eec66385ce5",
+      "witness_sha256": "1d4dfcf6a351578b5c2dc55f9208ec1610c9c7ec789b4f2f00452283e1fe9a90",
+      "response_sha256": "62f32fedae157ab2ed330e8dcaafd88d2251d654c32fc1110d3368a185da7d8c",
+      "verify_sha256": "c5b3064db8731fbd988d7cfab356f187be3404955e7f1ac5f66e298c53204819",
+      "memory_ids": [
+        "8864874238917673930644756936982232317",
+        "161896895843658017381255677281559699870",
+        "186670067796945807561772405393844769735",
+        "237412834382378687445660534362297845298",
+        "287567405605917891851290763137356115373",
+        "295729039551322334710406856728557559035",
+        "328114099256634798832222840773545327795"
+      ],
+      "verification": {
+        "verified_at": "2026-10-29T17:16:59Z",
+        "status": "verified",
+        "kind": "memory",
+        "scope": "semantic_reexecution",
+        "anchor_hex": "43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02"
+      }
+    },
+    {
+      "id": "recall-other-repo-isolation",
+      "operation": "recall",
+      "arguments": {
+        "project": "other-repo",
+        "query": "Fix payment client timeouts",
+        "limit": 8,
+        "prove": true
+      },
+      "response_file": "captures/recall-other-repo-isolation.response.json",
+      "proof_file": "captures/recall-other-repo-isolation.proof",
+      "witness_file": "captures/recall-other-repo-isolation.witness",
+      "verify_file": "captures/recall-other-repo-isolation.verify.json",
+      "proof_blake3": "31c76ba79a465a27ec1652b18e412d19370243eb4de883538505ca5a7bc347ed",
+      "proof_sha256": "8a3593b060869f2f2ba6d6caa505dde974b3b6663822e221a284f6b1ea92429d",
+      "witness_sha256": "1d4dfcf6a351578b5c2dc55f9208ec1610c9c7ec789b4f2f00452283e1fe9a90",
+      "response_sha256": "015162ace3a1ec0e97fe1d0819128503f0b3b6abda1284ab4bf33d5965025924",
+      "verify_sha256": "4d22c7ac43af9dc9bbf5fc633f71427cd9c732a4ec56526c8d97269126070fd4",
+      "memory_ids": [],
+      "verification": {
+        "verified_at": "2026-10-29T17:16:59Z",
+        "status": "verified",
+        "kind": "memory",
+        "scope": "semantic_reexecution",
+        "anchor_hex": "43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02"
+      }
+    }
+  ]
+}

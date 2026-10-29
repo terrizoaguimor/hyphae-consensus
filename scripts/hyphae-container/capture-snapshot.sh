@@ -570,9 +570,11 @@ seed_one() { # seed_one <kind> <text>
 }
 
 # ---------------------------------------------------------------- captures
-capture() { # capture <id> <operation> <arguments json> <expected record count>
-  _cid=$1; _cop=$2; _cargs=$3; _cexp=$4
-  _creq="{\"schema\":\"$CONTROL_SCHEMA\",\"id\":\"capture-$_cid\",\"operation\":\"$_cop\",\"arguments\":$_cargs}"
+capture() { # capture <id> <operation> <arguments json> <expected record count> <request number>
+  _cid=$1; _cop=$2; _cargs=$3; _cexp=$4; _cnum=$5
+  # agent ui accepts only an integer request id (a string id is refused as
+  # invalid_request; observed on the 2026-10-29 scratch session).
+  _creq="{\"schema\":\"$CONTROL_SCHEMA\",\"id\":$_cnum,\"operation\":\"$_cop\",\"arguments\":$_cargs}"
   _cresp=$CAP/$_cid.response.json
   case $_cargs in
     *\|*|*\\*|*[[:cntrl:]]*) die 4 "capture $_cid: arguments contain a pipe, a backslash or a control character, which this script does not index" ;;
@@ -990,8 +992,8 @@ fi
 
 # ================================================================ step 4
 log "step 4: proven captures through hyphae agent ui ($CONTROL_SCHEMA)"
-capture "$LIST_ID" list "$LIST_ARGS" "$EXPECTED_RECORDS"
-capture "$ISOLATION_ID" recall "$ISOLATION_ARGS" 0
+capture "$LIST_ID" list "$LIST_ARGS" "$EXPECTED_RECORDS" 1
+capture "$ISOLATION_ID" recall "$ISOLATION_ARGS" 0 2
 if [ "$DRY_RUN" = no ]; then
   # Two different requests seal two different proofs; identical bytes would
   # mean one capture was answered with the other's proof.

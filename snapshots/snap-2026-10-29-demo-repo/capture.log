@@ -1,0 +1,185 @@
+2026-10-29T17:16:12Z created before this log existed: /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures (mkdir -p) and this file; scratch directory /tmp/capture-snapshot.yzgGv3 (removed at exit)
+2026-10-29T17:16:12Z step 0: session start; snapshot id snap-2026-10-29-demo-repo; project demo-repo; expected records 7; ui mode daemon
+2026-10-29T17:16:12Z step 0: instance HOME /hyphae-home/sealed/snap-2026-10-29-demo-repo (data /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/share/hyphae/agent-memory, credentials /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials); output /hyphae-home/snapshots/snap-2026-10-29-demo-repo
+2026-10-29T17:16:12Z + hyphae --version > /tmp/capture-snapshot.yzgGv3/help.txt
+2026-10-29T17:16:12Z hyphae --version:
+2026-10-29T17:16:12Z   | hyphae 4.0.0
+2026-10-29T17:16:12Z + hyphae agent ui --help > /tmp/capture-snapshot.yzgGv3/help.txt
+2026-10-29T17:16:12Z hyphae agent ui --help:
+2026-10-29T17:16:12Z   | One bounded JSON operator request on stdin; used by the Omarchy plugin
+2026-10-29T17:16:12Z   | 
+2026-10-29T17:16:12Z   | Usage: hyphae agent ui
+2026-10-29T17:16:12Z   | 
+2026-10-29T17:16:12Z   | Options:
+2026-10-29T17:16:12Z   |   -h, --help  Print help
+2026-10-29T17:16:12Z + hyphae agent setup --help > /tmp/capture-snapshot.yzgGv3/help.txt
+2026-10-29T17:16:12Z hyphae agent setup --help:
+2026-10-29T17:16:12Z   | Create every Agent Memory resource and smoke test the surface
+2026-10-29T17:16:12Z   | 
+2026-10-29T17:16:12Z   | Usage: hyphae agent setup [OPTIONS]
+2026-10-29T17:16:12Z   | 
+2026-10-29T17:16:12Z   | Options:
+2026-10-29T17:16:12Z   |       --enable-service  Enable and start the user service without asking
+2026-10-29T17:16:12Z   |       --no-service      Skip service installation entirely
+2026-10-29T17:16:12Z   |   -h, --help            Print help
+2026-10-29T17:16:12Z + hyphae proof verify --help > /tmp/capture-snapshot.yzgGv3/help.txt
+2026-10-29T17:16:12Z hyphae proof verify --help:
+2026-10-29T17:16:12Z   | Verify a canonical native proof and complete witness offline
+2026-10-29T17:16:12Z   | 
+2026-10-29T17:16:12Z   | Usage: hyphae proof verify --proof <PROOF> --witness <WITNESS> --anchor <ANCHOR>
+2026-10-29T17:16:12Z   | 
+2026-10-29T17:16:12Z   | Options:
+2026-10-29T17:16:12Z   |       --proof <PROOF>      
+2026-10-29T17:16:12Z   |       --witness <WITNESS>  
+2026-10-29T17:16:12Z   |       --anchor <ANCHOR>    Independently trusted 32-byte native anchor digest
+2026-10-29T17:16:12Z   |   -h, --help               Print help
+2026-10-29T17:16:12Z step 1: create the instance HOME and set up Agent Memory there (no service unit)
+2026-10-29T17:16:12Z + mkdir -p /hyphae-home/sealed/snap-2026-10-29-demo-repo
+2026-10-29T17:16:12Z + env HOME=/hyphae-home/sealed/snap-2026-10-29-demo-repo hyphae agent setup --no-service > /tmp/capture-snapshot.yzgGv3/setup.out
+2026-10-29T17:16:14Z setup stdout: 1519 bytes, discarded with the scratch directory at exit (never logged, never copied out)
+2026-10-29T17:16:14Z credential files created by setup (names only, never read):
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-reader.key (102 bytes, mode 600)
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-writer.key (102 bytes, mode 600)
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/operator.key (102 bytes, mode 600)
+2026-10-29T17:16:14Z after setup (files under /hyphae-home/sealed/snap-2026-10-29-demo-repo outside the data directory; names and sizes only):
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-reader.key (102 bytes, mode 600)
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-writer.key (102 bytes, mode 600)
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/operator.key (102 bytes, mode 600)
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/memory-policy.json (305 bytes, mode 600)
+2026-10-29T17:16:14Z + . /hyphae-home/hyphae-env.sh   (runs: env HOME=/hyphae-home/sealed/snap-2026-10-29-demo-repo hyphae agent configure opencode)
+2026-10-29T17:16:14Z after hyphae agent configure (files under /hyphae-home/sealed/snap-2026-10-29-demo-repo outside the data directory; names and sizes only):
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-reader.key (102 bytes, mode 600)
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-writer.key (102 bytes, mode 600)
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/operator.key (102 bytes, mode 600)
+2026-10-29T17:16:14Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/memory-policy.json (305 bytes, mode 600)
+2026-10-29T17:16:14Z instance paths: data /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/share/hyphae/agent-memory; endpoint /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/runtime/hyphae-memory-3ef7b72b7ab58ee8.sock; writer key /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-writer.key; reader key /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-reader.key
+2026-10-29T17:16:14Z data directory size after setup: 1982542 bytes
+2026-10-29T17:16:14Z step 2: start the daemon for /hyphae-home/sealed/snap-2026-10-29-demo-repo only (serve.sh procedure; socket outside the data directory)
+2026-10-29T17:16:14Z + env HOME=/hyphae-home/sealed/snap-2026-10-29-demo-repo hyphae agent recover
+2026-10-29T17:16:14Z + echo '--- capture-snapshot serve start <utc> endpoint /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/runtime/hyphae-memory-3ef7b72b7ab58ee8.sock' >> /hyphae-home/sealed/snap-2026-10-29-demo-repo/serve.log
+2026-10-29T17:16:14Z + nohup env HOME=/hyphae-home/sealed/snap-2026-10-29-demo-repo hyphae serve --data-dir /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/share/hyphae/agent-memory --endpoint /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/runtime/hyphae-memory-3ef7b72b7ab58ee8.sock --native-api-key-auth >> /hyphae-home/sealed/snap-2026-10-29-demo-repo/serve.log 2>&1 &
+2026-10-29T17:16:14Z daemon pid 4850; waiting for the socket /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/runtime/hyphae-memory-3ef7b72b7ab58ee8.sock
+2026-10-29T17:16:16Z daemon ready on /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/runtime/hyphae-memory-3ef7b72b7ab58ee8.sock
+2026-10-29T17:16:16Z step 3: seed the 7 synthetic demo-repo facts (writer credential, hyphae_store from hyphae-env.sh); nothing is ever forgotten here
+2026-10-29T17:16:16Z + hyphae_store demo-repo constraint "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage."
+2026-10-29T17:16:22Z   store response: {"id":2,"jsonrpc":"2.0","result":{"_meta":{"hyphaeToolSchemaDigest":"d0c74bcba8806ac0af8049b726dd4728e5c2f0ba9a3176eebcd7a1288b27bf67","hyphaeToolSchemaVersion":"hyphae-agent-memory-mcp-v2"},"content":[{"text":"{\"expires_at_micros\":null,\"id\":\"186670067796945807561772405393844769735\",\"scope\":\"project\",\"status\":\"stored\"}","type":"text"}],"isError":false,"structuredContent":{"expires_at_micros":null,"id":"186670067796945807561772405393844769735","scope":"project","status":"stored"}}}
+2026-10-29T17:16:22Z + hyphae_store demo-repo fact "Fact: payment client timeouts correlate with retry bursts above 5 attempts."
+2026-10-29T17:16:28Z   store response: {"id":2,"jsonrpc":"2.0","result":{"_meta":{"hyphaeToolSchemaDigest":"d0c74bcba8806ac0af8049b726dd4728e5c2f0ba9a3176eebcd7a1288b27bf67","hyphaeToolSchemaVersion":"hyphae-agent-memory-mcp-v2"},"content":[{"text":"{\"expires_at_micros\":null,\"id\":\"8864874238917673930644756936982232317\",\"scope\":\"project\",\"status\":\"stored\"}","type":"text"}],"isError":false,"structuredContent":{"expires_at_micros":null,"id":"8864874238917673930644756936982232317","scope":"project","status":"stored"}}}
+2026-10-29T17:16:28Z + hyphae_store demo-repo fact "Fact: the payment-client default RetryPolicy is max_attempts = 1 with jitter_ms = 0, so a single transient upstream timeout surfaces to users as a payment timeout."
+2026-10-29T17:16:34Z   store response: {"id":2,"jsonrpc":"2.0","result":{"_meta":{"hyphaeToolSchemaDigest":"d0c74bcba8806ac0af8049b726dd4728e5c2f0ba9a3176eebcd7a1288b27bf67","hyphaeToolSchemaVersion":"hyphae-agent-memory-mcp-v2"},"content":[{"text":"{\"expires_at_micros\":null,\"id\":\"287567405605917891851290763137356115373\",\"scope\":\"project\",\"status\":\"stored\"}","type":"text"}],"isError":false,"structuredContent":{"expires_at_micros":null,"id":"287567405605917891851290763137356115373","scope":"project","status":"stored"}}}
+2026-10-29T17:16:34Z + hyphae_store demo-repo fact "Fact: send_with_retries in payment-client retries only SendError::Timeout, up to RetryPolicy.max_attempts; upstream errors are returned at once without a retry."
+2026-10-29T17:16:40Z   store response: {"id":2,"jsonrpc":"2.0","result":{"_meta":{"hyphaeToolSchemaDigest":"d0c74bcba8806ac0af8049b726dd4728e5c2f0ba9a3176eebcd7a1288b27bf67","hyphaeToolSchemaVersion":"hyphae-agent-memory-mcp-v2"},"content":[{"text":"{\"expires_at_micros\":null,\"id\":\"161896895843658017381255677281559699870\",\"scope\":\"project\",\"status\":\"stored\"}","type":"text"}],"isError":false,"structuredContent":{"expires_at_micros":null,"id":"161896895843658017381255677281559699870","scope":"project","status":"stored"}}}
+2026-10-29T17:16:40Z + hyphae_store demo-repo fact "Fact: the payment-client test constraint_cap_is_three_attempts fails for any RetryPolicy with max_attempts above 3 or with jitter_ms equal to 0."
+2026-10-29T17:16:46Z   store response: {"id":2,"jsonrpc":"2.0","result":{"_meta":{"hyphaeToolSchemaDigest":"d0c74bcba8806ac0af8049b726dd4728e5c2f0ba9a3176eebcd7a1288b27bf67","hyphaeToolSchemaVersion":"hyphae-agent-memory-mcp-v2"},"content":[{"text":"{\"expires_at_micros\":null,\"id\":\"237412834382378687445660534362297845298\",\"scope\":\"project\",\"status\":\"stored\"}","type":"text"}],"isError":false,"structuredContent":{"expires_at_micros":null,"id":"237412834382378687445660534362297845298","scope":"project","status":"stored"}}}
+2026-10-29T17:16:46Z + hyphae_store demo-repo decision "Decision (2026-09 payments review): fix payment timeouts by setting the payment-client RetryPolicy to max_attempts = 3 with jitter_ms of at least 50; raising the attempt cap above 3 is not allowed."
+2026-10-29T17:16:52Z   store response: {"id":2,"jsonrpc":"2.0","result":{"_meta":{"hyphaeToolSchemaDigest":"d0c74bcba8806ac0af8049b726dd4728e5c2f0ba9a3176eebcd7a1288b27bf67","hyphaeToolSchemaVersion":"hyphae-agent-memory-mcp-v2"},"content":[{"text":"{\"expires_at_micros\":null,\"id\":\"328114099256634798832222840773545327795\",\"scope\":\"project\",\"status\":\"stored\"}","type":"text"}],"isError":false,"structuredContent":{"expires_at_micros":null,"id":"328114099256634798832222840773545327795","scope":"project","status":"stored"}}}
+2026-10-29T17:16:52Z + hyphae_store demo-repo fact "Fact: in the 2026-08 outage, retry bursts from payment clients amplified an upstream slowdown into a full outage."
+2026-10-29T17:16:58Z   store response: {"id":2,"jsonrpc":"2.0","result":{"_meta":{"hyphaeToolSchemaDigest":"d0c74bcba8806ac0af8049b726dd4728e5c2f0ba9a3176eebcd7a1288b27bf67","hyphaeToolSchemaVersion":"hyphae-agent-memory-mcp-v2"},"content":[{"text":"{\"expires_at_micros\":null,\"id\":\"295729039551322334710406856728557559035\",\"scope\":\"project\",\"status\":\"stored\"}","type":"text"}],"isError":false,"structuredContent":{"expires_at_micros":null,"id":"295729039551322334710406856728557559035","scope":"project","status":"stored"}}}
+2026-10-29T17:16:58Z seeded 7 records; data directory size now 3211342 bytes
+2026-10-29T17:16:58Z step 4: proven captures through hyphae agent ui (hyphae-omarchy-control-v1)
+2026-10-29T17:16:58Z capture list-demo-repo: operation list, arguments {"project":"demo-repo","query":"","limit":64,"prove":true}, expecting 7 record(s)
+2026-10-29T17:16:58Z + printf '%s\n' <request> | env HOME=/hyphae-home/sealed/snap-2026-10-29-demo-repo timeout 120 hyphae agent ui > /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.response.json
+2026-10-29T17:16:58Z   request: {"schema":"hyphae-omarchy-control-v1","id":1,"operation":"list","arguments":{"project":"demo-repo","query":"","limit":64,"prove":true}}
+2026-10-29T17:16:58Z capture list-demo-repo: response 3247 bytes, 1 newline(s)
+2026-10-29T17:16:58Z anchor_hex (from list-demo-repo, shared by every capture): 43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02
+2026-10-29T17:16:58Z + cp -- /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/state/hyphae/proofs/recall-01a188aa-35a3-7b42-8195-1558948504df.proof /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.proof
+2026-10-29T17:16:58Z + cp -- /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/state/hyphae/proofs/recall-01a188aa-35a3-7b42-8195-1558948504df.witness /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.witness
+2026-10-29T17:16:58Z capture list-demo-repo: 7 record(s); proof 5407 bytes (blake3 e160a11f58a0f9e095b78cf8a9902ed5f139c82721f7754cc262586fc9c1d179); witness 3277640 bytes
+2026-10-29T17:16:58Z capture list-demo-repo: sha256 response 62f32fedae157ab2ed330e8dcaafd88d2251d654c32fc1110d3368a185da7d8c
+2026-10-29T17:16:58Z capture list-demo-repo: sha256 proof    543f6b42c240e92e415934c99f68fbcd74ac7ba1af2a19e8c29b6eec66385ce5
+2026-10-29T17:16:58Z capture list-demo-repo: sha256 witness  1d4dfcf6a351578b5c2dc55f9208ec1610c9c7ec789b4f2f00452283e1fe9a90
+2026-10-29T17:16:58Z capture list-demo-repo: expired_filtered = 0
+2026-10-29T17:16:58Z capture list-demo-repo: retrieval_mode = lexical
+2026-10-29T17:16:58Z capture list-demo-repo: semantic_status = disabled
+2026-10-29T17:16:58Z capture list-demo-repo: snapshot.visible_csn = 28
+2026-10-29T17:16:58Z capture list-demo-repo: snapshot.root_digest = edcf9536005eb99ace353c558823b8d87bc4dab5d01b5c21d78e6af30b1e40fc
+2026-10-29T17:16:58Z capture list-demo-repo: snapshot.logical_time_micros = 1793294218465505
+2026-10-29T17:16:58Z capture list-demo-repo: memory id 8864874238917673930644756936982232317
+2026-10-29T17:16:58Z capture list-demo-repo: memory id 161896895843658017381255677281559699870
+2026-10-29T17:16:58Z capture list-demo-repo: memory id 186670067796945807561772405393844769735
+2026-10-29T17:16:58Z capture list-demo-repo: memory id 237412834382378687445660534362297845298
+2026-10-29T17:16:58Z capture list-demo-repo: memory id 287567405605917891851290763137356115373
+2026-10-29T17:16:58Z capture list-demo-repo: memory id 295729039551322334710406856728557559035
+2026-10-29T17:16:58Z capture list-demo-repo: memory id 328114099256634798832222840773545327795
+2026-10-29T17:16:58Z capture recall-other-repo-isolation: operation recall, arguments {"project":"other-repo","query":"Fix payment client timeouts","limit":8,"prove":true}, expecting 0 record(s)
+2026-10-29T17:16:58Z + printf '%s\n' <request> | env HOME=/hyphae-home/sealed/snap-2026-10-29-demo-repo timeout 120 hyphae agent ui > /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.response.json
+2026-10-29T17:16:58Z   request: {"schema":"hyphae-omarchy-control-v1","id":2,"operation":"recall","arguments":{"project":"other-repo","query":"Fix payment client timeouts","limit":8,"prove":true}}
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: response 789 bytes, 1 newline(s)
+2026-10-29T17:16:59Z + cp -- /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/state/hyphae/proofs/recall-01a188aa-379f-7610-9bcd-62c5d0eeaec2.proof /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.proof
+2026-10-29T17:16:59Z + cp -- /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/state/hyphae/proofs/recall-01a188aa-379f-7610-9bcd-62c5d0eeaec2.witness /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.witness
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: 0 record(s); proof 1920 bytes (blake3 31c76ba79a465a27ec1652b18e412d19370243eb4de883538505ca5a7bc347ed); witness 3277640 bytes
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: sha256 response 015162ace3a1ec0e97fe1d0819128503f0b3b6abda1284ab4bf33d5965025924
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: sha256 proof    8a3593b060869f2f2ba6d6caa505dde974b3b6663822e221a284f6b1ea92429d
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: sha256 witness  1d4dfcf6a351578b5c2dc55f9208ec1610c9c7ec789b4f2f00452283e1fe9a90
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: expired_filtered = 0
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: retrieval_mode = lexical
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: semantic_status = disabled
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: snapshot.visible_csn = 28
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: snapshot.root_digest = edcf9536005eb99ace353c558823b8d87bc4dab5d01b5c21d78e6af30b1e40fc
+2026-10-29T17:16:59Z capture recall-other-repo-isolation: snapshot.logical_time_micros = 1793294219024322
+2026-10-29T17:16:59Z step 5: offline verification of every capture against the shared anchor
+2026-10-29T17:16:59Z + env HOME=/hyphae-home/sealed/snap-2026-10-29-demo-repo timeout 600 hyphae proof verify --proof /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.proof --witness /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.witness --anchor 43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02 > /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.verify.json
+2026-10-29T17:16:59Z verify list-demo-repo: status=verified kind=memory scope=semantic_reexecution semantic_reexecution_performed=true anchor_digest=43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02
+2026-10-29T17:16:59Z verify list-demo-repo: proof_digest = b63742dbe55383f9e87616f3230621509e8668b693c99de5deeda7fee84e32f2
+2026-10-29T17:16:59Z verify list-demo-repo: witness_digest = 8a0b97fa42a0093b58b082b6343c25412dee9d6a7d199e8fd72f8d9381dc5d0a
+2026-10-29T17:16:59Z verify list-demo-repo: request_digest = dfa3c050046901d500718de576dc5577832829eef11fe1d7df4f1df025c16c65
+2026-10-29T17:16:59Z verify list-demo-repo: result_digest = 6ce73a72c3378fc7d9b2d70cde7e5f7eca540e40b0e1a0e47f3042ec82d59362
+2026-10-29T17:16:59Z verify list-demo-repo: evidence_digest = c15ec2778916359fb14fe58c98aac2fc4a49d847d507e609fbcca653ac3ec8ff
+2026-10-29T17:16:59Z verify list-demo-repo: file_count = 4
+2026-10-29T17:16:59Z verify list-demo-repo: directory_count = 5
+2026-10-29T17:16:59Z verify list-demo-repo: total_file_bytes = 3277142
+2026-10-29T17:16:59Z verify list-demo-repo: sha256 report   c5b3064db8731fbd988d7cfab356f187be3404955e7f1ac5f66e298c53204819
+2026-10-29T17:16:59Z + env HOME=/hyphae-home/sealed/snap-2026-10-29-demo-repo timeout 600 hyphae proof verify --proof /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.proof --witness /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.witness --anchor 43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02 > /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.verify.json
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: status=verified kind=memory scope=semantic_reexecution semantic_reexecution_performed=true anchor_digest=43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: proof_digest = 5a6c0629ce1909371a06b9d2fd6310f5dab5eabe4cabdda4c8ad4c9c9038cbd4
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: witness_digest = 8a0b97fa42a0093b58b082b6343c25412dee9d6a7d199e8fd72f8d9381dc5d0a
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: request_digest = 7061f0daaa6adc2c09609fc9a61811a650e62a5031765bd278ac6c62a6f1feec
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: result_digest = c59bfc49f0e6a48c08b7ce29aa983aab05b573c5f54f786540aee0a2e2ab7238
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: evidence_digest = 161a1f017b14f8cced16a8203c78257975c326bb608179ed021a88184b415f3d
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: file_count = 4
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: directory_count = 5
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: total_file_bytes = 3277142
+2026-10-29T17:17:00Z verify recall-other-repo-isolation: sha256 report   4d22c7ac43af9dc9bbf5fc633f71427cd9c732a4ec56526c8d97269126070fd4
+2026-10-29T17:17:00Z step 6: record the Hyphae version and the sha256 of the binary that produced the captures
+2026-10-29T17:17:00Z + hyphae --version > /hyphae-home/snapshots/snap-2026-10-29-demo-repo/hyphae-version.txt
+2026-10-29T17:17:00Z + sha256sum -- /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae > /hyphae-home/snapshots/snap-2026-10-29-demo-repo/hyphae-binary.sha256
+2026-10-29T17:17:00Z hyphae version: hyphae 4.0.0; binary /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae sha256 79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f
+2026-10-29T17:17:00Z step 7: stop the daemon, destroy the credentials of /hyphae-home/sealed/snap-2026-10-29-demo-repo, make its data directory read-only
+2026-10-29T17:17:00Z + kill -INT 4850   (the daemon of /hyphae-home/sealed/snap-2026-10-29-demo-repo; SIGINT makes it remove its socket)
+2026-10-29T17:17:00Z daemon stopped
+2026-10-29T17:17:00Z removing every credential file of the sealed instance (names and sizes only, never read):
+2026-10-29T17:17:00Z   removing /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-reader.key (102 bytes, mode 600)
+2026-10-29T17:17:00Z   removing /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/memory-writer.key (102 bytes, mode 600)
+2026-10-29T17:17:00Z   removing /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials/operator.key (102 bytes, mode 600)
+2026-10-29T17:17:00Z + rm -rf -- /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials
+2026-10-29T17:17:00Z removed: /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/credentials (the directory and every file listed above)
+2026-10-29T17:17:00Z + chmod -R a-w -- /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/share/hyphae/agent-memory
+2026-10-29T17:17:00Z data directory made read-only: /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/share/hyphae/agent-memory (3277142 bytes)
+2026-10-29T17:17:00Z kept in the container, private: the original proof and witness files under /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/state/hyphae/proofs, the daemon log /hyphae-home/sealed/snap-2026-10-29-demo-repo/serve.log; the setup stdout is removed with the scratch directory at exit
+2026-10-29T17:17:00Z after credential destruction (files under /hyphae-home/sealed/snap-2026-10-29-demo-repo outside the data directory; names and sizes only):
+2026-10-29T17:17:00Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.config/hyphae/memory-policy.json (305 bytes, mode 600)
+2026-10-29T17:17:00Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/state/hyphae/proofs/recall-01a188aa-35a3-7b42-8195-1558948504df.proof (5407 bytes, mode 600)
+2026-10-29T17:17:00Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/state/hyphae/proofs/recall-01a188aa-35a3-7b42-8195-1558948504df.witness (3277640 bytes, mode 600)
+2026-10-29T17:17:00Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/state/hyphae/proofs/recall-01a188aa-379f-7610-9bcd-62c5d0eeaec2.proof (1920 bytes, mode 600)
+2026-10-29T17:17:00Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/.local/state/hyphae/proofs/recall-01a188aa-379f-7610-9bcd-62c5d0eeaec2.witness (3277640 bytes, mode 600)
+2026-10-29T17:17:00Z   /hyphae-home/sealed/snap-2026-10-29-demo-repo/serve.log (313 bytes, mode 644)
+2026-10-29T17:17:00Z step 8: write /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures.index (one JSON object per line) and /hyphae-home/snapshots/snap-2026-10-29-demo-repo/session.json
+2026-10-29T17:17:00Z captures.index:
+2026-10-29T17:17:00Z   {"id":"list-demo-repo","operation":"list","arguments":{"project":"demo-repo","query":"","limit":64,"prove":true},"files":{"response":"captures/list-demo-repo.response.json","proof":"captures/list-demo-repo.proof","witness":"captures/list-demo-repo.witness","verify":"captures/list-demo-repo.verify.json"},"sha256":{"response":"62f32fedae157ab2ed330e8dcaafd88d2251d654c32fc1110d3368a185da7d8c","proof":"543f6b42c240e92e415934c99f68fbcd74ac7ba1af2a19e8c29b6eec66385ce5","witness":"1d4dfcf6a351578b5c2dc55f9208ec1610c9c7ec789b4f2f00452283e1fe9a90","verify":"c5b3064db8731fbd988d7cfab356f187be3404955e7f1ac5f66e298c53204819"},"proof_blake3":"e160a11f58a0f9e095b78cf8a9902ed5f139c82721f7754cc262586fc9c1d179","anchor_hex":"43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02","memory_ids":["8864874238917673930644756936982232317","161896895843658017381255677281559699870","186670067796945807561772405393844769735","237412834382378687445660534362297845298","287567405605917891851290763137356115373","295729039551322334710406856728557559035","328114099256634798832222840773545327795"],"captured_at":"2026-10-29T17:16:58Z","verified_at":"2026-10-29T17:16:59Z"}
+2026-10-29T17:17:00Z   {"id":"recall-other-repo-isolation","operation":"recall","arguments":{"project":"other-repo","query":"Fix payment client timeouts","limit":8,"prove":true},"files":{"response":"captures/recall-other-repo-isolation.response.json","proof":"captures/recall-other-repo-isolation.proof","witness":"captures/recall-other-repo-isolation.witness","verify":"captures/recall-other-repo-isolation.verify.json"},"sha256":{"response":"015162ace3a1ec0e97fe1d0819128503f0b3b6abda1284ab4bf33d5965025924","proof":"8a3593b060869f2f2ba6d6caa505dde974b3b6663822e221a284f6b1ea92429d","witness":"1d4dfcf6a351578b5c2dc55f9208ec1610c9c7ec789b4f2f00452283e1fe9a90","verify":"4d22c7ac43af9dc9bbf5fc633f71427cd9c732a4ec56526c8d97269126070fd4"},"proof_blake3":"31c76ba79a465a27ec1652b18e412d19370243eb4de883538505ca5a7bc347ed","anchor_hex":"43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02","memory_ids":[],"captured_at":"2026-10-29T17:16:58Z","verified_at":"2026-10-29T17:16:59Z"}
+2026-10-29T17:17:00Z output files:
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/capture.log (26739 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures.index (2135 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.proof (5407 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.response.json (3247 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.verify.json (723 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.witness (3277640 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.proof (1920 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.response.json (789 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.verify.json (723 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/captures/recall-other-repo-isolation.witness (3277640 bytes)
+2026-10-29T17:17:00Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/hyphae-binary.sha256 (123 bytes)
+2026-10-29T17:17:01Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/hyphae-version.txt (13 bytes)
+2026-10-29T17:17:01Z   /hyphae-home/snapshots/snap-2026-10-29-demo-repo/session.json (600 bytes)
+2026-10-29T17:17:01Z DONE. Next, on the host (PowerShell): docker cp hyphae-consensus:/hyphae-home/snapshots/snap-2026-10-29-demo-repo snapshots/ ; python -I scripts/snapshot_manifest.py build snapshots/snap-2026-10-29-demo-repo ; python -I scripts/snapshot_manifest.py check snapshots/snap-2026-10-29-demo-repo --reverify scripts/hyphae-docker.cmd --verifier-dir /hyphae-home/snapshots/snap-2026-10-29-demo-repo
+2026-10-29T17:17:01Z anchor_hex: 43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02; pin it as CONSENSUS_HYPHAE_EXPECTED_ANCHOR

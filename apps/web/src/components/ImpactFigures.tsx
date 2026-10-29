@@ -12,7 +12,7 @@
 // is checking; without the API it is the honest placeholder.
 
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
@@ -59,6 +59,9 @@ function Figures({ locale }: { locale: Locale }) {
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const authorizationText = useAuthorizationText();
   const { state, reload } = useArchive(false);
+  // Table cells hold bare numbers: grouped in the page's locale, like the
+  // catalogs' plural '#' and {count, number} arguments.
+  const format = useFormatter();
 
   if (state.status === "loading") {
     return (
@@ -118,11 +121,11 @@ function Figures({ locale }: { locale: Locale }) {
                 <th scope="row">{outcomeText(row.outcome)}</th>
                 {row.byEvidence.map((cell) => (
                   <td key={cell.evidence} className="hc-tabular-nums" data-figure-evidence={cell.evidence}>
-                    {cell.count}
+                    {format.number(cell.count)}
                   </td>
                 ))}
-                <td className="hc-tabular-nums" data-figure-total>
-                  {row.total}
+                <td className="hc-tabular-nums" data-figure-total={row.total}>
+                  {format.number(row.total)}
                 </td>
               </tr>
             ))}
@@ -147,7 +150,7 @@ function Figures({ locale }: { locale: Locale }) {
                 <th scope="row">
                   <code className="hc-code">{battery.battery}</code>
                 </th>
-                <td className="hc-tabular-nums">{battery.runs}</td>
+                <td className="hc-tabular-nums">{format.number(battery.runs)}</td>
                 <td>{battery.schemas.map(rulesText).join("; ")}</td>
                 <td>
                   {battery.outcomes

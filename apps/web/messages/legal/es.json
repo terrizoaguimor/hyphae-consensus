@@ -151,7 +151,7 @@
         },
         "showcase": {
           "heading": "Qué te permite volver a comprobar la vitrina",
-          "body": "De cada ejecución grabada puedes volver a comprobar la cadena de eventos frente al manifiesto del archivo. Las pruebas de esas ejecuciones se verificaron cuando las ejecuciones ocurrieron; sus archivos de prueba y de testigo se conservan en privado y no pueden verificarse de nuevo desde el portal."
+          "body": "De cada ejecución grabada cuyo log lleva una cadena de hashes (esquema 1.1 y posteriores) puedes descargar su log, recalcular esa cadena en tu navegador o con la línea de comandos de solo lectura y comparar el SHA-256 del archivo con el resumen que el servidor toma del manifiesto del archivo; para fiarte de ese resumen, compáralo tú mismo con el MANIFEST.json de un commit etiquetado del repositorio. Las ejecuciones grabadas antes del esquema 1.1 no llevan cadena de hashes, así que en ellas no hay nada que volver a comprobar, y una ejecución que empezó antes del esquema 1.1 solo está encadenada a partir de sus registros posteriores; la página de cada ejecución indica qué caso se aplica. Las pruebas de esas ejecuciones se verificaron cuando las ejecuciones ocurrieron; sus archivos de prueba y de testigo se conservan en privado y no pueden verificarse de nuevo desde el portal."
         },
         "chain": {
           "heading": "La cadena de hashes no está firmada",

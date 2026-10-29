@@ -160,7 +160,11 @@ turns the pacing off. Server timestamps are shown untouched.
   mode, snapshot id and capture time when present, what its proof covers
   (from the proof's own request, never the claim's query: "Proof covers:
   complete record list of <project> at anchor <prefix>." for the sealed
-  snapshot, the sealed request for a live recall, a sentence for a pre-1.3
+  snapshot, the sealed request for a live recall, and, when that request's
+  query is word for word the statement of one of the run's claims (the
+  runtime recalls with the claim text, so in the archive it always is,
+  compared from the run's proposals, never assumed), that the proof covers
+  what recalling that text returned, not the claim; a sentence for a pre-1.3
   record that names none, "no proof" when its generation failed upstream),
   its text as untrusted English content (`UntrustedText`: plain text,
   `lang="en"`, a note that it is data, and in another locale that it is the
@@ -765,8 +769,20 @@ to their browser's preference, and sends visitors without JavaScript to
   /new, /runs and the run workspace's seven tabs × 4 locales × 2 themes, and
   the open live form, a failed run and a failed detail in both themes; the
   Overview's figures, /showcase and a recorded run's six tabs × 4 locales ×
-  2 themes): **0 violations of any impact**, 13,250 rule passes, 141,919
-  element checks passed. `color-contrast` stays "incomplete" on every scan:
+  2 themes): **0 violations of any impact**. The gate is the scan count and
+  zero serious or critical violations (`blocking` in `e2e/axe-results.ts`);
+  the other totals are only printed. How to reproduce them: run the full
+  suite (`sh apps/web/scripts/playwright-docker.sh --reporter=line` after
+  `pnpm build`); `e2e/global-teardown.ts` adds up `test-results/axe/*.json`
+  into `test-results/axe-summary.json` and prints the line
+  `axe: <scans> scans, <rule passes> rule passes, <element checks> element
+  checks passed, …`. The scan count and the violations reproduce exactly;
+  the rule-pass and element-check counts do not: axe counts only what is in
+  the page when a scan runs, and a rule whose result is incomplete counts as
+  no pass, so they move a little from run to run: three full runs over the
+  same pages and specs gave 13,250 / 141,919 (the 2026-10-28 run quoted
+  here), 13,244 / 141,811 and 13,232 / 141,601 rule passes / element checks,
+  all with 300 scans and no violation. `color-contrast` stays "incomplete" on every scan:
   axe cannot compute contrast over the body gradient and the translucent
   glass (the wordmark, the Menu button, the footer line); the solid
   surfaces are covered by `tests/contrast.test.ts`.
@@ -855,7 +871,11 @@ the axe scans.
 - The live attestation wording (age and territory) and the Limitations
   text are legal drafts awaiting the owner's sign-off; the Limitations page
   now says an archived live-model run is labelled next to META MODEL, as the
-  views read it (2026-10-28, pending that sign-off).
+  views read it (2026-10-28, pending that sign-off), and its showcase
+  section says which recorded runs can be re-checked: those whose log
+  carries a hash chain (schema 1.1 on), with the manifest digest compared
+  against a tagged commit as advice, while runs before schema 1.1 carry no
+  chain (2026-10-29, pending that sign-off).
 - Lane W2: the public surface publishes no output bound, attempt count or
   schema and prompt digests of a model call (operator only), so the Meta API
   panel says they are not published; the contract publishes no prices, so no

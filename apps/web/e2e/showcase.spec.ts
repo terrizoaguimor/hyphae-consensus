@@ -116,6 +116,30 @@ test("the showcase lists the archive as RECORDED, by battery, every outcome next
   await expectNoLiveOnPage(page, "en", IDENTIFIERS);
 });
 
+test("an English archive title keeps lang='en' in the card link's name and the run header, and the manifest date is the locale's (fr)", async ({
+  page,
+}) => {
+  const { r06, list } = entries();
+  await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })] });
+  await openShowcase(page, "fr");
+  const link = page.locator(`[data-showcase-run='${String(r06.run_id)}'] a.hc-card-link`);
+  // No aria-label in the page language: the visible content, its title in lang="en", is the name.
+  await expect(link).not.toHaveAttribute("aria-label", /.*/u);
+  await expect(link.locator("[lang='en']")).toHaveText(String(r06.title));
+  await expect(link).toHaveAccessibleName(`${t("fr", "Showcase.openPrefix")} R06 · ${String(r06.title)}`);
+  // The manifest's created day, formatted as every other date is.
+  const created = (JSON.parse(researchBytes("MANIFEST.json").toString("utf8")) as { created: string }).created;
+  const day = new Intl.DateTimeFormat("fr", { dateStyle: "long", timeZone: "UTC" }).format(
+    new Date(`${created}T00:00:00Z`),
+  );
+  await expect(page.locator("[data-archive-note] > p").first()).toHaveText(
+    t("fr", "Showcase.noteHeadingDated", { created: day }),
+  );
+  await expect(page.locator("[data-archive-note] > p").first()).not.toContainText(created);
+  await openRecorded(page, "fr", String(r06.run_id));
+  await expect(page.locator("h2.hc-run-title")).toHaveAttribute("lang", "en");
+});
+
 test("a recorded run opens read-only in RECORDED mode, never as running @smoke", async ({ page }) => {
   const { r06, list } = entries();
   const recorded = recordedRun(r06, { base: "retry" });
@@ -302,6 +326,10 @@ test("a recorded run's archived log is checked in this browser against the pinne
   const result = (name: string) => verdict.locator(`[data-chain-result='${name}']`);
   await expect(result("sha256")).toContainText(t("en", "Run.chain.verdicts.pass"));
   await expect(result("sha256")).toContainText(String(r06.sha256));
+  // The file's size in bytes, grouped as the locale groups numbers.
+  const size = researchBytes(String(r06.file)).length;
+  expect(size).toBeGreaterThan(999);
+  await expect(result("sha256")).toContainText(`(${new Intl.NumberFormat("en").format(size)} bytes)`);
   await expect(result("chain")).toContainText(t("en", "Run.chain.verdicts.pass"));
   await expect(result("range")).toContainText(`sequences ${segment.first} to ${segment.last}`);
   await expect(result("head")).toContainText(String(r06.head_hash));

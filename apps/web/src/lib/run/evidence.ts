@@ -10,7 +10,11 @@
 // (EvidenceReferenceV1.proof_request, schema 1.3), never from the claim or
 // the query that led to the retrieval (ADR-0008, decision 4): for the sealed
 // snapshot, the complete record list of its project at its anchor; for a
-// live recall, the recall the proof sealed. A record that names no request
+// live recall, the recall the proof sealed, and whether that recall's query
+// is, verbatim, the statement of one of the run's own claims (the runtime
+// recalls with the claim statement, so in the archive it always is: the
+// proof then covers what the recall of that text returned, never the claim
+// itself, which it does not establish). A record that names no request
 // (before schema 1.3) says so instead of guessing. Integrity is read on its
 // own axis: a simulated proof checked nothing, a proof whose generation
 // failed upstream was never checked, and a valid proof says nothing about
@@ -48,7 +52,13 @@ export type Coverage =
   /** The sealed snapshot: the proof's own request lists every record of the project. */
   | { kind: "snapshot_list"; project: string; anchor: string | null }
   /** Any other recorded request: the operation, project, query and limit the proof sealed. */
-  | { kind: "request"; request: ProofRequest; anchor: string | null }
+  | {
+      kind: "request";
+      request: ProofRequest;
+      anchor: string | null;
+      /** The request's query is, verbatim, the statement of a claim of this run's proposals or revisions. */
+      queryIsClaim: boolean;
+    }
   /** A record that names no request (before schema 1.3). */
   | { kind: "unrecorded"; anchor: string | null };
 
@@ -79,7 +89,29 @@ export type EvidenceView = {
   failed: FailedRetrieval[];
 };
 
-function coverageOf(evidence: EvidenceReferenceV1, verifications: RoundedVerification[]): Coverage {
+/** Every claim statement of the run's proposals and revisions. */
+export function claimStatements(events: EventV1[]): Set<string> {
+  const out = new Set<string>();
+  for (const event of events) {
+    const payload = event.payload;
+    const proposal =
+      payload.type === "proposal_submitted"
+        ? payload.proposal
+        : payload.type === "revision_submitted"
+          ? payload.revision.proposal
+          : null;
+    for (const claim of proposal?.claims ?? []) {
+      out.add(claim.statement);
+    }
+  }
+  return out;
+}
+
+function coverageOf(
+  evidence: EvidenceReferenceV1,
+  verifications: RoundedVerification[],
+  claims: Set<string>,
+): Coverage {
   if (evidence.proof_error_reported) {
     return { kind: "proof_error" };
   }
@@ -92,7 +124,8 @@ function coverageOf(evidence: EvidenceReferenceV1, verifications: RoundedVerific
     if (evidence.retrieval === "sealed_snapshot" && request.operation === "list") {
       return { kind: "snapshot_list", project: request.project, anchor };
     }
-    return { kind: "request", request, anchor };
+    const query = request.query ?? null;
+    return { kind: "request", request, anchor, queryIsClaim: query !== null && claims.has(query) };
   }
   // Records before schema 1.3 name no retrieval mode; the scripted verifier
   // (simulated) is the one public sign that such a record was simulated.
@@ -130,6 +163,7 @@ export function roundedVerifications(events: EventV1[]): RoundedVerification[] {
 export function evidenceView(detail: RunDetailV1 | null, frames: ConsensusFrameV1[]): EvidenceView {
   const events = mergeEvents(detail, frames);
   const verifications = roundedVerifications(events);
+  const claims = claimStatements(events);
   const byId = new Map<string, RoundedVerification[]>();
   for (const verification of verifications) {
     const id = verification.verification.evidence_id;
@@ -156,7 +190,7 @@ export function evidenceView(detail: RunDetailV1 | null, frames: ConsensusFrameV
         sequences: [event.sequence],
         occurredAt: event.occurred_at,
         verifications: own,
-        coverage: coverageOf(evidence, own),
+        coverage: coverageOf(evidence, own, claims),
       });
     } else if (payload.type === "evidence_unavailable") {
       failed.push({ sequence: event.sequence, code: payload.code ?? null, query: payload.query });

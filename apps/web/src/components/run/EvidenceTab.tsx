@@ -6,7 +6,9 @@
 // snapshot id and capture time when the record has them, what its proof
 // covers (from the proof's own request, never from the claim: "proof covers:
 // complete record list of <project> at anchor <prefix>" for the sealed
-// snapshot), its text as untrusted English content, and its verifications by
+// snapshot; for a live recall, the request it sealed and, when that
+// request's query is a claim's own text, that the proof covers what the
+// recall of that text returned, not the claim), its text as untrusted English content, and its verifications by
 // round with the three statuses on their own axes (integrity through
 // proofToken: a simulated proof is SIMULATED, never green; factual and
 // relevance translated, never a positive tone for "irrelevant"). Failed
@@ -134,6 +136,7 @@ function CoverageLine({ coverage }: { coverage: Coverage }) {
       return (
         <div data-coverage="request">
           <p>{anchor === null ? t("requestNoAnchor") : t("request", { anchor })}</p>
+          {coverage.queryIsClaim ? <p data-coverage-query-is-claim>{t("queryIsClaim")}</p> : null}
           <dl className="hc-kv hc-kv--compact">
             <div>
               <dt>{t("operation")}</dt>

@@ -151,7 +151,7 @@
         },
         "showcase": {
           "heading": "O que a vitrine permite conferir de novo",
-          "body": "De cada execução gravada você pode conferir de novo a cadeia de eventos em relação ao manifesto do arquivo. As provas dessas execuções foram verificadas quando as execuções aconteceram; seus arquivos de prova e de testemunha são mantidos em privado e não podem ser verificados de novo a partir do portal."
+          "body": "De cada execução gravada cujo log traz uma cadeia de hashes (esquema 1.1 e posteriores), você pode baixar o log, recalcular essa cadeia no seu navegador ou com a linha de comando somente leitura e comparar o SHA-256 do arquivo com o resumo que o servidor lista a partir do manifesto do arquivo; para confiar nesse resumo, compare-o você mesmo com o MANIFEST.json de um commit com tag do repositório. As execuções gravadas antes do esquema 1.1 não trazem cadeia de hashes, então nada nelas pode ser conferido de novo, e uma execução que começou antes do esquema 1.1 só é encadeada a partir dos seus registros posteriores; a página de cada execução diz qual caso se aplica. As provas dessas execuções foram verificadas quando as execuções aconteceram; seus arquivos de prova e de testemunha são mantidos em privado e não podem ser verificados de novo a partir do portal."
         },
         "chain": {
           "heading": "A cadeia de hashes não é assinada",

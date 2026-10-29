@@ -19,8 +19,11 @@
 //   blanked textually (`"hash":"<hex>"` becomes `"hash":""`). The two agree
 //   on the canonical lines the runtime writes (the archive's lines
 //   re-serialize byte for byte, research/README.md, and the server's
-//   events.ndjson is serde output); on a non-canonical line this check is
-//   stricter and fails a record the runtime would accept.
+//   events.ndjson is serde output). On a non-canonical line the two recipes
+//   give different hashes, so the two checks disagree, in either direction:
+//   a line hashed the runtime's way fails here and passes there, and a line
+//   hashed over its raw text passes here and fails there (pinned in
+//   tests/chain-verify.test.ts). Neither check is a superset of the other.
 // - Record typing. Only the chain fields are read (schema_version, sequence,
 //   event_id, run_id, prev_hash, hash); the runtime deserializes the whole
 //   ConsensusEvent (actor, occurred_at, typed payload, duplicate fields
@@ -33,7 +36,9 @@
 //   with one fails to parse here, as serde_json fails it.
 // - Not done here at all: `consensus-api verify` also replays every run
 //   through the state machine and re-derives the recommendation against the
-//   receipt; this module does neither. That command is the complete check.
+//   receipt; this module does neither. That command is the reference check;
+//   it is unsigned too and compares no pinned file digest (which the panel
+//   does, ShowcaseEntryV1.sha256).
 //
 // The digest function is passed in (WebCrypto's SHA-256 in the browser and
 // in Node), so this module is pure and unit-tested over real archived bytes

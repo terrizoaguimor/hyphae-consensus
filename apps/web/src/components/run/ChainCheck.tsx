@@ -7,7 +7,7 @@
 // every record's hash is recomputed with WebCrypto from the raw line with
 // its hash blanked textually (crates/consensus-runtime/src/event_log.rs
 // hashes its re-serialization instead: the two agree on the canonical lines
-// the runtime writes, and this check is stricter on any other line; it reads
+// the runtime writes, and on any other line they can disagree either way; it reads
 // only the chain fields and replays nothing, see the header of verify.ts and
 // the Run.chain.limits text), every link is followed, and the
 // run's own segment is compared with what the views hold: the file's SHA-256

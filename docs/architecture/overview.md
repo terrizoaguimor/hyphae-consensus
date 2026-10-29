@@ -200,7 +200,11 @@ prebuilt CSS with the `hyphae-mission` theme, `next-intl` in `en`, `es`, `pt-BR`
 (default `apps/web/out`), so every API call is same-origin and relative. Its types
 (`src/lib/api/types.ts`) are generated from `contracts/api-v1` and validated at runtime
 with zod mirrors; `src/lib/api/sse.ts` follows a run's stream; `src/lib/chain/verify.ts`
-recomputes a run's chain in the browser with WebCrypto exactly as `event_log.rs` does.
+recomputes each chained record's SHA-256 in the browser with WebCrypto from the raw line
+with its hash blanked and follows every link; `event_log.rs` hashes its re-serialization
+instead, so the two agree on the canonical lines the runtime writes and can disagree
+either way on any other line. It reads only the chain fields, neither replays the history
+nor re-derives the recommendation, and leaves that to `consensus-api verify`.
 Pages: Overview, New deliberation, My runs, the run workspace (`run/?id=`, tabs Live or
 Playback, Explorer, Evidence, Proof inspector, Audit trail, Meta API, Decision; RECORDED
 mode with `&source=showcase`), Research showcase, Docs, Settings, Terms, Privacy,

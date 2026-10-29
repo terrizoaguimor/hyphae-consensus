@@ -10,10 +10,11 @@
 // unchained prefix; and a flipped byte, a changed link, a missing record, a
 // duplicated id, a torn tail and an empty line each fail at the right line
 // and sequence. A small chain written here checks the textual recipe
-// itself: only the top-level hash value is blanked. A UTF-8 byte order mark
-// fails its line, as event_log.rs fails it, and a long run of carriage
-// returns is trimmed in linear time. The tests that read the archive carry
-// the I/O-bound timeout of tests/io-timeout.ts.
+// itself: only the top-level hash value is blanked. A non-canonical line
+// shows that this check and the runtime's disagree in both directions. A
+// UTF-8 byte order mark fails its line, as event_log.rs fails it, and a
+// long run of carriage returns is trimmed in linear time. The tests that
+// read the archive carry the I/O-bound timeout of tests/io-timeout.ts.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -373,6 +374,63 @@ describe("the textual recipe", () => {
         expect(segment.outcome, `${file} ${runId}`).not.toBe("partial");
       }
     }
+  }, IO_BOUND_TEST_TIMEOUT_MS);
+});
+
+describe("a non-canonical line: the browser's recipe and the runtime's disagree in both directions", () => {
+  // event_log.rs hashes its serde re-serialization of the parsed record; this
+  // check hashes the raw line with its hash blanked. They agree on the
+  // canonical lines the runtime writes and differ on any other line, so
+  // neither check is a superset of the other. Reproduced with a built
+  // consensus-api on the same edits of the prefix log's last record (line 47):
+  // re-hashed over the raw line, `consensus-api verify` fails both with "hash
+  // chain broken at line 47: hash mismatch" while this check passes them; the
+  // unedited copy gives "VERIFIED: 2/2". An edit that is not re-hashed passes
+  // the runtime (its re-serialization is unchanged) and fails here.
+  const LAST = 47;
+
+  /** The prefix log with its last record edited by `edit`, re-hashed over the edited raw line when `rehash`. */
+  async function editedLast(edit: (line: string) => string, rehash: boolean): Promise<Uint8Array> {
+    const original = decoder.decode(researchBytes(PREFIX_LOG)).split("\n")[LAST - 1] ?? "";
+    const prev = (JSON.parse(original) as { prev_hash: string }).prev_hash;
+    let edited = edit(original);
+    if (rehash) {
+      const hash = await recordHash(prev, edited);
+      const span = topLevelStringSpan(edited, "hash");
+      if (hash === null || span === null) {
+        throw new Error("no hash field");
+      }
+      edited = `${edited.slice(0, span.start)}"${hash}"${edited.slice(span.end)}`;
+    }
+    return editLine(researchBytes(PREFIX_LOG), LAST, () => edited);
+  }
+
+  const extraMember = (line: string): string => line.replace(/\}$/, ',"zz_extra":"x"}');
+  const spaceAfterSequence = (line: string): string => line.replace('"sequence":', '"sequence": ');
+
+  it("the prefix log has its last record at line 47, and verifies unedited", async () => {
+    const result = await verifyLog(researchBytes(PREFIX_LOG));
+    expect(result.failure).toBeNull();
+    expect(result.records).toHaveLength(LAST);
+  }, IO_BOUND_TEST_TIMEOUT_MS);
+
+  it.each([
+    ["an unknown member", extraMember],
+    ["a space after a colon", spaceAfterSequence],
+  ])("%s, re-hashed over the raw line, checks out here (the runtime refuses it)", async (_name, edit) => {
+    const bytes = await editedLast(edit, true);
+    expect(decoder.decode(bytes)).not.toBe(decoder.decode(researchBytes(PREFIX_LOG)));
+    const result = await verifyLog(bytes);
+    expect(result.failure).toBeNull();
+    expect(result.records).toHaveLength(LAST);
+  }, IO_BOUND_TEST_TIMEOUT_MS);
+
+  it.each([
+    ["an unknown member", extraMember],
+    ["a space after a colon", spaceAfterSequence],
+  ])("%s, not re-hashed, fails here at line 47 (the runtime's re-serialization is unchanged)", async (_name, edit) => {
+    const result = await verifyLog(await editedLast(edit, false));
+    expect(result.failure).toMatchObject({ line: LAST, sequence: LAST, problem: { kind: "hash_mismatch" } });
   }, IO_BOUND_TEST_TIMEOUT_MS);
 });
 

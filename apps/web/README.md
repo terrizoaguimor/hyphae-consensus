@@ -189,8 +189,10 @@ turns the pacing off. Server timestamps are shown untouched.
   every record's SHA-256 recomputed with WebCrypto from the raw line with its
   top-level hash blanked textually, where `event_log.rs` hashes its
   `serde_json` re-serialization: the two agree on the canonical lines the
-  runtime writes (the archive's and the server's `events.ndjson`), and the
-  browser is stricter on any other line; it reads only the chain fields
+  runtime writes (the archive's and the server's `events.ndjson`), and on
+  any other line the two recipes give different hashes, so the two checks
+  can disagree in either direction (neither is a superset of the other);
+  it reads only the chain fields
   (schema version, sequence, ids, link, hash), checks no content of a
   schema-1.0 record, and neither replays the history nor re-derives the
   recommendation, which the panel says and leaves to `consensus-api verify`;
@@ -871,9 +873,12 @@ the axe scans.
   the in-browser chain check always fails a line with invalid UTF-8, where
   the runtime decodes it lossily (U+FFFD): the runtime accepts that in a
   pre-1.1 record, which no hash covers, and fails it in a chained record
-  either at parsing or at the hash. The browser also fails a non-canonical
-  line (other whitespace, member order or escapes, unknown members) that the
-  runtime, which hashes its own re-serialization, accepts; and the runtime
+  either at parsing or at the hash. On a non-canonical line (other
+  whitespace, member order or escapes, unknown members) the browser, which
+  hashes the raw line, and the runtime, which hashes its own
+  re-serialization, compute different hashes: a record hashed the runtime's
+  way fails in the browser and passes the runtime, and a record hashed over
+  its raw line passes in the browser and fails the runtime; and the runtime
   ignores, and does not hash, top-level members it does not know (a crate
   matter, not changed here).
 - Script weight: `/en/` loads 13 async scripts, 797,215 bytes raw (230,921

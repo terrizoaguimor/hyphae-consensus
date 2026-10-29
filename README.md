@@ -87,8 +87,10 @@ outcome even though they do not write it.
     `R07-exp-backoff`; `crates/consensus-api/src/live/presets.rs`). Nothing a visitor
     types reaches a model.
   - **Evidence** comes from a sealed Hyphae snapshot whose files are re-checked at every
-    admission (ADR-0008, `docs/architecture/sealed-snapshot.md`); the snapshot has not
-    been captured yet.
+    admission (ADR-0008, `docs/architecture/sealed-snapshot.md`). The snapshot
+    `snap-2026-10-29-demo-repo` was captured on 2026-10-29 (`b0375df`; its public files
+    are in `snapshots/`, its digests under "Published snapshot digests" below); it is not
+    on any server yet.
   - **Two-phase gate** (`live/gate.rs`): preset, geography, an 18+ attestation, the
     evidence status and Turnstile before the single live slot is taken; then the client's
     daily quota (default 3 public-lane runs per IPv4 /32 or IPv6 /64 per UTC day) and a
@@ -151,6 +153,33 @@ The hash chain is tamper-evident, not signed: it reveals a change made after the
 a full rewrite, and it does not prove that the runs happened as recorded or that request
 ids, token counts and latencies are what Meta's API returned (`research/README.md`).
 
+### Published snapshot digests
+
+The public live mode's evidence is the sealed snapshot `snap-2026-10-29-demo-repo`, captured
+on 2026-10-29 at 17:16:12 UTC in the `hyphae-consensus` container with hyphae 4.0.0
+(`b0375df`; `snapshots/snap-2026-10-29-demo-repo/`; the session is described in
+`docs/architecture/sealed-snapshot.md`, "Observed in the capture session"). It holds the 7
+synthetic `demo-repo` records, whose ids equal the research ids, and two proven captures
+(`list-demo-repo` and the empty `recall-other-repo-isolation`), both verified by
+`hyphae proof verify` with `kind: memory` and `scope: semantic_reexecution`. As ADR-0008
+decision 2 decides, these are the three values the production server pins:
+
+| Value | Digest | Server variable |
+|---|---|---|
+| Anchor | `43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02` | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` |
+| SHA-256 of `manifest.json` | `b731346c8464796ec17641d5099819cd1ff99525f1ee51409ac8ad790bc1014a` | `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` |
+| SHA-256 of the Hyphae binary | `79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f` | `CONSENSUS_HYPHAE_BIN_SHA256` |
+
+Check them in a clone: `sha256sum snapshots/snap-2026-10-29-demo-repo/manifest.json` prints
+the manifest digest, and the manifest records the anchor (`anchor_hex`) and the binary digest
+(`hyphae.binary_sha256`, also in `hyphae-binary.sha256`). The binary digest is the one the
+capture recorded for the container's binary; it has **not yet** been compared with the binary
+extracted from the release tarball checked against `cf92ed6d…`
+(`docs/deployment/runbook.md` section 3.2). The proofs and witnesses are not published
+(ADR-0008 decision 3), so a clone cannot re-run the verifier, and the committed directory
+alone does not boot (`checksums_incomplete`). The release tag is to carry the same three
+values. The snapshot is not on any server yet.
+
 ### SIMULATED, RECORDED and LIVE
 
 Every run carries provenance axes derived from its records (model, evidence, delivery),
@@ -212,6 +241,9 @@ comparison (no single-agent baseline was executed).
   assessment and every objection an explicit verdict. No rate of any outcome under
   protocol 1.3 is claimed.
 - **Pending: the counted protocol 1.3 battery** (4 runs remain of the 8 authorized; §6.2).
+  It did not run on 2026-10-29: the Meta key is not set on the new development machine
+  (only the owner can set it); the battery script stopped before starting the server and
+  no Meta call was made.
 
 No run self-authorized; every battery run's authorization is `pending`. The archive holds
 8 event logs with 44 runs (790 events) and 37 run records, byte-identical to the originals
@@ -346,7 +378,7 @@ read-only (`consensus-api verify`, the showcase).
 
 ## Status
 
-**2026-10-29 (branch `feat/public-portal` at `bc3b262`; nothing is deployed).**
+**2026-10-29 (branch `feat/public-portal` at `6e202eb`; nothing is deployed).**
 Protocol 1.3 with policy rules 1.2, the public API v1, the loopback operator console, the
 live-mode admission (two-phase gate, Turnstile, per-client quota, USD ledger) and the
 sealed-snapshot evidence client are implemented; live mode stays off until its gates pass.
@@ -354,12 +386,21 @@ Mission Control's run views (lanes W1 and W2: New deliberation, My runs, the run
 with all seven tabs, the research showcase in RECORDED mode) are merged, and W2's
 adversarial review is in progress. Tests on the tree of `25c7867`: 600 passed / 0 failed /
 2 ignored on Windows, 603 / 0 / 2 on Linux with 7/7 gates (release checklist, G8).
-Release gates: G8 passes (the fresh-clone run is still owed before the tag), G12 is partial, the other ten are pending. Not done yet: the
-sealed snapshot capture and the counted protocol 1.3 battery (both blocked: the Docker
-container that holds the Hyphae stores is not on the current development machine, and an
-owner decision is pending), the staging deployment, the video, the owner's sign-off of the
-legal texts, and the final report. Earlier status blocks (2026-10-27 and 2026-10-28) are
-in `docs/journal.md`, "README status history".
+Release gates: G8 passes (the fresh-clone run is still owed before the tag), G12 is partial, the other ten are pending.
+The Hyphae container is on the new development machine. The sealed snapshot
+`snap-2026-10-29-demo-repo` was captured there on 2026-10-29 (`b0375df`; digests under
+"Published snapshot digests"). A boot check on the real snapshot found that the runtime at
+`6e202eb` refuses it (`response_invalid`: `hyphae agent ui` 4.0.0 puts the result object
+under `result`); the fix, `0515f29` on branch `test/snapshot-boot`, is not yet merged here.
+With it, the snapshot boots, both proofs are re-verified by hyphae 4.0.0 in the container,
+and an in-process live run through the public router was served from it against a local
+fake Meta server (no Meta call). Not done yet: merging that fix; comparing the published
+binary digest with the release tarball (runbook 3.2); the counted protocol 1.3 battery (not
+run on 2026-10-29: the Meta key is not set on this machine and only the owner can set it;
+no Meta call was made); the staging deployment and the snapshot on the server (owner
+authorization); the video; the owner's sign-off of the legal texts; and the final report.
+Earlier status blocks (2026-10-27 and 2026-10-28) are in `docs/journal.md`, "README status
+history".
 
 ## Competition boundary: pre-existing vs. newly developed work
 

@@ -34,7 +34,9 @@ them.
 Blocked until all of these are done, in this order:
 
 - [ ] **(owner)** The sealed snapshot is captured and its digests are recorded
-      (`docs/architecture/sealed-snapshot.md`).
+      (`docs/architecture/sealed-snapshot.md`). Captured on 2026-10-29 as
+      `snap-2026-10-29-demo-repo` (`b0375df`), digests in the README; left
+      unticked for the owner, who also needs the boot fix `0515f29` merged.
 - [ ] **(owner)** The counted protocol 1.3 battery has run on `prompt-freeze-2`
       and is archived in `research/` and written up in `docs/evaluation.md` §6,
       exactly as observed. The presets repeat task texts of the recorded

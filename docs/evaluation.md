@@ -540,6 +540,14 @@ verbatim as `research/2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl` and
   `supported`. The counted battery runs on this freeze (4 runs remain in the authorized
   re-validation budget of 8; K01–K04 used the other 4).
 
+### 6.3 The counted battery: not run on 2026-10-29
+
+An attempt to run the counted battery on 2026-10-29 did not start: `META_API_KEY` is not
+set on the new development machine, and only the owner can set it. The battery script
+stopped before starting the server; no Meta call was made, no run was recorded and nothing
+was added to `research/`. The 4 authorized runs therefore all remain, and there are no
+results to report.
+
 ## Corrections (2026-10-27, independent audit)
 
 The independent audit of commit `72e422a`

@@ -1,7 +1,8 @@
 # Architecture overview — Hyphae Consensus
 
 Date: 2026-10-29 · Describes the code at `bc3b262` (branch `feat/public-portal`, merge of
-web lane W2, committed 2026-10-28) · Nothing is deployed: the public portal is not exposed
+web lane W2, committed 2026-10-28); the snapshot capture of 2026-10-29 (`b0375df`) and its
+boot check (`0515f29`) are noted where they change the picture · Nothing is deployed: the public portal is not exposed
 until every release gate G1–G12 (`docs/security/release-checklist.md`) reads PASS.
 
 This document consolidates ADR-0001 to ADR-0010 with the code as it stands. Where an ADR
@@ -31,7 +32,7 @@ Runs come in three honest modes, fixed server-side per route (ADR-0006, ADR-0008
 | Mode | Model | Evidence | Where |
 |---|---|---|---|
 | Guided | scripted doubles (`provider: "fake"`) | seeded records, proofs labelled SIMULATED | public `POST /api/v1/runs` (scenario id only) |
-| Live | Meta Model API on the owner's key | the sealed Hyphae snapshot | public `POST /api/v1/live-runs` (preset id only), off by default; not yet runnable: the snapshot is not captured, so this mode has run only in tests over the fixture snapshot |
+| Live | Meta Model API on the owner's key | the sealed Hyphae snapshot | public `POST /api/v1/live-runs` (preset id only), off by default; not deployed. The snapshot `snap-2026-10-29-demo-repo` was captured on 2026-10-29 (`b0375df`), but the code at `bc3b262` (and at `6e202eb`) refuses it at boot (`response_invalid`, section 2.4); with the fix `0515f29` (branch `test/snapshot-boot`, not yet merged) one live run went through the public router in-process over the real snapshot, against a local fake Meta server. No live run has used the real Meta API in this mode |
 | Recorded showcase | as recorded | as recorded | `GET /api/v1/showcase*`, `/research/*`: the archived 2026-10-26/27 runs, read-only |
 
 The operator console (`serve-operator`) can also run `model=meta` with `memory=hyphae`
@@ -125,8 +126,19 @@ metered operator run every HTTP attempt is drawn on the ledger before it is sent
   project is refused and recorded as `EvidenceUnavailable` with its reason. Each run's verifier is
   wrapped in `BootBoundVerifier`: a `Valid` stands only when the report's proof and
   result digests are the ones the boot check accepted. Witnesses are never served or
-  committed. The capture itself (`scripts/hyphae-container/capture-snapshot.sh`,
-  `scripts/snapshot_manifest.py`) is still pending.
+  committed. The capture (`scripts/hyphae-container/capture-snapshot.sh`,
+  `scripts/snapshot_manifest.py`) ran on 2026-10-29: `snapshots/snap-2026-10-29-demo-repo/`
+  (`b0375df`; hyphae 4.0.0, 7 records, anchor `43a2dea9…8f02`, manifest SHA-256
+  `b731346c…014a`; proofs and witnesses git-ignored). The loader at `bc3b262` reads
+  `memories`, `proof` and `snapshot` only at the top level of a captured response, while
+  the real `hyphae agent ui` 4.0.0 response holds them under `result`
+  (`{"id":1,"ok":true,"result":{…},"schema":…}`), so it refuses the real snapshot with
+  `response_invalid: captures/list-demo-repo.response.json: no memories array`.
+  `snapshot_manifest.py` accepts both shapes, which is why the capture's `build` and
+  `check --reverify` passed. `0515f29` (branch `test/snapshot-boot`, not yet merged into
+  `feat/public-portal`) adds `snapshot::result_object` (top level or `result`; an error
+  envelope, `ok` not true or a non-object `result` is refused); with it the real snapshot
+  boots and both proofs are re-verified at boot.
 
 ### 2.5 The live gate and the ledger (`live/`, ADR-0007)
 
@@ -257,7 +269,8 @@ route looks it up and records it after the start (ADR-0006, implementation note)
 ## 4. Data flow of a run, from creation to receipt
 
 The diagram shows a public live run as the code implements it. No public live run has
-happened yet: the sealed snapshot is not captured and nothing is deployed. A guided run follows the same path without the
+happened yet: nothing is deployed, and the only run over the real sealed snapshot was the
+in-process boot check of 2026-10-29 (`0515f29`), whose Meta API was a local fake server. A guided run follows the same path without the
 gate, Siteverify, the ledger and the Meta API: the scripted doubles and the simulated
 verifier answer in milliseconds, and the stream then delivers the stored records as
 `replay` frames, which the web client paces and labels "simulated · paced for
@@ -609,3 +622,9 @@ This overview follows the code in each case:
 8. ADR-0007 decision 3: "The public server accepts no visitor free text anywhere." The
    code accepts one, the optional decision note (at most 2,000 characters), which it
    stores and shows and never sends to a model (`api/types.rs`; release checklist G10).
+9. `docs/architecture/sealed-snapshot.md`, "Observed in the capture session" item 2, says
+   `agent ui` prints the result object at the root next to `ok`, `schema` and `id`. The
+   committed capture holds it under `result`
+   (`snapshots/snap-2026-10-29-demo-repo/captures/list-demo-repo.response.json` begins
+   `{"id":1,"ok":true,"result":{`), and the code at `bc3b262` reads the root only
+   (section 2.4). Both the code and that sentence are corrected in `0515f29`, not yet merged.

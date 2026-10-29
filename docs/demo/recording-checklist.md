@@ -37,14 +37,20 @@ Blocked until all of these are done, in this order:
       (`docs/architecture/sealed-snapshot.md`).
 - [ ] **(owner)** The counted protocol 1.3 battery has run on `prompt-freeze-2`
       and is archived in `research/` and written up in `docs/evaluation.md` §6,
-      exactly as observed. The presets shown are the battery's tasks
-      (`crates/consensus-api/src/live/presets.rs`).
+      exactly as observed. The presets repeat task texts of the recorded
+      batteries (`crates/consensus-api/src/live/presets.rs`); the task set of
+      the 1.3 battery is not fixed yet.
 - [ ] **(owner)** Staging is up behind Cloudflare Access with live mode on, the
       snapshot loaded and the staging ledger in place
       (`docs/deployment/runbook.md` §4.5, §7.9, §8; staging live runs spend real
       money on the dedicated key and are recorded in the staging ledger).
 - [ ] The staging build carries the Turnstile site key (without it New
       deliberation says no live run can be started from the build).
+- [ ] **(owner)** Before the session, decide and write in `docs/journal.md`
+      which run goes in the video: the first run of the preset "Raise payment
+      retry attempts to 10" started in the recording session, whatever its
+      outcome, including a failure. Its run id goes in the end card and the
+      submission notes.
 - [ ] **(owner)** Record the live preset runs on staging. For each run:
       - start it from New deliberation in the recording browser, through the
         real gate (attestation, Turnstile), so its frames arrive with
@@ -58,10 +64,6 @@ Blocked until all of these are done, in this order:
         may be shown as a failure (`script.md`, beat 3).
 - [ ] **(owner)** After the session: read `lifetime_spent_usd` of the staging
       ledger and carry it into the owner's accounting (runbook §4.5, rule 1).
-- [ ] Decide which run goes in the video **before** looking at outcomes for a
-      favourite: the first complete run of the preset "Raise payment retry
-      attempts to 10", whatever it ended in. Its run id goes in the end card
-      and the submission notes.
 
 ## 3. Fallback cut: the public server on the recording machine
 
@@ -124,7 +126,14 @@ must be ticked; one unticked box means re-edit, not publish.
       combined or upgraded, and none comes from the protocol 1.3 battery
       unless it is in `docs/evaluation.md` §6.
 - [ ] R06 is never shown without its two caveats: 7 earlier-round objections
-      never re-judged, and a cited record that misdescribes the fixture test.
+      never re-judged (on screen), and a cited record that misdescribes the
+      fixture test (the portal does not show it: the burned-in caption of
+      `shot-list.md` 4b carries it). The same caption, or a frame without
+      `claim-15`, applies to F03's Decision tab.
+- [ ] The Meta API tab is not narrated as showing attempts (the public surface
+      does not publish them), and the Audit trail's chain check is not
+      narrated as proving more than "no change since the manifest pinned the
+      digest".
 - [ ] A `supported` recommendation for a revised proposal is never shown
       without its scope line.
 - [ ] "Integrity is not truth" is said, and no line says a valid proof shows a

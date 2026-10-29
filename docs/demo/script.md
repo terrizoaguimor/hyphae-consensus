@@ -33,7 +33,7 @@ publishing are in [`recording-checklist.md`](recording-checklist.md).
 | STAGING-REC | The live preset runs recorded on staging (`recording-checklist.md` §2) | pending; needs STAGING, SNAPSHOT, BATTERY-1.3 |
 | CHAIN-BROWSER | The in-browser chain check (merged with web lane W2 at `bc3b262`) passes its review | review running |
 
-**Fallback cut, as a whole** (from the approved plan): guided mode (SIMULATED) +
+**Fallback cut, as a whole:** guided mode (SIMULATED) +
 the research showcase (RECORDED) + a battery replay labelled "replay". In this
 script the "battery replay" is the recorded run F03 opened from the showcase
 with a burned-in caption "REPLAY · recorded run F03, 27 Oct 2026 · not live".
@@ -47,12 +47,15 @@ The portal itself labels it RECORDED; it has no stream and no LIVE word
 **Screen.** Research showcase → F03, Evidence tab: the first proposal's claim
 "set to exactly 10 attempts" next to the stored constraint.
 
-**Narration (about 60 words).**
-"On 27 October 2026 we ran Meta's muse-wonder-1.0 six times against project
-memory whose proofs verified. In every run, the first proposal contained claims that the
-stored records contradict, and none was recommended. Here the task asked to
-raise payment retries to 10. The project's stored constraint says retries are
-capped at 3 attempts with jitter."
+**Narration (about 65 words).**
+"On 27 October 2026 we ran Meta's muse-wonder-1.0 six times against a demo
+project's seeded memory, whose proofs verified. In every run, the first
+proposal contained claims that the stored records contradict, and none was
+recommended. Here the task asked to raise payment retries to 10. The demo
+project's stored constraint says retries are capped at 3 attempts with jitter."
+
+Burned-in caption while the Evidence tab is on screen: "Demo-repo fixture ·
+7 seeded records".
 
 **Figures.**
 - Final battery F01–F06: 6 runs, every first proposal had 1–3 claims
@@ -64,14 +67,18 @@ capped at 3 attempts with jitter."
 - Stored constraint, as retrieved in F03: "Constraint: outbound retries must be
   capped at 3 attempts with jitter; unbounded retries caused the 2026-08
   outage." (same log, F03's retrieved evidence).
+- The memory: a fresh demo store of 7 operator-seeded demo-repo records
+  (`docs/evaluation.md` §5).
 - F03 round 1: 0/4 corroborated, 5 open items, 2 claims contradicted
   (`docs/evaluation.md` §5.3); the two contradicted claims (claims 2 and 3) are
   each contradicted by the constraint, the 2026-09 decision and the
   constraint-test fact (F03's first evaluation in the log).
 
-**Say only if the test fact is on screen.** The constraint-test fact
-misdescribes the fixture test (`docs/evaluation.md`, Corrections item 3). Frame
-the shot on the constraint and the decision.
+**Say only if the test fact is on screen.** Frame the shot on the constraint
+and the decision. If the constraint-test fact (seeded record 5) is in frame
+anyway, add: "One of these records, the test fact, misdescribes the fixture's
+test; the constraint and the decision contradict the claim on their own."
+(`docs/evaluation.md`, Corrections item 3.)
 
 **Depends on.** Nothing pending: the showcase serves `research/` today.
 
@@ -132,8 +139,7 @@ model."
 - N is the recorded duration divided by the on-screen duration, rounded down
   to a whole number, and the caption shows it for the whole sped-up stretch.
   Runs of this task took 205.5 s (K03, protocol 1.3 smoke) and 234.4 s (F03)
-  of model latency (`docs/evaluation.md` §6.2, §5.3); New deliberation states
-  4 to 7 minutes for runs of the final battery.
+  of model latency (`docs/evaluation.md` §6.2, §5.3).
 
 **Figures.** Only what the run on screen shows. No figure from
 BATTERY-1.3 unless it is already in `docs/evaluation.md` §6.
@@ -150,8 +156,9 @@ BATTERY-1.3 unless it is already in `docs/evaluation.md` §6.
    inspector on the constraint record. Narration: "Now a real run, recorded on
    27 October and replayed from the archive. The Critic raised a constraint
    conflict. The Evaluator recorded two claims as contradicted by stored
-   records. Each record's proof was verified at run time: valid, by semantic
-   re-execution against a pinned anchor. The Proposer then revised."
+   records. Each record's proof was verified at run time: valid. The proof
+   files stay with the operator, so you can re-check the chain, not the
+   proofs. The Proposer then revised."
 
 **Fallback figures.**
 - Guided "Reference: retry budget" reaches `supported` on SIMULATED evidence
@@ -161,6 +168,9 @@ BATTERY-1.3 unless it is already in `docs/evaluation.md` §6.
   (F03's first challenge in the log); 2 claims contradicted
   (`docs/evaluation.md` §5.3); 6 valid in the final round, all 91 verification
   records of the final battery `valid` (§5.3).
+- The proof artifacts are held by the operator; the public can re-verify the
+  event chain, not the proofs (`apps/web/messages/en.json`,
+  `proofs.recordedAccepted`; `research/README.md`, "What cannot be verified").
 
 ---
 
@@ -187,12 +197,16 @@ screen.**
   recommended."
 - Failed: covered in beat 3; use the fallback.
 
-**Narration, second half (about 45 words).**
-"One earlier run did reach supported: R06, recorded on 27 October. Its trace
-shows why that is weaker than it looks: seven earlier-round objections were
-never judged again, and one record it cites misdescribes a test. A valid proof
-did not catch that, because integrity is not truth. Protocol 1.3 now carries
-every objection forward."
+**Narration, second half (about 55 words).**
+"In the first live battery, one run reached supported: R06, on 27 October. Its
+trace shows seven earlier-round objections never judged again, and our
+evaluation's corrections record that one record it cites misdescribes a test.
+A valid proof cannot catch that: integrity is not truth. Protocol 1.3 carries
+every objection forward; its counted battery is still pending."
+
+Burned-in caption for as long as R06's Decision tab is on screen: "Cited
+record 5 misdescribes the fixture test: docs/evaluation.md, Corrections 3".
+The portal does not show this caveat, so the caption carries it.
 
 **Figures.**
 - Live run: only what its Decision tab renders.
@@ -212,10 +226,11 @@ every objection forward."
   which are not counted as validation (§6.1, §6.2).
 
 **Fallback, first half.** Showcase → F03, Decision tab. Narration:
-"Contested. After the revision all five claims were corroborated by records
-whose proofs verified, but six objections stayed open: three missing tests, two
-unsupported claims, one security risk. The policy does not recommend a change
-while objections are open."
+"Contested. After the revision the Evaluator corroborated all five claims
+against records whose proofs verified; corroborated is not true. Six
+objections stayed open: three missing tests, two unsupported claims, one
+security risk. The policy does not recommend a change while objections are
+open."
 
 **Fallback figures (F03).**
 - Final round: 5/5 corroborated, 6 open, 6 valid (`docs/evaluation.md` §5.3);
@@ -225,6 +240,12 @@ while objections are open."
 - The 6 open items: 3 `missing_test`, 2 `unsupported_claim`, 1 `security_risk`
   (F03's second challenge and second evaluation in the log; counted for this
   script from the archived events).
+- One of the five corroborated claims, `claim-15`, restates seeded record 5
+  (the constraint-test fact), which misdescribes the fixture test; the
+  Evaluator corroborated it with that record (F03's revision and second
+  evaluation in the log; `docs/evaluation.md`, Corrections item 3). Keep
+  `claim-15` off screen in this shot, or add the caption of the R06 half for
+  it.
 - 5 earlier-round objections never re-judged (`research/README.md`); the
   portal shows that line for F03 too. If there is time, read it.
 
@@ -241,17 +262,30 @@ cut only: the live run's Decision tab, Approve, the recorded decision with the
 notice that public decisions carry no operational authority.
 
 **Narration (about 60 words).**
-"Every record is hash-chained. This browser just downloaded the archived log
-and recomputed every hash: the chain checks out and matches the receipt. That
-shows the records were not changed after the fact, not that they are true. The
-Meta API panel lists every call: request id, tokens, attempts. [And a person
-decides: approving records the choice and executes nothing.]"
+"Every record is hash-chained. This browser downloaded the archived log and
+recomputed every hash: the chain checks out and matches the digest pinned in
+the archive's manifest, so nothing changed since pinning. The log is unsigned;
+this says nothing about whether the records are true. The Meta API panel lists
+every call: request id, latency, tokens. [And a person decides: approving
+executes nothing.]"
+
+Do not say "attempts": the public surface does not publish the attempt count
+(`crates/consensus-api/src/public_view.rs`, `operator_only`;
+`Run.meta.operatorOnly` in `apps/web/messages/en.json`), and R06 (schema 1.2)
+recorded none; attempts are recorded from protocol 1.3 on (`docs/evaluation.md`
+§6).
 
 **Figures.**
 - R06's log is `research/2026-10-27/live-battery-2026-10-27.jsonl` (181 records,
   R01–R08; R06 is 28 of them), so the check covers the whole file
   (`research/README.md`: "checking one run needs the file from its first
   line"). Read the count the screen shows.
+- What the check shows: the chain is unsigned, so a log rewritten and
+  re-hashed as a whole would also check out, unless an earlier digest says
+  otherwise; the comparison with the digest `research/MANIFEST.json` pins is
+  what shows no change since pinning (`Run.chain.limits` and
+  `Run.chain.sha256` in `apps/web/messages/en.json`; `research/README.md`,
+  "What cannot be verified from these files", Authenticity).
 - R06's Meta API tab: 6 calls, 6,382 input / 25,685 output tokens
   (`docs/evaluation.md` §5.2; request ids under "Request ids (2026-10-27)").
 - The Meta API tab shows no cost: the contract publishes no prices
@@ -282,7 +316,7 @@ accountable before a human authorizes anything."
 
 **End card text.** "Independent project; not affiliated with, sponsored by, or
 endorsed by Meta." (README). Add "Footage: [live run recorded on staging,
-<date>, time-lapse] / [guided run: SIMULATED] / [recorded runs F03, R06: 26–27
-Oct 2026]" for whatever the cut contains.
+<date>, time-lapse] / [guided run: SIMULATED] / [recorded runs F03, R06: 27 Oct
+2026]" for whatever the cut contains.
 
 **Depends on.** Nothing pending.

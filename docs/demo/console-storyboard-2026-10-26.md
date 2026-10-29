@@ -6,7 +6,7 @@
 > parts of it no longer work: `CONSENSUS_EVENT_LOG` no longer exists (each run
 > now has its own hash-chained log under `CONSENSUS_RUN_STORE_DIR`, README
 > "Setup and verification"), `serve` is now an alias of `serve-operator`, the
-> operator token is required on every route, and the test count of segment 7
+> operator token is required on every /api route, and the test count of segment 7
 > (89) is long out of date. The current script is [`script.md`](script.md).
 
 ---

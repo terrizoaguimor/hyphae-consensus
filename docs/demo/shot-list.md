@@ -46,14 +46,14 @@ Do not crop it or cover it with a caption.
 | # | Route · tab | State | Must be visible | Must not appear |
 |---|---|---|---|---|
 | 1a | `/en/showcase/` | archive loaded, manifest check done | the count line ("… recorded runs (… records), as the server lists them from the archived chains"; `research/README.md`: 44 runs, 790 events), the `live-battery-2026-10-27-final` battery group with F01–F06, all contested | — |
-| 1b | F03 recorded · Evidence | loaded | claim 2 of the first proposal ("…set to exactly 10 attempts."), marked contradicted; the constraint record "Constraint: outbound retries must be capped at 3 attempts with jitter; …"; the RECORDED badge in the header (scroll or split-screen so it is seen at least once) | the constraint-test fact (record 5) as the focus of the shot (it misdescribes the fixture test, Corrections item 3) |
+| 1b | F03 recorded · Evidence | loaded | claim 2 of the first proposal ("…set to exactly 10 attempts."), marked contradicted; the constraint record "Constraint: outbound retries must be capped at 3 attempts with jitter; …"; the RECORDED badge in the header (scroll or split-screen so it is seen at least once); the burned-in caption "Demo-repo fixture · 7 seeded records" | the constraint-test fact (record 5) as the focus of the shot (it misdescribes the fixture test, Corrections item 3) |
 
 ## Beat 2 · 0:25–0:55 · Architecture
 
 | # | Route · tab | State | Must be visible | Must not appear |
 |---|---|---|---|---|
-| 2a | `/en/` | API connected | "How a deliberation works": Three roles deliberate · The runtime checks evidence · A fixed policy recommends · A person authorizes | the "Not connected" placeholder (means the API is not reachable: fix before recording) |
-| 2b | `/en/` | scrolled | the "Provenance labels" legend (SIMULATED, RECORDED, LIVE META, …) | — |
+| 2a | `/en/` | API connected | "How a deliberation works": Three roles deliberate · The runtime checks evidence · A fixed policy recommends · A person authorizes | — (this section is static and renders whether or not the API answers) |
+| 2b | `/en/` | scrolled | the "Provenance labels" legend (SIMULATED, RECORDED, LIVE META, …); "Impact metrics" with its figures if it passes through the frame | the "Not connected" placeholder in place of the Impact metrics (means the API is not reachable: fix before recording) |
 | 2c | `/en/docs/verified-evidence/` | — | the article title, one second | — |
 
 ## Beat 3 · 0:55–1:45 · A live preset run
@@ -74,15 +74,15 @@ Fallback cut:
 | 3a′ | `/en/new/` · Guided examples | guided enabled | the intro ("The roles are scripted doubles and the evidence is simulated: no model is called and no proof is real. …"), the SIMULATED model and SIMULATED evidence badges, "Reference: retry budget" with its expected outcome | — |
 | 3b′ | `/en/run/?id=<guided run_id>` · Playback | pacing on | Playback tab label; SCRIPTED · SIMULATED badges; "simulated · paced for readability" | the word LIVE anywhere |
 | 3c′ | F03 recorded · Explorer | loaded | first proposal → challenge (with `constraint_conflict`) → evaluation; burned-in caption "REPLAY · recorded run F03, 27 Oct 2026 · not live" | — |
-| 3d′ | F03 recorded · Evidence, then Proof inspector | — | claim 2 contradicted; the constraint record's proof: valid, verified at run time; the note that the proof artifacts stay with the operator | — |
+| 3d′ | F03 recorded · Evidence, then Proof inspector | — | claim 2 contradicted; the constraint record's proof: valid, verified at run time; the sentence "… the artifacts are held privately by the operator …, so the public can re-verify the event chain, not these proofs." in full | that sentence cropped or cut short |
 
 ## Beat 4 · 1:45–2:20 · Decision center
 
 | # | Route · tab | State | Must be visible | Must not appear |
 |---|---|---|---|---|
 | 4a | live run · Decision **[PENDING: STAGING-REC]** | at rest, awaiting a decision | the outcome badge with its evidence label ("<kind> — on SEALED SNAPSHOT evidence"); for a revision, the scope line "This recommendation is for revised proposal …, which replaced the original proposal …" with the task and both proposals; "Why the policy recommends this" with its counts; "Open objections" | the word `supported` without its scope line, if the recommendation is for a revision (cut wider, never tighter) |
-| 4a′ | F03 recorded · Decision (fallback) | — | "contested — on HYPHAE RECALL evidence"; the counts (5 claims, 5 corroborated; 6 objections unresolved); the open objections with their kinds; "This run was recorded before protocol 1.3 …" and "Earlier-round objections never re-judged: 5." | — |
-| 4b | R06 recorded · Decision | — | "supported — on HYPHAE RECALL evidence"; "This run was recorded before protocol 1.3: each round's evaluation judged only that round's objections, and the policy read the final round only."; "Earlier-round objections never re-judged: 7."; the archive's note on the log (MANIFEST.json) | the outcome badge alone in a close-up: the never-re-judged line must be in the same frame |
+| 4a′ | F03 recorded · Decision (fallback) | — | "contested — on HYPHAE RECALL evidence"; the counts (5 claims, 5 corroborated; 6 objections unresolved); the open objections with their kinds; "This run was recorded before protocol 1.3 …" and "Earlier-round objections never re-judged: 5." | `claim-15` (it restates seeded record 5, which misdescribes the fixture test), unless the record-5 caption of 4b is on screen with it |
+| 4b | R06 recorded · Decision | — | "supported — on HYPHAE RECALL evidence"; "This run was recorded before protocol 1.3: each round's evaluation judged only that round's objections, and the policy read the final round only."; "Earlier-round objections never re-judged: 7."; the archive's note on the log (MANIFEST.json); the burned-in caption "Cited record 5 misdescribes the fixture test: docs/evaluation.md, Corrections 3" for as long as the tab is on screen (the portal does not show this caveat) | the outcome badge alone in a close-up: the never-re-judged line must be in the same frame |
 
 If the never-re-judged count on screen differs from `research/README.md` (F03 5,
 R06 7), stop and report it; do not record over it.
@@ -91,9 +91,9 @@ R06 7), stop and report it; do not record over it.
 
 | # | Route · tab | State | Must be visible | Must not appear |
 |---|---|---|---|---|
-| 5a | R06 recorded · Audit trail **[PENDING: CHAIN-BROWSER]** | after "Check the chain" | "Chain checks out" and its sentence ("All … records hash and link as recorded, and this run's segment matches what the views hold."); the scope note that the run is one segment of a multi-run log | — |
+| 5a | R06 recorded · Audit trail **[PENDING: CHAIN-BROWSER]** | after "Check the chain" | "Chain checks out" and its sentence ("All … records hash and link as recorded, and this run's segment matches what the views hold."); the scope note that the run is one segment of a multi-run log; the file SHA-256 line ("… against the digest the archive's manifest pins."); the limits note ("… The chain is unsigned: a log rewritten and re-hashed as a whole would check out too, …") | the limits note cropped away |
 | 5a′ | terminal (fallback) | — | the `consensus-api verify … --run run-d4d214a4-…` command and its output, nothing else | the prompt's user name or machine path, other windows, environment variables |
-| 5b | live run · Meta API (fallback: R06 · Meta API) | — | one row per call: role, provider and model, request id, latency, tokens, attempts; the totals | — |
+| 5b | live run · Meta API (fallback: R06 · Meta API) | — | one row per call: role, model via provider, recorded request id, latency, input/output/reasoning tokens; the totals; "No row carries the output bound, the attempt count or the schema and prompt digests: the public surface does not publish them."; "Request ids are the ones the runtime recorded for Meta's API; the logs are unsigned, so they show what was recorded, not that Meta returned it." | any narration or caption naming attempts |
 | 5c | live run · Decision (fallback: the guided run) | Approve clicked | "Decisions on this public portal carry no operational authority: approving or rejecting records your choice on this run and executes nothing."; "Decision recorded: approved by … on …" | a note with personal data |
 
 ## Beat 6 · 2:45–3:00 · Close

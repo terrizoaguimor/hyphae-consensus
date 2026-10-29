@@ -52,6 +52,17 @@ on 2026-10-27 against the packages, their repositories and Meta's own pages.
    (opacity and transform only), `@xyflow/react` 12 with dagre for a read-only,
    keyboard-accessible claim/evidence graph (attribution badge kept; elkjs rejected for
    its EPL/GPL license).
+   **Note 2026-10-29:** the graph library was not adopted. Neither `@xyflow/react` nor
+   dagre is in `apps/web/package.json`, `apps/web/pnpm-lock.yaml` or the web table of
+   `THIRD_PARTY_NOTICES.md`, and no source file imports them; no view draws a node graph
+   or an SVG. The relations are shown as semantic HTML instead: the Evidence tab is an
+   ordered list of retrieved records (`hc-evidence-list`), each with what its proof
+   covers and its verifications grouped by round (`hc-rounds`), plus the verifications
+   that name no retrieved record and the failed retrievals; the Explorer and Audit tabs
+   and the Meta API invocations are tables (`hc-timeline`); the Proof inspector is an
+   ordered list of proofs (`hc-proof-list`); the Decision tab lists the open objections
+   (`src/components/run/`). Lists and tables are keyboard and screen-reader accessible
+   without a graph widget and need no attribution badge.
 
 6. **Honesty is data, not styling.** Provenance axes come only from server fields derived
    from chained records (`model`, `evidence`, `source`, per-frame `delivery`); LIVE is

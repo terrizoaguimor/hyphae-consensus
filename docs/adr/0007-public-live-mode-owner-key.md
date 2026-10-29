@@ -41,6 +41,20 @@ and the account holder pays any overage.
    take a preset id; presets are the task texts the recorded live batteries ran, verbatim,
    against project `demo-repo`. Guided runs take a scenario id. Nothing a visitor types
    can reach a model, so the portal is an application, not model access.
+   **Note 2026-10-29:** the code accepts one piece of visitor free text, the optional
+   decision note of `POST /api/v1/runs/{id}/decision` (`DecisionRequest.note` in
+   `crates/consensus-api/src/api/types.rs`): at most 2,000 characters, no control
+   characters other than newline, tab and carriage return, no bidirectional embedding,
+   override or isolate controls (U+202A to U+202E, U+2066 to U+2069), and no zero-width
+   space, word joiner or byte-order mark (U+200B, U+2060, U+FEFF); the zero-width
+   joiners U+200C and U+200D and the directional marks are accepted (`check_text`). It is
+   required, non-blank, to approve a `blocked` or `abstained` run (`runs.rs`,
+   `OverrideNoteRequired`). The decision is recorded after deliberation has ended: the
+   note is stored in the `HumanAuthorization` carried by the `HumanDecisionRecorded`
+   event, shown in the public run view and the receipt, and never sent to a model
+   (`runs.rs::RunManager::decide`, the server's path from `api/v1.rs::decide`, appends
+   that event and makes no model call). "Nothing a visitor
+   types can reach a model" holds; "no visitor free text anywhere" does not.
 
 4. **Admission.** Turnstile verified server-side (success, action and hostname checked,
    fail closed on outage); an 18+ attestation; per-client windows keyed by IPv4 /32 or
@@ -62,6 +76,10 @@ and the account holder pays any overage.
    lifetime, of which about $15 is reserved for the judge lane.** Daily cap × exposed
    days must not exceed the lifetime cap, which must not exceed the remaining credit.
    Measured cost on the final code: $0.81 mean, $0.98 max per run.
+   **Note 2026-10-29:** "about $15" is exactly $15.00 in the code: the default of
+   `CONSENSUS_LIVE_JUDGE_USD` (`defaults::JUDGE_USD = "15.00"` in
+   `crates/consensus-api/src/live/config.rs`), a slice inside the `60.00` lifetime cap,
+   next to the `10.00` daily cap; the judge daily cap defaults to the slice itself.
 
 6. **Request parameters.** `max_completion_tokens` (default 16,000; observed maximum
    output 10,692; reasoning tokens count as output), `finish_reason` and `refusal`

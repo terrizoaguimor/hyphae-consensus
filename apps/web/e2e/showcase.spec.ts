@@ -22,7 +22,7 @@ import { AXE_TAGS, blocking, type ScanSummary, summarize, writeScans } from "./a
 import { mockApi, recordedRun } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
-import { expectNoLive, liveWord, takeProblem } from "./helpers";
+import { expectNoLiveOnPage, liveWord, liveWordHits, takeProblem } from "./helpers";
 import { archiveEntry, logSegment, manifestRun, metaRequestIds, researchBytes } from "./research";
 
 type Json = Record<string, unknown>;
@@ -51,6 +51,15 @@ function entries() {
   const r06 = archiveEntry("R06", live("R06"));
   return { c01, l01, r06, list: [c01, l01, r06, F03] };
 }
+
+/**
+ * The archive's own names a recorded view may interpolate into a sentence as
+ * plain text (battery ids such as live-battery-2026-10-27, log paths): data,
+ * not labels, so the whole-page LIVE scan cuts them out (and only them).
+ */
+const IDENTIFIERS = [
+  ...new Set(entries().list.flatMap((entry) => [String(entry.battery), String(entry.file)])),
+];
 
 async function openShowcase(page: Page, locale: Locale) {
   await page.goto(localePath(locale, "showcase"));
@@ -100,7 +109,7 @@ test("the showcase lists the archive as RECORDED, by battery, every outcome next
   await expect(page.locator("[data-manifest-check='matches']")).toHaveText(t("en", "Showcase.manifest.matches"));
   // The archive's own note on the 2026-10-26 battery names the cause of its blocked runs.
   await expect(battery.locator("[data-archive-note] blockquote")).toContainText("a deployment misconfiguration");
-  await expectNoLive(page, "en");
+  await expectNoLiveOnPage(page, "en", IDENTIFIERS);
 });
 
 test("a recorded run opens read-only in RECORDED mode, never as running @smoke", async ({ page }) => {
@@ -129,7 +138,7 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
     "href",
     "/research/2026-10-27/live-battery-2026-10-27.jsonl",
   );
-  await expectNoLive(page, "en");
+  await expectNoLiveOnPage(page, "en", IDENTIFIERS);
 
   // Evidence and proofs: verified at run time, re-verifiable chain, not these proofs.
   await page.getByRole("tab", { name: t("en", "Run.tabs.evidence") }).click();
@@ -138,7 +147,7 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
   await expect(reading).toContainText("by hyphae proof verify");
   await expect(reading).toContainText("so the public can re-verify the event chain, not these proofs");
   await expect(page.locator("[data-coverage='unrecorded']").first()).toContainText("recorded before schema 1.3");
-  await expectNoLive(page, "en");
+  await expectNoLiveOnPage(page, "en", IDENTIFIERS);
   await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
   await expect(page.locator("[data-limits-translated]")).toBeVisible();
   await expect(page.locator("[data-proof-plain='accepted'] [data-proof-reading='accepted']").first()).toBeVisible();
@@ -155,7 +164,7 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
   await page.getByRole("tab", { name: t("en", "Run.tabs.meta") }).click();
   const ids = (r06.provenance as { meta_request_ids: string[] }).meta_request_ids;
   await expect(page.locator("[data-invocation-scripted='false']").first()).toContainText(String(ids[0]));
-  await expectNoLive(page, "en");
+  await expectNoLiveOnPage(page, "en", IDENTIFIERS);
   // Nothing streams and nothing of this server's runs is asked for.
   expect(mock.calls.filter((c) => c.path.includes("/events"))).toEqual([]);
   expect(mock.calls.filter((c) => c.path.startsWith("/api/v1/runs/"))).toEqual([]);
@@ -184,7 +193,7 @@ test("a recorded run's archived log is checked in this browser against the pinne
   await expect(result("head")).toContainText(t("en", "Run.chain.verdicts.pass"));
   await expect(result("count")).toContainText(t("en", "Run.chain.verdicts.pass"));
   await expect(verdict).toContainText(t("en", "Run.chain.limits"));
-  await expectNoLive(page, "en");
+  await expectNoLiveOnPage(page, "en", IDENTIFIERS);
 });
 
 test("a flipped byte in the archived log fails at the record that holds it", async ({ page }) => {
@@ -246,7 +255,7 @@ test("a run blocked because no proof could be generated reads so, with the archi
   await expect(page.locator("[data-proof-plain='generation_failed']").first()).toHaveText(
     t("en", "Run.proofs.plain.generationFailed"),
   );
-  await expectNoLive(page, "en");
+  await expectNoLiveOnPage(page, "en", IDENTIFIERS);
 });
 
 test("a schema-1.0 run reads pre-1.1, unchained", async ({ page }) => {
@@ -259,7 +268,7 @@ test("a schema-1.0 run reads pre-1.1, unchained", async ({ page }) => {
   await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
   await expect(page.locator("[data-chain-scope='unchained']")).toHaveText(t("en", "Run.audit.scopes.unchained"));
   await expect(page.locator("[data-chain-field='head']")).toHaveText(t("en", "Run.audit.noHead"));
-  await expectNoLive(page, "en");
+  await expectNoLiveOnPage(page, "en", IDENTIFIERS);
 });
 
 test("a recorded run the listing does not name offers no file it cannot name", async ({ page }) => {
@@ -274,7 +283,7 @@ test("a recorded run the listing does not name offers no file it cannot name", a
   );
   await expect(page.locator("[data-cli]")).toHaveCount(0);
   await expect(page.locator("[data-chain-check]")).toHaveCount(0);
-  await expectNoLive(page, "en");
+  await expectNoLiveOnPage(page, "en", IDENTIFIERS);
 });
 
 test("a showcase that cannot be read is said, with a retry", async ({ page, pageProblems }) => {
@@ -311,14 +320,93 @@ for (const locale of locales) {
     await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })] });
     await openShowcase(page, locale);
     await expect(page.locator("[data-showcase-run]")).toHaveCount(4);
-    await expectNoLive(page, locale);
+    await expectNoLiveOnPage(page, locale, IDENTIFIERS);
     await openRecorded(page, locale, String(r06.run_id));
     await expect(page.locator("[data-run-field='state']")).toHaveText(t(locale, "Showcase.run.awaiting"));
-    await expectNoLive(page, locale);
+    await expectNoLiveOnPage(page, locale, IDENTIFIERS);
     for (const tab of ["evidence", "proofs", "audit", "meta", "explorer"] as const) {
       await page.getByRole("tab", { name: t(locale, `Run.tabs.${tab}`) }).click();
-      await expectNoLive(page, locale);
+      await expectNoLiveOnPage(page, locale, IDENTIFIERS);
     }
+  });
+
+  test(`no LIVE word in any text or accessible name of a recorded run, in every tab (${locale})`, async ({ page }) => {
+    test.setTimeout(180_000);
+    const { c01, l01, r06, list } = entries();
+    await mockApi(page, {
+      showcase: list,
+      recordedRuns: [
+        recordedRun(r06, { base: "retry" }),
+        recordedRun(l01, { base: "invalid_proof", generationFailed: true }),
+        recordedRun(c01, { base: "retry" }),
+      ],
+    });
+    // A run with its archived log checked here, one blocked because no proof
+    // could be generated (with the archive's note), and an unchained one.
+    for (const [entry, marker] of [
+      [r06, "[data-recorded-run]"],
+      [l01, "[data-archive-label='generation-failed']"],
+      [c01, "[data-archive-label='unchained']"],
+    ] as const) {
+      await openRecorded(page, locale, String(entry.run_id));
+      await expect(page.locator(marker)).toBeVisible();
+      await expect(page.getByRole("tab")).toHaveCount(6);
+      await expectNoLiveOnPage(page, locale, IDENTIFIERS);
+      for (const tab of ["decision", "explorer", "evidence", "proofs", "audit", "meta"] as const) {
+        await page.getByRole("tab", { name: t(locale, `Run.tabs.${tab}`) }).click();
+        await expect(page.locator(`[data-tab='${tab}']`)).toBeVisible();
+        if (tab === "audit" && entry === r06) {
+          // The chain checked in this browser, with its verdict on screen.
+          await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+          await page.getByRole("button", { name: t(locale, "Run.chain.run") }).click();
+          await expect(page.locator("[data-chain-verdict='pass']")).toBeVisible();
+        }
+        await expectNoLiveOnPage(page, locale, IDENTIFIERS);
+      }
+    }
+  });
+
+  test(`the whole-page LIVE scan sees text, hidden badges and accessible names, and skips only identifiers (${locale})`, async ({
+    page,
+  }) => {
+    const { r06, list } = entries();
+    await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })] });
+    await openRecorded(page, locale, String(r06.run_id));
+    const word = t(locale, "Provenance.live.label");
+    expect(await liveWordHits(page.locator("body"), locale, IDENTIFIERS)).toEqual([]);
+    // What the scan must not report: an interpolated battery id, code, the run's quoted words.
+    await page.locator("[data-recorded-run]").evaluate((section, w) => {
+      const add = (html: string) => section.insertAdjacentHTML("beforeend", html);
+      add(`<p data-probe>battery live-battery-2026-10-27</p>`);
+      add(`<p data-probe><code>${w} id</code></p>`);
+      add(`<figure data-probe data-untrusted="model"><blockquote>${w} quoted</blockquote></figure>`);
+    }, word);
+    expect(await liveWordHits(page.locator("body"), locale, IDENTIFIERS)).toEqual([]);
+    // What it must report: a sentence, a hidden badge, an aria-label, a title.
+    await page.locator("[data-recorded-run]").evaluate((section, w) => {
+      const add = (html: string) => section.insertAdjacentHTML("beforeend", html);
+      add(`<p data-probe>A run, ${w.toLowerCase()} here.</p>`);
+      add(`<span data-probe hidden class="hc-badge">${w}</span>`);
+      add(`<button data-probe type="button" aria-label="Open ${w}"></button>`);
+      add(`<span data-probe title="${w} title"></span>`);
+    }, word);
+    expect(await liveWordHits(page.locator("body"), locale, IDENTIFIERS)).toEqual([
+      `text: A run, ${word.toLowerCase()} here.`,
+      `text: ${word}`,
+      `aria-label: Open ${word}`,
+      `title: ${word} title`,
+    ]);
+  });
+
+  test(`no LIVE word in any text or accessible name of the Overview's figures (${locale})`, async ({ page }) => {
+    const { list } = entries();
+    await mockApi(page, { showcase: list });
+    await page.goto(localePath(locale, ""));
+    await hydrated(page);
+    const figures = page.locator("[data-figures='ready']");
+    await expect(figures).toBeVisible();
+    await expect(figures.locator("[data-figures-models]")).toContainText(t(locale, "Provenance.metaModel.label"));
+    expect(await liveWordHits(figures, locale, IDENTIFIERS)).toEqual([]);
   });
 }
 

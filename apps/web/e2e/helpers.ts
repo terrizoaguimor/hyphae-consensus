@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Assertions the API specs share (api.spec.ts, showcase.spec.ts): the
-// honesty check that nothing of the LIVE family is on a page, the run page
+// honesty checks that nothing of the LIVE family is on a page (its labels, or
+// any text and accessible name of it at all), the run page
 // opener, and the bookkeeping of the API errors a test provokes on purpose.
 
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { runPath } from "../src/lib/site";
 
@@ -55,6 +56,80 @@ export async function expectNoLive(page: Page, locale: Locale) {
   for (const text of labels) {
     expect(text, `a label with the LIVE word: ${text}`).not.toMatch(liveWord(locale));
   }
+}
+
+/**
+ * Every piece of text under `root` that carries the locale's LIVE word: each
+ * text node (hidden ones too, since a tab panel or a badge may be hidden
+ * from the eye but not from a screen reader) and every attribute a person or
+ * an assistive technology reads (aria-label, aria-description,
+ * aria-roledescription, aria-valuetext, title, alt, placeholder, the value of
+ * a button-like input), plus the document title when the root is the body.
+ *
+ * Not scanned, because none of it is a label: scripts and styles (the
+ * framework's payload carries the whole catalog), identifiers shown as code
+ * (code, pre, kbd, samp), and the quoted text of the run itself (the
+ * blockquote of an UntrustedText figure: a record's or a model's own words,
+ * English whatever the locale). `identifiers` are the archive's own names
+ * that a sentence interpolates as plain text (battery ids such as
+ * live-battery-2026-10-27, log paths); they are cut out before matching.
+ */
+export async function liveWordHits(
+  root: Locator,
+  locale: Locale,
+  identifiers: readonly string[] = [],
+): Promise<string[]> {
+  const texts = await root.evaluate((element) => {
+    const copy = element.cloneNode(true) as HTMLElement;
+    copy
+      .querySelectorAll("script, style, template, code, pre, kbd, samp, [data-untrusted] > blockquote")
+      .forEach((node) => node.remove());
+    const found: string[] = [];
+    if (element === document.body) {
+      found.push(`title: ${document.title}`);
+    }
+    const walker = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const text = node.textContent ?? "";
+      if (text.trim() !== "") {
+        found.push(`text: ${text}`);
+      }
+    }
+    const attributes = [
+      "aria-label",
+      "aria-description",
+      "aria-roledescription",
+      "aria-valuetext",
+      "title",
+      "alt",
+      "placeholder",
+    ];
+    for (const node of [copy, ...copy.querySelectorAll("*")]) {
+      for (const name of attributes) {
+        const value = node.getAttribute(name);
+        if (value !== null && value.trim() !== "") {
+          found.push(`${name}: ${value}`);
+        }
+      }
+      if (node instanceof HTMLInputElement && ["button", "submit", "reset"].includes(node.type)) {
+        found.push(`value: ${node.value}`);
+      }
+    }
+    return found;
+  });
+  const longestFirst = [...identifiers].sort((a, b) => b.length - a.length);
+  const word = liveWord(locale);
+  return texts.filter((text) => word.test(longestFirst.reduce((rest, id) => rest.split(id).join(" "), text)));
+}
+
+/**
+ * Everything expectNoLive checks, and no text or accessible name anywhere on
+ * the page carrying the locale's LIVE word (see liveWordHits): for the views
+ * of a recorded run and the showcase, where nothing may read LIVE at all.
+ */
+export async function expectNoLiveOnPage(page: Page, locale: Locale, identifiers: readonly string[] = []) {
+  await expectNoLive(page, locale);
+  expect(await liveWordHits(page.locator("body"), locale, identifiers), `the LIVE word on ${page.url()}`).toEqual([]);
 }
 
 export async function openRun(page: Page, locale: Locale, runId = RUN_ID) {

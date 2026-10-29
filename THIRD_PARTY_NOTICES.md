@@ -429,8 +429,10 @@ listed in the table above.
 
 ## Fonts
 
-- Inter (The Inter Project Authors), SIL Open Font License 1.1.
-- JetBrains Mono (JetBrains), SIL Open Font License 1.1.
+- Inter: Copyright (c) 2016 The Inter Project Authors
+  (https://github.com/rsms/inter), SIL Open Font License 1.1.
+- JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors
+  (https://github.com/JetBrains/JetBrainsMono), SIL Open Font License 1.1.
 
 No font file is committed to the repository. `apps/web/src/app/fonts.ts`
 loads both through `next/font/google`, which downloads the files at build
@@ -438,9 +440,15 @@ time and serves them from the static export (`/_next/static/media`), so
 browsers never contact Google; Astryx's theme-neutral `fonts.css` (Figtree,
 loaded from Google at runtime) is not imported. The OFL permits bundling with
 software provided the copyright notice and the license accompany the copies.
-The OFL text is not yet shipped with the static export; it has to be added
-before release. The copyright holders above are the ones the upstream
-projects name; they were not checked against the downloaded font files.
+The license texts ship with the static export:
+`apps/web/public/licenses/Inter-OFL.txt` and
+`apps/web/public/licenses/JetBrainsMono-OFL.txt`, served as
+`/licenses/Inter-OFL.txt` and `/licenses/JetBrainsMono-OFL.txt`. Each is the
+standard OFL 1.1 text under the copyright line and header of the upstream
+project's own license file (`LICENSE.txt` of rsms/inter, `OFL.txt` of
+JetBrains/JetBrainsMono, read on 2026-10-29); neither declares a Reserved
+Font Name. The copyright lines are the ones the upstream projects state; they
+were not checked against the name tables of the downloaded font files.
 <!-- hand-written:end -->
 
 ## Hyphae

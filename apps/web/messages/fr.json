@@ -940,7 +940,7 @@
     }
   },
   "Showcase": {
-    "lead": "Des exécutions réelles enregistrées les 26 et 27 octobre 2026, lues depuis une archive qui les conserve à l’identique.",
+    "lead": "Des exécutions enregistrées, scénarisées ou menées avec le modèle de Meta, lues depuis une archive qui les conserve à l’identique.",
     "planned": {
       "recorded": "rejouera chaque exécution depuis l’archive, avec l’étiquette ENREGISTRÉ ; un rejeu n’est jamais présenté comme une exécution en direct ;",
       "corrections": "affichera les corrections datées qui s’appliquent à chaque exécution ;",
@@ -976,7 +976,12 @@
       "banner": "Exécution {label} de la batterie {battery}, affichée depuis l’archive de recherche : rien n’est diffusé, rien ne s’exécute et aucune décision ne peut être enregistrée ici.",
       "bannerNoEntry": "Une exécution de l’archive de recherche, affichée en lecture seule : rien n’est diffusé, rien ne s’exécute et aucune décision ne peut être enregistrée ici.",
       "unchainedNote": "Ses enregistrements ont été écrits avant l’existence de la chaîne de hachage (schéma 1.0) : rien en eux ne révèle une altération, et sa recommandation est affichée telle qu’enregistrée, sans être redérivée.",
-      "generationFailed": "{count, plural, =0 {Aucune génération de preuve n’a échoué.} one {Bloquée parce qu’aucune preuve n’a pu être générée en amont pour le # enregistrement dont la preuve est invalide (il signale une erreur de preuve) : cet état enregistre un échec à produire la preuve, pas une vérification qui aurait trouvé l’enregistrement modifié. La note de l’archive elle-même sur ce journal en donne la cause.} many {Bloquée parce qu’aucune preuve n’a pu être générée en amont pour les # d’enregistrements dont les preuves sont invalides (chacun signale une erreur de preuve) : cet état enregistre un échec à produire les preuves, pas une vérification qui aurait trouvé un enregistrement modifié. La note de l’archive elle-même sur ce journal en donne la cause.} other {Bloquée parce qu’aucune preuve n’a pu être générée en amont pour les # enregistrements dont les preuves sont invalides (chacun signale une erreur de preuve) : cet état enregistre un échec à produire les preuves, pas une vérification qui aurait trouvé un enregistrement modifié. La note de l’archive elle-même sur ce journal en donne la cause.}}",
+      "generationFailed": "{count, plural, =0 {Aucune génération de preuve n’a échoué.} one {Bloquée parce qu’aucune preuve n’a pu être générée en amont pour le # enregistrement dont la preuve est invalide (il signale une erreur de preuve) : cet état enregistre un échec à produire la preuve, pas une vérification qui aurait trouvé l’enregistrement modifié.} many {Bloquée parce qu’aucune preuve n’a pu être générée en amont pour les # d’enregistrements dont les preuves sont invalides (chacun signale une erreur de preuve) : cet état enregistre un échec à produire les preuves, pas une vérification qui aurait trouvé un enregistrement modifié.} other {Bloquée parce qu’aucune preuve n’a pu être générée en amont pour les # enregistrements dont les preuves sont invalides (chacun signale une erreur de preuve) : cet état enregistre un échec à produire les preuves, pas une vérification qui aurait trouvé un enregistrement modifié.}}",
+      "generationFailedNote": {
+        "shown": "La note de l’archive elle-même sur ce journal, affichée ci-dessous, en donne la cause.",
+        "unread": "Le manifeste de l’archive n’a pas pu être lu ou interprété dans ce navigateur ; sa note sur ce journal n’est donc pas affichée.",
+        "differs": "Les octets du manifeste de l’archive ne donnent pas le SHA-256 publié ; sa note sur ce journal n’est donc pas affichée."
+      },
       "awaiting": "arrêtée à son point de décision ; aucune décision n’a été enregistrée",
       "back": "Retour à la vitrine"
     }

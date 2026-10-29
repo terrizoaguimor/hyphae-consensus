@@ -940,7 +940,7 @@
     }
   },
   "Showcase": {
-    "lead": "Execuções reais gravadas em 26 e 27 de outubro de 2026, lidas a partir de um arquivo que as preserva sem alterações.",
+    "lead": "Execuções gravadas, roteirizadas ou com o modelo da Meta, lidas a partir de um arquivo que as preserva sem alterações.",
     "planned": {
       "recorded": "reproduzir cada execução a partir do arquivo, com o rótulo GRAVADO; uma reprodução nunca é apresentada como uma execução ao vivo;",
       "corrections": "mostrar as correções datadas que se aplicam a cada execução;",
@@ -976,7 +976,12 @@
       "banner": "Execução {label} da bateria {battery}, mostrada a partir do arquivo de pesquisa: nada é transmitido, nada é executado e nenhuma decisão pode ser registrada aqui.",
       "bannerNoEntry": "Uma execução do arquivo de pesquisa, mostrada somente para leitura: nada é transmitido, nada é executado e nenhuma decisão pode ser registrada aqui.",
       "unchainedNote": "Os registros dela foram escritos antes de a cadeia de hashes existir (esquema 1.0): nada neles evidencia adulteração, e a recomendação é mostrada como foi registrada, sem ser derivada de novo.",
-      "generationFailed": "{count, plural, =0 {Nenhuma geração de prova falhou.} one {Bloqueada porque nenhuma prova pôde ser gerada na origem para o # registro cuja prova aparece como inválida (ele informa um erro de prova): esse estado registra uma falha em produzir a prova, não uma verificação que tenha encontrado o registro alterado. A nota do próprio arquivo sobre este log nomeia a causa.} many {Bloqueada porque nenhuma prova pôde ser gerada na origem para os # de registros cujas provas aparecem como inválidas (cada um informa um erro de prova): esse estado registra uma falha em produzir as provas, não uma verificação que tenha encontrado um registro alterado. A nota do próprio arquivo sobre este log nomeia a causa.} other {Bloqueada porque nenhuma prova pôde ser gerada na origem para os # registros cujas provas aparecem como inválidas (cada um informa um erro de prova): esse estado registra uma falha em produzir as provas, não uma verificação que tenha encontrado um registro alterado. A nota do próprio arquivo sobre este log nomeia a causa.}}",
+      "generationFailed": "{count, plural, =0 {Nenhuma geração de prova falhou.} one {Bloqueada porque nenhuma prova pôde ser gerada na origem para o # registro cuja prova aparece como inválida (ele informa um erro de prova): esse estado registra uma falha em produzir a prova, não uma verificação que tenha encontrado o registro alterado.} many {Bloqueada porque nenhuma prova pôde ser gerada na origem para os # de registros cujas provas aparecem como inválidas (cada um informa um erro de prova): esse estado registra uma falha em produzir as provas, não uma verificação que tenha encontrado um registro alterado.} other {Bloqueada porque nenhuma prova pôde ser gerada na origem para os # registros cujas provas aparecem como inválidas (cada um informa um erro de prova): esse estado registra uma falha em produzir as provas, não uma verificação que tenha encontrado um registro alterado.}}",
+      "generationFailedNote": {
+        "shown": "A nota do próprio arquivo sobre este log, mostrada abaixo, nomeia a causa.",
+        "unread": "O manifesto do arquivo não pôde ser lido ou interpretado neste navegador, então a nota dele sobre este log não é mostrada.",
+        "differs": "Os bytes do manifesto do arquivo não dão o SHA-256 publicado, então a nota dele sobre este log não é mostrada."
+      },
       "awaiting": "parada no seu ponto de decisão; nenhuma decisão foi registrada",
       "back": "Voltar à vitrine"
     }

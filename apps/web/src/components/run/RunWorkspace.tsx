@@ -349,6 +349,36 @@ function Workspace({
 }
 
 /**
+ * What the generation-failed sentence may say about the archive's note on
+ * the run's log: that it names the cause only when the note is on the page
+ * ("shown"); that it is withheld when the manifest could not be read or
+ * parsed ("unread") or its bytes do not match the published digest
+ * ("differs"); nothing while the manifest is still being checked, or when
+ * there is no listing entry or no note for the log to refer to.
+ */
+function generationFailedNote(
+  data: RecordedRunData,
+  entry: ShowcaseEntryV1 | null,
+  note: string | null,
+): "shown" | "unread" | "differs" | null {
+  if (note !== null) {
+    return "shown";
+  }
+  if (entry === null || data.archive.status !== "ready") {
+    return null;
+  }
+  const state = data.archive.manifest;
+  switch (state.status) {
+    case "loading":
+      return null;
+    case "error":
+      return "unread";
+    case "ready":
+      return !state.matches ? "differs" : state.manifest === null ? "unread" : null;
+  }
+}
+
+/**
  * What the archive data says about a recorded run: that it is recorded and
  * read-only, the pre-1.1 label of an unchained run, the reading of a run
  * blocked because no proof could be generated upstream, and the archive
@@ -381,6 +411,7 @@ function RecordedNotes({
       ? data.archive.manifest.manifest
       : null;
   const note = entry === null ? null : manifestNote(manifest, entry.file);
+  const noteReference = generationFailedNote(data, entry, note);
   return (
     <section className="hc-recorded" aria-labelledby="recorded-heading" data-recorded-run>
       <h3 id="recorded-heading">
@@ -397,7 +428,15 @@ function RecordedNotes({
         </p>
       ) : null}
       {summary?.recommendation === "blocked" && failures.length > 0 ? (
-        <p data-archive-label="generation-failed">{t("generationFailed", { count: failures.length })}</p>
+        <p data-archive-label="generation-failed">
+          {t("generationFailed", { count: failures.length })}
+          {noteReference === null ? null : (
+            <>
+              {" "}
+              <span data-archive-note-reference={noteReference}>{t(`generationFailedNote.${noteReference}`)}</span>
+            </>
+          )}
+        </p>
       ) : null}
       {note === null ? null : (
         <div data-archive-note>

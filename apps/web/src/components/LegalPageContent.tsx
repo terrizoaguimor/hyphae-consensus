@@ -2,8 +2,9 @@
 //
 // Terms of use, Privacy notice, Limitations and About share one layout:
 // title, lead, the Draft badge and notice while LEGAL_TEXT_STATUS is "draft",
-// the date, and the catalog's sections (messages/legal/<locale>.json). About
-// appends its source-repository section through `children`.
+// the day the page's own text last changed (LEGAL_TEXT_CHANGED), and the
+// catalog's sections (messages/legal/<locale>.json). About appends its
+// source-repository section through `children`.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { getTranslations } from "next-intl/server";
@@ -14,7 +15,7 @@ import {
   CONTACT_EMAIL,
   HOSTING_COUNTRY,
   LEGAL_TEXT_STATUS,
-  LEGAL_TEXT_UPDATED,
+  LEGAL_TEXT_CHANGED,
   type LegalPage,
 } from "@/lib/site";
 
@@ -51,7 +52,7 @@ export async function LegalPageContent({
           <p className="hc-draft-notice">{t("Legal.draftNotice")}</p>
         ) : null}
         <p className="hc-supporting">
-          {t("Legal.updated", { date: LEGAL_TEXT_UPDATED })}
+          {t("Legal.updated", { date: LEGAL_TEXT_CHANGED[page] })}
         </p>
       </PageHeader>
       <ContentSections

@@ -940,7 +940,7 @@
     }
   },
   "Showcase": {
-    "lead": "Real runs recorded on 26 and 27 October 2026, read from a verbatim archive.",
+    "lead": "Recorded runs, scripted ones and runs of Meta’s model, read from a verbatim archive.",
     "planned": {
       "recorded": "replay each run from the archive, labeled RECORDED; a replay is never presented as a live run;",
       "corrections": "show the dated corrections that apply to each run;",
@@ -976,7 +976,12 @@
       "banner": "Run {label} of battery {battery}, shown from the research archive: nothing streams, nothing runs, and no decision can be recorded here.",
       "bannerNoEntry": "A run of the research archive, shown read-only: nothing streams, nothing runs, and no decision can be recorded here.",
       "unchainedNote": "Its records were written before the hash chain existed (schema 1.0): nothing in them is tamper-evident, and its recommendation is shown as recorded, not re-derived.",
-      "generationFailed": "{count, plural, =0 {No proof generation failed.} one {Blocked because no proof could be generated upstream for the # record whose proof reads invalid (it reports a proof error): that status records a failure to produce a proof, not a check that found the record altered. The archive’s own note on this log names the cause.} other {Blocked because no proof could be generated upstream for the # records whose proofs read invalid (each reports a proof error): that status records a failure to produce proofs, not a check that found a record altered. The archive’s own note on this log names the cause.}}",
+      "generationFailed": "{count, plural, =0 {No proof generation failed.} one {Blocked because no proof could be generated upstream for the # record whose proof reads invalid (it reports a proof error): that status records a failure to produce a proof, not a check that found the record altered.} other {Blocked because no proof could be generated upstream for the # records whose proofs read invalid (each reports a proof error): that status records a failure to produce proofs, not a check that found a record altered.}}",
+      "generationFailedNote": {
+        "shown": "The archive’s own note on this log, shown below, names the cause.",
+        "unread": "The archive’s manifest could not be read or parsed in this browser, so its note on this log is not shown.",
+        "differs": "The archive manifest’s bytes do not hash to the published SHA-256, so its note on this log is not shown."
+      },
       "awaiting": "stopped at its decision point; no decision was recorded",
       "back": "Back to the showcase"
     }

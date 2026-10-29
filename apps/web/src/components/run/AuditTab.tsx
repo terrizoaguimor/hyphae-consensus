@@ -12,7 +12,10 @@
 // browser over the verbatim log (ChainCheck). The records and the receipt
 // shown here are display copies (the public view drops operator-only fields
 // and the browser re-serializes), so every one of them says it is not the
-// hashed bytes; only the verbatim log is.
+// hashed bytes; only the verbatim log is. A recorded run's receipt is this
+// server's rebuild from the archived log (generated now, today's limitations
+// text); RunTimeReceiptNote says so next to its download and links the run
+// record that holds the receipt downloaded at run time.
 
 import { Button } from "@astryxdesign/core/Button";
 import { useFormatter, useTranslations } from "next-intl";
@@ -34,6 +37,7 @@ import { mergeEvents } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ChainCheck } from "./ChainCheck";
+import { type RunTimeReceiptReader, RunTimeReceiptNote } from "./RunTimeReceipt";
 import type { RunReceipt } from "./useReceipt";
 
 type AuditTabProps = {
@@ -45,12 +49,14 @@ type AuditTabProps = {
   receipt: RunReceipt;
   /** The showcase entry of a recorded run (its research file and SHA-256); null for a run of this server. */
   archive: ShowcaseEntryV1 | null;
+  /** The receipt a recorded run's record holds, read on request. */
+  runTime: RunTimeReceiptReader;
 };
 
 /** Authorities with their own word (`Run.explorer.authority.<value>`). */
 const AUTHORITIES = ["operator", "public_demo", "unspecified"] as const;
 
-export function AuditTab({ runId, detail, frames, detailError, summary, receipt, archive }: AuditTabProps) {
+export function AuditTab({ runId, detail, frames, detailError, summary, receipt, archive, runTime }: AuditTabProps) {
   const t = useTranslations("Run.audit");
   const events = useMemo(() => mergeEvents(detail, frames), [detail, frames]);
   const recorded = summary?.provenance.source === "research_archive";
@@ -181,6 +187,13 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
             </a>
           </li>
         </ul>
+        {recorded ? (
+          <RunTimeReceiptNote
+            archive={archive}
+            served={state.status === "ready" ? state.receipt : null}
+            reader={runTime}
+          />
+        ) : null}
         {log === null && recorded ? null : (
           <>
             <p>{log === null ? t("cliOperator") : t("cli")}</p>
@@ -203,7 +216,7 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
       <section className="hc-section" aria-labelledby="audit-receipt" data-audit-receipt={state.status}>
         <h4 id="audit-receipt">{t("receiptHeading")}</h4>
         {state.status === "ready" ? (
-          <ReceiptSummary receipt={state.receipt} onReload={receipt.reload} />
+          <ReceiptSummary receipt={state.receipt} recorded={recorded} onReload={receipt.reload} />
         ) : state.status === "error" ? (
           <>
             <p>{t("receiptFailed")}</p>
@@ -224,8 +237,18 @@ function linkText(value: string): string {
   return /^[0-9a-f]{64}$/.test(value) ? `${digestPrefix(value) ?? value}…` : value;
 }
 
-function ReceiptSummary({ receipt, onReload }: { receipt: RunReceiptV2; onReload: () => void }) {
+function ReceiptSummary({
+  receipt,
+  recorded,
+  onReload,
+}: {
+  receipt: RunReceiptV2;
+  /** A recorded run's receipt: this server's rebuild from the archived log. */
+  recorded: boolean;
+  onReload: () => void;
+}) {
   const t = useTranslations("Run.audit");
+  const tRunTime = useTranslations("Run.runTimeReceipt");
   const tRun = useTranslations("Run");
   const tExplorer = useTranslations("Run.explorer");
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
@@ -360,6 +383,11 @@ function ReceiptSummary({ receipt, onReload }: { receipt: RunReceiptV2; onReload
       )}
 
       <h5 className="hc-evidence-subheading">{t("limitationsHeading")}</h5>
+      {recorded ? (
+        <p className="hc-supporting" data-receipt-limitations-today>
+          {tRunTime("limitsToday")}
+        </p>
+      ) : null}
       <blockquote lang="en" className="hc-untrusted-text" data-receipt-limitations>
         {receipt.proof_limitations}
       </blockquote>

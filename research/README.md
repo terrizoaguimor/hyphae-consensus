@@ -66,9 +66,11 @@ Hyphae recovery files (`recovery-2026-10-27/`).
 - **Model.** Live runs called Meta's `muse-wonder-1.0` through the Meta
   Model API (Chat Completions with structured output). Each completed call
   is recorded as an invocation with `provider: meta`, the model id, the
-  API's request id, latency and token counts: 165 calls in this archive. A
-  call that failed or timed out records no invocation. Scripted calls record
-  `provider: fake`.
+  API's request id, latency and token counts: 184 calls in this archive, in
+  41 runs of the 8 logs, each with its own request id (165 before the smoke
+  runs K01–K04 added 7 and 12). A call that failed or timed out records no
+  invocation (the three `run_failed` runs). Scripted calls record
+  `provider: fake` (18, in C01, C02 and C05) and are not counted.
 - **Memory.** Hyphae 4.0.0 Agent Memory, Linux build, in the operator's
   local Docker container (`docs/evaluation.md` §2 and §5). Its records are
   operator-seeded demo memories (`scripts/hyphae-container/seed*.sh`), not

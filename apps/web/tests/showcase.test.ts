@@ -11,6 +11,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import { IntlMessageFormat } from "intl-messageformat";
 import { describe, expect, it } from "vitest";
 
 import { contractDir } from "../scripts/gen-api-types.mjs";
@@ -27,7 +28,7 @@ import {
   policyRulesOf,
 } from "../src/lib/showcase";
 
-import { manifest, researchBytes } from "./research";
+import { manifest, metaRequestIds, researchBytes } from "./research";
 
 const F03 = JSON.parse(
   readFileSync(path.join(contractDir(), "fixtures", "showcase-entry-F03.json"), "utf8"),
@@ -96,6 +97,12 @@ describe("archiveFigures", () => {
     expect(figures.unchained).toBe(1);
   });
 
+  it("counts the runs that recorded a Meta request id, not the scripted ones", () => {
+    expect((F03.provenance.meta_request_ids ?? []).length).toBeGreaterThan(0);
+    expect(figures.metaRuns).toBe(3);
+    expect(archiveFigures([]).metaRuns).toBe(0);
+  });
+
   it("counts every outcome next to its evidence axis", () => {
     const evidence = (outcome: string, axis: EvidenceProvenance) =>
       figures.outcomes.find((o) => o.outcome === outcome)?.byEvidence.find((e) => e.evidence === axis)?.count;
@@ -148,6 +155,47 @@ describe("the archive's manifest", () => {
     expect(note).toContain("a deployment misconfiguration");
     expect(manifestNote(notes, "no/such/file.jsonl")).toBeNull();
     expect(manifestNote(null, F03.file)).toBeNull();
+  });
+});
+
+describe("the archive's own figures", () => {
+  // Entries as the server would list the real archive: the manifest's runs,
+  // each with the Meta request ids its log records (the server's derivation).
+  const runs = manifest().runs;
+  const entries = runs.map((run) =>
+    like({
+      run_id: run.run_id,
+      battery: run.battery,
+      outcome: run.outcome,
+      file: run.file,
+      provenance: { ...F03.provenance, meta_request_ids: metaRequestIds(run.file, run.run_id) },
+    }),
+  );
+  const figures = archiveFigures(entries);
+  const readme = new TextDecoder().decode(researchBytes("README.md"));
+
+  it("counts 184 recorded Meta request ids in 41 of the 44 runs, every one distinct", () => {
+    expect(runs).toHaveLength(44);
+    expect(figures.metaRequestIds).toBe(184);
+    expect(figures.metaRuns).toBe(41);
+    const all = entries.flatMap((e) => e.provenance.meta_request_ids ?? []);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("agrees with the number of calls research/README.md states", () => {
+    const stated = /: (\d+) calls in this archive/.exec(readme.replace(/\s+/g, " "));
+    expect(stated?.[1]).toBe(String(figures.metaRequestIds));
+  });
+
+  it.each(routing.locales)("the Overview's sentence names the ids and the runs they were recorded in (%s)", (locale) => {
+    const catalog = JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8")) as {
+      Overview: { figures: { requests: string } };
+    };
+    const format = new IntlMessageFormat(catalog.Overview.figures.requests, locale);
+    const text = String(format.format({ count: figures.metaRequestIds, runs: figures.metaRuns }));
+    expect(text).toMatch(new RegExp(`(^|\\D)${figures.metaRequestIds}(\\D|$)`));
+    expect(text).toMatch(new RegExp(`(^|\\D)${figures.metaRuns}(\\D|$)`));
+    expect(String(format.format({ count: 0, runs: 0 }))).not.toMatch(/\d/);
   });
 });
 

@@ -99,8 +99,16 @@ export type BatteryFigures = {
 export type ArchiveFigures = {
   runs: number;
   events: number;
-  /** Request ids of recorded Meta calls, over every entry. */
+  /**
+   * Request ids of recorded Meta calls, over every entry: one per Meta
+   * invocation the records carry with its request id (a call that got a
+   * response; a retried call is one invocation, its HTTP attempts are not
+   * counted). Scripted invocations carry none, and a call that timed out or
+   * failed in transport records no invocation, so neither is counted.
+   */
   metaRequestIds: number;
+  /** Entries with at least one recorded Meta request id. */
+  metaRuns: number;
   /** Runs by outcome and evidence axis: every outcome is counted next to its evidence. */
   outcomes: Array<{ outcome: OutcomeKey; total: number; byEvidence: Array<{ evidence: EvidenceProvenance; count: number }> }>;
   /** The evidence axes present, in EVIDENCE_AXES order. */
@@ -125,6 +133,7 @@ export function archiveFigures(entries: readonly ShowcaseEntryV1[]): ArchiveFigu
   const evidenceSeen = new Set<EvidenceProvenance>();
   let events = 0;
   let metaRequestIds = 0;
+  let metaRuns = 0;
   let unchained = 0;
   for (const entry of entries) {
     const outcome = outcomeKey(parseOutcome(entry.outcome));
@@ -136,7 +145,11 @@ export function archiveFigures(entries: readonly ShowcaseEntryV1[]): ArchiveFigu
     bump(models, entry.provenance.model);
     bump(authorizations, entry.authorization);
     events += entry.event_count;
-    metaRequestIds += (entry.provenance.meta_request_ids ?? []).length;
+    const ids = (entry.provenance.meta_request_ids ?? []).length;
+    metaRequestIds += ids;
+    if (ids > 0) {
+      metaRuns += 1;
+    }
     if (isUnchained(entry)) {
       unchained += 1;
     }
@@ -166,6 +179,7 @@ export function archiveFigures(entries: readonly ShowcaseEntryV1[]): ArchiveFigu
     runs: entries.length,
     events,
     metaRequestIds,
+    metaRuns,
     outcomes: OUTCOME_KEYS.filter((key) => byOutcome.has(key)).map((outcome) => {
       const cell = byOutcome.get(outcome) ?? new Map<EvidenceProvenance, number>();
       return {

@@ -19,8 +19,11 @@ import {
   limitationsTranslated,
   ownLogFileName,
   receiptFileName,
+  runTimeReceipt,
   verifyCommand,
 } from "../src/lib/run/receipt";
+
+import { manifest, researchBytes } from "./research";
 
 const fixturesDir = path.join(contractDir(), "fixtures");
 const receipts = readdirSync(fixturesDir)
@@ -39,6 +42,53 @@ describe("proof limitations", () => {
   it("any other text is not translated", () => {
     expect(limitationsTranslated(`${KNOWN_PROOF_LIMITATIONS} And more.`)).toBe(false);
     expect(limitationsTranslated("Proofs establish everything.")).toBe(false);
+  });
+});
+
+describe("the receipt a run record holds from run time", () => {
+  const withRecord = manifest().runs.filter(
+    (run): run is typeof run & { record: string } => typeof run.record === "string" && run.record !== "",
+  );
+
+  it("every run record of the archive holds its run's receipt, with its own limitations and time", () => {
+    expect(withRecord).toHaveLength(37);
+    for (const run of withRecord) {
+      const receipt = runTimeReceipt(researchBytes(run.record), run.run_id);
+      expect(receipt, run.label).not.toBeNull();
+      expect(receipt?.generatedAt, run.label).toMatch(/^2026-10-2\dT/);
+      expect(receipt?.proofLimitations, run.label).not.toBeNull();
+    }
+    // 37 files of about 30 KB each, read through the container's bind mount.
+  }, 60_000);
+
+  it("R06's record states the limitations of its day, not the text this server writes now", () => {
+    const r06 = withRecord.find((run) => run.label === "R06");
+    expect(r06).toBeDefined();
+    const receipt = runTimeReceipt(researchBytes(r06?.record ?? ""), r06?.run_id ?? "");
+    expect(receipt?.generatedAt).toBe("2026-10-27T07:12:45.990721500+00:00");
+    expect(receipt?.proofLimitations).toMatch(/^Integrity proofs, where valid, establish/);
+    expect(receipt?.proofLimitations).not.toBe(KNOWN_PROOF_LIMITATIONS);
+    expect(limitationsTranslated(receipt?.proofLimitations ?? "")).toBe(false);
+  });
+
+  it("is null for bytes that are not a run record of this run", () => {
+    const encode = (value: string) => new TextEncoder().encode(value);
+    const runId = "run-00000000-0000-4000-8000-000000000000";
+    expect(runTimeReceipt(encode("not json"), runId)).toBeNull();
+    expect(runTimeReceipt(new Uint8Array([0xff, 0xfe, 0x7b, 0x7d]), runId)).toBeNull();
+    expect(runTimeReceipt(encode("[]"), runId)).toBeNull();
+    expect(runTimeReceipt(encode(JSON.stringify({ receipt: null })), runId)).toBeNull();
+    expect(runTimeReceipt(encode(JSON.stringify({ receipt: { run_id: "run-other" } })), runId)).toBeNull();
+    expect(runTimeReceipt(encode(JSON.stringify({ receipt: { run_id: runId } })), runId)).toEqual({
+      generatedAt: null,
+      proofLimitations: null,
+    });
+    expect(
+      runTimeReceipt(
+        encode(JSON.stringify({ receipt: { run_id: runId, generated_at: "2026-10-27T00:00:00Z", proof_limitations: "As then." } })),
+        runId,
+      ),
+    ).toEqual({ generatedAt: "2026-10-27T00:00:00Z", proofLimitations: "As then." });
   });
 });
 

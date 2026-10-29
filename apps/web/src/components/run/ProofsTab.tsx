@@ -12,6 +12,9 @@
 // says that nothing cryptographic was checked; a proof whose generation
 // failed upstream says nothing was checked; a recorded run's proofs say they
 // were verified at run time and that their artifacts stay with the operator.
+// A recorded run's receipt is this server's rebuild from the archived log
+// (today's limitations text): RunTimeReceiptNote says so and offers the
+// limitations of the receipt its run record holds from run time.
 
 import { Button } from "@astryxdesign/core/Button";
 import { useFormatter, useTranslations } from "next-intl";
@@ -24,6 +27,7 @@ import type {
   EvidenceReferenceV1,
   RunDetailV1,
   RunSummaryV1,
+  ShowcaseEntryV1,
   VerificationV1,
 } from "@/lib/api/types";
 import {
@@ -37,6 +41,7 @@ import { limitationsTranslated } from "@/lib/run/receipt";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProofReadingLine } from "./ProofReading";
+import { type RunTimeReceiptReader, RunTimeReceiptNote } from "./RunTimeReceipt";
 import { ProofStatus } from "./StageTab";
 import type { RunReceipt } from "./useReceipt";
 
@@ -46,6 +51,10 @@ type ProofsTabProps = {
   detailError: ApiError | null;
   summary: RunSummaryV1 | null;
   receipt: RunReceipt;
+  /** The showcase entry of a recorded run (its run record); null for a run of this server. */
+  archive: ShowcaseEntryV1 | null;
+  /** The receipt a recorded run's record holds, read on request. */
+  runTime: RunTimeReceiptReader;
 };
 
 type Entry = RoundedVerification & {
@@ -53,7 +62,7 @@ type Entry = RoundedVerification & {
   coverage: Coverage | undefined;
 };
 
-export function ProofsTab({ detail, frames, detailError, summary, receipt }: ProofsTabProps) {
+export function ProofsTab({ detail, frames, detailError, summary, receipt, archive, runTime }: ProofsTabProps) {
   const t = useTranslations("Run.proofs");
   const view = useMemo(() => evidenceView(detail, frames), [detail, frames]);
   const entries: Entry[] = useMemo(() => {
@@ -114,6 +123,13 @@ export function ProofsTab({ detail, frames, detailError, summary, receipt }: Pro
             {t("receiptLoading")}
           </p>
         )}
+        {recorded ? (
+          <RunTimeReceiptNote
+            archive={archive}
+            served={state.status === "ready" ? state.receipt : null}
+            reader={runTime}
+          />
+        ) : null}
       </section>
 
       {entries.length === 0 ? (

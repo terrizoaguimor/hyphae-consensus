@@ -58,6 +58,7 @@ import { ProofsTab } from "./ProofsTab";
 import { StageTab } from "./StageTab";
 import { tabId, Tabs } from "./Tabs";
 import { UntrustedText } from "./UntrustedText";
+import { useRunTimeReceipt } from "./RunTimeReceipt";
 import { type RunReceipt, useReceipt } from "./useReceipt";
 import { type RecordedRunData, useRecordedRun } from "./useRecordedRun";
 import { type RunData, useRunData } from "./useRunData";
@@ -133,6 +134,8 @@ function Workspace({
   const [tab, setTab] = useState<TabKey>(recorded ? "decision" : "stage");
   const { detail, detailError, summary, frames, reloadDetail } = mode.data;
   const archive = mode.kind === "recorded" ? mode.data.entry : null;
+  // A recorded run's record (the receipt as downloaded at run time), read on request.
+  const runTime = useRunTimeReceipt(runId, archive?.record_file ?? null);
   // The receipt is read when a tab that shows it is first opened.
   const selectTab = (next: TabKey) => {
     setTab(next);
@@ -321,6 +324,8 @@ function Workspace({
             detailError={detailError}
             summary={summary}
             receipt={receipt}
+            archive={archive}
+            runTime={runTime}
           />
         ) : null}
         {tab === "audit" ? (
@@ -332,6 +337,7 @@ function Workspace({
             summary={summary}
             receipt={receipt}
             archive={archive}
+            runTime={runTime}
           />
         ) : null}
         {tab === "meta" ? <MetaTab detail={detail} frames={frames} detailError={detailError} /> : null}

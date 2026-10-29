@@ -170,7 +170,7 @@
       "modelCount": "{label} {count}",
       "authorizations": "Por autorización: {list}.",
       "authorizationCount": "{authorization} {count}",
-      "requests": "{count, plural, =0 {Ningún id de solicitud de Meta registrado.} one {# id de solicitud de Meta registrado: prueba de una llamada al modelo registrada, no de algo que esté ocurriendo ahora.} many {# de ids de solicitud de Meta registrados: prueba de llamadas al modelo registradas, no de algo que esté ocurriendo ahora.} other {# ids de solicitud de Meta registrados: prueba de llamadas al modelo registradas, no de algo que esté ocurriendo ahora.}}",
+      "requests": "{count, plural, =0 {Ningún id de solicitud de Meta registrado.} one {# id de solicitud de Meta registrado, en {runs, plural, =0 {ninguna ejecución} one {# ejecución} many {# de ejecuciones} other {# ejecuciones}}: uno por cada llamada al modelo de Meta registrada con su respuesta (una llamada reintentada cuenta una sola vez). Las llamadas del doble con guion no se cuentan, y una llamada que agotó el tiempo de espera o falló en el transporte no registró ninguno. Prueba de una llamada al modelo registrada, no de algo que esté ocurriendo ahora.} many {# de ids de solicitud de Meta registrados, en {runs, plural, =0 {ninguna ejecución} one {# ejecución} many {# de ejecuciones} other {# ejecuciones}}: uno por cada llamada al modelo de Meta registrada con su respuesta (una llamada reintentada cuenta una sola vez). Las llamadas del doble con guion no se cuentan, y una llamada que agotó el tiempo de espera o falló en el transporte no registró ninguno. Prueba de llamadas al modelo registradas, no de algo que esté ocurriendo ahora.} other {# ids de solicitud de Meta registrados, en {runs, plural, =0 {ninguna ejecución} one {# ejecución} many {# de ejecuciones} other {# ejecuciones}}: uno por cada llamada al modelo de Meta registrada con su respuesta (una llamada reintentada cuenta una sola vez). Las llamadas del doble con guion no se cuentan, y una llamada que agotó el tiempo de espera o falló en el transporte no registró ninguno. Prueba de llamadas al modelo registradas, no de algo que esté ocurriendo ahora.}}",
       "unchained": "{count, plural, =0 {Ninguna ejecución es anterior a la cadena de hashes.} one {# ejecución es anterior a la cadena de hashes (esquema 1.0, sin cadena).} many {# de ejecuciones son anteriores a la cadena de hashes (esquema 1.0, sin cadena).} other {# ejecuciones son anteriores a la cadena de hashes (esquema 1.0, sin cadena).}}",
       "note": "Estas cifras dicen lo que se registró, no que alguna recomendación fuera acertada: la integridad no es la verdad, y las ejecuciones con evidencia simulada se cuentan con esa etiqueta.",
       "showcaseLink": "Abrir la vitrina de investigación"
@@ -603,6 +603,24 @@
         "unrecorded": "Este registro no nombra la solicitud que selló su prueba (se registró antes del esquema 1.3); su anclaje es {anchor}.",
         "unrecordedNoAnchor": "Este registro no nombra ni la solicitud que selló su prueba ni un anclaje (se registró antes del esquema 1.3)."
       }
+    },
+    "runTimeReceipt": {
+      "regenerated": "Este servidor construye este recibo a partir del log archivado cada vez que se solicita; sus limitaciones de las pruebas son la redacción actual de este software, que el recibo descargado en el momento de la ejecución puede no compartir.",
+      "regeneratedAt": "Este servidor construyó este recibo a partir del log archivado cuando se solicitó ({date}, su generated_at); sus limitaciones de las pruebas son la redacción actual de este software, que el recibo descargado en el momento de la ejecución puede no compartir.",
+      "noRecord": "El archivo no guarda ningún registro de esta ejecución, así que no hay un recibo del momento de la ejecución con el que comparar.",
+      "record": "El registro de la ejecución en el archivo guarda el recibo tal como se descargó en el momento de la ejecución, con su propia redacción.",
+      "recordDownload": "Descargar el registro de la ejecución {name}",
+      "read": "Mostrar las limitaciones de las pruebas del recibo del momento de la ejecución",
+      "readAgain": "Leer de nuevo el registro de la ejecución",
+      "reading": "Leyendo el registro de la ejecución…",
+      "unreadable": "El registro de la ejecución no pudo leerse como un recibo de esta ejecución, así que sus limitaciones no se muestran.",
+      "recordGenerated": "El recibo del registro de la ejecución se generó el {date}.",
+      "recordUndated": "El recibo del registro de la ejecución no indica cuándo se generó.",
+      "noLimitations": "El recibo del registro de la ejecución no indica limitaciones de las pruebas.",
+      "limitsVerbatim": "Sus limitaciones de las pruebas, tal como las indica (en inglés):",
+      "limitsSame": "Sus limitaciones de las pruebas, tal como las indica (en inglés), iguales a las del recibo que construyó este servidor:",
+      "limitsDiffer": "Sus limitaciones de las pruebas, tal como las indica (en inglés), que difieren de las del recibo que construyó este servidor:",
+      "limitsToday": "Redacción actual de este servidor: el recibo descargado en el momento de la ejecución, que guarda el registro de la ejecución, puede indicarlas de otra forma."
     },
     "proofs": {
       "reading": {

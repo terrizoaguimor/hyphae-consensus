@@ -170,7 +170,7 @@
       "modelCount": "{label} {count}",
       "authorizations": "Par autorisation : {list}.",
       "authorizationCount": "{authorization} {count}",
-      "requests": "{count, plural, =0 {Aucun id de requête Meta enregistré.} one {# id de requête Meta enregistré : la preuve d’un appel au modèle enregistré, pas de quelque chose qui se passe maintenant.} many {# d’ids de requête Meta enregistrés : la preuve d’appels au modèle enregistrés, pas de quelque chose qui se passe maintenant.} other {# ids de requête Meta enregistrés : la preuve d’appels au modèle enregistrés, pas de quelque chose qui se passe maintenant.}}",
+      "requests": "{count, plural, =0 {Aucun id de requête Meta enregistré.} one {# id de requête Meta enregistré, dans {runs, plural, =0 {aucune exécution} one {# exécution} many {# d’exécutions} other {# exécutions}} : un par appel au modèle de Meta enregistré avec sa réponse (un appel réessayé compte une seule fois). Les appels de la doublure scénarisée ne sont pas comptés, et un appel qui a expiré ou échoué au transport n’en a enregistré aucun. La preuve d’un appel au modèle enregistré, pas de quelque chose qui se passe maintenant.} many {# d’ids de requête Meta enregistrés, dans {runs, plural, =0 {aucune exécution} one {# exécution} many {# d’exécutions} other {# exécutions}} : un par appel au modèle de Meta enregistré avec sa réponse (un appel réessayé compte une seule fois). Les appels de la doublure scénarisée ne sont pas comptés, et un appel qui a expiré ou échoué au transport n’en a enregistré aucun. La preuve d’appels au modèle enregistrés, pas de quelque chose qui se passe maintenant.} other {# ids de requête Meta enregistrés, dans {runs, plural, =0 {aucune exécution} one {# exécution} many {# d’exécutions} other {# exécutions}} : un par appel au modèle de Meta enregistré avec sa réponse (un appel réessayé compte une seule fois). Les appels de la doublure scénarisée ne sont pas comptés, et un appel qui a expiré ou échoué au transport n’en a enregistré aucun. La preuve d’appels au modèle enregistrés, pas de quelque chose qui se passe maintenant.}}",
       "unchained": "{count, plural, =0 {Aucune exécution n’est antérieure à la chaîne de hachage.} one {# exécution est antérieure à la chaîne de hachage (schéma 1.0, non chaînée).} many {# d’exécutions sont antérieures à la chaîne de hachage (schéma 1.0, non chaînées).} other {# exécutions sont antérieures à la chaîne de hachage (schéma 1.0, non chaînées).}}",
       "note": "Ces chiffres disent ce qui a été enregistré, pas qu’une recommandation était juste : l’intégrité n’est pas la vérité, et les exécutions sur des éléments probants simulés sont comptées sous cette étiquette.",
       "showcaseLink": "Ouvrir la vitrine de recherche"
@@ -603,6 +603,24 @@
         "unrecorded": "Cet enregistrement ne nomme pas la requête que sa preuve a scellée (il a été enregistré avant le schéma 1.3) ; son ancre est {anchor}.",
         "unrecordedNoAnchor": "Cet enregistrement ne nomme ni la requête que sa preuve a scellée ni une ancre (il a été enregistré avant le schéma 1.3)."
       }
+    },
+    "runTimeReceipt": {
+      "regenerated": "Ce serveur construit ce reçu à partir du journal archivé à chaque demande ; ses limites des preuves sont la formulation actuelle de ce logiciel, que le reçu téléchargé au moment de l’exécution ne partage pas forcément.",
+      "regeneratedAt": "Ce serveur a construit ce reçu à partir du journal archivé au moment de la demande ({date}, son generated_at) ; ses limites des preuves sont la formulation actuelle de ce logiciel, que le reçu téléchargé au moment de l’exécution ne partage pas forcément.",
+      "noRecord": "L’archive ne contient aucun enregistrement de cette exécution : il n’y a donc pas de reçu du moment de l’exécution à comparer.",
+      "record": "L’enregistrement de l’exécution dans l’archive contient le reçu tel qu’il a été téléchargé au moment de l’exécution, avec sa propre formulation.",
+      "recordDownload": "Télécharger l’enregistrement de l’exécution {name}",
+      "read": "Afficher les limites des preuves du reçu du moment de l’exécution",
+      "readAgain": "Relire l’enregistrement de l’exécution",
+      "reading": "Lecture de l’enregistrement de l’exécution…",
+      "unreadable": "L’enregistrement de l’exécution n’a pas pu être lu comme un reçu de cette exécution : ses limites ne sont donc pas affichées.",
+      "recordGenerated": "Le reçu de l’enregistrement de l’exécution a été généré le {date}.",
+      "recordUndated": "Le reçu de l’enregistrement de l’exécution n’indique pas quand il a été généré.",
+      "noLimitations": "Le reçu de l’enregistrement de l’exécution n’énonce aucune limite des preuves.",
+      "limitsVerbatim": "Ses limites des preuves, telles qu’il les énonce (en anglais) :",
+      "limitsSame": "Ses limites des preuves, telles qu’il les énonce (en anglais), identiques à celles du reçu construit par ce serveur :",
+      "limitsDiffer": "Ses limites des preuves, telles qu’il les énonce (en anglais), qui diffèrent de celles du reçu construit par ce serveur :",
+      "limitsToday": "Formulation actuelle de ce serveur : le reçu téléchargé au moment de l’exécution, que contient l’enregistrement de l’exécution, peut les énoncer autrement."
     },
     "proofs": {
       "reading": {

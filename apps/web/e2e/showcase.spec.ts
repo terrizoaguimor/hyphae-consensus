@@ -16,6 +16,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 
+import { KNOWN_PROOF_LIMITATIONS } from "../src/lib/run/receipt";
 import { localePath, showcaseRunPath } from "../src/lib/site";
 
 import { AXE_TAGS, blocking, type ScanSummary, summarize, writeScans } from "./axe-results";
@@ -187,6 +188,66 @@ test("a recorded run's archived log is checked in this browser against the pinne
   await expectNoLive(page, "en");
 });
 
+test("a recorded run's receipt says it is this server's rebuild and quotes the run record's own limitations", async ({
+  page,
+}) => {
+  const { r06, list } = entries();
+  const runId = String(r06.run_id);
+  const record = String(r06.record_file);
+  const mock = await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })] });
+  await openRecorded(page, "en", runId);
+
+  // Proof inspector: next to the limitations, where the receipt comes from.
+  await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
+  const limits = page.locator("[data-proof-limits='ready']");
+  await expect(limits.locator("[data-proof-limitations]")).toBeVisible();
+  const note = limits.locator("[data-run-time-receipt]");
+  await expect(note.locator("[data-receipt-regenerated]")).toContainText(
+    "This server built this receipt from the archived log when it was requested",
+  );
+  await expect(note).toContainText(t("en", "Run.runTimeReceipt.record"));
+  await expect(note.locator("[data-run-record-link]")).toHaveAttribute("href", `/research/${record}`);
+  // Nothing of the record is read before it is asked for.
+  expect(mock.calls.filter((c) => c.path === `/research/${record}`)).toEqual([]);
+  await note.getByRole("button", { name: t("en", "Run.runTimeReceipt.read") }).click();
+  const quoted = note.locator("[data-run-record-limitations='differ']");
+  await expect(quoted).toContainText("Integrity proofs, where valid, establish that a recalled record matches");
+  await expect(note.locator("[data-run-record='ready']")).toContainText(t("en", "Run.runTimeReceipt.limitsDiffer"));
+  await expect(note.locator("[data-run-record='ready']")).toContainText("The run record’s receipt was generated on");
+  // The served receipt's own text stays as it is, beside it.
+  await expect(limits.locator("[data-proof-limitations]")).toHaveText(KNOWN_PROOF_LIMITATIONS);
+  await expectNoLive(page, "en");
+
+  // Audit trail: next to the receipt download, read once per run; the receipt's limitations are today's wording.
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  const auditNote = page.locator("[data-audit-log] [data-run-time-receipt='ready']");
+  await expect(auditNote.locator("[data-receipt-regenerated]")).toContainText(
+    "This server built this receipt from the archived log when it was requested",
+  );
+  await expect(auditNote.locator("[data-run-record-limitations='differ']")).toContainText("Integrity proofs, where valid");
+  await expect(page.locator("[data-receipt-limitations-today]")).toHaveText(t("en", "Run.runTimeReceipt.limitsToday"));
+  expect(mock.calls.filter((c) => c.path === `/research/${record}`)).toHaveLength(1);
+  await expectNoLive(page, "en");
+});
+
+test("a run record that cannot be read is said, with a retry", async ({ page, pageProblems }) => {
+  const { r06, list } = entries();
+  const record = String(r06.record_file);
+  await mockApi(page, {
+    showcase: list,
+    recordedRuns: [recordedRun(r06, { base: "retry" })],
+    research: { [record]: Buffer.from("not a run record") },
+  });
+  await openRecorded(page, "en", String(r06.run_id));
+  await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
+  const note = page.locator("[data-run-time-receipt]");
+  await note.getByRole("button", { name: t("en", "Run.runTimeReceipt.read") }).click();
+  await expect(note.locator("[data-run-record='unreadable']")).toHaveText(t("en", "Run.runTimeReceipt.unreadable"));
+  await expect(note.locator("[data-run-record-limitations]")).toHaveCount(0);
+  expect(pageProblems).toEqual([]);
+});
+
 test("a flipped byte in the archived log fails at the record that holds it", async ({ page }) => {
   const { r06, list } = entries();
   const runId = String(r06.run_id);
@@ -259,6 +320,11 @@ test("a schema-1.0 run reads pre-1.1, unchained", async ({ page }) => {
   await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
   await expect(page.locator("[data-chain-scope='unchained']")).toHaveText(t("en", "Run.audit.scopes.unchained"));
   await expect(page.locator("[data-chain-field='head']")).toHaveText(t("en", "Run.audit.noHead"));
+  // The console runs have no run record: no run-time receipt to compare, and none offered.
+  await expect(page.locator("[data-run-time-receipt='no-record'] [data-run-record='none']")).toHaveText(
+    t("en", "Run.runTimeReceipt.noRecord"),
+  );
+  await expect(page.locator("[data-run-record-link]")).toHaveCount(0);
   await expectNoLive(page, "en");
 });
 
@@ -274,6 +340,7 @@ test("a recorded run the listing does not name offers no file it cannot name", a
   );
   await expect(page.locator("[data-cli]")).toHaveCount(0);
   await expect(page.locator("[data-chain-check]")).toHaveCount(0);
+  await expect(page.locator("[data-run-record-link]")).toHaveCount(0);
   await expectNoLive(page, "en");
 });
 
@@ -361,6 +428,13 @@ test("the Overview's figures are counted from the archive the server lists @smok
   );
   const requests = entriesOf.reduce((n, e) => n + (e.provenance.meta_request_ids ?? []).length, 0);
   await expect(figures.locator("[data-figures-requests]")).toHaveAttribute("data-figures-requests", String(requests));
+  // The runs those ids were recorded in (the scripted C01 has none), named in the sentence.
+  const requestRuns = entriesOf.filter((e) => (e.provenance.meta_request_ids ?? []).length > 0).length;
+  expect(requestRuns).toBe(entriesOf.length - 1);
+  await expect(figures.locator("[data-figures-requests]")).toHaveAttribute("data-figures-request-runs", String(requestRuns));
+  await expect(figures.locator("[data-figures-requests]")).toContainText(
+    `${requests} recorded Meta request ids, in ${requestRuns} runs: one per Meta model call recorded with its response`,
+  );
   await expect(figures.locator("[data-figures-unchained]")).toHaveAttribute("data-figures-unchained", "1");
   // A list of models never reads LIVE: META MODEL, from provenance.ts. (The
   // Overview's provenance legend, which explains what LIVE META means, is

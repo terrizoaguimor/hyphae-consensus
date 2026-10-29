@@ -378,9 +378,12 @@ export type Verdict = "pass" | "fail" | "not_compared" | "not_checked";
  * actually checked link by link and nothing differs; "failed" when anything
  * differs; "unchained" when nothing differs but the run's records carry no
  * hash, so no chain was checked (only the comparisons that were made, the
- * file's digest, the count and the sequences, say anything).
+ * file's digest, the count and the sequences, say anything); "partial" when
+ * nothing differs and the run's chained records verified link by link, but
+ * the run began before schema 1.1, so its first records carry no hash and
+ * are not chain-verified: never shown as a chain that checks out.
  */
-export type SegmentOutcome = "verified" | "failed" | "unchained";
+export type SegmentOutcome = "verified" | "failed" | "unchained" | "partial";
 
 export type SegmentResult = {
   /** The run's records in the file (only those before a failure, if any). */
@@ -399,6 +402,10 @@ export type SegmentResult = {
   pass: boolean;
   /** The run's records carry no hash: nothing in them is chain-verified. */
   unchained: boolean;
+  /** The run's own records that carry a hash (recomputed, link followed). */
+  runChainedRecords: number;
+  /** The run's own records that carry no hash (its pre-1.1 records): not chain-verified. */
+  runLegacyRecords: number;
   /** Records of the whole file (before a failure) whose hash was recomputed and link followed. */
   chainedRecords: number;
   /** Records of the whole file (before a failure) that carry no hash (the pre-1.1 prefix): not chain-verified. */
@@ -415,7 +422,8 @@ export function checkSegment(result: ChainResult, expected: SegmentExpectation):
   const last = records.at(-1)?.sequence ?? null;
   const lastHash = records.at(-1)?.hash ?? "";
   const head = lastHash === "" ? null : lastHash;
-  const unchained = records.length > 0 && records.every((r) => r.hash === "");
+  const runLegacyRecords = records.filter((r) => r.hash === "").length;
+  const unchained = records.length > 0 && runLegacyRecords === records.length;
   // An unchained run has no hash to recompute and no link to follow: its
   // chain is not checked, never "pass" (a file that fails still fails).
   const chain: Verdict =
@@ -440,9 +448,11 @@ export function checkSegment(result: ChainResult, expected: SegmentExpectation):
   const verdicts = [chain, sha256, headMatches, count, range];
   const outcome: SegmentOutcome = verdicts.some((v) => v === "fail")
     ? "failed"
-    : chain === "pass"
-      ? "verified"
-      : "unchained";
+    : chain !== "pass"
+      ? "unchained"
+      : runLegacyRecords > 0
+        ? "partial"
+        : "verified";
   const chainedRecords = result.records.filter((r) => r.hash !== "").length;
   return {
     records,
@@ -457,6 +467,8 @@ export function checkSegment(result: ChainResult, expected: SegmentExpectation):
     outcome,
     pass: outcome === "verified",
     unchained,
+    runChainedRecords: records.length - runLegacyRecords,
+    runLegacyRecords,
     chainedRecords,
     legacyRecords: result.records.length - chainedRecords,
   };

@@ -14,6 +14,8 @@
 // chain. The result is pass, the first failing record, or, for a run whose
 // records carry no hash (schema 1.0), a neutral "no chain to check" that says
 // what was and was not checked: it is never shown as a chain that checks out.
+// A run that began before schema 1.1 (its first records carry no hash, the
+// rest are chained) reads as checked in part, naming its unverified records.
 // A chain that checks out is consistent and matches those copies; it is
 // unsigned, and it says nothing about whether the content is true.
 
@@ -66,6 +68,7 @@ const VERDICT_ATTRIBUTE: Record<SegmentOutcome, string> = {
   verified: "pass",
   failed: "fail",
   unchained: "unchained",
+  partial: "partial",
 };
 
 const short = (value: string) => `${digestPrefix(value) ?? value}…`;
@@ -95,6 +98,9 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
   const t = useTranslations("Run.chain");
   const tProblem = dynamicTranslator(useTranslations("Run.chain.problems"));
   const [state, setState] = useState<CheckState>({ status: "idle" });
+  // The detail says the run's records carry no hash (schema 1.0): the check
+  // recomputes nothing for them, so the method is described without hashing.
+  const unchainedScope = chain?.scope === "unchained";
 
   const run = async () => {
     if (globalThis.crypto?.subtle === undefined) {
@@ -149,7 +155,14 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
             <Badge variant="success" label={t("pass")} />{" "}
             {segment.legacyRecords === 0
               ? t("passSentence", { count: segment.chainedRecords })
-              : `${t("passSentenceChained", { count: segment.chainedRecords })} ${t("legacyNote", { count: segment.legacyRecords })}`}
+              : t("passSentenceLegacy", { chained: segment.chainedRecords, legacy: segment.legacyRecords })}
+          </>
+        );
+      case "partial":
+        return (
+          <>
+            <Badge variant="neutral" label={t("partialVerdict")} />{" "}
+            {t("partialSentence", { chained: segment.runChainedRecords, legacy: segment.runLegacyRecords })}
           </>
         );
       case "unchained":
@@ -171,7 +184,9 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
   return (
     <section className="hc-section" aria-labelledby="chain-check" data-chain-check={state.status}>
       <h4 id="chain-check">{t("heading")}</h4>
-      <p>{t("intro", { name: source.name })}</p>
+      <p data-chain-intro={unchainedScope ? "unchained" : "chained"}>
+        {unchainedScope ? t("introUnchained", { name: source.name }) : t("intro", { name: source.name })}
+      </p>
       <div className="hc-actions">
         <Button
           variant="secondary"
@@ -183,7 +198,7 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
       </div>
       {state.status === "running" ? (
         <p role="status" className="hc-supporting">
-          {t("running", { name: source.name })}
+          {unchainedScope ? t("runningUnchained", { name: source.name }) : t("running", { name: source.name })}
         </p>
       ) : null}
       {state.status === "unsupported" ? <p role="status">{t("unsupported")}</p> : null}
@@ -218,7 +233,7 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
                 ? t("unchained", { count: state.segment.records.length })
                 : state.segment.legacyRecords === 0
                   ? t("records", { count: state.segment.chainedRecords })
-                  : `${t("records", { count: state.segment.chainedRecords })} ${t("legacyNote", { count: state.segment.legacyRecords })}`}
+                  : t("recordsLegacy", { chained: state.segment.chainedRecords, legacy: state.segment.legacyRecords })}
             </li>
             <li data-chain-result="range">
               {verdictBadge(state.segment.range)}{" "}
@@ -243,7 +258,13 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
               {receipt === null ? t("countNoReceipt") : t("count", { count: receipt.event_count })}
             </li>
           </ul>
-          <p className="hc-supporting">{state.segment.unchained ? t("limitsUnchained") : t("limits")}</p>
+          <p className="hc-supporting">
+            {!state.segment.unchained
+              ? t("limits")
+              : source.sha256 === null
+                ? t("limitsUnchainedOwn")
+                : t("limitsUnchained")}
+          </p>
         </div>
       ) : null}
     </section>

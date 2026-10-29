@@ -314,4 +314,57 @@ describe("the textual recipe", () => {
       pass: false,
     });
   });
+
+  it("a run that began before schema 1.1 (two hashless records, then a chained one) is checked in part, never verified", async () => {
+    const legacy = [1, 2].map(
+      (n) =>
+        `{"schema_version":"1.0","sequence":${n},"event_id":"l${n}","run_id":"run-span","actor":{"kind":"runtime"},"occurred_at":"2026-10-28T00:00:00Z","prev_hash":"","hash":"","payload":{"type":"note"}}`,
+    );
+    const prev = "pre-1.1:2";
+    const blank = `{"schema_version":"1.3","sequence":3,"event_id":"c3","run_id":"run-span","actor":{"kind":"runtime"},"occurred_at":"2026-10-28T00:00:00Z","prev_hash":"${prev}","hash":"","payload":{"type":"note"}}`;
+    const hash = await recordHash(prev, blank);
+    expect(hash).not.toBeNull();
+    const bytes = encoder.encode(`${[...legacy, blank.replace('"hash":""', `"hash":"${hash}"`)].join("\n")}\n`);
+    const result = await verifyLog(bytes);
+    // The verifier reads it: an upgrade inside one run is allowed.
+    expect(result.failure).toBeNull();
+    const segment = checkSegment(result, {
+      runId: "run-span",
+      sha256: result.sha256,
+      receiptHead: hash,
+      receiptEventCount: 3,
+      firstSequence: 1,
+      lastSequence: 3,
+    });
+    expect(segment).toMatchObject({
+      chain: "pass",
+      head_matches: "pass",
+      count: "pass",
+      range: "pass",
+      outcome: "partial",
+      pass: false,
+      unchained: false,
+      runChainedRecords: 1,
+      runLegacyRecords: 2,
+      chainedRecords: 1,
+      legacyRecords: 2,
+    });
+    // A comparison that differs still fails.
+    expect(checkSegment(result, { runId: "run-span", receiptEventCount: 4 })).toMatchObject({ outcome: "failed", pass: false });
+  });
+
+  it("no archived run spans the legacy/chained boundary: each is verified or unchained, never partial", async () => {
+    const files = manifest()
+      .files.filter((file) => file.kind === "event_log")
+      .map((file) => file.path);
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const result = await verifyLog(researchBytes(file));
+      for (const runId of new Set(result.records.map((r) => r.runId))) {
+        const segment = checkSegment(result, { runId });
+        expect(segment.runLegacyRecords === 0 || segment.unchained, `${file} ${runId}`).toBe(true);
+        expect(segment.outcome, `${file} ${runId}`).not.toBe("partial");
+      }
+    }
+  }, 120_000);
 });

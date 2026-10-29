@@ -736,6 +736,7 @@
       "missingTests": "{count, plural, =0 {Ningún elemento abierto de prueba faltante} one {# elemento abierto de prueba faltante} many {# de elementos abiertos de prueba faltante} other {# elementos abiertos de prueba faltante}}",
       "unevaluatedItems": "{count, plural, =0 {Ninguna objeción sin evaluar} one {# objeción sin evaluar} many {# de objeciones sin evaluar} other {# objeciones sin evaluar}}",
       "neverRejudged": "{count, plural, =0 {Objeciones de rondas anteriores nunca vueltas a juzgar: ninguna} one {Objeciones de rondas anteriores nunca vueltas a juzgar: #} many {Objeciones de rondas anteriores nunca vueltas a juzgar: #} other {Objeciones de rondas anteriores nunca vueltas a juzgar: #}}",
+      "neverRejudgedUnlisted": "{count, plural, =0 {De ellas, ninguna quedó sin figurar en la evaluación de su propia ronda} one {De ellas, # no figuró como no resuelta ni siquiera en la evaluación de su propia ronda, que la omitió sin dar una razón} many {De ellas, # de objeciones no figuraron como no resueltas ni siquiera en la evaluación de su propia ronda, que las omitió sin dar una razón} other {De ellas, # no figuraron como no resueltas ni siquiera en la evaluación de su propia ronda, que las omitió sin dar una razón}}",
       "unmatched": "{count, plural, =0 {Ninguna valoración fuera de las afirmaciones finales} one {# valoración fuera de las afirmaciones finales} many {# de valoraciones fuera de las afirmaciones finales} other {# valoraciones fuera de las afirmaciones finales}}",
       "callsHeading": "Llamadas al modelo",
       "calls": "{count, plural, =0 {No hay ninguna invocación de modelo registrada.} one {Hay # invocación de modelo registrada; el panel de la API de Meta la lista.} many {Hay # de invocaciones de modelo registradas; el panel de la API de Meta las lista.} other {Hay # invocaciones de modelo registradas; el panel de la API de Meta las lista.}}",
@@ -791,6 +792,7 @@
       "plain": {
         "rules": {
           "invalid_proof": "La comprobación de integridad de un registro dio inválida, y esa comprobación va antes que todas las demás: la política recomienda {kind}.",
+          "invalid_proof_ungenerated": "Ninguno de los registros cuya integridad figura como inválida obtuvo una prueba: no se pudo generar aguas arriba, así que no se comprobó nada. Aun así la política trata ese estado como inválido, y esa regla va antes que todas las demás: la política recomienda {kind}.",
           "recorded_contradiction": "El evaluador registró evidencia que contradice una afirmación: la política recomienda {kind}.",
           "abstention": "El evaluador se negó a juzgar las afirmaciones: la política recomienda {kind}.",
           "unresolved_items": "Siguen abiertas objeciones después de la evaluación final: la política recomienda {kind}.",
@@ -800,10 +802,12 @@
         "counts": {
           "claims": "{claims, plural, =0 {La evaluación final no valoró ninguna afirmación} one {La evaluación final valoró # afirmación} many {La evaluación final valoró # de afirmaciones} other {La evaluación final valoró # afirmaciones}}; {corroborated, plural, =0 {ninguna se corroboró} one {# se corroboró} many {# de ellas se corroboraron} other {# se corroboraron}}.",
           "proofs": "Pruebas de la ronda final: {valid, plural, =0 {ninguna válida} one {# válida} many {# de válidas} other {# válidas}}, {invalid, plural, =0 {ninguna inválida} one {# inválida} many {# de inválidas} other {# inválidas}}, {unavailable, plural, =0 {ninguna no disponible o fallida} one {# no disponible o fallida} many {# de no disponibles o fallidas} other {# no disponibles o fallidas}}.",
+          "proofs_ungenerated": "Estados de integridad de la ronda final: {valid, plural, =0 {ninguno válido} one {# válido} many {# de válidos} other {# válidos}}, {invalid, plural, =0 {ninguno inválido} one {# inválido, sin prueba generada} many {# de inválidos, sin prueba generada} other {# inválidos, sin prueba generada}}, {unavailable, plural, =0 {ninguno no disponible ni con error de verificación} one {# no disponible o con error de verificación} many {# de no disponibles o con error de verificación} other {# no disponibles o con error de verificación}}.",
           "open": "{unresolved, plural, =0 {La evaluación final no indicó ninguna objeción como no resuelta.} one {La evaluación final indicó # objeción como no resuelta.} many {La evaluación final indicó # de objeciones como no resueltas.} other {La evaluación final indicó # objeciones como no resueltas.}}"
         },
         "reasons": {
           "invalid_proofs": "La prueba de un registro resultó inválida.",
+          "invalid_proofs_ungenerated": "Cada registro cuya integridad figura como inválida informa que no se pudo generar aguas arriba ninguna prueba para él; esto no muestra que un registro se haya alterado.",
           "contradicted_evidence": "Se juzgó que una evidencia contradice una afirmación.",
           "evaluator_abstained": "El evaluador se negó a juzgar.",
           "open_items": "Siguen abiertas objeciones del crítico.",
@@ -817,7 +821,8 @@
       "context": {
         "simulated": "Todos los estados de prueba de esta ejecución son SIMULADOS: los registró el verificador con guion y no se comprobó nada.",
         "finalRoundOnly": "Esta ejecución se registró antes del protocolo 1.3: la evaluación de cada ronda juzgó solo las objeciones de esa ronda, y la política leyó solo la ronda final.",
-        "neverRejudged": "{count, plural, =0 {Objeciones de rondas anteriores nunca vueltas a juzgar: ninguna.} one {Objeciones de rondas anteriores nunca vueltas a juzgar: #.} many {Objeciones de rondas anteriores nunca vueltas a juzgar: #.} other {Objeciones de rondas anteriores nunca vueltas a juzgar: #.}}"
+        "neverRejudged": "{count, plural, =0 {Objeciones de rondas anteriores nunca vueltas a juzgar: ninguna.} one {Objeciones de rondas anteriores nunca vueltas a juzgar: #.} many {Objeciones de rondas anteriores nunca vueltas a juzgar: #.} other {Objeciones de rondas anteriores nunca vueltas a juzgar: #.}}",
+        "neverRejudgedUnlisted": "{count, plural, =0 {Cada una de ellas figuró como no resuelta en la evaluación de su propia ronda.} one {De ellas, # no figuró como no resuelta ni siquiera en la evaluación de su propia ronda, que la omitió sin dar una razón.} many {De ellas, # de objeciones no figuraron como no resueltas ni siquiera en la evaluación de su propia ronda, que las omitió sin dar una razón.} other {De ellas, # no figuraron como no resueltas ni siquiera en la evaluación de su propia ronda, que las omitió sin dar una razón.}}"
       },
       "technicalSummary": "Detalles técnicos de la traza de la política",
       "technical": {

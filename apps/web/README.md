@@ -179,8 +179,9 @@ turns the pacing off. Server timestamps are shown untouched.
 - **Audit trail** (`AuditTab`): the chain (scope in words, first and last
   sequence, head; each record's link as the views carry it), the receipt
   (authorization, deliberation summary with the earlier-round objections
-  never re-judged, model calls, verifications by round and status, protocol,
-  proof limitations, the receipt as JSON), the verbatim log where it is
+  never re-judged and, apart, those their own round left unlisted, model
+  calls, verifications by round and status, protocol, proof limitations,
+  the receipt as JSON), the verbatim log where it is
   published (a guided run's `events.ndjson`; a recorded run's research file
   with its pinned SHA-256) with the receipt download, the exact check
   `consensus-api verify <log.jsonl> --run <id> --receipt <receipt.json>`, and
@@ -214,7 +215,15 @@ turns the pacing off. Server timestamps are shown untouched.
   the rationale code, the server's English rationale), expanded at the
   "technical" explanation level; what the records add is said apart from it
   (SIMULATED proof statuses; before protocol 1.3, the final round only and
-  "earlier-round objections never re-judged: N").
+  "earlier-round objections never re-judged: N", then, when some of them
+  were not listed unresolved even by their own round's evaluation, how many:
+  the receipt's `unresolved_in_its_round` false, also on the Audit trail).
+  When every record the invalid_proofs check names reports that no proof
+  could be generated upstream, the lead and that sentence say nothing was
+  checked, as the Proof inspector does, never that a check came back
+  invalid, and the proofs count reads the same trace counts as integrity
+  statuses (`plain.counts.proofs_ungenerated`), never as proofs found
+  invalid or none failed.
 - **Revision view** (`RevisionComparison`, next to the scope line): the
   claims of the original and the revised proposal
   (`src/lib/run/revision.ts` `claimComparison`), and each revision's

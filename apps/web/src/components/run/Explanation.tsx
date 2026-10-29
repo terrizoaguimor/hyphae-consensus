@@ -11,7 +11,10 @@
 // Docs). What the records add to the trace is said apart from it: SIMULATED
 // proof statuses, and for a run before protocol 1.3 that the policy read the
 // final round only and how many earlier-round objections were never judged
-// again. A recommendation without a trace (before schema 1.1) is said to be
+// again (and how many of those their own round left unlisted too). When
+// every record the invalid_proofs check names reports that no proof could
+// be generated upstream, the plain text says nothing was checked, as the
+// Proof inspector does. A recommendation without a trace (before schema 1.1) is said to be
 // shown as recorded.
 
 import { useTranslations } from "next-intl";
@@ -25,6 +28,7 @@ import {
   explainContext,
   plainExplanation,
   reasonIds,
+  traceReading,
 } from "@/lib/run/explain";
 
 import { TechnicalDetails } from "../TechnicalDetails";
@@ -46,10 +50,10 @@ function useExplainText(): (message: ExplainMessage) => string {
     });
 }
 
-function PlainTrace({ trace }: { trace: PolicyTrace }) {
+function PlainTrace({ trace, detail }: { trace: PolicyTrace; detail: RunDetailV1 }) {
   const t = useTranslations("Run.explain");
   const text = useExplainText();
-  const plain = plainExplanation(trace);
+  const plain = plainExplanation(trace, traceReading(trace, detail));
   return (
     <div data-explanation-plain data-trace-rule={trace.rule}>
       <p data-explain-lead>{text(plain.lead)}</p>
@@ -138,7 +142,7 @@ export function Explanation({ recommendation, detail }: ExplanationProps) {
   return (
     <section className="hc-explanation" aria-labelledby="explanation-heading" data-explanation>
       <h4 id="explanation-heading">{t("heading")}</h4>
-      {trace === null ? <p data-explanation-trace="none">{t("noTrace")}</p> : <PlainTrace trace={trace} />}
+      {trace === null ? <p data-explanation-trace="none">{t("noTrace")}</p> : <PlainTrace trace={trace} detail={detail} />}
       {context.length === 0 ? null : (
         <ul className="hc-list" data-explain-context>
           {context.map((message) => (

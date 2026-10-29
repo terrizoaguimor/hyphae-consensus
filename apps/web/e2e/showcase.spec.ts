@@ -356,6 +356,23 @@ test("a run blocked because no proof could be generated reads so, with the archi
   await expect(page.locator("[data-proof-plain='generation_failed']").first()).toHaveText(
     t("en", "Run.proofs.plain.generationFailed"),
   );
+  // The Decision tab's explanation agrees: nothing was checked, no check came back invalid.
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const explanation = page.locator("[data-explanation]");
+  await expect(explanation.locator("[data-explain-lead]")).toHaveText(
+    t("en", "Run.explain.plain.rules.invalid_proof_ungenerated", { kind: t("en", "Run.kinds.blocked") }),
+  );
+  await expect(explanation.locator("[data-explain-reasons] li").first()).toHaveText(
+    t("en", "Run.explain.plain.reasons.invalid_proofs_ungenerated"),
+  );
+  await expect(explanation).not.toContainText(t("en", "Run.explain.plain.reasons.invalid_proofs"));
+  // The proofs count reads as integrity statuses, never as proofs that failed.
+  await expect(explanation.locator("[data-explain-counts] li").nth(1)).toContainText(
+    "Integrity statuses of the final round:",
+  );
+  await expect(explanation.locator("[data-explain-counts] li").nth(1)).toContainText("with no proof generated");
+  await expect(explanation.locator("[data-explain-counts]")).not.toContainText("Proofs of the final round");
+  await expect(explanation.locator("[data-explain-counts]")).not.toContainText("failed");
   await expectNoLive(page, "en");
 });
 

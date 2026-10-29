@@ -90,7 +90,8 @@ outcome even though they do not write it.
     admission (ADR-0008, `docs/architecture/sealed-snapshot.md`). The snapshot
     `snap-2026-10-29-demo-repo` was captured on 2026-10-29 (`b0375df`; its public files
     are in `snapshots/`, its digests under "Published snapshot digests" below); it is not
-    on any server yet.
+    on any server yet, and the code on this branch needs the not-yet-merged fix `0515f29`
+    to load it (see Status).
   - **Two-phase gate** (`live/gate.rs`): preset, geography, an 18+ attestation, the
     evidence status and Turnstile before the single live slot is taken; then the client's
     daily quota (default 3 public-lane runs per IPv4 /32 or IPv6 /64 per UTC day) and a
@@ -389,12 +390,12 @@ adversarial review is in progress. Tests on the tree of `25c7867`: 600 passed / 
 Release gates: G8 passes (the fresh-clone run is still owed before the tag), G12 is partial, the other ten are pending.
 The Hyphae container is on the new development machine. The sealed snapshot
 `snap-2026-10-29-demo-repo` was captured there on 2026-10-29 (`b0375df`; digests under
-"Published snapshot digests"). A boot check on the real snapshot found that the runtime at
-`6e202eb` refuses it (`response_invalid`: `hyphae agent ui` 4.0.0 puts the result object
-under `result`); the fix, `0515f29` on branch `test/snapshot-boot`, is not yet merged here.
-With it, the snapshot boots, both proofs are re-verified by hyphae 4.0.0 in the container,
-and an in-process live run through the public router was served from it against a local
-fake Meta server (no Meta call). Not done yet: merging that fix; comparing the published
+"Published snapshot digests"). A test boot on the real snapshot found a format mismatch:
+the server code at `6e202eb` rejects it, because Hyphae 4.0.0 wraps its answer differently
+from what the loader expected. A fix (`0515f29`) is written and tested but not yet merged.
+With it, the snapshot loads, Hyphae 4.0.0 re-verifies both proofs, and a local test run
+over it served all 7 records as verified, against a stand-in for the Meta API (no real
+Meta call). Not done yet: merging that fix; comparing the published
 binary digest with the release tarball (runbook 3.2); the counted protocol 1.3 battery (not
 run on 2026-10-29: the Meta key is not set on this machine and only the owner can set it;
 no Meta call was made); the staging deployment and the snapshot on the server (owner

@@ -202,7 +202,8 @@ catches and what it does not.
 ## Capture (2026-10-29)
 
 - **The session.** Held in the `hyphae-consensus` container on the new development machine,
-  2026-10-29 17:11–17:17 UTC, committed in `b0375df` as `snapshots/snap-2026-10-29-demo-repo/`
+  2026-10-29 17:16–17:17 UTC (`session.json`: `captured_at` 17:16:12Z, `finished_at`
+  17:17:00Z; two scratch sessions ran before it from 17:11), committed in `b0375df` as `snapshots/snap-2026-10-29-demo-repo/`
   (the public subset; `.proof` and `.witness` stay git-ignored, decision 3). Hyphae 4.0.0;
   7 records whose ids equal the research ids; both required captures verified (`kind memory`,
   `scope semantic_reexecution`, one anchor); `snapshot_manifest.py check --reverify` through
@@ -225,8 +226,9 @@ catches and what it does not.
   `feat/public-portal`). With the fix, the strict boot (`SnapshotFactory`) accepted the real
   snapshot with the anchor and manifest pins (verifier-binary pin unset on the development
   machine), both proofs were re-verified by hyphae 4.0.0 in the container, mutated copies
-  were refused with `checksums_mismatch`, `digest_mismatch`, `manifest_pin_mismatch`,
-  `pinned_anchor_mismatch` and `checksums_incomplete`, and one in-process live run through
+  were refused with `checksums_mismatch`, `digest_mismatch`, `manifest_pin_mismatch` and
+  `pinned_anchor_mismatch`, the committed checkout without its git-ignored proofs and
+  witnesses was refused with `checksums_incomplete`, and one in-process live run through
   the public router, against a local fake Meta server, retrieved the 7 records with every
   `integrity_status` valid and each per-run report's digests equal to the captured
   `list-demo-repo.verify.json`. No real Meta call was made.

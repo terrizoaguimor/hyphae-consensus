@@ -29,8 +29,10 @@ and bound to every run's proof checks. The operator console meters its own `mode
 runs on the same ledger when it is given the ledger directory, and `consensus-api ledger`
 lets an operator read, reset and reconcile the ledger from a shell. The deployment exists
 as templates only. **The public portal is not exposed.** Nothing is tunneled until every
-gate G1–G12 reads PASS. At `e915b6d` live mode can be enabled only over a sealed snapshot,
-and none has been captured yet (section 5).
+gate G1–G12 reads PASS. At `e915b6d` live mode can be enabled only over a sealed snapshot.
+The one sealed snapshot, `snap-2026-10-29-demo-repo`, was captured on 2026-10-29
+(`b0375df`); the code at `e915b6d` (and at `6e202eb`) refuses it at boot until the fix
+`0515f29` (not yet merged) is in (section 5).
 
 **How this document was verified.** Every mitigation below names its code (file and
 function or module) and the tests that cover it; where no test exists, the text says so.
@@ -564,7 +566,8 @@ orchestrator drops with a recorded reason (`hyphae.rs::map_record`, `Recall::for
 `fake_memory_honors_project_isolation_like_hyphae`. Residual: the operator surface still
 takes a caller-chosen project by design (authenticated operator, lab stores); the live
 isolation evidence is two empty recalls (L10, R08) plus the snapshot's captured empty
-recall once the capture happens.
+recall `recall-other-repo-isolation` (captured 2026-10-29, `b0375df`; verified by
+`hyphae proof verify`).
 
 ### 3.3 Public surface
 
@@ -1350,7 +1353,7 @@ anywhere in the tree.
 | Id | Finding (short) | Status at `e915b6d` | Where |
 |---|---|---|---|
 | SEC-1 | No auth or ownership on reads; loopback is no boundary behind a tunnel | closed in code; pending deployment probe (G1, G2) | sessions + owner-scoped 404 (`session.rs`, `runs.rs`, `run_store.rs`), listener split (`server.rs`); `another_session_sees_nothing_of_a_run`; lane S-b1 |
-| SEC-2 | Anonymous callers start unlimited live runs on the server key | closed in code (two-phase gate, ledger, per-client daily quota; startable over a verified snapshot since `2f0efe0`); deployment and capture pending | `live/gate.rs`, `live/budget.rs`, `limits.rs::DailyCounts`, `runs.rs::reserve`; `admission_refuses_in_order_and_charges_nothing`, `a_client_starts_its_daily_share_of_public_runs_and_no_more`; `d1e58f1`, `2f0efe0`, `561c25e` |
+| SEC-2 | Anonymous callers start unlimited live runs on the server key | closed in code (two-phase gate, ledger, per-client daily quota; startable over a verified snapshot since `2f0efe0`); deployment pending (snapshot captured 2026-10-29, `b0375df`; it boots only with `0515f29`, not yet merged) | `live/gate.rs`, `live/budget.rs`, `limits.rs::DailyCounts`, `runs.rs::reserve`; `admission_refuses_in_order_and_charges_nothing`, `a_client_starts_its_daily_share_of_public_runs_and_no_more`; `d1e58f1`, `2f0efe0`, `561c25e` |
 | SEC-3 | Caller-chosen `project_id` reads any project | closed for the public surface; accepted on the operator surface | no project field in public requests (`api/types.rs`), presets fixed to `demo-repo`, the snapshot serves one project and must be `demo-repo` to boot; `requests_refuse_unknown_fields_and_free_strings`, `a_snapshot_of_another_project_does_not_boot_for_live_mode` |
 | SEC-4 | One std mutex held for whole runs inside async handlers | closed | per-run `SharedRunLog`, blocking pool, `RunManager` (`runs.rs`); `a_decision_during_deliberation_is_refused_and_live_frames_say_live`; `200b0df`, `92bb836` |
 | SEC-5 | Synchronous POST outlasts the edge timeout | closed in code; heartbeat through a tunnel pending (G11; `deploy/scripts/sse-heartbeat-test.sh` not yet run) | `202` + SSE with 15 s heartbeats (`v1.rs`, `stream.rs`); `a_guided_run_is_accepted_streamed_decided_and_receipted` |

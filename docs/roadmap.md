@@ -1,8 +1,8 @@
 # Roadmap
 
 Date: 2026-10-29 · State of branch `feat/public-portal` at `bc3b262`, with the snapshot
-capture (`b0375df`) and its boot check (`0515f29`, branch `test/snapshot-boot`) added the
-same day · Submission
+capture (`b0375df`) added the same day; its boot check (`0515f29`) is on branch
+`test/snapshot-boot`, not merged into this branch · Submission
 deadline: 2026-11-05T02:00Z (development window October 26 – November 4, 2026).
 
 Nothing is deployed. The public portal stays unexposed until every release gate G1–G12
@@ -67,12 +67,12 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 | Web lane W2: Evidence, Proof inspector, Audit trail with the chain checked in the browser, Meta API panel, policy-trace explanations, revision view, showcase in RECORDED mode, Overview figures from the archive | merged `bc3b262` | `apps/web/README.md` |
 | Gates: Windows 600 passed / 0 failed / 2 ignored at `25c7867`; Linux parity 7/7 gates, 603 passed / 0 failed / 2 ignored on the tree of `25c7867`; release gate G8 PASS | `10ed950` and later | release checklist G8 |
 
-### 2026-10-29 — the sealed snapshot captured and booted
+### 2026-10-29 — the sealed snapshot captured; boot check with an unmerged fix
 
 | What | Commits | Source |
 |---|---|---|
 | Sealed snapshot `snap-2026-10-29-demo-repo` captured in the `hyphae-consensus` container (now on the new development machine): hyphae 4.0.0, 7 records whose ids equal the research ids, both proofs verified (`kind memory`, `scope semantic_reexecution`), `snapshot_manifest.py check --reverify` reproduced both verifier reports, `check --public-only` passed; anchor `43a2dea9…8f02`, manifest SHA-256 `b731346c…014a`. The capture script now sends an integer request id (`agent ui` refuses a string id) | `b0375df` | `docs/architecture/sealed-snapshot.md`, "Observed in the capture session"; `snapshots/snap-2026-10-29-demo-repo/` |
-| Boot check on the real snapshot: the runtime at `6e202eb` refused it (`response_invalid: … no memories array`, because `agent ui` 4.0.0 wraps the result object in an envelope with `result`); fixed, then the snapshot boots with the pinned anchor and the manifest pin (the verifier-binary pin `CONSENSUS_HYPHAE_BIN_SHA256` was not set), both proofs re-verified by hyphae 4.0.0 in the container, and an in-process live run through the public router was served from it (7 records, every `integrity_status` valid, local fake Meta server only). Mutated copies are refused (`checksums_mismatch`, `digest_mismatch`, `manifest_pin_mismatch`, `pinned_anchor_mismatch`, `checksums_incomplete`) | `0515f29` (branch `test/snapshot-boot`, not yet merged into `feat/public-portal`) | `git show 0515f29` (test `the_agent_ui_envelope_of_the_real_capture_loads_and_opens`, correction of `sealed-snapshot.md` section 9 item 2) |
+| Boot check on the real snapshot: the runtime at `6e202eb` refused it (`response_invalid: … no memories array`, because `agent ui` 4.0.0 wraps the result object in an envelope with `result`); fixed, then the snapshot boots with the pinned anchor and the manifest pin (the verifier-binary pin `CONSENSUS_HYPHAE_BIN_SHA256` was not set), both proofs re-verified by hyphae 4.0.0 in the container, and an in-process live run through the public router was served from it (7 records, every `integrity_status` valid, local fake Meta server only). Mutated copies are refused (`checksums_mismatch`, `digest_mismatch`, `manifest_pin_mismatch`, `pinned_anchor_mismatch`), and the committed checkout, which lacks the git-ignored proofs and witnesses, is refused with `checksums_incomplete` | `0515f29` (branch `test/snapshot-boot`, not yet merged into `feat/public-portal`) | `git show 0515f29` (test `the_agent_ui_envelope_of_the_real_capture_loads_and_opens`, correction of `sealed-snapshot.md` section 9 item 2) |
 
 ## In progress (2026-10-29)
 

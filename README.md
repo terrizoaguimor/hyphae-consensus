@@ -11,7 +11,8 @@ Evidence Evaluator judges each claim against records retrieved from Hyphae Agent
 The runtime checks the records' integrity proofs, a fixed deterministic policy turns
 the judgments and proof statuses into a recommendation with a step-by-step trace, and
 only a human authorizes. Every step is written to a hash-chained event log that anyone
-can replay and check.
+can replay and check for later changes (the log is not signed, and the archived proofs'
+witnesses are not published; see "What is verified and what is not").
 
 Independent project; not affiliated with, sponsored by, or endorsed by Meta.
 
@@ -46,8 +47,9 @@ outcome even though they do not write it.
 
 - **Model.** `muse-wonder-1.0`, the default model id (`DEFAULT_META_MODEL` in
   `crates/consensus-api/src/config.rs`; `CONSENSUS_MODEL` overrides it). Every recorded
-  live run in `research/` used it, and every invocation records `provider: meta`, the model
-  id and the API's request id (`research/README.md`).
+  live run in `research/` used it, and every completed Meta call there is recorded with
+  `provider: meta`, the model id and the API's request id (scripted calls record
+  `provider: fake`; `research/README.md`).
 - **Endpoint.** The Meta Model API's Chat Completions, `POST {base}/chat/completions` with
   base `https://api.meta.ai/v1` (`crates/consensus-api/src/meta.rs`, ADR-0002).
 - **Which roles call it.** All three roles, in four kinds of call with one strict schema
@@ -72,10 +74,8 @@ outcome even though they do not write it.
   is retried exactly once (it may have been billed). Timeouts, 504 and other 4xx are never
   retried. `finish_reason: length` and `refusal` are recorded as failures with stable
   codes; no response body or URL reaches an error, event or receipt.
-- **Prompts.** Everything a role did not write itself (the task, the proposal, the
-  evidence as a JSON array, other roles' texts) sits in separate `<UNTRUSTED_*>` blocks
-  with delimiter look-alikes neutralized. That is defense in depth, not a boundary; the
-  boundary is that models cannot act.
+- **Prompts.** Everything a role did not write itself sits in separate `<UNTRUSTED_*>`
+  blocks; a mitigation, not a boundary (details under "Safety invariants").
 - **The public live mode (on the owner's key; not deployed).** Decided in ADR-0007,
   operated per `docs/deployment/runbook.md`:
   - **No hosted BYOK.** The portal never accepts a visitor's Meta key (Meta's Model API
@@ -95,14 +95,17 @@ outcome even though they do not write it.
     ledger reservation of the run's worst case, before any model call.
   - **USD ledger** (`live/budget.rs`, `live/config.rs`): append-only, fsynced, shared by
     every process that holds the key. Caps by owner decision: $10 per UTC day, $60
-    lifetime, of which $15 is the judge lane's slice. A run's worst case is (70,000-token
+    lifetime, of which $15 is the slice of the judge lane (runs admitted with an invite
+    code, with their own daily limit). A run's worst case is (70,000-token
     run cap + 16,000 output + 32,000 input cap) × $20/M = $2.36. Every HTTP attempt is
     drawn on the reservation and settled once; timeouts, 5xx, post-send transport errors
     and responses without usage are charged at the attempt's worst case and never
     refunded. The ledger trips on an overrun, on 401/402/403 from Meta or at the lifetime
     cap, and the kill switch is the same state. The operator console's `model=meta` runs
-    are metered on the same ledger when `CONSENSUS_LIVE_LEDGER_DIR` is set; the operator
-    reads, resets and reconciles it with `consensus-api ledger` from a shell on the server.
+    are metered on the same ledger when `CONSENSUS_LIVE_LEDGER_DIR` is set. From a shell
+    on the server the operator reads it, clears a trip and releases a crash-stranded
+    reservation with `consensus-api ledger status | reset | release` (reconciliation with
+    the provider dashboard: runbook §9.3).
   - Each public live request carries the session's pseudonym (`visitor:<16 hex>`) as
     `safety_identifier`. Measured cost on the final code (ADR-0007): $0.81 mean, $0.98
     maximum per run.
@@ -152,7 +155,8 @@ ids, token counts and latencies are what Meta's API returned (`research/README.m
 
 Every run carries provenance axes derived from its records (model, evidence, delivery),
 and the portal labels them so that a scripted or replayed run is never shown as live
-(release gate G7; `apps/web/README.md`):
+(release gate G7, pending: enforced in the API and the web workspace, not yet asserted
+through the public hostname; `apps/web/README.md`):
 
 - **SIMULATED**: scripted model doubles (`provider: fake`) and scripted proofs
   (`fake-verifier`, "SIMULATED proof"). The guided runs are simulated end to end; their
@@ -182,12 +186,14 @@ comparison (no single-agent baseline was executed).
   receipts of battery 1 (76) and of the final battery (91) is `valid` (`hyphae proof
   verify`, pinned anchor).
   - P01–P02 ran under a first Evaluator wording that was then replaced; they are not
-    counted (§5.1).
+    counted (§5.1). P02 reached `supported` only because that wording let objections that
+    still applied count as resolved.
   - Battery 1, R01–R08: 1 `supported`, 2 `contested`, 5 `insufficient_evidence` (§5.2).
-    **R06** is the one live `supported` with every cited record verified, read with its
-    caveats: under protocol 1.2 its 7 round-1 objections were never re-judged (RT-1), its
-    claim 3 cites a seeded record that misdescribes the fixture test (corrections 3 and 4),
-    and `supported` attests the *revised* claims against operator-seeded memory, not the
+    **R06**, battery 1's one `supported` (the first counted live `supported` with every
+    cited record verified), is read with its caveats: under protocol 1.2 its 7 round-1
+    objections were never re-judged (RT-1, correction 4); its claim 3 cites a seeded
+    record that misdescribes the fixture test, though its other two citations corroborate
+    that claim on their own (correction 3); and `supported` attests the *revised* claims against operator-seeded memory, not the
     task's original 30-second request and not production correctness.
   - Final battery, F01–F06 (strict output): 6 `contested`. In every final round every
     claim was corroborated by verified records it cites; the 37 open Critic objections
@@ -197,7 +203,8 @@ comparison (no single-agent baseline was executed).
     never obeyed; H02's final round corroborated 1 of 4 claims, and H01's had 2 claims with
     contradicting evidence (§5.4, correction 1). Two runs, one model, one note: not a
     robustness result.
-- **Protocol 1.3 smoke runs** (§6; not counted as validation). On `prompt-freeze-1`, K01
+- **Protocol 1.3 smoke runs** (§6; not counted as validation; a 240 s budget per call).
+  On `prompt-freeze-1` (2026-10-27 evening), K01
   ended `insufficient_evidence` because the strict schema allowed an empty `assessments`
   array (fixed by the keyed schema) and K02 failed on a post-send transport error. On
   `prompt-freeze-2` (run 2026-10-28 03:23–03:31 UTC), K03 and K04 ended `supported`
@@ -217,7 +224,9 @@ third party can and cannot check).
 **Nothing is deployed.** Mission Control (`apps/web`) is the public portal's frontend: a
 Next.js static export served by `consensus-api serve-public`, in English, Spanish,
 Brazilian Portuguese and French, light and dark. It runs locally against the real server
-and in the end-to-end suite against a mocked API. Its views (`apps/web/README.md`):
+and in the end-to-end suite against a mocked API. Its views ([`apps/web/README.md`](apps/web/README.md);
+[`docs/mission-control.md`](docs/mission-control.md) holds the superseded notes on the
+earlier operator-console UI):
 
 - **Overview**: what the system does, how a deliberation works, the provenance legend and
   figures counted in the browser from the showcase.
@@ -235,24 +244,29 @@ and in the end-to-end suite against a mocked API. Its views (`apps/web/README.md
   **Limitations** and **About** pages awaiting the owner's sign-off.
 
 The portal goes public only when every release gate in
-`docs/security/release-checklist.md` reads PASS.
+[`docs/security/release-checklist.md`](docs/security/release-checklist.md) reads PASS.
 
 ## Architecture
 
-The overview is `docs/architecture/overview.md`. In short: `consensus-domain` holds typed
+The overview is [`docs/architecture/overview.md`](docs/architecture/overview.md). In short: `consensus-domain` holds typed
 contracts only; `consensus-runtime` holds the state machine, orchestration, policy,
 event log and per-run store; `consensus-api` holds the Meta and Hyphae adapters, the two
 servers (public API v1 and the loopback operator console, on separate listeners), the
 live-mode admission and the CLIs; `apps/web` is the frontend.
 
-Decisions: `docs/adr/` (0001 M1 architecture, 0002 Meta adapter, 0003 Hyphae adapter, 0004
-operator console, 0005 per-run logs and live SSE, 0006 public API and the listener split,
-0007 live mode on the owner's key, 0008 the sealed snapshot, 0009 frontend stack, 0010
-protocol 1.3). The sealed snapshot: `docs/architecture/sealed-snapshot.md`. Threat model
-v2: `docs/threat-model.md`. Release gates: `docs/security/release-checklist.md`.
-Deployment: `docs/deployment/runbook.md` and `deploy/`. API contract: `contracts/api-v1/`.
-Implementation journal: `docs/journal.md`. Reviews, agent briefs and the 2026-10-27
-independent audit: `docs/reviews/README.md`.
+Decisions: [`docs/adr/`](docs/adr/) (0001 M1 architecture, 0002 Meta adapter, 0003
+Hyphae adapter, 0004 operator console, 0005 per-run logs and live SSE, 0006 public API and
+the listener split, 0007 live mode on the owner's key, 0008 the sealed snapshot, 0009
+frontend stack, 0010 protocol 1.3). The sealed snapshot:
+[`docs/architecture/sealed-snapshot.md`](docs/architecture/sealed-snapshot.md). Threat
+model v2: [`docs/threat-model.md`](docs/threat-model.md). Release gates:
+[`docs/security/release-checklist.md`](docs/security/release-checklist.md). Deployment:
+[`docs/deployment/runbook.md`](docs/deployment/runbook.md) and [`deploy/`](deploy/). API
+contract: [`contracts/api-v1/`](contracts/api-v1/). Evaluation:
+[`docs/evaluation.md`](docs/evaluation.md). Technical pitch:
+[`docs/pitch.md`](docs/pitch.md). Implementation journal:
+[`docs/journal.md`](docs/journal.md). Reviews, agent briefs and the 2026-10-27
+independent audit: [`docs/reviews/README.md`](docs/reviews/README.md).
 
 ## Run it locally
 
@@ -286,15 +300,16 @@ REPO=$(pwd); cd "$(mktemp -d)"
 
 ```sh
 CONSENSUS_RUN_STORE_DIR="$(mktemp -d)" cargo run -p consensus-api --locked -- serve-operator
-# http://127.0.0.1:8787/ ; the bearer token is printed once at startup
+# http://127.0.0.1:8787/ ; the bearer token is printed once at startup (or read from CONSENSUS_OPERATOR_TOKEN_FILE)
 ```
 
 `model=fake` runs the five guided scenarios with simulated proofs and needs nothing else.
-A non-loopback bind is refused, every route needs the bearer token, and approving a
+A non-loopback bind is refused, every `/api` route needs the bearer token, and approving a
 `blocked` or `abstained` run needs a note. Live modes (`model=meta`, `memory=hyphae`) need
 credentials from the environment (`.env.example`, `scripts/hyphae-container/README.md`),
 spend money on the Meta key, and without them the API names the missing variable instead
-of falling back.
+of falling back. Secrets must come from environment variables, never files committed to
+this repository.
 
 **Web app and public server.** The Node toolchain runs only in throwaway containers, never
 on the host (`apps/web/README.md`, "Build only through Docker"):
@@ -324,8 +339,10 @@ data behind `docs/evaluation.md`: the battery logs, the run records with their r
 the raw model drafts and the Hyphae recovery files. `research/` holds byte-identical copies
 of its event logs and run records; the raw drafts and the recovery files exist only in
 `demo-run/`. Never open a log in either place with a writing tool: `EventLog::open` opens a
-log read-write and can repair a torn tail. The servers open archived logs read-only
-(`consensus-api verify`, the showcase).
+log read-write and can repair a torn tail. Earlier builds kept the CLI demo's log in
+`demo-run/events.jsonl`, which therefore holds the 2026-10-26 evening runs of
+`docs/evaluation.md` §4; the demo no longer opens it. The servers open archived logs
+read-only (`consensus-api verify`, the showcase).
 
 ## Status
 
@@ -337,7 +354,7 @@ Mission Control's run views (lanes W1 and W2: New deliberation, My runs, the run
 with all seven tabs, the research showcase in RECORDED mode) are merged, and W2's
 adversarial review is in progress. Tests on the tree of `25c7867`: 600 passed / 0 failed /
 2 ignored on Windows, 603 / 0 / 2 on Linux with 7/7 gates (release checklist, G8).
-Release gates: G8 passes, G12 is partial, the other ten are pending. Not done yet: the
+Release gates: G8 passes (the fresh-clone run is still owed before the tag), G12 is partial, the other ten are pending. Not done yet: the
 sealed snapshot capture and the counted protocol 1.3 battery (both blocked: the Docker
 container that holds the Hyphae stores is not on the current development machine, and an
 owner decision is pending), the staging deployment, the video, the owner's sign-off of the
@@ -423,7 +440,7 @@ a changed snapshot is refused at admission before any model call (ADR-0007, ADR-
 ## Safety invariants (enforced in code, covered by tests)
 
 - No self-approval: only a human actor can record an authorization decision. The operator
-  server requires its bearer token on every route; on the public server a visitor can
+  server requires its bearer token on every `/api` route; on the public server a visitor can
   decide only on their own runs, and that decision is recorded with
   `authority: public_demo` (no operational authority). A typed name is a label, not
   authentication.
@@ -434,8 +451,8 @@ a changed snapshot is refused at admission before any model call (ADR-0007, ADR-
   since protocol 1.3, with run-unique item ids; schema 1.2 runs used a count-based rule,
   audit finding RT-7). A revision may also follow an abstention that still lists
   unresolved items. At most 9 model calls, 20 distinct evidence records, and
-  `CONSENSUS_MAX_RUN_TOKENS` (default 150,000; about 70,000 for public live runs) input +
-  output tokens per run, enforced by the runtime after each call, so a run can overshoot
+  `CONSENSUS_MAX_RUN_TOKENS` (default 150,000) input + output tokens per run (public live
+  runs use `CONSENSUS_LIVE_RUN_TOKEN_CAP`, default 70,000), enforced by the runtime after each call, so a run can overshoot
   by one call; at most 12 claims per proposal from the Meta adapter. A run that crosses
   the token cap fails with stage `token_budget`.
 - Tamper-evident history: events are SHA-256 hash-chained and verified on open; replay

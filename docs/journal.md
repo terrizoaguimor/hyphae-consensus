@@ -280,6 +280,94 @@
   client generated from the contract, SSE client, New deliberation, My runs, the
   Live/Playback, Explorer and Decision tabs).
 
+## 2026-10-29 — README status history
+
+The dated status blocks that opened `README.md` until 2026-10-29, moved here verbatim
+when the README was rewritten for first-time readers (it now carries one current status
+block). Newest first, as they stood in the README at `bc3b262`.
+
+> **Status (2026-10-28 evening, branch `feat/public-portal`; nothing exposed yet).**
+> The public live mode is wired end to end in code and stays off until its gates pass.
+> It runs only over a sealed Hyphae snapshot whose manifest, record texts and verifier
+> binary are pinned and re-checked at every admission (a snapshot that fails disables
+> live mode, not the portal), behind a two-phase gate: geography, the adult attestation,
+> the evidence status and Turnstile before the single live slot is taken, then a daily
+> quota per network and a USD ledger reservation of the run's worst case, with every
+> Meta HTTP attempt metered. On the server the operator console is metered on the same
+> ledger, and `consensus-api ledger` lets the operator read, reset and reconcile it from
+> a shell. Receipts state what a valid proof does not establish (a record's text is not
+> byte-compared with the proof). The threat model v2 (`docs/threat-model.md`) maps each
+> threat to its code and tests and lists what is still open; of the release gates G1–G12,
+> the Linux correctness gate (G8) passes, supply chain (G12) is partial and the rest are
+> pending. The web portal has its typed API client, the live stream, New deliberation, My
+> runs and the run workspace's Live/Playback, Explorer and Decision views; the Evidence,
+> Proof, Audit and Meta API views are being built. Still ahead: the snapshot capture and
+> the counted protocol 1.3 battery (2026-10-29), the staging deployment and the video.
+>
+> **Status (2026-10-27 night, branch `feat/public-portal`; nothing exposed yet).**
+> Since the audit below: protocol 1.3 (ADR-0010) closes MA-1 and RT-1. The runtime
+> validates every evaluation (one assessment per claim, one explicit verdict per open
+> objection, objections and contradictions carried across rounds) and the Meta
+> adapter's per-call keyed schema makes an omitted id impossible. Receipts v2 carry a
+> deterministic `PolicyTrace`. Runs now have one hash-chained log each plus a run index,
+> start asynchronously and stream live over SSE (ADR-0005). A public API v1 with visitor
+> sessions, owner-scoped `404`s and a listener split exists (ADR-0006), as does the
+> live-mode admission library (USD ledger, Turnstile, presets, geo; ADR-0007), wired into
+> the public route with the sealed-snapshot client (ADR-0008) as its evidence factory,
+> the public snapshot itself still to be captured; the Meta and Hyphae adapters are hardened
+> (ADR-0002 note). Two smoke runs on tag `prompt-freeze-2` (K03, K04;
+> `docs/evaluation.md` §6.2) confirmed the keyed schema live; both ended `supported`
+> **for a revised proposal that departs from the task text**, and the counted protocol
+> 1.3 battery is still pending, so no rate of any outcome under 1.3 is claimed. The web
+> portal (`apps/web`) has its shell, legal and docs pages; the run views are being
+> built. Nothing is deployed: the release gates G1–G12
+> (`docs/security/release-checklist.md`) are the condition for exposure.
+>
+> **Earlier status (2026-10-27 morning, owner-decision round; schema 1.2; corrected
+> the same day after the independent audit).**
+> Typed contracts, deterministic state machine, hash-chained crash-safe event log,
+> Meta Model API adapter (strict structured output), Hyphae MCP read-only adapter +
+> offline proof verifier, Axum operator console with an SSE replay endpoint,
+> synthetic demo repository, a 10-case scripted protocol conformance check, and
+> live batteries. **Live status:**
+> Hyphae proofs now verify end to end. `hyphae proof verify` re-executes each recall
+> against its sealed witness, checked against an operator-pinned anchor. The earlier
+> "corruption" answers were never data corruption: the daemon's socket sat inside
+> its data directory, and later the store outgrew the 4 MiB MCP response that
+> carries the witness (ADR-0003). Across 18 live runs on 2026-10-27 (real Meta API,
+> `muse-wonder-1.0`, and real Hyphae memory), one counted run reached `supported`
+> with every cited record verified (R06). P02 also reached `supported` but does
+> not count (`docs/evaluation.md` §5.1). Two defects surfaced live and were
+> fixed: the first Evaluator wording, new in this round, which let objections
+> that still applied count as resolved, as in P02; and field-name drift under
+> non-strict structured output, a fail-open that had existed since the first
+> commit and was exposed live in this round. On the final code all 8
+> runs ended `contested`. Only the 6 runs of the final battery (F01–F06) had every
+> final-round claim corroborated by verified memory, with the Critic's open
+> objections about missing tests and unproven risks as the remaining blocker (the
+> unchanged policy grants `supported` only when none is open). In the two
+> hostile-note runs, H02's final round corroborated 1 of 4 claims, and H01's
+> final round had claims with contradicting evidence. A hostile note with a valid
+> proof was treated as contradicting data, never as instructions
+> (`docs/evaluation.md` §5). Hyphae runs
+> its pinned Linux build in a local Docker container, because the Windows build's
+> Agent Memory surface does not start on this host (`docs/journal.md`). Demo modes
+> are labeled in the launch form and in every verification record and receipt
+> (`fake-verifier`, `SIMULATED proof`), but the console's result views show a
+> simulated proof with the same `valid` badge as a real one (audit finding UI-4).
+>
+> **Independent audit (2026-10-27).** A read-only, adversarially verified audit
+> of commit `72e422a` (`docs/reviews/2026-10-27-independent-audit.md`)
+> reproduced every gate and battery number above and found two fail-open paths
+> toward `supported`. MA-1: Evaluator ids that are not byte-exact are silently
+> dropped, which can empty the list of open objections or hide a contradiction.
+> RT-1: objections and contradictions from earlier rounds are never shown or
+> judged again, because the policy reads only the final round. Fixes are in
+> progress on branch `feat/public-portal`. Until they land, read R06's
+> `supported` with that caveat: its 7 round-1 objections were never re-judged.
+> The console must stay on loopback; it is not safe to expose (audit SEC-1 to
+> SEC-11).
+
 ## Backlog
 
 *Status 2026-10-27 (independent audit):* M2, M3, the operator console and the

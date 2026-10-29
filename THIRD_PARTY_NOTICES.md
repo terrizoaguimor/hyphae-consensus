@@ -447,8 +447,11 @@ The license texts ship with the static export:
 standard OFL 1.1 text under the copyright line and header of the upstream
 project's own license file (`LICENSE.txt` of rsms/inter, `OFL.txt` of
 JetBrains/JetBrainsMono, read on 2026-10-29); neither declares a Reserved
-Font Name. The copyright lines are the ones the upstream projects state; they
-were not checked against the name tables of the downloaded font files.
+Font Name. The copyright lines are the ones the upstream projects state. On
+2026-10-29 they were checked against the copyright string (name ID 0) of all
+13 woff2 files of an export: the 6 JetBrains Mono files read exactly the line
+above, and the 7 Inter files read "Copyright 2016 The Inter Project Authors
+(https://github.com/rsms/inter)", the same line without "(c)".
 <!-- hand-written:end -->
 
 ## Hyphae

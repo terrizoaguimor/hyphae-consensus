@@ -134,3 +134,26 @@ export function archiveEntry(label: string, provenance: Json): Json {
     event_count: segment.count,
   };
 }
+
+/**
+ * A run's first proposal and every revision of it, as its archived log
+ * records them (the proposal_submitted and revision_submitted payloads,
+ * verbatim), in log order.
+ */
+export function archivedProposals(file: string, runId: string): { proposal: Json; revisions: Json[] } {
+  const payloads = researchBytes(file)
+    .toString("utf8")
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line) as Json)
+    .filter((record) => record.run_id === runId)
+    .map((record) => record.payload as Json);
+  const proposal = payloads.find((payload) => payload.type === "proposal_submitted")?.proposal as Json | undefined;
+  if (proposal === undefined) {
+    throw new Error(`no proposal for ${runId} in ${file}`);
+  }
+  const revisions = payloads
+    .filter((payload) => payload.type === "revision_submitted")
+    .map((payload) => payload.revision as Json);
+  return { proposal, revisions };
+}

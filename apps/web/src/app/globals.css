@@ -1837,6 +1837,13 @@
     margin: 0;
   }
 
+  /* Claims the records do not pair: each proposal's list, headed by its id. */
+  .hc-revision h5 {
+    margin: 0;
+    font-size: var(--text-heading-4-size);
+    line-height: var(--text-heading-4-leading);
+  }
+
   /* The chain checked in this browser: the verdict, then each comparison. */
   .hc-chain-verdict {
     display: flex;

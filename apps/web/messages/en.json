@@ -927,7 +927,11 @@
       },
       "refs": "cited evidence: {before} before, {after} after",
       "step": "Revision {id} replaced {supersedes} and says it addresses {items} (its own claim, not a verdict).",
-      "stepNoItems": "Revision {id} replaced {supersedes} and names no item it addresses."
+      "stepNoItems": "Revision {id} replaced {supersedes} and names no item it addresses.",
+      "unpaired": "The records relate each revision to the proposal it replaces only as a whole: no claim id appears in both {original} and {revised}, and nothing else in the records links a revised claim to an original one. Both lists are shown as recorded, side by side; no claim is marked added, changed or dropped.",
+      "unpairedMeta": "Every revision of this run was written through the Meta model adapter, which numbers the claims of every proposal anew.",
+      "partialIds": "Some claim ids appear in only one of the two proposals: ids alone cannot tell whether such a claim was added or dropped, or restated under another id.",
+      "noClaims": "No claims recorded."
     }
   },
   "Showcase": {

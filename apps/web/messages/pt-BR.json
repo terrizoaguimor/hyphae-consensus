@@ -927,7 +927,11 @@
       },
       "refs": "evidências citadas: {before} antes, {after} depois",
       "step": "A revisão {id} substituiu {supersedes} e diz tratar de {items} (uma afirmação dela, não um veredito).",
-      "stepNoItems": "A revisão {id} substituiu {supersedes} e não nomeia nenhum item de que trate."
+      "stepNoItems": "A revisão {id} substituiu {supersedes} e não nomeia nenhum item de que trate.",
+      "unpaired": "Os registros relacionam cada revisão à proposta que ela substitui apenas como um todo: nenhum id de afirmação aparece ao mesmo tempo em {original} e em {revised}, e nada mais nos registros liga uma afirmação revisada a uma original. As duas listas aparecem como foram registradas, lado a lado; nenhuma afirmação é marcada como adicionada, alterada ou removida.",
+      "unpairedMeta": "Todas as revisões desta execução foram escritas pelo adaptador do modelo da Meta, que numera de novo as afirmações de cada proposta.",
+      "partialIds": "Alguns ids de afirmação aparecem em apenas uma das duas propostas: só pelos ids não dá para saber se essa afirmação foi adicionada ou removida, ou reformulada com outro id.",
+      "noClaims": "Nenhuma afirmação registrada."
     }
   },
   "Showcase": {

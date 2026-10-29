@@ -927,7 +927,11 @@
       },
       "refs": "éléments cités : {before} avant, {after} après",
       "step": "La révision {id} a remplacé {supersedes} et dit traiter {items} (sa propre affirmation, pas un verdict).",
-      "stepNoItems": "La révision {id} a remplacé {supersedes} et ne nomme aucun point qu’elle traite."
+      "stepNoItems": "La révision {id} a remplacé {supersedes} et ne nomme aucun point qu’elle traite.",
+      "unpaired": "Les enregistrements ne relient chaque révision à la proposition qu’elle remplace que dans leur ensemble : aucun id d’affirmation n’apparaît à la fois dans {original} et dans {revised}, et rien d’autre dans les enregistrements ne relie une affirmation révisée à une affirmation d’origine. Les deux listes sont présentées telles qu’enregistrées, côte à côte ; aucune affirmation n’est marquée comme ajoutée, modifiée ou retirée.",
+      "unpairedMeta": "Toutes les révisions de cette exécution ont été écrites par l’adaptateur du modèle Meta, qui numérote à nouveau les affirmations de chaque proposition.",
+      "partialIds": "Certains id d’affirmation n’apparaissent que dans l’une des deux propositions : les id seuls ne permettent pas de savoir si une telle affirmation a été ajoutée ou retirée, ou reformulée sous un autre id.",
+      "noClaims": "Aucune affirmation enregistrée."
     }
   },
   "Showcase": {

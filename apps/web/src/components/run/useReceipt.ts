@@ -12,8 +12,10 @@
 // in-browser chain check, which compares the log with the receipt it read
 // itself just before downloading the log (read). A receipt already shown
 // stays shown while a newer one is read; a failed request is kept as an
-// error to show with a retry, never as a loading line. The responses of
-// older requests are dropped.
+// error to show with a retry, never as a loading line, except a failed read
+// of the chain check while a receipt is shown: that receipt stays, and the
+// failure goes only to the check, which says it compared no receipt. The
+// responses of older requests are dropped.
 
 import { useCallback, useRef, useState } from "react";
 
@@ -34,7 +36,7 @@ export type RunReceipt = {
   reload: () => void;
   /** Reads it again only if it was requested before (the run moved on). */
   refresh: () => void;
-  /** Reads it now and resolves with this very response (also shown, unless a newer request was made); rejects with an ApiError. */
+  /** Reads it now and resolves with this very response (also shown, unless a newer request was made); rejects with an ApiError, which replaces only a receipt not yet shown. */
   read: () => Promise<RunReceiptV2>;
 };
 
@@ -55,35 +57,44 @@ export function useReceipt(runId: string, source: RunSourceKind): RunReceipt {
   const [state, setState] = useState<ReceiptState>({ status: "idle" });
   const latest = useRef(0);
 
-  const read = useCallback((): Promise<RunReceiptV2> => {
-    latest.current += 1;
-    const request = latest.current;
-    // A receipt already shown stays until the newer one arrives.
-    setState((current) => (current.status === "ready" ? current : { status: "loading" }));
-    const path =
-      source === "research_archive" ? `/showcase/${runId}/receipt` : `/runs/${runId}/receipt`;
-    const pending = source === "research_archive" ? api.showcaseReceipt(runId) : api.getReceipt(runId);
-    return pending.then(
-      (receipt) => {
-        if (request === latest.current) {
-          setState({ status: "ready", receipt });
-        }
-        return receipt;
-      },
-      (error: unknown) => {
-        const apiError = toApiError(error, path);
-        if (request === latest.current) {
-          setState({ status: "error", error: apiError });
-        }
-        throw apiError;
-      },
-    );
-  }, [runId, source]);
+  // keepShown: a failure leaves a receipt already shown in place (the chain
+  // check's own read); otherwise the error replaces it, with a retry.
+  const request = useCallback(
+    (keepShown: boolean): Promise<RunReceiptV2> => {
+      latest.current += 1;
+      const ticket = latest.current;
+      // A receipt already shown stays until the newer one arrives.
+      setState((current) => (current.status === "ready" ? current : { status: "loading" }));
+      const path =
+        source === "research_archive" ? `/showcase/${runId}/receipt` : `/runs/${runId}/receipt`;
+      const pending = source === "research_archive" ? api.showcaseReceipt(runId) : api.getReceipt(runId);
+      return pending.then(
+        (receipt) => {
+          if (ticket === latest.current) {
+            setState({ status: "ready", receipt });
+          }
+          return receipt;
+        },
+        (error: unknown) => {
+          const apiError = toApiError(error, path);
+          if (ticket === latest.current) {
+            setState((current) =>
+              keepShown && current.status === "ready" ? current : { status: "error", error: apiError },
+            );
+          }
+          throw apiError;
+        },
+      );
+    },
+    [runId, source],
+  );
+
+  const read = useCallback(() => request(true), [request]);
 
   const reload = useCallback(() => {
     // The outcome is in the state.
-    read().catch(() => undefined);
-  }, [read]);
+    request(false).catch(() => undefined);
+  }, [request]);
 
   // Requested at most once by ensure(); reload() always asks again.
   const ensure = useCallback(() => {

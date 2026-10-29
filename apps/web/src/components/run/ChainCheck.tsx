@@ -98,6 +98,10 @@ const VERDICT_BADGES: Record<Verdict, "success" | "error" | "neutral"> = {
   earlier: "neutral",
 };
 
+/** A copy compared (the receipt, the detail's chain) was read before the run's newest records. */
+const isEarlier = (segment: SegmentResult) =>
+  [segment.head_matches, segment.count, segment.range].includes("earlier");
+
 const short = (value: string) => `${digestPrefix(value) ?? value}…`;
 
 /** The values a problem's sentence names, hashes cut to their prefix. */
@@ -228,7 +232,15 @@ export function ChainCheck({ runId, source, chain, readReceipt }: ChainCheckProp
   const headline = (segment: SegmentResult) => {
     switch (segment.outcome) {
       case "verified":
-        return (
+        // A copy read before the newest records: the segment matches or extends it, never "matches" alone.
+        return isEarlier(segment) ? (
+          <>
+            <Badge variant="success" label={t("pass")} />{" "}
+            {segment.legacyRecords === 0
+              ? t("passSentenceEarlier", { count: segment.chainedRecords })
+              : t("passSentenceLegacyEarlier", { chained: segment.chainedRecords, legacy: segment.legacyRecords })}
+          </>
+        ) : (
           <>
             <Badge variant="success" label={t("pass")} />{" "}
             {segment.legacyRecords === 0
@@ -320,7 +332,7 @@ function ChainResultPanel({
   const t = useTranslations("Run.chain");
   const { result, segment, receipt } = state;
   const lastSequence = state.chain?.last_sequence;
-  const earlier = [segment.head_matches, segment.count, segment.range].includes("earlier");
+  const earlier = isEarlier(segment);
   // The record at the receipt's own last position (the receipt's head), when the log grew past it.
   const receiptLast =
     receipt === null || segment.head_matches !== "earlier" ? null : segment.records[receipt.event_count - 1];

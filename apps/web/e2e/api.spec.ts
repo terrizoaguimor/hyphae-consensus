@@ -14,6 +14,7 @@
 
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
+import { IntlMessageFormat } from "intl-messageformat";
 
 import { CONTRACT_SHA256 } from "../src/lib/api/types";
 import { localePath, runPath } from "../src/lib/site";
@@ -819,6 +820,9 @@ test("a guided run's verbatim log is checked in this browser; a changed record f
   );
 });
 
+/** An English catalog plural with its count, formatted as next-intl formats it (the t() helper does not format plurals). */
+const tCountEn = (key: string, count: number) => String(new IntlMessageFormat(t("en", key), "en").format({ count }));
+
 // RECORDED-UX-2: the Audit trail opened before the decision read the receipt
 // of the run awaiting it (14 records, pending); the decision appends record
 // 15. The chain check reads the receipt again when it starts, before the log,
@@ -871,6 +875,9 @@ test("Audit before decide: after the decision the check compares the log with a 
   await expect(result("range")).toContainText("sequences 1 to 15");
   await expect(result("range")).toContainText(t("en", "Run.chain.verdicts.pass"));
   await expect(verdict.locator("[data-chain-earlier]")).toHaveCount(0);
+  await expect(verdict.locator(".hc-chain-verdict")).toContainText(
+    tCountEn("Run.chain.passSentence", after.receipt.event_count as number),
+  );
   // The panel says which receipt it compared: the one read when the check started.
   await expect(verdict.locator("[data-chain-receipt='read']")).toContainText(
     "Compared with the receipt read from the server when this check started, just before the log was downloaded",
@@ -905,6 +912,19 @@ test("a log that grew past the receipt and the detail reads as an extension, a r
   await expect(verdict).toBeVisible();
   const result = (name: string) => verdict.locator(`[data-chain-result='${name}']`);
   await expect(verdict.locator("[data-chain-earlier]")).toHaveText(t("en", "Run.chain.earlierSentence"));
+  // The headline does not claim a plain match the rows below qualify: the segment matches or extends the copies.
+  const records = after.receipt.event_count as number;
+  const sentence = verdict.locator(".hc-chain-verdict");
+  await expect(sentence).toContainText(tCountEn("Run.chain.passSentenceEarlier", records));
+  await expect(sentence).not.toContainText(tCountEn("Run.chain.passSentence", records));
+  // The sentence about the earlier copy points at the rows it names, which come after it.
+  expect(
+    await verdict.evaluate((panel) => {
+      const note = panel.querySelector("[data-chain-earlier]");
+      const rows = panel.querySelector("[data-chain-results]");
+      return note !== null && rows !== null && (note.compareDocumentPosition(rows) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    }),
+  ).toBe(true);
   for (const name of ["head", "count", "range"]) {
     await expect(result(name)).toContainText(t("en", "Run.chain.verdicts.earlier"));
     await expect(result(name)).not.toContainText(t("en", "Run.chain.verdicts.fail"));
@@ -931,6 +951,49 @@ test("a log that grew past the receipt and the detail reads as an extension, a r
   await expect(failed).toBeVisible();
   await expect(failed.locator("[data-chain-result='head']")).toContainText(t("en", "Run.chain.verdicts.fail"));
   await expect(failed.locator("[data-chain-result='count']")).toContainText(t("en", "Run.chain.verdicts.fail"));
+});
+
+// CHAIN-UI-R1-1: the chain check reads the receipt itself; when that read
+// fails, the receipt already shown in the Audit trail stays shown (the
+// failure goes to the check, which compares no receipt and says so).
+test("a failed receipt read of the chain check leaves the receipt shown in place", async ({ page, pageProblems }) => {
+  const chained = await chainedRun(awaitingDecisionDetail());
+  await mockApi(page, { detail: chained.detail, receipt: chained.receipt, ndjson: { [RUN_ID]: chained.ndjson } });
+  // Registered after mockApi, so it answers first: the first read is served
+  // by the mock, every later one fails.
+  let reads = 0;
+  await page.route(`**/api/v1/runs/${RUN_ID}/receipt`, async (route) => {
+    reads += 1;
+    if (reads === 1) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "internal", message: "internal error" }),
+    });
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  const receipt = page.locator("[data-audit-receipt='ready']");
+  const count = String(chained.receipt.event_count as number);
+  await expect(receipt.locator("[data-receipt-field='event_count']")).toHaveText(count);
+
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const panel = page.locator("[data-chain-verdict]");
+  await expect(panel).toBeVisible();
+  expect(reads).toBe(2);
+  await expect(panel.locator("[data-chain-receipt='unread']")).toHaveText(t("en", "Run.chain.receiptUnread"));
+  await expect(panel.locator("[data-chain-result='head']")).toContainText(t("en", "Run.chain.verdicts.not_compared"));
+  await expect(panel.locator("[data-chain-result='count']")).toContainText(t("en", "Run.chain.verdicts.not_compared"));
+  // The receipt shown before the check is still there, not replaced by the error.
+  await expect(receipt).toBeVisible();
+  await expect(receipt.locator("[data-receipt-field='event_count']")).toHaveText(count);
+  await expect(page.locator("[data-audit-receipt='error']")).toHaveCount(0);
+  takeProblem(pageProblems, `HTTP 500: /api/v1/runs/${RUN_ID}/receipt`);
 });
 
 // A11Y-I18N-1 and A11Y-I18N-2: the button keeps the keyboard focus while the

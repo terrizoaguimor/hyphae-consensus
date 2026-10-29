@@ -198,13 +198,16 @@ turns the pacing off. Server timestamps are shown untouched.
   green "Chain checks out" only for a run whose every record was verified
   link by link, and its record count only over the records that carry a
   hash). The receipt the check compares is the one it reads itself when it
-  starts, just before downloading the log, and the panel says so; the
-  workspace also reads the receipt again whenever the detail moves on (a
-  decision, the end of the stream). The log is append-only, so a log that
-  grew in between reads the receipt or the detail's chain as "matches an
-  earlier state" (neutral, never a difference) only when the file verified
-  link by link and the record at that copy's own last position hashes to
-  its head; any other mismatch fails. The button stays focusable while the
+  starts, just before downloading the log, and the panel says so (if that
+  read fails, the receipt already shown stays shown and the check says it
+  compared no receipt); the workspace also reads the receipt again whenever
+  the detail moves on (a decision, the end of the stream). The log is
+  append-only, so a log that grew in between reads the receipt or the
+  detail's chain as "matches an earlier state" (neutral, never a
+  difference, and the headline then says the segment "matches or extends"
+  what the views hold) only when the file verified link by link and the
+  record at that copy's own last position hashes to its head; any other
+  mismatch fails. The button stays focusable while the
   check runs (busy, `aria-disabled`, never natively disabled), and one
   always-mounted, visually hidden status region announces the progress and
   then the short verdict once (the manifest check on `/showcase` does the

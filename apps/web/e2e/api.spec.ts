@@ -13,7 +13,7 @@
 // and theme.
 
 import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { IntlMessageFormat } from "intl-messageformat";
 
 import { CONTRACT_SHA256 } from "../src/lib/api/types";
@@ -473,6 +473,172 @@ test("an API error shows its code's sentence and the Retry-After wait", async ({
   await expect(notice).toContainText("Retry in 30 seconds.");
   await expect(notice).toContainText("Code rate_limited, HTTP 429.");
   takeProblem(pageProblems, "HTTP 429: /api/v1/runs");
+});
+
+/**
+ * Holds every `method` request to `pattern` until the returned release is
+ * called; fallback() then hands it to the mock (registered before, so it
+ * answers). Other methods pass straight through.
+ */
+async function holdRequests(page: Page, pattern: string, method: string): Promise<() => void> {
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(pattern, async (route) => {
+    if (route.request().method() === method) {
+      await held;
+    }
+    await route.fallback();
+  });
+  return () => release();
+}
+
+/** The button has the keyboard focus, is busy, and is not natively disabled (which would drop the focus). */
+async function expectBusyAndFocused(button: Locator) {
+  await expect(button).toBeFocused();
+  await expect(button).toHaveAttribute("aria-disabled", "true");
+  expect(await button.evaluate((el) => el.hasAttribute("disabled"))).toBe(false);
+}
+
+// Follow-up of A11Y-I18N-1: the buttons that send a request keep the
+// keyboard focus while it is in flight (busy, never natively disabled), and
+// after it the focus is on the same button or, when the form is replaced, on
+// what replaced it: never dropped to <body>.
+test("the guided Run button keeps the keyboard focus while its request is in flight and after a refusal", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page, {
+    guidedRun: {
+      status: 429,
+      body: { code: "rate_limited", message: "too many requests from this client", retry_after_secs: 30 },
+      retryAfter: "30",
+    },
+  });
+  const release = await holdRequests(page, "**/api/v1/runs", "POST");
+  await page.goto("/en/new/");
+  await hydrated(page);
+  const button = page.locator("[data-scenario='offline']").getByRole("button");
+  await button.focus();
+  await page.keyboard.press("Enter");
+  await expect(button).toContainText(t("en", "NewDeliberation.guided.starting"));
+  await expectBusyAndFocused(button);
+  // A second press while it is busy sends nothing more.
+  await page.keyboard.press("Enter");
+  release();
+  await expect(page.locator("[data-error-code='rate_limited']")).toBeVisible();
+  await expect(button).toBeFocused();
+  await expect(button).not.toHaveAttribute("aria-disabled", "true");
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("BUTTON");
+  takeProblem(pageProblems, "HTTP 429: /api/v1/runs");
+  expect(pageProblems).toEqual([]);
+});
+
+test("the live Start button keeps the keyboard focus while its request is in flight and after a refusal", async ({
+  page,
+  pageProblems,
+}) => {
+  const mock = await mockApi(page, {
+    liveEnabled: true,
+    liveRequiresTurnstile: false,
+    liveRuns: [
+      {
+        status: 429,
+        body: { code: "live_concurrency", message: "every live slot is busy; retry shortly", retry_after_secs: 30 },
+        retryAfter: "30",
+      },
+    ],
+  });
+  const release = await holdRequests(page, "**/api/v1/live-runs", "POST");
+  await page.goto("/en/new/");
+  await hydrated(page);
+  const form = page.locator("[data-live='form']");
+  await form.getByRole("radio", { name: "Fix payment client timeouts" }).check();
+  await form.getByRole("checkbox", { name: t("en", "NewDeliberation.live.attest") }).check();
+  const start = form.locator("button[type='submit']");
+  await expect(start).toBeEnabled();
+  await start.focus();
+  await page.keyboard.press("Enter");
+  await expect(start).toContainText(t("en", "NewDeliberation.live.starting"));
+  await expectBusyAndFocused(start);
+  release();
+  const notice = page.locator("[data-error-code='live_concurrency']");
+  await expect(notice).toBeVisible();
+  await expect(start).toContainText(t("en", "NewDeliberation.live.start"));
+  await expect(start).toBeFocused();
+  // Sent from the invite field with Enter: that field is disabled while the
+  // request is in flight, so the focus moves to the busy Start button.
+  await page.getByText(t("en", "NewDeliberation.live.inviteSummary")).click();
+  const invite = form.getByRole("textbox", { name: t("en", "NewDeliberation.live.inviteLabel") });
+  await invite.fill("JUDGE-1");
+  const releaseAgain = await holdRequests(page, "**/api/v1/live-runs", "POST");
+  await invite.press("Enter");
+  await expect(start).toContainText(t("en", "NewDeliberation.live.starting"));
+  await expectBusyAndFocused(start);
+  releaseAgain();
+  await expect(start).toContainText(t("en", "NewDeliberation.live.start"));
+  await expect(start).toBeFocused();
+  await expect.poll(() => mock.calls.filter((c) => c.method === "POST" && c.path === "/api/v1/live-runs").length).toBe(2);
+  takeProblem(pageProblems, "HTTP 429: /api/v1/live-runs");
+  takeProblem(pageProblems, "HTTP 429: /api/v1/live-runs");
+  expect(pageProblems).toEqual([]);
+});
+
+test("Approve keeps the keyboard focus while the decision is sent, and the recorded decision takes it after", async ({
+  page,
+}) => {
+  const mock = await mockApi(page, { detail: awaitingDecisionDetail() });
+  const release = await holdRequests(page, `**/api/v1/runs/${RUN_ID}/decision`, "POST");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const form = page.locator("[data-decision-form]");
+  const approve = form.getByRole("button", { name: t("en", "Run.decision.approve") });
+  await approve.focus();
+  await page.keyboard.press("Enter");
+  // The same button (its label now says the decision is being recorded).
+  const busy = form.locator("button").nth(0);
+  await expect(busy).toContainText(t("en", "Run.decision.submitting"));
+  await expectBusyAndFocused(busy);
+  // A second press while it is busy sends nothing more.
+  await page.keyboard.press("Enter");
+  release();
+  const recorded = page.locator("[data-decision-recorded='approved']");
+  await expect(recorded).toBeVisible();
+  // The form (and its button) is gone: the recorded decision has the focus.
+  await expect(recorded).toBeFocused();
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe("BODY");
+  expect(mock.calls.filter((c) => c.method === "POST" && c.path.endsWith("/decision"))).toHaveLength(1);
+});
+
+test("Reject keeps the keyboard focus while the decision is sent and after a refusal", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page, {
+    detail: awaitingDecisionDetail(),
+    decision: { status: 503, body: { code: "shutting_down", message: "shutting down" } },
+  });
+  const release = await holdRequests(page, `**/api/v1/runs/${RUN_ID}/decision`, "POST");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const form = page.locator("[data-decision-form]");
+  const reject = form.getByRole("button", { name: t("en", "Run.decision.reject") });
+  await reject.focus();
+  await page.keyboard.press("Enter");
+  const busy = form.locator("button").nth(1);
+  await expect(busy).toContainText(t("en", "Run.decision.submitting"));
+  await expectBusyAndFocused(busy);
+  release();
+  await expect(page.locator("[data-error-code='shutting_down']")).toBeVisible();
+  await expect(reject).toBeFocused();
+  await expect(reject).not.toHaveAttribute("aria-disabled", "true");
+  dropProblems(pageProblems, /HTTP 503: \/api\/v1\/runs\/.*\/decision/u);
+  expect(pageProblems).toEqual([]);
 });
 
 test("the guided list is counted from what the server lists", async ({ page }) => {

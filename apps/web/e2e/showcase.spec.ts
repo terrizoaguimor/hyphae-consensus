@@ -1933,6 +1933,41 @@ async function runChainCheck(page: Page, locale: Locale, verdict: string) {
   await expect(page.locator(`[data-chain-verdict='${verdict}']`)).toBeVisible();
 }
 
+// A run whose detail says it is partly chained (it began before schema 1.1)
+// is described by its own intro: its first records carry no hash, so the
+// check does not say it recomputes every record's SHA-256, and the intro
+// agrees with the "checked in part" outcome it reaches.
+for (const locale of locales) {
+  test(`a partly chained run's chain check says which records it can recompute (${locale})`, async ({ page }) => {
+    const { r06, list } = entries();
+    const spanning = await spanningRun(r06);
+    spanning.recorded.detail.chain = { ...(spanning.recorded.detail.chain as Json), scope: "partly_chained" };
+    spanning.recorded.receipt.chain = { ...(spanning.recorded.receipt.chain as Json), scope: "partly_chained" };
+    await mockApi(page, {
+      showcase: list.map((entry) => (entry.run_id === r06.run_id ? spanning.entry : entry)),
+      recordedRuns: [spanning.recorded],
+      research: { [String(spanning.entry.file)]: spanning.bytes },
+    });
+    await openRecorded(page, locale, String(r06.run_id));
+    await page.getByRole("tab", { name: t(locale, "Run.tabs.audit") }).click();
+    await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+    const name = String(spanning.entry.file).split("/").at(-1) ?? "";
+    const intro = page.locator("[data-chain-intro='partly_chained']");
+    await expect(intro).toHaveText(t(locale, "Run.chain.introPartlyChained", { name }));
+    await expect(page.locator("[data-chain-intro='chained']")).toHaveCount(0);
+    await expect(page.locator("[data-chain-intro='unchained']")).toHaveCount(0);
+    expect(t(locale, "Run.chain.introPartlyChained", { name })).not.toBe(t(locale, "Run.chain.intro", { name }));
+    await page.getByRole("button", { name: t(locale, "Run.chain.run") }).click();
+    const verdict = page.locator("[data-chain-verdict='partial']");
+    await expect(verdict).toBeVisible();
+    await expect(verdict.locator(".hc-chain-verdict")).toContainText(
+      tArgs(locale, "Run.chain.partialSentence", { chained: 1, legacy: 2 }),
+    );
+    // The intro stays the partly chained one once the check is done.
+    await expect(intro).toBeVisible();
+  });
+}
+
 for (const theme of themes) {
   test(`axe: the failure and edge states of the showcase and a recorded run (fr, ${theme})`, async ({
     page,

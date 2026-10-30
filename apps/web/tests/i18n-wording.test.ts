@@ -66,6 +66,10 @@ describe.each(routing.locales)("numbers in sentences (%s)", (locale) => {
     ["Run.explorer.summaries.evaluation_submitted", { corroborated: 2, claims: 12345, unresolved: 3 }, 12345],
     ["Run.explorer.summaries.evaluation_submitted", { corroborated: 2, claims: 3, unresolved: 12345 }, 12345],
     ["Run.audit.claims", { count: 2, corroborated: 12345 }, 12345],
+    ["Tour.progress", { current: 12345, total: 2 }, 12345],
+    ["Tour.progress", { current: 2, total: 12345 }, 12345],
+    ["Tour.announcement", { current: 12345, total: 2, title: "x", body: "y" }, 12345],
+    ["Tour.announcement", { current: 2, total: 12345, title: "x", body: "y" }, 12345],
   ] as const)("%s groups its number as the locale does", (key, values, value) => {
     const text = format(locale, key, values);
     expect(text).toContain(grouped(value));

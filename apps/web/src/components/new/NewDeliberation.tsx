@@ -99,6 +99,11 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
   }, [attempt]);
 
   const startGuided = async (scenario: GuidedScenario) => {
+    // The pressed button is busy (aria-disabled, still focusable) rather than
+    // disabled, so a second press reaches here and is dropped.
+    if (starting !== null) {
+      return;
+    }
     setStarting(scenario);
     setStartError(null);
     try {
@@ -158,11 +163,12 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
                       />
                     </p>
                     <div className="hc-actions">
+                      {/* The pressed button is busy, never disabled: a disabled button would drop the keyboard focus. */}
                       <Button
                         variant="primary"
                         label={starting === scenario.id ? t("guided.starting") : t("guided.run")}
                         aria-label={t("guided.runScenario", { title: scenario.title })}
-                        isDisabled={starting !== null}
+                        isDisabled={starting !== null && starting !== scenario.id}
                         isLoading={starting === scenario.id}
                         onClick={() => void startGuided(scenario.id)}
                       />
@@ -222,6 +228,7 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const turnstile = useRef<TurnstileControl | null>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
   const onToken = useCallback((value: string | null) => setToken(value), []);
 
   const closed = liveClosedReason(live, TURNSTILE_SITE_KEY);
@@ -236,6 +243,10 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
     // before it reserves the budget, whatever it answers): it leaves with
     // this request only, and the widget is asked for a fresh one at once.
     const spent = live.requires_turnstile ? (turnstile.current?.spend() ?? null) : null;
+    // The fields are disabled while the request is in flight: a submit made
+    // with Enter from one of them would drop the keyboard focus with it, so
+    // the focus goes to the Start button, which stays focusable (busy).
+    submitRef.current?.focus();
     setToken(null);
     setStarting(true);
     setError(null);
@@ -346,11 +357,13 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
         </p>
       ) : null}
       <div className="hc-actions">
+        {/* Busy while the request is in flight, never disabled by it: a disabled button would drop the keyboard focus. */}
         <Button
+          ref={submitRef}
           type="submit"
           variant="primary"
           label={starting ? t("starting") : t("start")}
-          isDisabled={closed !== null || blocker !== null}
+          isDisabled={closed !== null || (blocker !== null && blocker !== "starting")}
           isLoading={starting}
         />
       </div>

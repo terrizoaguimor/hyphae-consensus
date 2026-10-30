@@ -22,7 +22,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { useFormatter, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import type { DecisionResponseV1, DecisionV1, RunDetailV1 } from "@/lib/api/types";
@@ -91,6 +91,24 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
   const [result, setResult] = useState<DecisionResponseV1 | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [cancelling, setCancelling] = useState<"idle" | "requested">("idle");
+  // Where the keyboard focus goes when a decision sent from this tab
+  // replaces the form (the pressed button is gone with it): the recorded
+  // decision, else the form's heading; never <body>.
+  const refocus = useRef(false);
+  const recordedRef = useRef<HTMLDivElement>(null);
+  const formHeadingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!refocus.current) {
+      return;
+    }
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      (recordedRef.current ?? formHeadingRef.current)?.focus();
+    }
+    if (!submitting) {
+      refocus.current = false;
+    }
+  });
 
   if (detail === null || summary === null) {
     // A settled failure is said as such (the error and its retry are in the
@@ -125,13 +143,16 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
   const overrideNeeded = approvedChoice === true && kind !== null && OVERRIDE_KINDS.has(kind) && note.trim() === "";
 
   const submit = async (approved: boolean) => {
-    if (kind === null) {
+    // The pressed button is busy (aria-disabled, still focusable) rather than
+    // disabled, so a second press reaches here and is dropped.
+    if (kind === null || submitting) {
       return;
     }
     setApprovedChoice(approved);
     if (approved && OVERRIDE_KINDS.has(kind) && note.trim() === "") {
       return;
     }
+    refocus.current = true;
     setSubmitting(true);
     setError(null);
     try {
@@ -261,12 +282,19 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
       </section>
 
       <section className="hc-section" aria-labelledby="decision-form">
-        <h3 id="decision-form">{t("formHeading")}</h3>
+        <h3 id="decision-form" ref={formHeadingRef} tabIndex={-1}>
+          {t("formHeading")}
+        </h3>
         <p className="hc-build-note" data-public-demo-notice>
           {t("publicDemo")}
         </p>
         {recorded !== null ? (
-          <div className="hc-panel" data-decision-recorded={recorded.approved ? "approved" : "rejected"}>
+          <div
+            className="hc-panel"
+            data-decision-recorded={recorded.approved ? "approved" : "rejected"}
+            ref={recordedRef}
+            tabIndex={-1}
+          >
             <p>
               {t("recorded", {
                 decision: recorded.approved ? t("approved") : t("rejected"),
@@ -302,17 +330,18 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
               </p>
             ) : null}
             <div className="hc-actions">
+              {/* The pressed button is busy, never disabled: a disabled button would drop the keyboard focus. */}
               <Button
                 variant="primary"
                 label={submitting && approvedChoice === true ? t("submitting") : t("approve")}
-                isDisabled={submitting || kind === null}
+                isDisabled={kind === null || (submitting && approvedChoice !== true)}
                 isLoading={submitting && approvedChoice === true}
                 onClick={() => void submit(true)}
               />
               <Button
                 variant="destructive"
                 label={submitting && approvedChoice === false ? t("submitting") : t("reject")}
-                isDisabled={submitting || kind === null}
+                isDisabled={kind === null || (submitting && approvedChoice !== false)}
                 isLoading={submitting && approvedChoice === false}
                 onClick={() => void submit(false)}
               />

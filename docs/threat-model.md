@@ -319,8 +319,8 @@ the anchor it was given; that it covers that request's whole result (for the sea
 snapshot, the complete record list of the snapshot's project at that anchor), never a
 claim, even when the request's query is a claim's text (this clause reworded on
 2026-10-29, ADR-0008 decision 4; it used to say "not the claim that led to the
-retrieval"); that a record's text is not byte-compared with the proof; that a simulated proof checks
-nothing; and that proofs do not establish truth, relevance, completeness or a model's
+retrieval"); that a record's text is not byte-compared with the proof; that a
+simulated proof checks nothing; and that proofs do not establish truth, relevance, completeness or a model's
 reasoning. The verifier's own detail says the same on the operator surface; public views
 drop the detail of every real verifier (`public_view::verification_v1`,
 `sanitize_receipt`). Tests: `valid_proof_does_not_imply_corroboration`,

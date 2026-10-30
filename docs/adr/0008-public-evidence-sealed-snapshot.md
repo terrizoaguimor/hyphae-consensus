@@ -157,6 +157,12 @@ factory; `server.rs` `serve_public_with` decides when it is built.
   decision 4 in the receipt and the web app (not in this lane), and the behaviour of the
   real `hyphae proof verify` on the 2026-10-29 snapshot (every verifier result in the
   tests comes from a fake binary). The latter was observed on 2026-10-29 ("Capture" below).
+  The "proof covers" sentence was addressed on 2026-10-29 (W2 review follow-up, lane
+  limits-docs): `RunReceipt::DEFAULT_LIMITATIONS` and the web catalogs'
+  `Run.proofs.limits.covers`, `Run.proofs.plain.covers` and `Run.proofs.plain.coversSnapshot`
+  now say that a proof covers the whole result of the request it sealed (for the sealed
+  snapshot, the complete record list of the snapshot's project at that anchor), never a
+  claim. The honest label of decision 6 stays open.
 
 ## Binding (2026-10-28, review R6)
 

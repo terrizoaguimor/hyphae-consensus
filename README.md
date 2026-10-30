@@ -130,8 +130,9 @@ Every receipt states the limits in its `proof_limitations` field
 > wherever one is configured, always for the public snapshot). It covers the whole result
 > of that request (for the sealed snapshot, the complete record list of the snapshot's
 > project at that anchor), never a claim, even when the request's query is a claim's text,
-> and a record's text is not byte-compared with the proof. A simulated proof checks nothing. Proofs do not establish that the content is
-> true, relevant, or complete, or that a model reasoned from it.
+> and a record's text is not byte-compared with the proof. A simulated proof checks nothing.
+> Proofs do not establish that the content is true, relevant, or complete, or that a model
+> reasoned from it.
 
 This is why `EvidenceVerification` keeps integrity, factual corroboration and relevance as
 three independent fields. A `supported` recommendation requires **every** claim to be

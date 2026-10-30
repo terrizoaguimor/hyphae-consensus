@@ -556,7 +556,8 @@ the five battery logs, re-derived the policy for all 33 recorded runs, and
 matched every table cell of §2, §3 and §5 against the logs and receipts: the
 numbers above are right. The corrections below concern descriptions,
 attribution and context. The sections above are kept as recorded; inline
-corrections are marked "corrected 2026-10-27".
+corrections are marked "corrected 2026-10-27". Item 10 is a later erratum
+(2026-10-29) from the W2 review, not from that audit.
 
 1. **Final-code claim corroboration (audit finding DOC-3).** "Every claim was
    corroborated" in the final round holds for the 6-run final battery F01–F06

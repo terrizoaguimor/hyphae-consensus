@@ -46,7 +46,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => undefined, replace: () => undefined, prefetch: () => undefined }),
 }));
 
-vi.mock("../src/components/run/useRecordedRun", () => ({
+// Only the hook is replaced: the module's other exports (missingEntry, which
+// the workspace derives the archive's missing parts from) stay the real ones.
+vi.mock("../src/components/run/useRecordedRun", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useRecordedRun: () => {
     const detail = fixtures.detail as RunDetailV1;
     return {
@@ -57,6 +60,8 @@ vi.mock("../src/components/run/useRecordedRun", () => ({
       summary: detail.summary,
       reloadDetail: () => undefined,
       archive: { status: "loading" },
+      reloadArchive: () => undefined,
+      retryManifest: () => undefined,
       entry: null,
     };
   },

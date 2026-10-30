@@ -92,6 +92,12 @@ export type ApiMockOptions = {
   recordedRuns?: Array<{ detail: Json; receipt: Json }>;
   /** Archive files served at /research/<path> instead of the archive's own bytes. */
   research?: Record<string, Buffer>;
+  /**
+   * GET /showcase publishes the digest of the MANIFEST.json served here (a
+   * `research` replacement included) instead of the archive's own: a test
+   * that serves another manifest on purpose makes the two match. Default false.
+   */
+  publishServedManifest?: boolean;
   /** What GET /runs/{id}/events.ndjson serves, by run id; default 404 ndjson_unavailable. */
   ndjson?: Record<string, Buffer>;
 };
@@ -645,11 +651,16 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
     return existsSync(full) && !file.split("/").includes("..") ? researchBytes(file) : null;
   };
   // The digest GET /showcase publishes is the archive manifest's own, so a
-  // test that replaces the served manifest makes them differ.
+  // test that replaces the served manifest makes them differ (unless it asks
+  // for the served manifest's digest to be published).
+  const publishedManifest =
+    options.publishServedManifest === true
+      ? (researchFile("MANIFEST.json") ?? researchBytes("MANIFEST.json"))
+      : researchBytes("MANIFEST.json");
   const showcase = {
     entries: options.showcase ?? [],
     manifest_file: "MANIFEST.json",
-    manifest_sha256: createHash("sha256").update(researchBytes("MANIFEST.json")).digest("hex"),
+    manifest_sha256: createHash("sha256").update(publishedManifest).digest("hex"),
   };
   showcaseSchema.parse(showcase);
   const recordedById = new Map<string, { detail: Json; receipt: Json }>();

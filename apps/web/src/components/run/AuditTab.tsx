@@ -209,7 +209,7 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
           runId={runId}
           source={{ url: log.href, name: log.name, sha256: log.sha256 }}
           chain={chain}
-          receipt={state.status === "ready" ? state.receipt : null}
+          readReceipt={receipt.read}
         />
       )}
 

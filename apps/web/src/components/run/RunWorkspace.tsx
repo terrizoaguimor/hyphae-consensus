@@ -27,7 +27,7 @@ import { Button } from "@astryxdesign/core/Button";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
@@ -143,6 +143,17 @@ function Workspace({
       receipt.ensure();
     }
   };
+  // Once read, the receipt is read again whenever the detail moves on (a
+  // decision, the end of the stream, a re-read after a gap): the server
+  // rebuilds it from the run's current records, so the copy held would be
+  // stale (an authorization still pending, an older head and count).
+  const detailSequence = detail?.summary.last_sequence ?? null;
+  const { refresh: refreshReceipt } = receipt;
+  useEffect(() => {
+    if (detailSequence !== null) {
+      refreshReceipt();
+    }
+  }, [detailSequence, refreshReceipt]);
 
   if (summary === null) {
     if (detailError !== null) {

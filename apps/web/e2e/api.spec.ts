@@ -14,6 +14,7 @@
 
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
+import { IntlMessageFormat } from "intl-messageformat";
 
 import { CONTRACT_SHA256 } from "../src/lib/api/types";
 import { localePath, runPath } from "../src/lib/site";
@@ -817,6 +818,257 @@ test("a guided run's verbatim log is checked in this browser; a changed record f
   await expect(failed.locator("[data-chain-failure='hash_mismatch'][data-chain-failure-sequence='4']")).toContainText(
     "The check stops at record 4 (line 4)",
   );
+});
+
+/** An English catalog plural with its count, formatted as next-intl formats it (the t() helper does not format plurals). */
+const tCountEn = (key: string, count: number) => String(new IntlMessageFormat(t("en", key), "en").format({ count }));
+
+// RECORDED-UX-2: the Audit trail opened before the decision read the receipt
+// of the run awaiting it (14 records, pending); the decision appends record
+// 15. The chain check reads the receipt again when it starts, before the log,
+// so the intact 15-record log checks out against the receipt of the same run
+// state, and the receipt shown follows the decision.
+test("Audit before decide: after the decision the check compares the log with a receipt read with it", async ({
+  page,
+}) => {
+  const before = await chainedRun(awaitingDecisionDetail());
+  before.receipt.authorization = { state: "pending" };
+  before.receipt.final_state = "awaiting_human_approval";
+  const after = await chainedRun(fixture<Json>("run-detail-retry.json"));
+  // The decision only appends: the first 14 records are the same bytes.
+  expect(after.ndjson.subarray(0, before.ndjson.length).equals(before.ndjson)).toBe(true);
+  const headAfter = (after.receipt.chain as { head_hash: string }).head_hash;
+  const mock = await mockApi(page, {
+    detail: before.detail,
+    receipt: before.receipt,
+    ndjson: { [RUN_ID]: before.ndjson },
+    decidedDetail: after.detail,
+    decidedReceipt: after.receipt,
+    decidedNdjson: { [RUN_ID]: after.ndjson },
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  const receipt = page.locator("[data-audit-receipt='ready']");
+  await expect(receipt.locator("[data-receipt-authorization='pending']")).toBeVisible();
+  await expect(receipt.locator("[data-receipt-field='event_count']")).toHaveText("14");
+
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  await page.getByRole("button", { name: t("en", "Run.decision.approve") }).click();
+  await expect(page.locator("[data-decision-recorded='approved']")).toBeVisible();
+
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  // The run moved on, so the receipt shown was read again.
+  await expect(receipt.locator("[data-receipt-authorization='approved']")).toBeVisible();
+  await expect(receipt.locator("[data-receipt-field='event_count']")).toHaveText("15");
+  const readsBefore = mock.calls.filter((c) => c.path === `/api/v1/runs/${RUN_ID}/receipt`).length;
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const verdict = page.locator("[data-chain-verdict='pass']");
+  await expect(verdict).toBeVisible();
+  const result = (name: string) => verdict.locator(`[data-chain-result='${name}']`);
+  await expect(result("chain")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(result("head")).toContainText(headAfter);
+  await expect(result("head")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(result("count")).toContainText(t("en", "Run.chain.count", { count: 15 }));
+  await expect(result("count")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(result("range")).toContainText("sequences 1 to 15");
+  await expect(result("range")).toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(verdict.locator("[data-chain-earlier]")).toHaveCount(0);
+  await expect(verdict.locator(".hc-chain-verdict")).toContainText(
+    tCountEn("Run.chain.passSentence", after.receipt.event_count as number),
+  );
+  // The panel says which receipt it compared: the one read when the check started.
+  await expect(verdict.locator("[data-chain-receipt='read']")).toContainText(
+    "Compared with the receipt read from the server when this check started, just before the log was downloaded",
+  );
+  // That receipt was read by the check itself, before the log was downloaded.
+  const paths = mock.calls.map((c) => c.path);
+  const receiptReads = paths.flatMap((p, i) => (p === `/api/v1/runs/${RUN_ID}/receipt` ? [i] : []));
+  expect(receiptReads.length).toBe(readsBefore + 1);
+  const download = paths.lastIndexOf(`/api/v1/runs/${RUN_ID}/events.ndjson`);
+  expect(receiptReads.at(-1) ?? -1).toBeLessThan(download);
+  expect(receiptReads.at(-1) ?? -1).toBeGreaterThan(paths.lastIndexOf(`/api/v1/runs/${RUN_ID}/decision`));
+});
+
+// RECORDED-UX-2: a run that moves on between the receipt read and the log
+// download (the log is append-only) holds every record the receipt counts:
+// the receipt and the detail's chain read as an earlier state of the same
+// log, not as a difference, but only when their head is the hash of the
+// record at their own last position.
+test("a log that grew past the receipt and the detail reads as an extension, a rewritten one still fails", async ({
+  page,
+}) => {
+  const before = await chainedRun(awaitingDecisionDetail());
+  const after = await chainedRun(fixture<Json>("run-detail-retry.json"));
+  const headBefore = (before.receipt.chain as { head_hash: string }).head_hash;
+  await mockApi(page, { detail: before.detail, receipt: before.receipt, ndjson: { [RUN_ID]: after.ndjson } });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const verdict = page.locator("[data-chain-verdict='pass']");
+  await expect(verdict).toBeVisible();
+  const result = (name: string) => verdict.locator(`[data-chain-result='${name}']`);
+  await expect(verdict.locator("[data-chain-earlier]")).toHaveText(t("en", "Run.chain.earlierSentence"));
+  // The headline does not claim a plain match the rows below qualify: the segment matches or extends the copies.
+  const records = after.receipt.event_count as number;
+  const sentence = verdict.locator(".hc-chain-verdict");
+  await expect(sentence).toContainText(tCountEn("Run.chain.passSentenceEarlier", records));
+  await expect(sentence).not.toContainText(tCountEn("Run.chain.passSentence", records));
+  // The sentence about the earlier copy points at the rows it names, which come after it.
+  expect(
+    await verdict.evaluate((panel) => {
+      const note = panel.querySelector("[data-chain-earlier]");
+      const rows = panel.querySelector("[data-chain-results]");
+      return note !== null && rows !== null && (note.compareDocumentPosition(rows) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    }),
+  ).toBe(true);
+  for (const name of ["head", "count", "range"]) {
+    await expect(result(name)).toContainText(t("en", "Run.chain.verdicts.earlier"));
+    await expect(result(name)).not.toContainText(t("en", "Run.chain.verdicts.fail"));
+  }
+  await expect(result("head")).toContainText("The receipt’s head is the hash of this run’s record 14 in the file");
+  await expect(result("head")).toContainText("1 later record was appended");
+  await expect(result("count")).toContainText("The receipt counts 14 records; the file holds 15 of this run");
+  await expect(result("range")).toContainText("sequences 1 to 15");
+  await expect(result("range")).toContainText("the file’s record 14 hashes to that chain’s head");
+  expect(headBefore).not.toBe((after.receipt.chain as { head_hash: string }).head_hash);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+
+  // The same counts with the head of another record: a rewrite, never an extension.
+  const forged = JSON.parse(JSON.stringify(before.receipt)) as Json;
+  const lines = after.ndjson.toString("utf8").split("\n");
+  const record13 = JSON.parse(lines[12] ?? "{}") as { hash: string };
+  forged.chain = { ...(forged.chain as Json), head_hash: record13.hash };
+  await mockApi(page, { detail: before.detail, receipt: forged, ndjson: { [RUN_ID]: after.ndjson } });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const failed = page.locator("[data-chain-verdict='fail']");
+  await expect(failed).toBeVisible();
+  await expect(failed.locator("[data-chain-result='head']")).toContainText(t("en", "Run.chain.verdicts.fail"));
+  await expect(failed.locator("[data-chain-result='count']")).toContainText(t("en", "Run.chain.verdicts.fail"));
+});
+
+// CHAIN-UI-R1-1: the chain check reads the receipt itself; when that read
+// fails, the receipt already shown in the Audit trail stays shown (the
+// failure goes to the check, which compares no receipt and says so).
+test("a failed receipt read of the chain check leaves the receipt shown in place", async ({ page, pageProblems }) => {
+  const chained = await chainedRun(awaitingDecisionDetail());
+  await mockApi(page, { detail: chained.detail, receipt: chained.receipt, ndjson: { [RUN_ID]: chained.ndjson } });
+  // Registered after mockApi, so it answers first: the first read is served
+  // by the mock, every later one fails.
+  let reads = 0;
+  await page.route(`**/api/v1/runs/${RUN_ID}/receipt`, async (route) => {
+    reads += 1;
+    if (reads === 1) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "internal", message: "internal error" }),
+    });
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  const receipt = page.locator("[data-audit-receipt='ready']");
+  const count = String(chained.receipt.event_count as number);
+  await expect(receipt.locator("[data-receipt-field='event_count']")).toHaveText(count);
+
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const panel = page.locator("[data-chain-verdict]");
+  await expect(panel).toBeVisible();
+  expect(reads).toBe(2);
+  await expect(panel.locator("[data-chain-receipt='unread']")).toHaveText(t("en", "Run.chain.receiptUnread"));
+  await expect(panel.locator("[data-chain-result='head']")).toContainText(t("en", "Run.chain.verdicts.not_compared"));
+  await expect(panel.locator("[data-chain-result='count']")).toContainText(t("en", "Run.chain.verdicts.not_compared"));
+  // The receipt shown before the check is still there, not replaced by the error.
+  await expect(receipt).toBeVisible();
+  await expect(receipt.locator("[data-receipt-field='event_count']")).toHaveText(count);
+  await expect(page.locator("[data-audit-receipt='error']")).toHaveCount(0);
+  takeProblem(pageProblems, `HTTP 500: /api/v1/runs/${RUN_ID}/receipt`);
+});
+
+// A11Y-I18N-1 and A11Y-I18N-2: the button keeps the keyboard focus while the
+// check runs (busy, never natively disabled), and one status region, mounted
+// empty before the check, announces the progress and then the short verdict,
+// once; the detailed results are not a live region.
+test("the chain check keeps the focus on its button and announces only the short verdict, once", async ({ page }) => {
+  const chained = await chainedRun(awaitingDecisionDetail());
+  await mockApi(page, { detail: chained.detail, receipt: chained.receipt, ndjson: { [RUN_ID]: chained.ndjson } });
+  // Registered after mockApi, so it holds the log open; fallback() then
+  // hands the request to the mock, which serves the log.
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(`**/api/v1/runs/${RUN_ID}/events.ndjson`, async (route) => {
+    await held;
+    await route.fallback();
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  const section = page.locator("[data-chain-check]");
+  const announcement = section.locator("[data-chain-announcement]");
+  // The region is there, empty, before anything is written into it.
+  await expect(announcement).toHaveAttribute("role", "status");
+  await expect(announcement).toHaveText("");
+  const region = await announcement.elementHandle();
+  const button = section.getByRole("button", { name: t("en", "Run.chain.run") });
+  await button.focus();
+  await page.keyboard.press("Enter");
+  await expect(section).toHaveAttribute("data-chain-check", "running");
+  await expect(announcement).toHaveText(t("en", "Run.chain.running", { name: `events-${RUN_ID}.jsonl` }));
+  // Busy, not disabled: the focus stays on the button.
+  const focused = section.locator("button");
+  await expect(focused).toBeFocused();
+  expect(await focused.evaluate((el) => el.hasAttribute("disabled"))).toBe(false);
+  await expect(focused).toHaveAttribute("aria-disabled", "true");
+  release();
+  await expect(page.locator("[data-chain-verdict='pass']")).toBeVisible();
+  await expect(section.getByRole("button", { name: t("en", "Run.chain.again") })).toBeFocused();
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("BUTTON");
+  // The same region holds the short verdict; the detailed results are outside any live region.
+  await expect(announcement).toHaveText(t("en", "Run.chain.pass"));
+  expect(await region?.evaluate((el) => el.isConnected && el.getAttribute("data-chain-announcement") !== null)).toBe(true);
+  await expect(page.locator("[data-chain-verdict]")).not.toHaveAttribute("role", /.+/);
+  const live = await section.evaluate((root) =>
+    [...root.querySelectorAll("[role='status'], [role='alert'], [aria-live]")]
+      .filter((el) => el.getAttribute("aria-live") !== "off")
+      .map((el) => el.textContent ?? ""),
+  );
+  expect(live.filter((text) => text.includes(t("en", "Run.chain.pass")))).toEqual([t("en", "Run.chain.pass")]);
+  expect(live.join(" ")).not.toContain(t("en", "Run.chain.limits"));
+  expect(live.join(" ")).not.toContain((chained.receipt.chain as { head_hash: string }).head_hash);
+  // Pressing it again keeps the focus and announces the verdict again (after the progress).
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-chain-verdict='pass']")).toBeVisible();
+  await expect(section.getByRole("button", { name: t("en", "Run.chain.again") })).toBeFocused();
+  await expect(announcement).toHaveText(t("en", "Run.chain.pass"));
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+
+  // A changed record: the verdict and where the check stopped, nothing more.
+  const lines = chained.ndjson.toString("utf8").split("\n");
+  const tampered = Buffer.from(lines.map((line, i) => (i === 3 ? line.replace("Fact:", "Fake:") : line)).join("\n"));
+  await mockApi(page, { detail: chained.detail, receipt: chained.receipt, ndjson: { [RUN_ID]: tampered } });
+  await openRun(page, "en");
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(announcement).toHaveText("");
+  await section.getByRole("button", { name: t("en", "Run.chain.run") }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-chain-verdict='fail']")).toBeVisible();
+  await expect(announcement).toContainText(`${t("en", "Run.chain.fail")}. The check stops at record 4 (line 4)`);
+  await expect(announcement).not.toContainText(t("en", "Run.chain.limits"));
+  await expect(section.getByRole("button", { name: t("en", "Run.chain.again") })).toBeFocused();
 });
 
 test("a live-declared run's Audit trail names the operator's log for the check", async ({ page }) => {

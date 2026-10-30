@@ -1,13 +1,20 @@
 "use client";
 // SPDX-License-Identifier: Apache-2.0
 //
-// The receipt of one run (RunReceiptV2), read once per run by the workspace
-// and shared by the tabs that need it (Proof inspector, Audit trail): GET
+// The receipt of one run (RunReceiptV2), read by the workspace and shared by
+// the tabs that need it (Proof inspector, Audit trail): GET
 // /runs/{id}/receipt for a run of this server, GET /showcase/{id}/receipt for
 // a recorded run of the research archive. It is requested when such a tab is
-// first opened (an event, so nothing loads before it is wanted), can be read
-// again (a run still deliberating gets a newer receipt), and a failed request
-// is kept as an error to show with a retry, never as a loading line. The
+// first opened (an event, so nothing loads before it is wanted), and read
+// again whenever the run moves on once it has been requested (refresh: the
+// server rebuilds the receipt from the run's current records, so a decision
+// or a later record makes the copy held here stale), on a retry, and by the
+// in-browser chain check, which compares the log with the receipt it read
+// itself just before downloading the log (read). A receipt already shown
+// stays shown while a newer one is read; a failed request is kept as an
+// error to show with a retry, never as a loading line, except a failed read
+// of the chain check while a receipt is shown: that receipt stays, and the
+// failure goes only to the check, which says it compared no receipt. The
 // responses of older requests are dropped.
 
 import { useCallback, useRef, useState } from "react";
@@ -27,6 +34,10 @@ export type RunReceipt = {
   ensure: () => void;
   /** Requests it again (a retry, or a newer receipt of a run in progress). */
   reload: () => void;
+  /** Reads it again only if it was requested before (the run moved on). */
+  refresh: () => void;
+  /** Reads it now and resolves with this very response (also shown, unless a newer request was made); rejects with an ApiError, which replaces only a receipt not yet shown. */
+  read: () => Promise<RunReceiptV2>;
 };
 
 export type RunSourceKind = "this_server" | "research_archive";
@@ -46,25 +57,44 @@ export function useReceipt(runId: string, source: RunSourceKind): RunReceipt {
   const [state, setState] = useState<ReceiptState>({ status: "idle" });
   const latest = useRef(0);
 
+  // keepShown: a failure leaves a receipt already shown in place (the chain
+  // check's own read); otherwise the error replaces it, with a retry.
+  const request = useCallback(
+    (keepShown: boolean): Promise<RunReceiptV2> => {
+      latest.current += 1;
+      const ticket = latest.current;
+      // A receipt already shown stays until the newer one arrives.
+      setState((current) => (current.status === "ready" ? current : { status: "loading" }));
+      const path =
+        source === "research_archive" ? `/showcase/${runId}/receipt` : `/runs/${runId}/receipt`;
+      const pending = source === "research_archive" ? api.showcaseReceipt(runId) : api.getReceipt(runId);
+      return pending.then(
+        (receipt) => {
+          if (ticket === latest.current) {
+            setState({ status: "ready", receipt });
+          }
+          return receipt;
+        },
+        (error: unknown) => {
+          const apiError = toApiError(error, path);
+          if (ticket === latest.current) {
+            setState((current) =>
+              keepShown && current.status === "ready" ? current : { status: "error", error: apiError },
+            );
+          }
+          throw apiError;
+        },
+      );
+    },
+    [runId, source],
+  );
+
+  const read = useCallback(() => request(true), [request]);
+
   const reload = useCallback(() => {
-    latest.current += 1;
-    const request = latest.current;
-    setState({ status: "loading" });
-    const path =
-      source === "research_archive" ? `/showcase/${runId}/receipt` : `/runs/${runId}/receipt`;
-    const read = source === "research_archive" ? api.showcaseReceipt(runId) : api.getReceipt(runId);
-    read
-      .then((receipt) => {
-        if (request === latest.current) {
-          setState({ status: "ready", receipt });
-        }
-      })
-      .catch((error: unknown) => {
-        if (request === latest.current) {
-          setState({ status: "error", error: toApiError(error, path) });
-        }
-      });
-  }, [runId, source]);
+    // The outcome is in the state.
+    request(false).catch(() => undefined);
+  }, [request]);
 
   // Requested at most once by ensure(); reload() always asks again.
   const ensure = useCallback(() => {
@@ -73,5 +103,12 @@ export function useReceipt(runId: string, source: RunSourceKind): RunReceipt {
     }
   }, [reload]);
 
-  return { state, ensure, reload };
+  // Nothing is read before a tab asks for the receipt.
+  const refresh = useCallback(() => {
+    if (latest.current > 0) {
+      reload();
+    }
+  }, [reload]);
+
+  return { state, ensure, reload, refresh, read };
 }

@@ -21,11 +21,22 @@
 // rest are chained) reads as checked in part, naming its unverified records.
 // A chain that checks out is consistent and matches those copies; it is
 // unsigned, and it says nothing about whether the content is true.
+//
+// The receipt compared is the one this check reads itself when it starts,
+// just before the log is downloaded (a run moves on: a decision or a later
+// record makes any receipt read earlier stale), and the panel says so. The
+// log is append-only, so a log that grew in between holds every record that
+// receipt counts: a copy whose head is the hash of the record at its own
+// last position reads "earlier" (an extension, never a rewrite), not as a
+// difference. The button stays focusable while the check runs (busy, not
+// disabled), and one always-mounted, visually hidden status region announces
+// the progress and then the short verdict once; the detailed results are
+// outside it.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
-import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useFormatter, useTranslations } from "next-intl";
+import { type ReactNode, useState } from "react";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
 import { api, ApiError, isApiError } from "@/lib/api/client";
@@ -55,14 +66,22 @@ type ChainCheckProps = {
   runId: string;
   source: ChainSource;
   chain: ChainV1 | null;
-  /** The receipt, once read: its head and record count are compared. */
-  receipt: RunReceiptV2 | null;
+  /** Reads the run's receipt now (its head and record count are compared); rejects with an ApiError. */
+  readReceipt: () => Promise<RunReceiptV2>;
 };
 
 type CheckState =
   | { status: "idle" }
   | { status: "running" }
-  | { status: "done"; result: ChainResult; segment: SegmentResult }
+  | {
+      status: "done";
+      result: ChainResult;
+      segment: SegmentResult;
+      /** The receipt read when this check started; null when it could not be read. */
+      receipt: RunReceiptV2 | null;
+      /** The detail's chain as it stood when this check started. */
+      chain: ChainV1 | null;
+    }
   | { status: "error"; error: ApiError }
   | { status: "unsupported" };
 
@@ -73,6 +92,18 @@ const VERDICT_ATTRIBUTE: Record<SegmentOutcome, string> = {
   unchained: "unchained",
   partial: "partial",
 };
+
+const VERDICT_BADGES: Record<Verdict, "success" | "error" | "neutral"> = {
+  pass: "success",
+  fail: "error",
+  not_checked: "neutral",
+  not_compared: "neutral",
+  earlier: "neutral",
+};
+
+/** A copy compared (the receipt, the detail's chain) was read before the run's newest records. */
+const isEarlier = (segment: SegmentResult) =>
+  [segment.head_matches, segment.count, segment.range].includes("earlier");
 
 const short = (value: string) => `${digestPrefix(value) ?? value}…`;
 
@@ -97,20 +128,36 @@ function problemValues(problem: ChainProblem): Record<string, string | number> {
   }
 }
 
-export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
+export function ChainCheck({ runId, source, chain, readReceipt }: ChainCheckProps) {
   const t = useTranslations("Run.chain");
   const tProblem = dynamicTranslator(useTranslations("Run.chain.problems"));
+  const format = useFormatter();
   const [state, setState] = useState<CheckState>({ status: "idle" });
   // The detail says the run's records carry no hash (schema 1.0): the check
   // recomputes nothing for them, so the method is described without hashing.
   const unchainedScope = chain?.scope === "unchained";
+  const running = state.status === "running";
 
   const run = async () => {
+    if (running) {
+      return;
+    }
     if (globalThis.crypto?.subtle === undefined) {
       setState({ status: "unsupported" });
       return;
     }
     setState({ status: "running" });
+    // The detail's chain as it stands now, and the receipt read now, before
+    // the log: the log is append-only, so it holds every record they count.
+    const expectedChain = chain;
+    let receipt: RunReceiptV2 | null = null;
+    try {
+      receipt = await readReceipt();
+    } catch {
+      // Shown in the receipt's own section with a retry; here the head and
+      // the count are not compared, and the panel says why.
+      receipt = null;
+    }
     try {
       const bytes = await api.bytes(source.url);
       const result = await verifyLog(bytes);
@@ -119,10 +166,11 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
         sha256: source.sha256,
         receiptHead: receipt === null ? undefined : (receipt.chain.head_hash ?? null),
         receiptEventCount: receipt?.event_count ?? null,
-        firstSequence: chain?.first_sequence ?? null,
-        lastSequence: chain?.last_sequence ?? null,
+        firstSequence: expectedChain?.first_sequence ?? null,
+        lastSequence: expectedChain?.last_sequence ?? null,
+        chainHead: expectedChain?.head_hash ?? null,
       });
-      setState({ status: "done", result, segment });
+      setState({ status: "done", result, segment, receipt, chain: expectedChain });
     } catch (error) {
       setState({
         status: "error",
@@ -138,22 +186,64 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
     }
   };
 
-  const verdictBadge = (verdict: Verdict) =>
-    verdict === "pass" ? (
-      <Badge variant="success" label={t("verdicts.pass")} />
-    ) : verdict === "fail" ? (
-      <Badge variant="error" label={t("verdicts.fail")} />
-    ) : verdict === "not_checked" ? (
-      <Badge variant="neutral" label={t("verdicts.not_checked")} />
-    ) : (
-      <Badge variant="neutral" label={t("verdicts.not_compared")} />
-    );
+  const verdictBadge = (verdict: Verdict) => (
+    <Badge variant={VERDICT_BADGES[verdict]} label={t(`verdicts.${verdict}`)} />
+  );
+
+  /** Where the check stopped, in words. */
+  const failureText = (failure: NonNullable<ChainResult["failure"]>) =>
+    failure.sequence === null
+      ? t("failureAtLine", {
+          line: failure.line,
+          problem: tProblem(failure.problem.kind, problemValues(failure.problem)),
+        })
+      : t("failureAt", {
+          sequence: failure.sequence,
+          line: failure.line,
+          problem: tProblem(failure.problem.kind, problemValues(failure.problem)),
+        });
+
+  /** The short sentence the status region announces: the progress, then the verdict (never the detailed results). */
+  const announcement = (): string => {
+    switch (state.status) {
+      case "running":
+        return unchainedScope ? t("runningUnchained", { name: source.name }) : t("running", { name: source.name });
+      case "unsupported":
+        return t("unsupported");
+      case "done":
+        switch (state.segment.outcome) {
+          case "verified":
+            return t("pass");
+          case "partial":
+            return t("partialVerdict");
+          case "unchained":
+            return t("unchainedVerdict");
+          case "failed":
+            return t("announcement", {
+              verdict: t("fail"),
+              detail: state.result.failure === null ? t("failSentence") : failureText(state.result.failure),
+            });
+        }
+        return "";
+      default:
+        // An error is announced by its own alert.
+        return "";
+    }
+  };
 
   /** The headline of a finished check: green only for a chain verified link by link. */
   const headline = (segment: SegmentResult) => {
     switch (segment.outcome) {
       case "verified":
-        return (
+        // A copy read before the newest records: the segment matches or extends it, never "matches" alone.
+        return isEarlier(segment) ? (
+          <>
+            <Badge variant="success" label={t("pass")} />{" "}
+            {segment.legacyRecords === 0
+              ? t("passSentenceEarlier", { count: segment.chainedRecords })
+              : t("passSentenceLegacyEarlier", { chained: segment.chainedRecords, legacy: segment.legacyRecords })}
+          </>
+        ) : (
           <>
             <Badge variant="success" label={t("pass")} />{" "}
             {segment.legacyRecords === 0
@@ -191,85 +281,134 @@ export function ChainCheck({ runId, source, chain, receipt }: ChainCheckProps) {
         {unchainedScope ? t("introUnchained", { name: source.name }) : t("intro", { name: source.name })}
       </p>
       <div className="hc-actions">
+        {/* Busy, never disabled: a disabled button would drop the keyboard focus; Astryx ignores clicks while busy. */}
         <Button
           variant="secondary"
           label={state.status === "done" || state.status === "error" ? t("again") : t("run")}
-          isDisabled={state.status === "running"}
-          isLoading={state.status === "running"}
+          isLoading={running}
           onClick={() => void run()}
         />
       </div>
-      {state.status === "running" ? (
-        <p role="status" className="hc-supporting">
+      {/* Mounted empty before anything is written into it: the progress, then the short verdict, once. */}
+      <p className="hc-visually-hidden" role="status" data-chain-announcement>
+        {announcement()}
+      </p>
+      {running ? (
+        <p className="hc-supporting" data-chain-running>
           {unchainedScope ? t("runningUnchained", { name: source.name }) : t("running", { name: source.name })}
         </p>
       ) : null}
-      {state.status === "unsupported" ? <p role="status">{t("unsupported")}</p> : null}
+      {state.status === "unsupported" ? <p data-chain-unsupported>{t("unsupported")}</p> : null}
       {state.status === "error" ? <ApiErrorNotice error={state.error} /> : null}
       {state.status === "done" ? (
-        <div className="hc-panel" role="status" data-chain-verdict={VERDICT_ATTRIBUTE[state.segment.outcome]}>
-          <p className="hc-chain-verdict">{headline(state.segment)}</p>
-          {state.result.failure === null ? null : (
-            <p data-chain-failure={state.result.failure.problem.kind} data-chain-failure-sequence={state.result.failure.sequence ?? ""}>
-              {state.result.failure.sequence === null
-                ? t("failureAtLine", {
-                    line: state.result.failure.line,
-                    problem: tProblem(state.result.failure.problem.kind, problemValues(state.result.failure.problem)),
-                  })
-                : t("failureAt", {
-                    sequence: state.result.failure.sequence,
-                    line: state.result.failure.line,
-                    problem: tProblem(state.result.failure.problem.kind, problemValues(state.result.failure.problem)),
-                  })}
-            </p>
-          )}
-          <ul className="hc-list" data-chain-results>
-            <li data-chain-result="sha256">
-              {verdictBadge(state.segment.sha256)}{" "}
-              {source.sha256 === null
-                ? t("sha256Own", { sha256: state.result.sha256, bytes: state.result.bytes })
-                : t("sha256", { sha256: state.result.sha256, bytes: state.result.bytes })}
-            </li>
-            <li data-chain-result="chain">
-              {verdictBadge(state.segment.chain)}{" "}
-              {state.segment.unchained
-                ? t("unchained", { count: state.segment.records.length })
-                : state.segment.legacyRecords === 0
-                  ? t("records", { count: state.segment.chainedRecords })
-                  : t("recordsLegacy", { chained: state.segment.chainedRecords, legacy: state.segment.legacyRecords })}
-            </li>
-            <li data-chain-result="range">
-              {verdictBadge(state.segment.range)}{" "}
-              {state.segment.first === null || state.segment.last === null
-                ? t("noSegment")
-                : t("segment", {
-                    first: state.segment.first,
-                    last: state.segment.last,
-                    count: state.segment.records.length,
-                  })}
-            </li>
-            <li data-chain-result="head">
-              {verdictBadge(state.segment.head_matches)}{" "}
-              {state.segment.head === null
-                ? t("noHead")
-                : receipt === null
-                  ? t("headNoReceipt", { head: state.segment.head })
-                  : t("head", { head: state.segment.head })}
-            </li>
-            <li data-chain-result="count">
-              {verdictBadge(state.segment.count)}{" "}
-              {receipt === null ? t("countNoReceipt") : t("count", { count: receipt.event_count })}
-            </li>
-          </ul>
-          <p className="hc-supporting">
-            {!state.segment.unchained
-              ? t("limits")
-              : source.sha256 === null
-                ? t("limitsUnchainedOwn")
-                : t("limitsUnchained")}
-          </p>
-        </div>
+        <ChainResultPanel
+          state={state}
+          source={source}
+          headline={headline(state.segment)}
+          verdictBadge={verdictBadge}
+          failureText={failureText}
+          receiptDate={(iso) => format.dateTime(new Date(iso), { dateStyle: "medium", timeStyle: "medium" })}
+        />
       ) : null}
     </section>
+  );
+}
+
+type DoneState = Extract<CheckState, { status: "done" }>;
+
+/** The detailed results of a finished check (outside the status region). */
+function ChainResultPanel({
+  state,
+  source,
+  headline,
+  verdictBadge,
+  failureText,
+  receiptDate,
+}: {
+  state: DoneState;
+  source: ChainSource;
+  headline: ReactNode;
+  verdictBadge: (verdict: Verdict) => ReactNode;
+  failureText: (failure: NonNullable<ChainResult["failure"]>) => string;
+  receiptDate: (iso: string) => string;
+}) {
+  const t = useTranslations("Run.chain");
+  const { result, segment, receipt } = state;
+  const lastSequence = state.chain?.last_sequence;
+  const earlier = isEarlier(segment);
+  // The record at the receipt's own last position (the receipt's head), when the log grew past it.
+  const receiptLast =
+    receipt === null || segment.head_matches !== "earlier" ? null : segment.records[receipt.event_count - 1];
+  return (
+    <div className="hc-panel" data-chain-verdict={VERDICT_ATTRIBUTE[segment.outcome]}>
+      <p className="hc-chain-verdict">{headline}</p>
+      {earlier ? <p data-chain-earlier>{t("earlierSentence")}</p> : null}
+      {result.failure === null ? null : (
+        <p data-chain-failure={result.failure.problem.kind} data-chain-failure-sequence={result.failure.sequence ?? ""}>
+          {failureText(result.failure)}
+        </p>
+      )}
+      <p className="hc-supporting" data-chain-receipt={receipt === null ? "unread" : "read"}>
+        {receipt === null ? t("receiptUnread") : t("receiptRead", { date: receiptDate(receipt.generated_at) })}
+      </p>
+      <ul className="hc-list" data-chain-results>
+        <li data-chain-result="sha256">
+          {verdictBadge(segment.sha256)}{" "}
+          {source.sha256 === null
+            ? t("sha256Own", { sha256: result.sha256, bytes: result.bytes })
+            : t("sha256", { sha256: result.sha256, bytes: result.bytes })}
+        </li>
+        <li data-chain-result="chain">
+          {verdictBadge(segment.chain)}{" "}
+          {segment.unchained
+            ? t("unchained", { count: segment.records.length })
+            : segment.legacyRecords === 0
+              ? t("records", { count: segment.chainedRecords })
+              : t("recordsLegacy", { chained: segment.chainedRecords, legacy: segment.legacyRecords })}
+        </li>
+        <li data-chain-result="range">
+          {verdictBadge(segment.range)}{" "}
+          {segment.first === null || segment.last === null
+            ? t("noSegment")
+            : segment.range === "earlier" && lastSequence !== undefined && lastSequence !== null
+              ? t("segmentEarlier", {
+                  first: segment.first,
+                  last: segment.last,
+                  count: segment.records.length,
+                  detailLast: lastSequence,
+                })
+              : t("segment", {
+                  first: segment.first,
+                  last: segment.last,
+                  count: segment.records.length,
+                })}
+        </li>
+        <li data-chain-result="head">
+          {verdictBadge(segment.head_matches)}{" "}
+          {segment.head === null
+            ? t("noHead")
+            : receipt === null
+              ? t("headNoReceipt", { head: segment.head })
+              : receiptLast !== null && receiptLast !== undefined
+                ? t("headEarlier", {
+                    head: segment.head,
+                    sequence: receiptLast.sequence,
+                    appended: segment.records.length - receipt.event_count,
+                  })
+                : t("head", { head: segment.head })}
+        </li>
+        <li data-chain-result="count">
+          {verdictBadge(segment.count)}{" "}
+          {receipt === null
+            ? t("countNoReceipt")
+            : segment.count === "earlier"
+              ? t("countEarlier", { count: receipt.event_count, total: segment.records.length })
+              : t("count", { count: receipt.event_count })}
+        </li>
+      </ul>
+      <p className="hc-supporting">
+        {!segment.unchained ? t("limits") : source.sha256 === null ? t("limitsUnchainedOwn") : t("limitsUnchained")}
+      </p>
+    </div>
   );
 }

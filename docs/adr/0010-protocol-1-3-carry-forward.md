@@ -2,8 +2,10 @@
 
 Date: 2026-10-27 · Status: accepted, implemented (commits `1ee386a`, `92ccfeb`,
 `08f6d33`, `c8749f5`; keyed Evaluator schema `3d1aeec`), **smoke-validated live on
-`prompt-freeze-2`** (K03, K04: `docs/evaluation.md` §6.2; the counted battery is still
-pending) · Scope: schema 1.3
+`prompt-freeze-2`** (K03, K04: `docs/evaluation.md` §6.2), **counted battery run
+2026-10-30** (M01–M04, `docs/evaluation.md` §6.3: the contract of decision 3 refused one
+evaluation live, M04's, for a carried contradiction neither cited again nor cleared)
+· Scope: schema 1.3
 
 ADR-0005 (per-run logs and asynchronous execution) and ADR-0006 (public API and
 sessions) are written after their lanes land; the numbering is not chronological.
@@ -92,6 +94,9 @@ rules of schema 1.2 stay, and the inputs the rules see become complete.
   and later rounds carry more evidence, so prompts, token use and outcomes must be
   **re-validated live** (authorized battery of at most 8 runs) before the prompt freeze.
   Until then no claim about live behavior under protocol 1.3 is made anywhere.
+  **Note 2026-10-30:** the 8 runs are spent (K01–K04 smoke runs, M01–M04 counted battery,
+  `docs/evaluation.md` §6). The claims made are the recorded runs only; with 2 of the 4
+  counted runs lost to provider errors, no rate of any outcome is claimed.
 - A hostile record that contradicts legitimate ones now stays visible in every round; it
   can still force `contested`, never `supported`.
 - Relabelling an entire run to 1.1/1.2 and re-hashing it still passes as an honest older

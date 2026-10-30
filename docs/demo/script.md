@@ -29,7 +29,7 @@ publishing are in [`recording-checklist.md`](recording-checklist.md).
 |---|---|---|
 | STAGING | Access-protected staging deployment with live mode on (`docs/deployment/runbook.md` §8) | pending |
 | SNAPSHOT | Sealed Hyphae snapshot capture; live mode cannot start without it (`docs/deployment/runbook.md` §4.1, `CONSENSUS_SNAPSHOT_DIR`) | captured 2026-10-29 (`b0375df`); boots with `0515f29` (merged as `7e26866`); not on the server |
-| BATTERY-1.3 | Counted protocol 1.3 battery on `prompt-freeze-2` (`docs/evaluation.md` §6); the public presets repeat battery tasks, and no 1.3 figure may be shown before it is in §6 | pending; not run on 2026-10-29 (no Meta key on the development machine) |
+| BATTERY-1.3 | Counted protocol 1.3 battery on `prompt-freeze-2` (`docs/evaluation.md` §6); the public presets repeat battery tasks, and no 1.3 figure may be shown before it is in §6 | done on 2026-10-30 (M01–M04, `docs/evaluation.md` §6.3; not run on 2026-10-29, when the development machine had no Meta key); a 1.3 figure may be shown only as §6.3 states it |
 | STAGING-REC | The live preset runs recorded on staging (`recording-checklist.md` §2) | pending; needs STAGING, SNAPSHOT, BATTERY-1.3 |
 | CHAIN-BROWSER | The in-browser chain check (merged with web lane W2 at `bc3b262`) passes its review | review running |
 
@@ -202,7 +202,7 @@ screen.**
 trace shows seven earlier-round objections never judged again, and our
 evaluation's corrections record that one record it cites misdescribes a test.
 A valid proof cannot catch that: integrity is not truth. Protocol 1.3 carries
-every objection forward; its counted battery is still pending."
+every objection forward; its counted battery ran on 30 October."
 
 Burned-in caption for as long as R06's Decision tab is on screen: "Cited
 record 5 misdescribes the fixture test: docs/evaluation.md, Corrections 3".

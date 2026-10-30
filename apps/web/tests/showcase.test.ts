@@ -268,10 +268,10 @@ describe("the archive's own figures", () => {
   const figures = archiveFigures(entries);
   const readme = new TextDecoder().decode(researchBytes("README.md"));
 
-  it("counts 184 recorded Meta request ids in 41 of the 44 runs, every one distinct", () => {
-    expect(runs).toHaveLength(44);
-    expect(figures.metaRequestIds).toBe(184);
-    expect(figures.metaRuns).toBe(41);
+  it("counts 207 recorded Meta request ids in 45 of the 48 runs, every one distinct", () => {
+    expect(runs).toHaveLength(48);
+    expect(figures.metaRequestIds).toBe(207);
+    expect(figures.metaRuns).toBe(45);
     const all = entries.flatMap((e) => e.provenance.meta_request_ids ?? []);
     expect(new Set(all).size).toBe(all.length);
   });

@@ -100,7 +100,7 @@ impl Drop for TempDir {
 /// evaluation never listed, and how many of them the evaluation of their
 /// own round had listed as unresolved. Counted independently from the
 /// raw JSONL (2026-10-27). Before protocol 1.3 nothing judged them again.
-const NEVER_REJUDGED: [(&str, usize, usize); 44] = [
+const NEVER_REJUDGED: [(&str, usize, usize); 48] = [
     ("C01", 2, 2),
     ("C02", 2, 2),
     ("C03", 0, 0),
@@ -148,6 +148,13 @@ const NEVER_REJUDGED: [(&str, usize, usize); 44] = [
     ("K02", 0, 0),
     ("K03", 0, 0),
     ("K04", 0, 0),
+    // The protocol 1.3 battery of 2026-10-30 (research/README.md): the same
+    // rule held; M02 and M04 reached a single evaluation, and every
+    // receipt captured at run time lists none either.
+    ("M01", 0, 0),
+    ("M02", 0, 0),
+    ("M03", 0, 0),
+    ("M04", 0, 0),
 ];
 
 /// Receipt v2 of every MANIFEST run, keyed by label.
@@ -277,11 +284,30 @@ fn every_archived_run_has_a_receipt_v2_consistent_with_its_log() {
             .filter(|e| matches!(e.payload, EventPayload::EvaluationSubmitted { .. }))
             .count();
         assert_eq!(d.rounds as usize, evaluations, "{label}");
-        if evaluations > 0 {
-            // Every final claim was assessed, and nothing was left over.
-            assert_eq!(d.evaluated_proposal_id, d.final_proposal_id, "{label}");
-            assert!(d.claims.iter().all(|c| c.assessment.is_some()), "{label}");
-            assert!(d.unmatched_assessments.is_empty(), "{label}");
+        let last_evaluation = events
+            .iter()
+            .rposition(|e| matches!(e.payload, EventPayload::EvaluationSubmitted { .. }));
+        let last_revision = events
+            .iter()
+            .rposition(|e| matches!(e.payload, EventPayload::RevisionSubmitted { .. }));
+        match (last_evaluation, last_revision) {
+            (Some(eval), revision) if revision.is_none_or(|rev| rev < eval) => {
+                // Every final claim was assessed, and nothing was left over.
+                assert_eq!(d.evaluated_proposal_id, d.final_proposal_id, "{label}");
+                assert!(d.claims.iter().all(|c| c.assessment.is_some()), "{label}");
+                assert!(d.unmatched_assessments.is_empty(), "{label}");
+            }
+            (Some(_), Some(_)) => {
+                // A revision no evaluation followed: only a run that failed
+                // in the round after it (M01 and M02 at critique, M04 at
+                // evaluate) ends this way, and its receipt says which
+                // proposal the last evaluation judged.
+                assert!(outcome.starts_with("failed:"), "{label}");
+                assert!(["M01", "M02", "M04"].contains(&label.as_str()), "{label}");
+                assert_ne!(d.evaluated_proposal_id, d.final_proposal_id, "{label}");
+                assert!(d.evaluated_proposal_id.is_some(), "{label}");
+            }
+            _ => {}
         }
         let never = &d.earlier_round_objections_never_rejudged;
         let open_then = never.iter().filter(|o| o.unresolved_in_its_round).count();
@@ -372,20 +398,38 @@ fn recorded_receipts_agree_with_receipt_v2() {
         let v1 = &recorded["receipt"];
         let v2 = &receipts[&label];
         // The receipt captured at run time and the one derived now from
-        // the archived events state the same facts.
+        // the archived events state the same facts. The records up to
+        // 2026-10-27 hold the first receipt format (authorization a string,
+        // a top-level head_hash); those of the operator server's battery of
+        // 2026-10-30 hold receipt v2 (authorization.state, chain.head_hash).
+        let captured_v2 = v1["format"] == "hyphae-consensus-run-receipt-v2";
+        let (authorization, head_hash) = if captured_v2 {
+            (&v1["authorization"]["state"], &v1["chain"]["head_hash"])
+        } else {
+            (&v1["authorization"], &v1["head_hash"])
+        };
         assert_eq!(v1["run_id"], v2.run_id.as_str(), "{label}");
         assert_eq!(v1["final_state"], name!(v2.final_state), "{label}");
-        assert_eq!(
-            v1["authorization"],
-            name!(v2.authorization.state),
-            "{label}"
-        );
+        assert_eq!(authorization, &name!(v2.authorization.state), "{label}");
         assert_eq!(v1["event_count"].as_u64(), Some(v2.event_count), "{label}");
-        assert_eq!(
-            v1["head_hash"].as_str(),
-            v2.chain.head_hash.as_deref(),
-            "{label}"
-        );
+        assert_eq!(head_hash.as_str(), v2.chain.head_hash.as_deref(), "{label}");
+        if captured_v2 {
+            // A v2 receipt the server built from the same events: it says
+            // everything the one derived now says, field for field, except
+            // when it was generated.
+            let mut derived = serde_json::to_value(v2).unwrap();
+            let mut captured = v1.clone();
+            for receipt in [&mut derived, &mut captured] {
+                receipt
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("generated_at")
+                    .expect("generated_at");
+            }
+            assert_eq!(captured, derived, "{label}");
+            compared += 1;
+            continue;
+        }
         let recommendation: Option<Recommendation> =
             serde_json::from_value(v1["recommendation"].clone()).unwrap();
         assert_eq!(recommendation, v2.recommendation, "{label}");
@@ -402,7 +446,7 @@ fn recorded_receipts_agree_with_receipt_v2() {
         assert_eq!(verifications, flat, "{label}");
         compared += 1;
     }
-    assert_eq!(compared, 37);
+    assert_eq!(compared, 41);
 }
 
 #[test]

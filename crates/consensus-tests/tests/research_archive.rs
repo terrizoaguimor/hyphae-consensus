@@ -329,18 +329,41 @@ fn run_records_match_their_event_logs() {
             .events_for(&run)
             .map(|e| serde_json::to_value(e).unwrap())
             .collect();
-        // The console's run detail carried the run's chained events.
-        assert_eq!(rec["detail"]["events"].as_array(), Some(&events), "{label}");
         let receipt = &rec["receipt"];
+        // Records up to 2026-10-27 hold the console's detail (the stored
+        // events verbatim) and the first receipt format; those of the
+        // operator server's battery of 2026-10-30 hold the API v1 detail
+        // (each event as the view shows it) and receipt v2.
+        let v2 = receipt["format"] == "hyphae-consensus-run-receipt-v2";
+        if v2 {
+            // Whole events, once the view's display fields and the
+            // stored-only fields are dropped.
+            let shown: Vec<Value> = rec["detail"]["events"]
+                .as_array()
+                .expect("detail events")
+                .iter()
+                .map(|e| shown_event(e, &label))
+                .collect();
+            let stored: Vec<Value> = events.iter().map(stored_event).collect();
+            assert_eq!(shown, stored, "{label}");
+        } else {
+            // The console's run detail carried the run's chained events.
+            assert_eq!(rec["detail"]["events"].as_array(), Some(&events), "{label}");
+        }
         assert_eq!(receipt["run_id"], run.as_str(), "{label}");
         assert_eq!(
             receipt["event_count"].as_u64(),
             Some(events.len() as u64),
             "{label}"
         );
-        // The receipt's head_hash is the hash of the run's last event.
+        // The receipt's head hash is the hash of the run's last event.
+        let head_hash = if v2 {
+            &receipt["chain"]["head_hash"]
+        } else {
+            &receipt["head_hash"]
+        };
         assert_eq!(
-            receipt["head_hash"].as_str(),
+            head_hash.as_str(),
             log.events_for(&run).last().map(|e| e.hash.as_str()),
             "{label}"
         );
@@ -354,6 +377,52 @@ fn run_records_match_their_event_logs() {
         records += 1;
     }
     assert_eq!(records, files_of_kind(&m, "run_record").len());
+}
+
+/// Fields the API v1 view adds to a stored event's payload object (display
+/// only, each `false` in the archive).
+const VIEW_FLAGS: [(&str, &str); 3] = [
+    ("invocation", "scripted"),
+    ("evidence", "proof_error_reported"),
+    ("verification", "simulated"),
+];
+
+/// Fields of a stored event's payload object that the API v1 view leaves out.
+const STORED_ONLY: [(&str, &str); 3] = [
+    ("invocation", "safety_identifier_sent"),
+    ("evidence", "schema_version"),
+    ("verification", "schema_version"),
+];
+
+/// An API v1 event without its display fields, each checked before it is
+/// dropped: `message` only on `run_failed` and a string, the flags `false`.
+fn shown_event(event: &Value, label: &str) -> Value {
+    let mut e = event.clone();
+    let p = e["payload"].as_object_mut().expect("payload");
+    let is_failure = p.get("type").and_then(Value::as_str) == Some("run_failed");
+    if let Some(message) = p.remove("message") {
+        assert!(is_failure && message.is_string(), "{label}: message");
+    }
+    for (object, field) in VIEW_FLAGS {
+        if let Some(o) = p.get_mut(object).and_then(Value::as_object_mut) {
+            if let Some(flag) = o.remove(field) {
+                assert_eq!(flag, Value::Bool(false), "{label}: {object}.{field}");
+            }
+        }
+    }
+    e
+}
+
+/// A stored event without the fields the API v1 view leaves out.
+fn stored_event(event: &Value) -> Value {
+    let mut e = event.clone();
+    let p = e["payload"].as_object_mut().expect("payload");
+    for (object, field) in STORED_ONLY {
+        if let Some(o) = p.get_mut(object).and_then(Value::as_object_mut) {
+            o.remove(field);
+        }
+    }
+    e
 }
 
 /// The lines of an archived log, read as plain text.

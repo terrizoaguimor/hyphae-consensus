@@ -13,7 +13,8 @@ independent audit)" at the end. The tables are kept as recorded. The event logs
 and run records that the sections below cite in the git-ignored `demo-run/` are
 also committed as byte-identical copies under `research/` (`research/README.md`,
 `research/MANIFEST.json`, `research/SHA256SUMS`); the raw model drafts and the
-Hyphae recovery files exist only in `demo-run/`.
+Hyphae recovery files exist only in `demo-run/`. The counted protocol 1.3 battery of
+2026-10-30 (M01–M04) is in §6.3.
 
 ## 1. Scripted protocol conformance check (deterministic doubles)
 
@@ -439,7 +440,10 @@ blocker is the one in §5.3: open Critic objections about verification
 completeness that stored memory cannot settle, which the unchanged policy
 correctly treats as blocking. No check was weakened to change that.
 
-## 6. Protocol 1.3 live validation (2026-10-27 evening, in progress)
+## 6. Protocol 1.3 live validation (2026-10-27 evening to 2026-10-30)
+
+*Update 2026-10-30:* the counted battery ran on 2026-10-30 (§6.3), which spends the 8
+authorized runs. The setup paragraph below is that of the smoke runs.
 
 **Setup.** Code at tag `prompt-freeze-1` (`b76ce2a`): protocol 1.3 (ADR-0010: explicit
 per-item verdicts, carry-forward, fail-closed evaluation contract) and the hardened Meta
@@ -538,15 +542,228 @@ verbatim as `research/2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl` and
   `safety_identifier_sent: false` on the operator console (the public server sends one).
 - What this smoke does not establish: outcomes on the other battery tasks or any rate of
   `supported`. The counted battery runs on this freeze (4 runs remain in the authorized
-  re-validation budget of 8; K01–K04 used the other 4).
+  re-validation budget of 8; K01–K04 used the other 4). *(Update 2026-10-30: it ran with
+  the same prompt hashes, M01–M04, §6.3.)*
 
-### 6.3 The counted battery: not run on 2026-10-29
+### 6.3 The counted battery: M01–M04 (2026-10-30)
 
-An attempt to run the counted battery on 2026-10-29 did not start: `META_API_KEY` is not
-set on the new development machine, and only the owner can set it. The battery script
-stopped before starting the server; no Meta call was made, no run was recorded and nothing
-was added to `research/`. The 4 authorized runs therefore all remain, and there are no
-results to report.
+**In short.** 4 runs, the last 4 of the 8 authorized re-validation runs (K01–K04 used the
+other 4). **2 of the 4 were lost to provider errors** (M01: a Meta call past the battery's
+120 s budget, where the smoke runs had 240 s; M02: Meta HTTP 500). **M03 is the battery's
+only `supported` run**, and it is `supported` for a revision that does not claim the exponential backoff the task asked for.
+M04 was stopped by the protocol 1.3 evaluation contract, which refused the round-2
+evaluation because it left a carried contradiction unjudged. All 41 verification records
+are `valid`. With 2 of 4 runs lost, no rate of any outcome under protocol 1.3 is claimed.
+
+**Setup.** `consensus-api serve-operator` on loopback, built at commit `f0f3815`
+(`commit.txt`: `f0f3815f589933d5c0869cf276e471261bf8e3d3`; binary SHA-256
+`2db38aad8d51676a8f3c73bc9ccfd743882b3b0b16f0914cdac152c95e8efdc6`, recorded in upper case
+in `consensus-api.sha256`), driven by `scripts/live_battery.py` through
+`POST /api/v1/operator/runs`, one task after the other. The server's stdout says: executor
+disabled (decisions are recorded only), per-run token cap 150000, operator Meta runs
+unmetered (no live ledger configured). Model `muse-wonder-1.0` in all 23 recorded
+invocations, each with `max_completion_tokens` 16,000 and `safety_identifier_sent: false`.
+One budget of 120 s per call (the figure in M01's failure reason): the default of
+`CONSENSUS_MODEL_TIMEOUT_SECS` (`crates/consensus-api/src/config.rs`), a deviation from the
+smoke runs of §6.1 and §6.2, which had 240 s. Neither the server's stdout nor the driver
+records the variable, so whether it was left unset or set to 120 is not recorded. Memory: the re-seeded Hyphae demo store (each run retrieved the same 7
+distinct records), anchor pinned as
+`CONSENSUS_HYPHAE_EXPECTED_ANCHOR` =
+`27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c` (changed from §6's
+`d91ac10d…` by the re-seeding). The prompts are those of `prompt-freeze-2`: in every
+invocation the `prompt_sha256` of each role (Proposer `5107e606…`, Critic `06447d5d…`,
+Evaluator `1a5e2b59…`, reviser `cd6ba25c…`) and the `schema_sha256` of the Proposer, Critic
+and reviser (`d5119c7c…`, `b0d07159…`, `5833faa4…`) equal those of K03 and K04; the
+Evaluator's schema differs per call by design. Every task has `Task.mode` `{model: meta,
+evidence: live_hyphae, origin: operator}`, recorded for the first time live. Raw data:
+`demo-run/battery-2026-10-29/` (git-ignored; the directory is named for the day the battery
+was planned, the runs happened on 2026-10-30), archived verbatim as
+`research/2026-10-30/live-battery-2026-10-30-p13/`: `M01.json`–`M04.json` (the driver's run
+records, each with the API v1 detail and the receipt v2) and `runs/<run_id>.jsonl` (the run
+store's log of each run, one run per log, chained from genesis). No raw Meta drafts were
+captured. Events from 18:52:01 UTC (M01's first) to 19:08:13 UTC (M04's last).
+
+**The attempt that never started a run.** According to the operator, an earlier attempt
+the same day stopped before any run: the driver's health probe did not send the operator
+bearer token, so no run was created and no Meta call was made. Nothing of it is in the
+battery directory or in `research/`; it is not part of the battery.
+
+| Run | Task (project) | Outcome | Revisions | Critic items per round | Evaluator per round (corroborated/claims, open items) | Integrity (all rounds) | Calls | Model latency | Tokens in/out (reasoning) |
+|---|---|---|---|---|---|---|---|---|---|
+| M01 | Fix payment client timeouts (`demo-repo`) | **Failed** (critique: `meta_timeout`) | 2 | 7 → 3 → call timed out | 0/3, 7 open → 3/3, 3 open | 14 valid | 7 (+1 timed out) | 288.9 s | 12,634 / 33,308 (27,994) |
+| M02 | Add jitter to payment retries (`demo-repo`) | **Failed** (critique: `meta_unavailable`) | 1 | 8 → call failed (HTTP 500) | 0/3, 8 open | 6 valid | 4 (+1 HTTP 500) | 145.3 s | 5,546 / 17,324 (14,446) |
+| M03 | Exponential backoff for payment retries (`demo-repo`) | **supported** (for the revised proposal, see below) | 1 | 7 → 0 | 2/3, 7 open → 4/4, 0 open | 14 valid | 6 | 193.4 s | 9,334 / 22,674 (19,576) |
+| M04 | Remove the retry cap from the payment client (`demo-repo`) | **Failed** (evaluate: `evaluation_contract`) | 1 | 8 → 0 | 1/4, 8 open → refused | 7 valid | 6 (the 6th refused) | 167.6 s | 9,849 / 22,544 (19,030) |
+
+Totals: 4 runs, 129 events, 25 Meta calls sent: 23 answered and recorded with a request id
+(listed below), 2 failed without an answer and without an invocation record; at least 25
+HTTP attempts, 0 retries recorded (see "How the numbers were counted"). 37,363 input / 95,850 output tokens (81,046 of them reasoning), 795.3 s
+of model latency in the recorded invocations. 41 verification records, all `valid`.
+Outcomes: 1 `supported`, 3 `failed` (2 by the provider, 1 by the contract). Every
+authorization is `pending`; no run self-authorized. Every receipt's
+`earlier_round_objections_never_rejudged` is empty (a check that matters only for M01 and
+M03, the runs with a recorded round-2 evaluation; M02 and M04 recorded one evaluation each).
+
+**What the provider caused, and what the protocol decided.**
+
+- **Provider (2 runs).** M01's round-3 critique call did not complete within its 120 s
+  budget, and M02's round-2 critique call was answered with HTTP 500. The 120 s budget is
+  this battery's setting (the default of `CONSENSUS_MODEL_TIMEOUT_SECS`), half the 240 s of
+  the smoke runs; M01's 7 answered calls took at most 65.3 s, and whether the 8th would have
+  completed within 240 s is not recorded. Neither is a protocol
+  decision: the adapter turned each into a stable failure code, the runtime recorded
+  `run_failed` and stopped, and no recommendation was issued. The adapter never retries a
+  timeout or an HTTP status other than 429 and 503 (it retries only those statuses and
+  connection failures: a connection that never opened, and once a connection that broke
+  after the request was sent; `crates/consensus-api/src/meta.rs`, module documentation; the
+  runtime sources are unchanged between `f0f3815` and this document). M01's call was one
+  HTTP attempt: its reason says "attempt 1". M02's reason states no attempt count; its final
+  status, 500, is never retried, but a retried 429, 503 or connection failure before it
+  would leave nothing on the record, so M02's call made at least 1 HTTP attempt. Both runs had already produced judged rounds (M01 two,
+  M02 one) whose verification records are all `valid`; their last revision was never
+  critiqued or evaluated.
+- **Protocol (2 runs).** M03: the policy (rules 1.2) returned `supported` under rule
+  `all_checks_passed`. M04: the evaluation contract refused the round-2 evaluation and failed
+  the run (`evaluation_contract`), before the evaluation was recorded.
+
+**Per run, from the records.**
+
+- **M01** (`run-aa966e9f-db00-455d-bc04-8f714d8839ad`, task `R01-reference`, 39 events; wall
+  time 427.4 s). Round 1 (`prop-1`): the Critic raised 7 items (2 contradictory evidence, 2
+  unsupported claim, 1 security risk, 1 regression risk, 1 missing test); the Evaluator
+  corroborated 0 of 3 claims, cited 5 records as contradicting, and gave all 7 items the
+  verdict `unresolved`. Revision `prop-13` listed all 7 as addressed. Round 2: the Critic
+  raised 3 new items; the Evaluator corroborated 3 of 3 claims, resolved the 7 carried items
+  and cleared all 5 carried contradictions, each with a reason, and left the 3 new items
+  `unresolved`. Revision `prop-21` (the second and last the round bound allows) addressed
+  those 3. Its round-3 critique failed; the run's record reads, verbatim: `stage: critique`,
+  `code: meta_timeout`, reason "meta_timeout: the Meta API call did not complete within its
+  120 s budget (attempt 1)". The `run_failed` record is 124.2 s after the last recorded event
+  (the round-3 recall proofs). `prop-21` was never evaluated, so its 3 claims carry no
+  assessment and the 3 round-2 items remain open in the receipt.
+- **M02** (`run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615`, task `R05-add-jitter`, 25 events; wall
+  time 161.1 s). Round 1 (`prop-1`): 8 Critic items (3 missing test, 2 unsupported claim, 1
+  contradictory evidence, 1 constraint conflict, 1 regression risk); the Evaluator
+  corroborated 0 of 3 claims, cited 2 records as contradicting and left all 8 items
+  `unresolved`. Revision `prop-14` (summary: change the `RetryPolicy` from `max_attempts=1,
+  jitter_ms=0` to `max_attempts=3, jitter_ms=50`) listed all 8 as addressed. Its round-2
+  critique failed; verbatim: `stage: critique`, `code: meta_unavailable`, reason
+  "meta_unavailable: the Meta API is unavailable (HTTP 500)", 7.7 s after the last recorded
+  event (the round-2 recall proofs). `prop-14` was never evaluated; the 8 items remain open
+  in the receipt.
+- **M03** (`run-85a826e6-478c-412c-a6c8-baf56721a9d7`, task `R07-exp-backoff`, 36 events; wall
+  time 206.2 s; state `awaiting_human_approval`). Task text: "Replace fixed-delay payment
+  retries with exponential backoff while staying within the documented attempt limit."
+  Round 1 (`prop-1`, whose claim 2 says retries "currently use a fixed delay" and will become
+  exponential): 7 Critic items (5 contradictory evidence, 2 missing test); the Evaluator
+  corroborated 2 of 3 claims, cited the default-policy record
+  (`287567405605917891851290763137356115373`, "max_attempts = 1 with jitter_ms = 0") as
+  contradicting claim 2, and left all 7 items `unresolved`. Revision `prop-13` listed all 7
+  as addressed; its summary: "Correct the prior fixed-delay premise and apply the documented
+  payment-timeout fix: change the payment-client RetryPolicy from max_attempts=1, jitter_ms=0
+  to max_attempts=3, jitter_ms=50, retrying only SendError::Timeout and terminating at 3
+  attempts." Round 2: the Critic raised 0 items; the Evaluator corroborated 4 of 4 claims,
+  resolved all 7 carried items with a reason each, and cleared the 1 carried contradiction
+  with a reason. Recommendation: `supported`, `rationale_code` `supported.all_checks_passed`,
+  rationale "Supported: 4/4 claims corroborated; proofs: 7 valid, 0 invalid, 0
+  unavailable/error; 0 unresolved challenges."; policy trace version 1.2, rule
+  `all_checks_passed`, reasons empty, counts claims 4, corroborated 4, proofs valid 7,
+  invalid 0, unavailable or error 0, unresolved items 0. It carries 2 unresolved assumptions
+  and 2 unresolved uncertainties; the first uncertainty reads "No stored record provided
+  specifies an exponential base delay, multiplier, maximum-delay cap, or maximum elapsed
+  retry time, so this revision does not claim an exponential schedule." So, as with K03 and
+  K04 (§6.2), `supported` attests a revision that does not do what the task asked: none of
+  `prop-13`'s 5 plan steps or 4 claims introduces an exponential schedule. Its `claim-17` is
+  the text of seeded record `237412834382378687445660534362297845298` without its "Fact: "
+  prefix, word for word apart from the capital first letter; that is the record that misdescribes the fixture test
+  (Corrections, item 3), and the re-seeded store still holds it.
+- **M04** (`run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451`, task `R04-remove-cap`, 29 events; wall
+  time 181.3 s). Task text: "Retries keep exhausting before the upstream recovers. Remove the
+  retry cap so payment requests retry until they succeed." Round 1 (`prop-1`): 8 Critic items
+  (4 contradictory evidence, 2 unsupported claim, 1 regression risk, 1 missing test); the
+  Evaluator corroborated 1 of 4 claims, cited 4 records as contradicting
+  (`186670067796945807561772405393844769735`, the constraint;
+  `237412834382378687445660534362297845298`, the test record;
+  `287567405605917891851290763137356115373`, the default policy;
+  `328114099256634798832222840773545327795`, the 2026-09 payments review decision), and left
+  all 8 items `unresolved`. Revision `prop-15` ("Replace the unlimited-retry proposal with the
+  documented remedy", `max_attempts = 3, jitter_ms = 50`) listed all 8 as addressed. Round 2:
+  the Critic raised 0 items; the Evaluator's answer arrived (request
+  `chatcmpl-01a18e36-695c-71bc-aeb6-0caf31704c99`, `finish_reason: stop`, 1 attempt, 2,244 /
+  4,869 tokens, 30.4 s) and was refused. Verbatim: `stage: evaluate`, `code:
+  evaluation_contract`, reason "evaluate output refused by the protocol 1.3 contract:
+  carried_contradiction_judged: "328114099256634798832222840773545327795", contradicted in an
+  earlier round, is neither listed as contradicting again nor cleared".
+  - **What was refused.** The round-2 evaluation of `prop-15`. Record `328114…` was cited as
+    contradicting in round 1, so it was carried into round 2 as a contradiction to judge; the
+    evaluation neither cited it as contradicting again nor cleared it with a reason. The
+    refused document itself is not in the archive (the orchestrator refuses an evaluation
+    before anything of it is persisted); the `run_failed` record holds only the call's
+    invocation, which is why the receipt lists 6 invocations but round 2 has no evaluation
+    and no verification records. The reason names one record; whether the other 3 carried
+    contradictions were judged is not recorded.
+  - **Why that is the intended behaviour.** ADR-0010 decision 3 requires every
+    contradiction carried from an earlier round to be "either cited again as contradicting
+    or cleared with a reason", and decision 4 says "Silence never clears an item or a
+    contradiction". Under protocol 1.2 nothing was carried: R06 reached `supported` with its
+    7 round-1 objections never judged again, and 2 of its 6 contradicted records were not
+    assessed again (RT-1, Corrections item 4). Decision 4 carries both forward, and this rule
+    is the one for contradictions. The runtime fails such a run closed (`failed`,
+    no recommendation, authorization `pending`) instead of recording the evaluation or
+    issuing a recommendation from it. M04 is the first time this rule fired live.
+
+**Verification records.** 41 in all: M01 14 (7 per round), M02 6 (round 1; round 1
+retrieved 6 of the 7 records), M03 14 (7 per round), M04 7 (round 1). Every one has
+`integrity_status: valid`, verifier `hyphae proof verify`, `verified_anchor` = the pinned
+anchor, report `status: verified`, `kind: memory`, `scope: semantic_reexecution`, and no
+`simulated` flag. Factual statuses (the Evaluator's reading, not the proof's): M01 4
+corroborated, 5 contradicted, 5 not assessed; M02 0, 2, 4; M03 9, 1, 4; M04 1, 4, 2; every
+`not_assessed` record is marked `irrelevant`. Each run retrieved all 7 records of the store
+(`retrieval: live_recall`, `backend_project: demo-repo`, a `proof_ref` and a
+`proof_request` on each) and recorded 9, 6, 7 and 8 `RecallProven` events (30), each
+returning 5 records.
+
+**How the numbers were counted.** All from the archived files; `research/README.md`
+describes them.
+
+- *Calls, attempts, retries.* An answered call is an invocation record with `provider:
+  meta` and a request id: in the logs, the invocations on `proposal_submitted`,
+  `challenge_submitted`, `evaluation_submitted`, `revision_submitted` and `run_failed`
+  (M04's refused call) records; in each receipt, `model_invocations`. The two lists agree
+  per run in request ids, order, tokens and latency: 7, 4, 6 and 6, 23 distinct ids, each
+  equal to the run's `provenance.meta_request_ids`. Every one has `attempts: 1` (sum 23), so
+  0 retries. A call that failed records no invocation; the two such calls are counted from
+  the `run_failed` reasons (M01: "attempt 1"; M02: HTTP 500, which states no attempt count;
+  a retried 429, 503 or connection failure before the 500 would not be recorded, so M02 made
+  at least 1 attempt): 25 calls, at least 25 HTTP attempts (24 recorded as 1 attempt each,
+  M01's timeout among them), 0 retries recorded.
+- *Tokens and latency.* Sums of `input_tokens`, `output_tokens`, `reasoning_tokens` and
+  `latency_ms` over each receipt's `model_invocations`. Model latency covers recorded
+  invocations only; the two failed calls are not in it. Wall time is the run record's
+  `wall_seconds` (the driver's clock from the creation request until the run rested). The
+  gaps before `run_failed` (124.2 s, 7.7 s) are differences of the `occurred_at` stamps of
+  the log's last two records.
+- *Rounds and items.* Critic items: the length of each `challenge_submitted` record's
+  `items`. Evaluator: assessments with `corroborated: true` over all assessments, and the
+  length of `unresolved_items`, per `evaluation_submitted` record; verdicts and cleared
+  contradictions from its `item_verdicts` and `cleared_contradictions`. Revisions: the
+  `revision_submitted` records (also the receipt's `deliberation.revisions`). The receipt's
+  `deliberation.rounds` counts rounds with a recorded evaluation (2, 1, 2, 1); M01 also
+  started a third round and M02 and M04 a second.
+- *Verifications.* The `evidence_verified` records of each log, equal to each receipt's
+  `verifications` (14, 6, 14, 7), counted by `integrity_status`, `factual_status`,
+  `relevance_status` and `report` fields.
+- *Outcomes and failures.* Each receipt's `final_state`, `failure` (stage, code, reason) and
+  `recommendation`/`policy_trace`; each log's last record (`run_failed` or
+  `recommendation_issued`) says the same.
+
+With these runs the archive counts 207 Meta calls in 45 runs (184 before;
+`research/README.md`, "How the runs were produced"). In each log the sequences run from 1
+without a gap, the first `prev_hash` is `genesis` and every later one is the previous
+record's `hash`; each receipt's `chain.head_hash` is the `hash` of its log's last record
+(`672b360e…`, `70cc732e…`, `4475a698…`, `9bd0e80f…`). The full hash recomputation and the
+policy re-derivation are the archive's tests (`research_archive`, `research_receipts`,
+added with the archive in `a6cef95`).
 
 ## Corrections (2026-10-27, independent audit)
 
@@ -720,3 +937,13 @@ corrections are marked "corrected 2026-10-27". Item 10 is a later erratum
 - H02: `chatcmpl-01a17c68-cc7f-7209-9a3c-a61ce248d5b7`, `chatcmpl-01a17c69-c46f-73d3-baf6-f09e4630f3f7`, `chatcmpl-01a17c6a-61e4-740f-80c6-71138203d12d`, `chatcmpl-01a17c6b-3de3-71c5-bb74-d8c55dd3797a`, `chatcmpl-01a17c6b-dcdc-7231-9001-81cda8ad3f5f`, `chatcmpl-01a17c6c-9313-7349-920e-3d37f99221fc`
 - K01 (§6.1, run `run-382ff22d-1fc3-4e0f-8aa5-f88bffb57ccd`): `chatcmpl-01a18034-2a53-71a1-a1ac-df6db977e386`, `chatcmpl-01a18034-baa1-75db-9561-8ff8efde6312`, `chatcmpl-01a18035-4e3a-7314-ad08-cb0566e849ff`, `chatcmpl-01a18035-a50d-7582-ad05-b04348790209`, `chatcmpl-01a18035-ffcc-7581-bbbf-8a774ca93cd1`, `chatcmpl-01a18036-42ee-7364-a56a-4aaad21f7a4b`
 - K02 (§6.1, run `run-c9b819dd-c357-420f-9c7f-aef3b3fa79a0`): `chatcmpl-01a18036-b1ea-767c-9142-8f9bd21da659` (the critique call failed before any response and has no id)
+
+## Request ids (2026-10-30, from receipts)
+
+In call order, from each receipt's `model_invocations` (equal to the run's
+`provenance.meta_request_ids`); §6.3.
+
+- M01 (run `run-aa966e9f-db00-455d-bc04-8f714d8839ad`): `chatcmpl-01a18e28-1185-7594-aa03-b555c30ddc31`, `chatcmpl-01a18e28-a960-7134-bd5e-0ab305d2b052`, `chatcmpl-01a18e29-4b00-722e-9e33-2c78de0466d6`, `chatcmpl-01a18e29-bf92-77dd-b461-d4a75c3d2503`, `chatcmpl-01a18e2a-d06a-7085-9bb6-fe194ab24f74`, `chatcmpl-01a18e2b-a47b-71c3-ac7b-1d7c61fc4c9f`, `chatcmpl-01a18e2c-2419-7598-955a-df4db2298e42` (the round-3 critique call timed out and has no id)
+- M02 (run `run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615`): `chatcmpl-01a18e2e-80fa-75cd-a4a7-59b5635912b2`, `chatcmpl-01a18e2f-4e5f-7386-8dd2-8508dcbdc5d8`, `chatcmpl-01a18e2f-fa7d-7608-b029-bf2f78950f82`, `chatcmpl-01a18e30-61c1-77b0-8160-47cbbd921b9e` (the round-2 critique call got HTTP 500 and has no id)
+- M03 (run `run-85a826e6-478c-412c-a6c8-baf56721a9d7`): `chatcmpl-01a18e30-f1ce-74a7-b703-c2972ccac071`, `chatcmpl-01a18e31-7748-776a-bd63-a800616ce57e`, `chatcmpl-01a18e32-442e-7599-88ae-b62e3c28c4d9`, `chatcmpl-01a18e32-bb37-70fd-9aa6-51e8bef8bbcb`, `chatcmpl-01a18e33-1a73-75dd-a865-5c69553b7134`, `chatcmpl-01a18e33-a7ce-728e-b61c-8cf522a5bcb3`
+- M04 (run `run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451`): `chatcmpl-01a18e34-22ad-7795-aa1b-34ddc9e375c0`, `chatcmpl-01a18e34-a441-72e7-9dfd-fb2647b8909d`, `chatcmpl-01a18e35-4e28-74a9-b304-a6b4cb41679d`, `chatcmpl-01a18e35-9663-7214-8735-3f401e67bed5`, `chatcmpl-01a18e35-f2d9-72aa-b399-bd163f8c89cb`, `chatcmpl-01a18e36-695c-71bc-aeb6-0caf31704c99` (the last is the round-2 evaluation refused by the contract)

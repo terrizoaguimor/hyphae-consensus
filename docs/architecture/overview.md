@@ -33,7 +33,7 @@ Runs come in three honest modes, fixed server-side per route (ADR-0006, ADR-0008
 |---|---|---|---|
 | Guided | scripted doubles (`provider: "fake"`) | seeded records, proofs labelled SIMULATED | public `POST /api/v1/runs` (scenario id only) |
 | Live | Meta Model API on the owner's key | the sealed Hyphae snapshot | public `POST /api/v1/live-runs` (preset id only), off by default; not deployed. The snapshot `snap-2026-10-29-demo-repo` was captured on 2026-10-29 (`b0375df`), but the code at `bc3b262` (and at `6e202eb`) refuses it at boot (`response_invalid`, section 2.4); with the fix `0515f29` (merged as `7e26866`) one live run went through the public router in-process over the real snapshot, against a local fake Meta server. No live run has used the real Meta API in this mode |
-| Recorded showcase | as recorded | as recorded | `GET /api/v1/showcase*`, `/research/*`: the archived 2026-10-26/27 runs, read-only |
+| Recorded showcase | as recorded | as recorded | `GET /api/v1/showcase*`, `/research/*`: the archived 2026-10-26/27 and 2026-10-30 runs, read-only |
 
 The operator console (`serve-operator`) can also run `model=meta` with `memory=hyphae`
 against a running Hyphae deployment; that mode is never public.
@@ -50,7 +50,7 @@ against a running Hyphae deployment; that mode is never public.
 | `crates/consensus-tests` | Integration and adversarial scenarios, the scripted conformance check (`--example evaluate`), replay of the `research/` archive | 0001, 0010 |
 | `apps/web` | Mission Control: Next.js static export served by `serve-public` | 0009 |
 | `contracts/api-v1` | Generated JSON Schemas and fixtures of the public API (section 7) | 0006 |
-| `research/` | Byte-identical archive of the recorded runs with `MANIFEST.json` and `SHA256SUMS` (8 event logs, 44 runs, 790 events, 37 run records; `research/README.md`) | 0006 |
+| `research/` | Byte-identical archive of the recorded runs with `MANIFEST.json` and `SHA256SUMS` (12 event logs, 48 runs, 919 events, 41 run records; `research/README.md`) | 0006 |
 | `deploy/`, `docs/deployment/runbook.md` | systemd units, cloudflared ingress, tmpfiles, environment templates and operator scripts; nothing deployed | 0006–0008 |
 | `scripts/` | `linux-gates.sh` (Linux parity), `live_battery.py`, `snapshot_manifest.py`, `make_research_manifest.py`, `third_party_notices.py`, `hyphae-container/` (container runbook, `capture-snapshot.sh`) | 0003, 0008 |
 

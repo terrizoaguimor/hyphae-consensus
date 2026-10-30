@@ -4,6 +4,7 @@
 # files. Reads research/ only (never demo-run/), writes only those two files.
 # Cross-checks every run record against its event log before writing.
 import collections
+import copy
 import hashlib
 import json
 import os
@@ -115,6 +116,32 @@ LOGS = [
     },
 ]
 
+# Batteries run through the operator server's run store (consensus-api
+# serve-operator): one chained log per run, from genesis, under
+# <dir>/runs/<run_id>.jsonl (the store's own file, read after the server
+# stopped), and one run record per run, <dir>/<NAME>.json, as
+# scripts/live_battery.py writes it (receipt v2). The driver also saved the
+# records served by GET /api/v1/runs/{id}/events.ndjson as <NAME>.jsonl;
+# that copy had the same sha256 as the store's file for every run, so only
+# the store's file is archived.
+STORE_BATTERIES = [
+    {
+        "dir": "2026-10-30/live-battery-2026-10-30-p13",
+        "source": "demo-run/battery-2026-10-29",
+        "battery": "live-battery-2026-10-30-p13",
+        "description": (
+            "Protocol 1.3 battery of 2026-10-30, run {label} (task {task}), schema 1.3: this run's "
+            "chained records from genesis, as the operator server's run store wrote them "
+            "(consensus-api serve-operator built at commit f0f3815); byte-identical to the copy "
+            "GET /api/v1/runs/{{id}}/events.ndjson served, {source}/results/{label}.jsonl. Live "
+            "Meta muse-wonder-1.0 + Hyphae demo store; proofs verified at run time with hyphae "
+            "proof verify against the pinned demo-store anchor (see README)."
+        ),
+    },
+]
+
+RECEIPT_V2 = "hyphae-consensus-run-receipt-v2"
+
 # Run-record file tags that docs/evaluation.md labels differently.
 LABEL_OVERRIDES = {
     ("2026-10-27/live-battery-2026-10-27-prefix", "R01-reference"): "P01",
@@ -170,6 +197,119 @@ def record_versions(rec):
     versions = {ev["schema_version"] for ev in rec["detail"]["events"]}
     versions.add(rec["receipt"]["schema_version"])
     return sorted(versions)
+
+
+# Fields the API v1 view adds to a stored event (display only, each false
+# here) and fields of the stored event it leaves out.
+VIEW_FLAGS = (("invocation", "scripted"), ("evidence", "proof_error_reported"), ("verification", "simulated"))
+STORED_ONLY = (("invocation", "safety_identifier_sent"), ("evidence", "schema_version"), ("verification", "schema_version"))
+
+
+def shown_event(event, rel):
+    """An API v1 event without its display fields (each checked first)."""
+    e = copy.deepcopy(event)
+    p = e["payload"]
+    if "message" in p:
+        assert p["type"] == "run_failed" and isinstance(p["message"], str), rel
+        del p["message"]
+    for obj, field in VIEW_FLAGS:
+        if isinstance(p.get(obj), dict) and field in p[obj]:
+            assert p[obj].pop(field) is False, (rel, obj, field)
+    return e
+
+
+def stored_event(event):
+    """A stored event without the fields the API v1 view leaves out."""
+    e = copy.deepcopy(event)
+    p = e["payload"]
+    for obj, field in STORED_ONLY:
+        if isinstance(p.get(obj), dict):
+            p[obj].pop(field, None)
+    return e
+
+
+def store_battery(store, files, runs_out):
+    """One STORE_BATTERIES entry: a log and a run record per run, cross-checked."""
+    base = store["dir"]
+    names = sorted(
+        n for n in os.listdir(os.path.join(ROOT, base)) if os.path.isfile(os.path.join(ROOT, base, n))
+    )
+    logs_on_disk = set(os.listdir(os.path.join(ROOT, base, "runs")))
+    logs_used = set()
+    for name in names:
+        assert name.endswith(".json"), name
+        rel = base + "/" + name
+        rdata = read(rel)
+        rec = json.loads(rdata.decode("utf-8"))
+        label = rec["name"]
+        assert label == name[:-5], rel
+        rid = rec["detail"]["summary"]["run_id"]
+        log_name = rid + ".jsonl"
+        log_rel = base + "/runs/" + log_name
+        data = read(log_rel)
+        events = parse_log(data)
+        assert events[0]["prev_hash"] == "genesis" and events[0]["sequence"] == 1, log_rel
+        runs = run_outcomes(events)
+        assert list(runs) == [rid], log_rel
+        r = runs[rid]
+        receipt = rec["receipt"]
+        assert receipt["format"] == RECEIPT_V2, rel
+        assert receipt["run_id"] == rid, rel
+        assert receipt["event_count"] == len(r["events"]), rel
+        assert receipt["chain"]["head_hash"] == r["events"][-1]["hash"], rel
+        assert receipt["authorization"]["state"] == r["authorization"], rel
+        # The detail is the API v1 view of the events: whole events, once
+        # the view's display fields and the stored-only fields are dropped.
+        shown = [shown_event(e, rel) for e in rec["detail"]["events"]]
+        stored = [stored_event(e) for e in r["events"]]
+        assert shown == stored, rel
+        kind = (receipt.get("recommendation") or {}).get("kind")
+        expected = r["outcome"] if not r["outcome"].startswith("failed:") else None
+        assert kind == expected, (rel, kind, expected)
+        assert log_name not in logs_used, log_rel
+        logs_used.add(log_name)
+        files.append({
+            "path": log_rel,
+            "source": store["source"] + "/store/runs/" + log_name,
+            "bytes": len(data),
+            "sha256": sha256(data),
+            "kind": "event_log",
+            "schema_versions": sorted({ev["schema_version"] for ev in events}),
+            "runs": 1,
+            "events": len(events),
+            "description": store["description"].format(
+                label=label, task=rec["task_key"], source=store["source"]
+            ),
+        })
+        files.append({
+            "path": rel,
+            "source": store["source"] + "/results/" + name,
+            "bytes": len(rdata),
+            "sha256": sha256(rdata),
+            "kind": "run_record",
+            "schema_versions": record_versions(rec),
+            "runs": 1,
+            "description": (
+                f"Run record for {label} (task {rec['task_key']}), in the format "
+                "scripts/live_battery.py writes for the operator server: the task key and text, "
+                "the status and body of POST /api/v1/operator/runs, the run detail polled until "
+                "the run rested (summary, events, model invocations), the receipt (v2) downloaded "
+                "after the run, the status of the events.ndjson download, and the wall time."
+            ),
+        })
+        runs_out.append({
+            "run_id": rid,
+            "label": label,
+            "battery": store["battery"],
+            "task_title": r["title"],
+            "project": r["project"],
+            "outcome": r["outcome"],
+            "authorization": r["authorization"],
+            "schema_version": r["schema_version"],
+            "file": log_rel,
+            "record": rel,
+        })
+    assert logs_used == logs_on_disk, (base, logs_on_disk - logs_used)
 
 
 def main():
@@ -251,11 +391,13 @@ def main():
                 "file": log["path"],
                 "record": record,
             })
+    for store in STORE_BATTERIES:
+        store_battery(store, files, runs_out)
     labels = [r["label"] for r in runs_out]
     assert len(labels) == len(set(labels)), "duplicate label"
     manifest = {
         "schema": "hyphae-consensus-research-manifest-v1",
-        "created": "2026-10-27",
+        "created": "2026-10-30",
         "source": "demo-run/ (git-ignored original, unmodified)",
         "files": files,
         "runs": runs_out,

@@ -4,6 +4,7 @@
 # files. Reads research/ only (never demo-run/), writes only those two files.
 # Cross-checks every run record against its event log before writing.
 import collections
+import copy
 import hashlib
 import json
 import os
@@ -198,6 +199,35 @@ def record_versions(rec):
     return sorted(versions)
 
 
+# Fields the API v1 view adds to a stored event (display only, each false
+# here) and fields of the stored event it leaves out.
+VIEW_FLAGS = (("invocation", "scripted"), ("evidence", "proof_error_reported"), ("verification", "simulated"))
+STORED_ONLY = (("invocation", "safety_identifier_sent"), ("evidence", "schema_version"), ("verification", "schema_version"))
+
+
+def shown_event(event, rel):
+    """An API v1 event without its display fields (each checked first)."""
+    e = copy.deepcopy(event)
+    p = e["payload"]
+    if "message" in p:
+        assert p["type"] == "run_failed" and isinstance(p["message"], str), rel
+        del p["message"]
+    for obj, field in VIEW_FLAGS:
+        if isinstance(p.get(obj), dict) and field in p[obj]:
+            assert p[obj].pop(field) is False, (rel, obj, field)
+    return e
+
+
+def stored_event(event):
+    """A stored event without the fields the API v1 view leaves out."""
+    e = copy.deepcopy(event)
+    p = e["payload"]
+    for obj, field in STORED_ONLY:
+        if isinstance(p.get(obj), dict):
+            p[obj].pop(field, None)
+    return e
+
+
 def store_battery(store, files, runs_out):
     """One STORE_BATTERIES entry: a log and a run record per run, cross-checked."""
     base = store["dir"]
@@ -228,11 +258,10 @@ def store_battery(store, files, runs_out):
         assert receipt["event_count"] == len(r["events"]), rel
         assert receipt["chain"]["head_hash"] == r["events"][-1]["hash"], rel
         assert receipt["authorization"]["state"] == r["authorization"], rel
-        # The detail is the API v1 view of the events (display fields such
-        # as proof_error_reported), not the stored lines: compare identities.
-        keys = ("sequence", "event_id", "run_id", "prev_hash", "hash")
-        shown = [tuple(e[k] for k in keys) + (e["payload"]["type"],) for e in rec["detail"]["events"]]
-        stored = [tuple(e[k] for k in keys) + (e["payload"]["type"],) for e in r["events"]]
+        # The detail is the API v1 view of the events: whole events, once
+        # the view's display fields and the stored-only fields are dropped.
+        shown = [shown_event(e, rel) for e in rec["detail"]["events"]]
+        stored = [stored_event(e) for e in r["events"]]
         assert shown == stored, rel
         kind = (receipt.get("recommendation") or {}).get("kind")
         expected = r["outcome"] if not r["outcome"].startswith("failed:") else None

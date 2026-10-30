@@ -246,7 +246,8 @@ comparison (no single-agent baseline was executed).
   2026-10-30, 18:52–19:08 UTC; the last 4 of the 8 authorized runs), through
   `consensus-api serve-operator` built at `f0f3815`, on the `prompt-freeze-2` prompts,
   against the re-seeded demo store. **2 of the 4 runs were lost to provider errors**: M01
-  failed at critique (a Meta call past its 120 s budget, in round 3) and M02 failed at
+  failed at critique (a call past the battery's 120 s budget, in round 3; the smoke runs
+  had 240 s) and M02 failed at
   critique (Meta HTTP 500, in round 2). **M03 is the battery's only `supported` run**, and
   it is `supported` **for a revision that departs from the task text** (it does not claim
   the exponential schedule the task asked for; one of its claims restates the seeded
@@ -393,7 +394,8 @@ read-only (`consensus-api verify`, the showcase).
 
 **2026-10-30 (nothing is deployed).** The counted protocol 1.3 battery ran on 2026-10-30,
 spending the last 4 of the 8 authorized live runs ([`docs/evaluation.md` §6.3](docs/evaluation.md)):
-2 runs lost to provider errors (a 120 s timeout, an HTTP 500), 1 `supported` for a
+2 runs lost to provider errors (a call past the battery's 120 s budget, where the smoke
+runs had 240 s; an HTTP 500), 1 `supported` for a
 revision that departs from the task (M03), 1 failed closed by the evaluation contract
 (M04); every verification `valid`. It is archived in `research/2026-10-30/` on local
 branches not yet merged into `feat/public-portal`. The authorized cap of 8 live
@@ -416,10 +418,10 @@ the server code at `6e202eb` rejects it, because Hyphae 4.0.0 wraps its answer d
 from what the loader expected. The fix (`0515f29`, merged as `7e26866`) is tested.
 With it, the snapshot loads, Hyphae 4.0.0 re-verifies both proofs, and a local test run
 over it served all 7 records as verified, against a stand-in for the Meta API (no real
-Meta call). Not done yet: merging that fix; comparing the published
-binary digest with the release tarball (runbook 3.2); the counted protocol 1.3 battery (not
-run on 2026-10-29: the Meta key was not set on this machine and only the owner could set it;
-no Meta call was made; it ran on 2026-10-30, see above); the staging deployment and the snapshot on the server (owner
+Meta call). Not done yet (as of 2026-10-29): merging that fix; comparing the published
+binary digest with the release tarball (runbook 3.2); the counted protocol 1.3 battery (the
+Meta key was not set on this machine and only the owner could set it; no Meta call was
+made; the battery then ran on 2026-10-30, see above); the staging deployment and the snapshot on the server (owner
 authorization); the video; the owner's sign-off of the legal texts; and the final report.
 Earlier status blocks (2026-10-27 and 2026-10-28) are in `docs/journal.md`, "README status
 history".

@@ -81,7 +81,7 @@ everything that depends on the edge, the tunnel or the server is marked pending.
 | Hyphae memory backend (operator lab only) | Integrity-verifiable, content untrusted | `hyphae mcp --profile memory` without `--allow-write`; the reader key reaches the child as a file path; records keep the backend's own project and scope |
 | Hyphae verifier binary (`hyphae proof verify`), a subprocess | Trusted to verify; untrusted output | Run with a deadline and killed past it, its stdout/stderr capped, the Meta key variables and the five credential-path variables removed from its environment (the environment is not cleared, and the child runs as the same user, so it can read the credential files); `Valid` requires its report to say `verified`, `kind: memory`, `scope: semantic_reexecution`, `anchor_digest` equal to the anchor it was given. In the public live mode a run's `Valid` stands only for the digests the boot check accepted, and the binary's SHA-256 can be pinned (`CONSENSUS_HYPHAE_BIN_SHA256`, required with live mode on the socket) and is checked at boot only |
 | Sealed snapshot artifacts (`manifest.json`, `SHA256SUMS`, captures) | Integrity-checked; proofs and witnesses are **private** | Checked at boot: `SHA256SUMS` over every file, the manifest's digest of every capture file (response, proof, witness, capture-time report), the manifest and verifier-binary pins when set (both required with live mode on the socket), the served project, one anchor, both served captures re-verified against their capture-time digests. After boot the manifest and the two served captures' files are re-hashed by every admission and, at most every 2 s, for `/ready` and `/capabilities`; a change makes live mode unavailable. Per run, a `Valid` stands only for the boot-accepted proof and result digests. Record texts are served from memory as boot read them. Witnesses are full copies of a store's data directory; no route serves them (T11) and `.gitignore` excludes them |
-| Research archive (`research/`) | Read-only, pinned by `MANIFEST.json` and `SHA256SUMS` | Served verbatim, including the container paths the 2026-10-26/27 batteries recorded (T11); showcase views are display copies; never opened writable |
+| Research archive (`research/`) | Read-only, pinned by `MANIFEST.json` and `SHA256SUMS` | Served verbatim, including the container paths the 2026-10-26/27 and 2026-10-30 batteries recorded (T11); showcase views are display copies; never opened writable |
 | Ledger files (`<ledger dir>/YYYY-MM-DD.jsonl`, `lifetime.json`, `ledger.lock`, `kill-switch`) | Trusted; written by the server processes and by the operator (the `ledger` subcommand, the kill-switch file) only | `serve-public`, `serve-operator` (only with `CONSENSUS_LIVE_LEDGER_DIR` set) and `consensus-api ledger` serialize through the lock. The kill-switch file trips the ledger, which then refuses every lane (public, judge, operator) until `consensus-api ledger reset`. Operator runs on a server without the variable are outside all of it |
 | Web client (`apps/web`, static export) | Untrusted at runtime (it is a browser); its build is a supply-chain surface | Renders what the API says (typed client, SSE stream and run workspace since `4c42ae2`, its types generated from contract `cc890dc030ba`, one contract behind the server, section 5); LIVE only from per-frame `delivery` of a live model run; builds only inside Docker containers because the owner's machine holds the key |
 | Retrieved memories, repository contents, model outputs | Untrusted data | Never executed; shown to models as data inside `<UNTRUSTED_*>` blocks (with the id exceptions of T2), which is defense in depth, not a boundary |
@@ -159,7 +159,8 @@ names a project, a model, a task text or an identity on the public surface.
    template installs the snapshot tree `0700` with files `0640`, read-only to both units;
    no automated test checks the permissions); no container, proof or witness path reaches
    a view, receipt or error the server builds. The verbatim research archive at
-   `/research` still carries the container paths the 2026-10-26/27 batteries recorded
+   `/research` still carries the container paths the 2026-10-26/27 and 2026-10-30
+   batteries recorded
    (accepted: they are not secrets, and the files are pinned byte for byte).
 6. **Availability within the budget.** Bounded tables, bounded queues, bounded streams,
    bounded bodies, per-run deadlines, cancellation, graceful shutdown, a visitor-run ring,
@@ -494,9 +495,10 @@ proof, witness or container path, no artifact contents and no key in any public 
 of a live run over the snapshot). No test checks file permissions on a deployed server
 (G9, pending). Residual: the operator surface shows paths by design; the verbatim public
 `events.ndjson` would carry them, which is one reason it is withheld for live-declared
-runs (T24); and the verbatim research archive at `/research` carries 541 container paths
-(`/hyphae-home/.local/state/hyphae/proofs/recall-*.proof` and `.witness`) in 28 files of
-the 2026-10-26/27 batteries, served by `api/v1.rs::research_file` (accepted: the paths
+runs (T24); and the verbatim research archive at `/research` carries 652 container paths
+(`/hyphae-home/.local/state/hyphae/proofs/recall-*.proof` and `.witness`) in 35 data files
+(540 in 27 files of the 2026-10-26/27 batteries, 112 in the 8 files of 2026-10-30; residual
+5), served by `api/v1.rs::research_file` (accepted: the paths
 are not secrets, the files are pinned byte for byte by `research/MANIFEST.json`, and
 editing them would break that pin).
 
@@ -1364,7 +1366,7 @@ anywhere in the tree.
 | SEC-6 | Every read re-parses a growing multi-tenant log | partly: per-run files, index, ring, retention, pagination; no disk-space floor | `run_store.rs`, `v1.rs::list_runs`; `the_guided_ring_frees_the_oldest_resting_run_and_refuses_only_when_nothing_can_be_freed` |
 | SEC-7 | SSE replay unauthenticated and uncapped | closed | owner check, caps, per-run ids, `stream_end` (`stream.rs`, `limits.rs`); `sse_resumes_from_every_sequence_without_duplicates_or_gaps`, `rates_streams_and_client_keys_are_enforced_per_slash_64` |
 | SEC-8 | No field limits; 2 MB strings into prompts | closed: 16 KiB body, `deny_unknown_fields`, enums, bounded fields; no visitor text reaches a prompt (the decision note is stored only, with bidi and zero-width characters refused since `9bfe2e2`) | `api/mod.rs`, `api/types.rs::check_text`; `csrf_content_type_unknown_fields_and_size_are_enforced`, `stored_text_refuses_hidden_format_characters` |
-| SEC-9 | Internal errors, upstream bodies, verifier output and paths in responses and events | closed for the responses and views the server builds (`/ready` names a run-index failure by code since `5f9c5bf`); partly for the chain (free text inside hashed records, so live ndjson is withheld, T24); accepted for the verbatim `/research` files (541 container paths in 28 files, T11) | `api/error.rs`, `public_view.rs`, `api/v1.rs::run_store_status`, `meta.rs`, `hyphae.rs::artifact_ref`; `failure_messages_never_echo_the_reason`, `upstream_bodies_and_the_key_never_reach_errors_or_the_log`, `ready_names_an_index_failure_by_its_code_and_publishes_no_store_text` |
+| SEC-9 | Internal errors, upstream bodies, verifier output and paths in responses and events | closed for the responses and views the server builds (`/ready` names a run-index failure by code since `5f9c5bf`); partly for the chain (free text inside hashed records, so live ndjson is withheld, T24); accepted for the verbatim `/research` files (652 container paths in 35 data files, 112 of them in the 8 files of 2026-10-30, T11) | `api/error.rs`, `public_view.rs`, `api/v1.rs::run_store_status`, `meta.rs`, `hyphae.rs::artifact_ref`; `failure_messages_never_echo_the_reason`, `upstream_bodies_and_the_key_never_reach_errors_or_the_log`, `ready_names_an_index_failure_by_its_code_and_publishes_no_store_text` |
 | SEC-10 | Operator token printed, compared in non-constant time; self-asserted identities | partly: constant-time compare over the whole length (`2bdcdcf`), identity from the channel, the templates load the token from a credential; a generated token is still printed (accepted: use the token file); no expiry, rotation or throttling (open) | `api/mod.rs::OperatorAuth`, `constant_time_eq`, `server.rs::operator_token`; `constant_time_eq_compares_whole_values`, `every_api_route_needs_the_bearer_token` |
 | SEC-11 | No Host or Origin check (DNS rebinding) | closed | `host_check`, `csrf_check` on both surfaces; `host_and_origin_are_checked`, `csrf_content_type_unknown_fields_and_size_are_enforced` |
 | SEC-12 | A decision not bound to the recommendation seen | closed on the server and in the web Decision tab, which sends the state it shows; the legacy console defeats it (UI-3) | `DecisionRequest.expected` → `409 decision_conflict`; `409` during deliberation (`runs.rs::decide`); `a_guided_run_is_accepted_streamed_decided_and_receipted` |
@@ -1407,7 +1409,7 @@ anywhere in the tree.
 | HY-11 | `agent ui` path for capture | exercised in the capture session of 2026-10-29, used there only and never exposed: it works through the session's daemon, refuses a string request id (the script now sends an integer, `b0375df`), and wraps its result in an envelope with `result`, which the runtime at `6e202eb` did not read (`response_invalid` at boot; fixed in `0515f29`, merged as `7e26866`) | `capture-snapshot.sh`, `docs/architecture/sealed-snapshot.md` §9 and "Observed in the capture session" |
 | HY-12 | Empty-recall proofs discarded | closed | `Recall::proof`, `RecallProven{empty: true}`; `an_empty_proven_recall_still_returns_its_proof`, `foreign_records_are_dropped_and_proofs_recorded_even_when_empty` |
 | HY-13 | Verification cache keyed by path | closed; a fresh verifier per public live run | `hyphae.rs::HyphaeProofVerifier::verify`, `live/snapshot_factory.rs::run_verifier`; `results_are_reused_by_artifact_bytes_never_by_path`, `every_run_verifies_the_proofs_again_with_a_fresh_verifier` |
-| RT-1 | Earlier-round objections forgotten | closed in code; in the counted live battery (2026-10-30, `docs/evaluation.md` §6.3) every receipt's `earlier_round_objections_never_rejudged` is empty, and the contract refused one evaluation that left a carried contradiction unjudged (M04) | `state_machine.rs`, `contract.rs`, `meta.rs` prompts; `rt1_round_two_silence_cannot_reach_supported`; `1ee386a` |
+| RT-1 | Earlier-round objections forgotten | closed in code; in the counted live battery (2026-10-30, `docs/evaluation.md` §6.3) every receipt's `earlier_round_objections_never_rejudged` is empty (a check that matters only for M01 and M03, the runs with a recorded round-2 evaluation; M02 and M04 recorded one evaluation each), and the contract refused one evaluation that left a carried contradiction unjudged (M04) | `state_machine.rs`, `contract.rs`, `meta.rs` prompts; `rt1_round_two_silence_cannot_reach_supported`; `1ee386a` |
 | RT-2 | Global mutex, no cancellation, no subprocess timeout | closed | `runs.rs`, `control.rs`, `hyphae.rs`; `cancel_at_every_stage_records_a_cancelled_failure`, `a_disconnected_client_never_stops_a_run` |
 | RT-3 | Event store does not scale; one bad record takes all offline | closed | `run_store.rs`; `a_damaged_stored_run_is_reported_never_served_as_if_whole` |
 | RT-4 | Receipts commit to one global chain | closed (per-run chain, receipt v2 chain scope, verify CLI); signed receipts post-hackathon | `receipts.rs`, `verify_cli.rs`; `interleaved_runs_need_the_whole_log_and_head_is_the_runs_own`, `a_good_log_and_its_receipt_verify`; `40b6d06` |
@@ -1501,7 +1503,8 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
    (`docs/evaluation.md` §6.3; the last 4 of the 8 authorized runs, K01–K04 having been
    smoke runs). It did not run on 2026-10-29, when the Meta key was not set on the new
    development machine (no Meta call then). Of the 4 runs, 2 were lost to provider errors
-   (a 120 s timeout, an HTTP 500), 1 ended `supported` for a revision that departs from the
+   (a call past the battery's 120 s budget, where the smoke runs had 240 s; an HTTP 500),
+   1 ended `supported` for a revision that departs from the
    task, and 1 was failed closed by the evaluation contract. No claim about live behaviour
    under protocol 1.3 beyond `docs/evaluation.md` §6 is made.
 3. **The verifier binary is checked at boot only** (`snapshot.rs::check_verifier_binary`):
@@ -1512,8 +1515,10 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
    unpinned, a consistent rewrite of the manifest, `SHA256SUMS` and the capture files
    loads. `CONSENSUS_PUBLIC_BIND` overrides the socket even on unix, and nothing refuses
    live mode on a TCP bind (T41).
-5. **The verbatim `/research` files keep the batteries' container paths** (541 paths in
-   28 files of 2026-10-26/27). Accepted: they are not secrets, and the files are pinned
+5. **The verbatim `/research` files keep the batteries' container paths** (652 paths in
+   35 data files: 540 in 27 files of 2026-10-26/27 and 112 in the 8 files of 2026-10-30,
+   counted as occurrences of `/hyphae-home/`; the earlier figure of 541 in 28 files also
+   counted the one mention in `research/README.md`, which is not counted here). Accepted: they are not secrets, and the files are pinned
    byte for byte (T11). The checklist's G9 wording ("no witness or container path in any
    public response") is therefore not met as written.
 6. **A run's deadline can be overrun by one call in flight** (checked between calls; one

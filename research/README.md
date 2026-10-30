@@ -141,8 +141,9 @@ quoted below.
 ## The 2026-10-30 battery (M01–M04)
 
 The owner-authorized protocol 1.3 battery: 4 runs, which with the 4 smoke
-runs of 2026-10-27 (K01–K04) reach the 8-run cap. Not yet written up in
-`docs/evaluation.md`.
+runs of 2026-10-27 (K01–K04) reach the 8-run cap. Written up in
+`docs/evaluation.md` §6.3 (request ids under "Request ids (2026-10-30, from
+receipts)").
 
 - **When.** 2026-10-30, events from `18:52:01Z` (M01's first) to
   `19:08:13Z` (M04's last), one run after another.
@@ -180,7 +181,8 @@ runs of 2026-10-27 (K01–K04) reach the 8-run cap. Not yet written up in
     revision sets `max_attempts=3, jitter_ms=50` and states as an unresolved
     uncertainty that no stored record specifies an exponential schedule, "so
     this revision does not claim an exponential schedule". Its claim-17
-    restates word for word the seeded record that, per the R06 note below,
+    restates (word for word but for the record's "Fact: " prefix and the
+    capital first letter) the seeded record that, per the R06 note below,
     misdescribes the fixture test; the re-seeded store still holds it.
   - M04 (`run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451`, 29 events): failed at
     evaluate, `evaluation_contract`: the round-2 evaluation was refused by
@@ -193,7 +195,9 @@ runs of 2026-10-27 (K01–K04) reach the 8-run cap. Not yet written up in
     was of the revision `prop-15`.
 - **Objections from earlier rounds.** None was left unjudged in any of the
   four runs: each receipt's `earlier_round_objections_never_rejudged` is
-  empty (see the note of that name below).
+  empty (see the note of that name below). The check bites only in M01 and
+  M03, the runs with a recorded round-2 evaluation; M02 and M04 recorded one
+  evaluation each.
 - **Container paths.** Like the 2026-10-27 files, the records and logs carry
   the evidence records' proof and witness paths inside the operator's
   container (`/hyphae-home/…`), 14 occurrences in each of the eight files.

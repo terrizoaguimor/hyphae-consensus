@@ -303,10 +303,7 @@ fn every_archived_run_has_a_receipt_v2_consistent_with_its_log() {
                 // evaluate) ends this way, and its receipt says which
                 // proposal the last evaluation judged.
                 assert!(outcome.starts_with("failed:"), "{label}");
-                assert!(
-                    ["M01", "M02", "M04"].contains(&label.as_str()),
-                    "{label}"
-                );
+                assert!(["M01", "M02", "M04"].contains(&label.as_str()), "{label}");
                 assert_ne!(d.evaluated_proposal_id, d.final_proposal_id, "{label}");
                 assert!(d.evaluated_proposal_id.is_some(), "{label}");
             }

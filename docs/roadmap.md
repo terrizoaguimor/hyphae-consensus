@@ -78,7 +78,7 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 
 | What | Commits | Source |
 |---|---|---|
-| Counted protocol 1.3 battery, the last 4 of the 8 authorized live runs, through `consensus-api serve-operator` built at `f0f3815`, on the `prompt-freeze-2` prompts, against the re-seeded demo store (anchor `27943f61…f42347c`): M01 failed at critique on a 120 s Meta timeout and M02 at critique on a Meta HTTP 500 (2 of 4 runs lost to provider errors); M03 `supported`, the battery's only one, for a revision that does not claim the exponential schedule the task asked for; M04 failed closed at evaluate (`evaluation_contract`: a contradiction carried from round 1 neither cited again nor cleared, ADR-0010). 25 Meta calls (23 answered, 0 retries); all 41 verification records `valid`. No rate of any outcome is claimed | archive `a6cef95`, `825a4b0` (branch `research/battery-2026-10-30`, not yet merged) | `docs/evaluation.md` §6.3; `research/README.md`, "The 2026-10-30 battery" |
+| Counted protocol 1.3 battery, the last 4 of the 8 authorized live runs, through `consensus-api serve-operator` built at `f0f3815`, on the `prompt-freeze-2` prompts, against the re-seeded demo store (anchor `27943f61…f42347c`): M01 failed at critique on a call past the battery's 120 s budget (the smoke runs had 240 s) and M02 at critique on a Meta HTTP 500 (2 of 4 runs lost to provider errors); M03 `supported`, the battery's only one, for a revision that does not claim the exponential schedule the task asked for; M04 failed closed at evaluate (`evaluation_contract`: a contradiction carried from round 1 neither cited again nor cleared, ADR-0010). 25 Meta calls (23 answered, 0 retries recorded); all 41 verification records `valid`. No rate of any outcome is claimed | archive `a6cef95`, `825a4b0` (branch `research/battery-2026-10-30`, not yet merged) | `docs/evaluation.md` §6.3; `research/README.md`, "The 2026-10-30 battery" |
 
 ## In progress (2026-10-29)
 
@@ -115,7 +115,7 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
   GitHub (G12). Open engineering items the checklist marks "not met as written": a
   Hyphae child runs as the same user and can read the key file at its credentials path
   (G4); no fuzzing harness exists (G5); no temp-directory sweep for the verifier exists,
-  and the verbatim `/research` files carry 541 container paths (G9).
+  and the verbatim `/research` files carry 652 container paths (G9).
 - **Staging deployment** on the server behind Cloudflare Access, per
   `docs/deployment/runbook.md`, then go-live once every gate G1–G12 reads PASS; live mode
   may stay off (`CONSENSUS_LIVE_ENABLED=false`) at launch if the owner chooses.

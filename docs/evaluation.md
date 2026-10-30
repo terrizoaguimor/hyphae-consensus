@@ -548,9 +548,9 @@ verbatim as `research/2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl` and
 ### 6.3 The counted battery: M01–M04 (2026-10-30)
 
 **In short.** 4 runs, the last 4 of the 8 authorized re-validation runs (K01–K04 used the
-other 4). **2 of the 4 were lost to provider errors** (M01: a Meta call past its 120 s
-budget; M02: Meta HTTP 500). **M03 is the battery's only `supported` run**, and it is
-`supported` for a revision that does not claim the exponential backoff the task asked for.
+other 4). **2 of the 4 were lost to provider errors** (M01: a Meta call past the battery's
+120 s budget, where the smoke runs had 240 s; M02: Meta HTTP 500). **M03 is the battery's
+only `supported` run**, and it is `supported` for a revision that does not claim the exponential backoff the task asked for.
 M04 was stopped by the protocol 1.3 evaluation contract, which refused the round-2
 evaluation because it left a carried contradiction unjudged. All 41 verification records
 are `valid`. With 2 of 4 runs lost, no rate of any outcome under protocol 1.3 is claimed.
@@ -563,8 +563,10 @@ in `consensus-api.sha256`), driven by `scripts/live_battery.py` through
 disabled (decisions are recorded only), per-run token cap 150000, operator Meta runs
 unmetered (no live ledger configured). Model `muse-wonder-1.0` in all 23 recorded
 invocations, each with `max_completion_tokens` 16,000 and `safety_identifier_sent: false`.
-One budget of 120 s per call (the figure in M01's failure reason; the smoke runs of §6.1
-and §6.2 had 240 s). Memory: the re-seeded Hyphae demo store (each run retrieved the same 7
+One budget of 120 s per call (the figure in M01's failure reason): the default of
+`CONSENSUS_MODEL_TIMEOUT_SECS` (`crates/consensus-api/src/config.rs`), a deviation from the
+smoke runs of §6.1 and §6.2, which had 240 s. Neither the server's stdout nor the driver
+records the variable, so whether it was left unset or set to 120 is not recorded. Memory: the re-seeded Hyphae demo store (each run retrieved the same 7
 distinct records), anchor pinned as
 `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` =
 `27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c` (changed from §6's
@@ -594,23 +596,30 @@ battery directory or in `research/`; it is not part of the battery.
 | M04 | Remove the retry cap from the payment client (`demo-repo`) | **Failed** (evaluate: `evaluation_contract`) | 1 | 8 → 0 | 1/4, 8 open → refused | 7 valid | 6 (the 6th refused) | 167.6 s | 9,849 / 22,544 (19,030) |
 
 Totals: 4 runs, 129 events, 25 Meta calls sent: 23 answered and recorded with a request id
-(listed below), 2 failed without an answer and without an invocation record; 25 HTTP
-attempts, 0 retries. 37,363 input / 95,850 output tokens (81,046 of them reasoning), 795.3 s
+(listed below), 2 failed without an answer and without an invocation record; at least 25
+HTTP attempts, 0 retries recorded (see "How the numbers were counted"). 37,363 input / 95,850 output tokens (81,046 of them reasoning), 795.3 s
 of model latency in the recorded invocations. 41 verification records, all `valid`.
 Outcomes: 1 `supported`, 3 `failed` (2 by the provider, 1 by the contract). Every
 authorization is `pending`; no run self-authorized. Every receipt's
-`earlier_round_objections_never_rejudged` is empty.
+`earlier_round_objections_never_rejudged` is empty (a check that matters only for M01 and
+M03, the runs with a recorded round-2 evaluation; M02 and M04 recorded one evaluation each).
 
 **What the provider caused, and what the protocol decided.**
 
 - **Provider (2 runs).** M01's round-3 critique call did not complete within its 120 s
-  budget, and M02's round-2 critique call was answered with HTTP 500. Neither is a protocol
+  budget, and M02's round-2 critique call was answered with HTTP 500. The 120 s budget is
+  this battery's setting (the default of `CONSENSUS_MODEL_TIMEOUT_SECS`), half the 240 s of
+  the smoke runs; M01's 7 answered calls took at most 65.3 s, and whether the 8th would have
+  completed within 240 s is not recorded. Neither is a protocol
   decision: the adapter turned each into a stable failure code, the runtime recorded
-  `run_failed` and stopped, and no recommendation was issued. The adapter retries only 429
-  and 503 and never a timeout (`crates/consensus-api/src/meta.rs`, module documentation;
-  the runtime sources are unchanged between `f0f3815` and this document), so each of these
-  calls was one HTTP attempt: M01's reason says "attempt 1"; M02's reason states no attempt
-  count, and a 500 is not retried. Both runs had already produced judged rounds (M01 two,
+  `run_failed` and stopped, and no recommendation was issued. The adapter never retries a
+  timeout or an HTTP status other than 429 and 503 (it retries only those statuses and
+  connection failures: a connection that never opened, and once a connection that broke
+  after the request was sent; `crates/consensus-api/src/meta.rs`, module documentation; the
+  runtime sources are unchanged between `f0f3815` and this document). M01's call was one
+  HTTP attempt: its reason says "attempt 1". M02's reason states no attempt count; its final
+  status, 500, is never retried, but a retried 429, 503 or connection failure before it
+  would leave nothing on the record, so M02's call made at least 1 HTTP attempt. Both runs had already produced judged rounds (M01 two,
   M02 one) whose verification records are all `valid`; their last revision was never
   critiqued or evaluated.
 - **Protocol (2 runs).** M03: the policy (rules 1.2) returned `supported` under rule
@@ -666,7 +675,7 @@ authorization is `pending`; no run self-authorized. Every receipt's
   K04 (§6.2), `supported` attests a revision that does not do what the task asked: none of
   `prop-13`'s 5 plan steps or 4 claims introduces an exponential schedule. Its `claim-17` is
   the text of seeded record `237412834382378687445660534362297845298` without its "Fact: "
-  prefix, word for word; that is the record that misdescribes the fixture test
+  prefix, word for word apart from the capital first letter; that is the record that misdescribes the fixture test
   (Corrections, item 3), and the re-seeded store still holds it.
 - **M04** (`run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451`, task `R04-remove-cap`, 29 events; wall
   time 181.3 s). Task text: "Retries keep exhausting before the upstream recovers. Remove the
@@ -696,9 +705,10 @@ authorization is `pending`; no run self-authorized. Every receipt's
   - **Why that is the intended behaviour.** ADR-0010 decision 3 requires every
     contradiction carried from an earlier round to be "either cited again as contradicting
     or cleared with a reason", and decision 4 says "Silence never clears an item or a
-    contradiction". An evaluation that is silent about a carried contradiction is the input
-    that, under protocol 1.2, let R06 reach `supported` with its round-1 objections never
-    judged again (RT-1, Corrections item 4). The runtime fails such a run closed (`failed`,
+    contradiction". Under protocol 1.2 nothing was carried: R06 reached `supported` with its
+    7 round-1 objections never judged again, and 2 of its 6 contradicted records were not
+    assessed again (RT-1, Corrections item 4). Decision 4 carries both forward, and this rule
+    is the one for contradictions. The runtime fails such a run closed (`failed`,
     no recommendation, authorization `pending`) instead of recording the evaluation or
     issuing a recommendation from it. M04 is the first time this rule fired live.
 
@@ -723,8 +733,10 @@ describes them.
   per run in request ids, order, tokens and latency: 7, 4, 6 and 6, 23 distinct ids, each
   equal to the run's `provenance.meta_request_ids`. Every one has `attempts: 1` (sum 23), so
   0 retries. A call that failed records no invocation; the two such calls are counted from
-  the `run_failed` reasons (M01: "attempt 1"; M02: HTTP 500, one attempt by the adapter's
-  rule above): 25 calls, 25 attempts.
+  the `run_failed` reasons (M01: "attempt 1"; M02: HTTP 500, which states no attempt count;
+  a retried 429, 503 or connection failure before the 500 would not be recorded, so M02 made
+  at least 1 attempt): 25 calls, at least 25 HTTP attempts (24 recorded as 1 attempt each,
+  M01's timeout among them), 0 retries recorded.
 - *Tokens and latency.* Sums of `input_tokens`, `output_tokens`, `reasoning_tokens` and
   `latency_ms` over each receipt's `model_invocations`. Model latency covers recorded
   invocations only; the two failed calls are not in it. Wall time is the run record's

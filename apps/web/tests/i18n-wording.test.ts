@@ -170,6 +170,24 @@ describe("translations of the review's round 2", () => {
     expect(body).not.toMatch(/\b(seven|siete|sete|sept|7)\b/iu);
   });
 
+  it.each([
+    // [locale, the partial verdict's own clause for the records without a hash, the narrowed wording that is gone]
+    ["en", "not chain-verified or tamper-evident", "For every later record, which carries a hash"],
+    ["es", "no están verificados por la cadena ni dejan rastro si se alteran", "Para cada registro posterior, que lleva un hash"],
+    ["pt-BR", "não são verificados pela cadeia nem deixam rastro se forem alterados", "Para cada registro posterior, que traz um hash"],
+    ["fr", "ne sont pas vérifiés par la chaîne et ne laissent pas de trace s’ils sont modifiés", "Pour chaque enregistrement suivant, qui porte une empreinte"],
+  ] as const)("the partly chained intro matches the partial verdict and every hashed record of the file (%s)", (locale, untouched, narrowed) => {
+    const ui = load(`${locale}.json`);
+    const intro = message(ui, "Run.chain.introPartlyChained");
+    const partial = message(ui, "Run.chain.partialSentence");
+    // The records without a hash are described with the verdict's own words ...
+    expect(partial).toContain(untouched);
+    expect(intro).toContain(untouched);
+    // ... and the recomputation is not narrowed to this run's later records:
+    // the check recomputes every hashed record of the downloaded file.
+    expect(intro).not.toContain(narrowed);
+  });
+
   it("the English Limitations page no longer promises every recorded run a re-check", () => {
     const body = message(load("legal/en.json"), "Legal.limitations.sections.showcase.body");
     expect(body).not.toMatch(/^For each recorded run you can re-check/u);

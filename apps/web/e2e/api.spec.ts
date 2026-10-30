@@ -509,7 +509,7 @@ test("the guided Run button keeps the keyboard focus while its request is in fli
   page,
   pageProblems,
 }) => {
-  await mockApi(page, {
+  const mock = await mockApi(page, {
     guidedRun: {
       status: 429,
       body: { code: "rate_limited", message: "too many requests from this client", retry_after_secs: 30 },
@@ -531,6 +531,7 @@ test("the guided Run button keeps the keyboard focus while its request is in fli
   await expect(button).toBeFocused();
   await expect(button).not.toHaveAttribute("aria-disabled", "true");
   expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("BUTTON");
+  expect(mock.calls.filter((c) => c.method === "POST" && c.path === "/api/v1/runs")).toHaveLength(1);
   takeProblem(pageProblems, "HTTP 429: /api/v1/runs");
   expect(pageProblems).toEqual([]);
 });

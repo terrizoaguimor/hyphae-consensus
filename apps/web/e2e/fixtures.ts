@@ -42,6 +42,18 @@ const catalogs = new Map<Locale, Catalog>(
   ]),
 );
 
+/** A message exactly as the catalog holds it (ICU source, nothing filled in). */
+export function catalogMessage(locale: Locale, key: string): string {
+  let node: string | Catalog | undefined = catalogs.get(locale);
+  for (const part of key.split(".")) {
+    node = typeof node === "object" ? node[part] : undefined;
+  }
+  if (typeof node !== "string") {
+    throw new Error(`no message ${key} in ${locale}`);
+  }
+  return node;
+}
+
 /**
  * A message as plain text: ICU arguments filled from `values`, rich-text tags
  * dropped (their content kept). Enough for the messages the tests read.
@@ -51,14 +63,7 @@ export function t(
   key: string,
   values: Record<string, string | number> = {},
 ): string {
-  let node: string | Catalog | undefined = catalogs.get(locale);
-  for (const part of key.split(".")) {
-    node = typeof node === "object" ? node[part] : undefined;
-  }
-  if (typeof node !== "string") {
-    throw new Error(`no message ${key} in ${locale}`);
-  }
-  return node
+  return catalogMessage(locale, key)
     .replace(/\{(\w+)\}/g, (_, name: string) => String(values[name] ?? ""))
     .replace(/<\/?\w+>/g, "");
 }

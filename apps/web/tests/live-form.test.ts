@@ -15,10 +15,12 @@ import { contractDir } from "../scripts/gen-api-types.mjs";
 import { capabilitiesSchema } from "../src/lib/api/schemas";
 import type { LiveCapabilitiesV1 } from "../src/lib/api/types";
 import {
+  focusAfterRefusal,
   isTripCode,
   liveClosedReason,
   parseUsd,
   startBlocker,
+  startNativelyDisabled,
   type StartInput,
   TRIP_CODES,
 } from "../src/lib/live/form";
@@ -136,6 +138,31 @@ describe("startBlocker", () => {
 
   it("is blocked while a start is in flight", () => {
     expect(startBlocker({ ...ready, starting: true })).toBe("starting");
+  });
+});
+
+describe("the Start button and the keyboard focus", () => {
+  it("is busy, never natively disabled, while a start is in flight", () => {
+    expect(startNativelyDisabled(null, "starting")).toBe(false);
+    expect(startNativelyDisabled(null, null)).toBe(false);
+    expect(startNativelyDisabled(null, "turnstile")).toBe(true);
+    expect(startNativelyDisabled("tripped", null)).toBe(true);
+  });
+
+  it("hands the focus to the error notice when a refusal leaves Start waiting for a fresh Turnstile token", () => {
+    // A request spends the single-use token (the form sets it to null), so
+    // the refused form that comes back is blocked on "turnstile" and Start is
+    // natively disabled again: left there, the focus would fall to <body>.
+    const after = startBlocker({ ...ready, token: null, starting: false });
+    expect(after).toBe("turnstile");
+    expect(focusAfterRefusal(null, after)).toBe("notice");
+  });
+
+  it("leaves the focus on Start when Start can be pressed again after a refusal", () => {
+    const noTurnstile = { ...ready, token: null, live: { ...live, requires_turnstile: false } };
+    expect(focusAfterRefusal(null, startBlocker(noTurnstile))).toBe("start");
+    // A fresh token arrived while the request was in flight.
+    expect(focusAfterRefusal(null, startBlocker(ready))).toBe("start");
   });
 });
 

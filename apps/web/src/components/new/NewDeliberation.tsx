@@ -38,12 +38,14 @@ import type {
   ScenarioV1,
 } from "@/lib/api/types";
 import {
+  focusAfterRefusal,
   isTripCode,
   type LiveClosedReason,
   liveClosedReason,
   parseUsd,
   type StartBlocker,
   startBlocker,
+  startNativelyDisabled,
 } from "@/lib/live/form";
 import { evidenceLabel, modelLabel } from "@/lib/provenance";
 import { localePath, runPath } from "@/lib/site";
@@ -229,11 +231,37 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
   const [error, setError] = useState<ApiError | null>(null);
   const turnstile = useRef<TurnstileControl | null>(null);
   const submitRef = useRef<HTMLButtonElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  // Set when a request has just been refused, until the form that comes back
+  // has been rendered: where the keyboard focus goes then.
+  const refused = useRef(false);
   const onToken = useCallback((value: string | null) => setToken(value), []);
 
   const closed = liveClosedReason(live, TURNSTILE_SITE_KEY);
   const blocker = startBlocker({ live, presetId, attested, judgeCode, token, starting });
   const budget = live.budget ?? null;
+
+  // The refused request spent the Turnstile token, so the form usually comes
+  // back waiting for a fresh one, with Start natively disabled again: the
+  // focus it held would fall to <body>. The error notice takes it then
+  // (src/lib/live/form.ts focusAfterRefusal); a Start that can be pressed
+  // again keeps it. Only a focus still on Start (or already dropped) moves.
+  useEffect(() => {
+    if (!refused.current || starting) {
+      return;
+    }
+    refused.current = false;
+    const button = submitRef.current;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && active !== button) {
+      return;
+    }
+    if (focusAfterRefusal(closed, blocker) === "notice") {
+      errorRef.current?.focus();
+    } else {
+      button?.focus();
+    }
+  });
 
   const start = async () => {
     if (closed !== null || blocker !== null) {
@@ -263,6 +291,7 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
       );
       router.push(runPath(locale, created.run.run_id));
     } catch (cause) {
+      refused.current = true;
       setError(toApiError(cause, "/live-runs"));
       setStarting(false);
     }
@@ -363,11 +392,16 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
           type="submit"
           variant="primary"
           label={starting ? t("starting") : t("start")}
-          isDisabled={closed !== null || (blocker !== null && blocker !== "starting")}
+          isDisabled={startNativelyDisabled(closed, blocker)}
           isLoading={starting}
         />
       </div>
-      {error === null ? null : <ApiErrorNotice error={error} />}
+      {error === null ? null : (
+        // Focusable from script only: it takes the focus after a refusal that leaves Start disabled.
+        <div ref={errorRef} tabIndex={-1} data-live-error>
+          <ApiErrorNotice error={error} />
+        </div>
+      )}
     </form>
   );
 }

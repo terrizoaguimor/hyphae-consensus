@@ -75,6 +75,30 @@ export function startBlocker(input: StartInput): StartBlocker | null {
   return null;
 }
 
+/**
+ * Whether Start carries the native `disabled` attribute. A start in flight
+ * never does: the button is busy (aria-disabled, still focusable), since a
+ * natively disabled button drops the keyboard focus to <body>.
+ */
+export function startNativelyDisabled(closed: LiveClosedReason | null, blocker: StartBlocker | null): boolean {
+  return closed !== null || (blocker !== null && blocker !== "starting");
+}
+
+/**
+ * Where the keyboard focus goes once a request has been refused, from the
+ * form as it comes back. Start keeps it when it can be pressed again. A
+ * request spends the single-use Turnstile token, so when the server requires
+ * one, the form usually comes back waiting for a fresh token and Start is
+ * natively disabled again: the error notice then takes the focus, never
+ * <body>.
+ */
+export function focusAfterRefusal(
+  closed: LiveClosedReason | null,
+  blocker: StartBlocker | null,
+): "start" | "notice" {
+  return startNativelyDisabled(closed, blocker) ? "notice" : "start";
+}
+
 /** Trip codes with their own sentence (`NewDeliberation.live.trip.<code>`), PublicBudgetV1.trip_code. */
 export const TRIP_CODES = [
   "kill_switch",

@@ -228,10 +228,14 @@ turns the pacing off. Server timestamps are shown untouched.
   The guided Run, live Start, Approve and Reject buttons follow the same
   rule while their request is in flight (busy, never natively disabled); a
   decision that replaces the form moves the focus to the recorded decision,
-  and a live request sent with Enter from a field moves it to Start. A run
+  and a live request sent with Enter from a field moves it to Start. A
+  refused live request spends the Turnstile token, so when the form comes
+  back waiting for a fresh one (Start natively disabled again) the error
+  notice takes the focus (`focusAfterRefusal` in `src/lib/live/form.ts`). A run
   whose detail's chain scope is `partly_chained` gets its own intro
-  (`Run.chain.introPartlyChained`): its first records carry no hash, so only
-  the later records' hashes are recomputed.
+  (`Run.chain.introPartlyChained`): its first records carry no hash, so
+  they are not chain-verified or tamper-evident; every record of the file
+  that carries a hash (this run's later records among them) is recomputed.
   Every redacted view (the links, the receipt
   JSON, the Explorer's public event) says it is a display copy, not the
   hashed bytes.

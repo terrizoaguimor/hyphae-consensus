@@ -7,6 +7,7 @@
 import { IntlMessageFormat } from "intl-messageformat";
 
 import {
+  catalogMessage,
   expect,
   focusInOpenDialog,
   hydrated,
@@ -20,12 +21,13 @@ import {
 const steps = ["welcome", "guided", "live", "runs", "labels", "decide"];
 
 /**
- * A Tour message as next-intl formats it: the plain arguments (a step's
- * title and body) filled in, then the step numbers formatted by ICU in the
- * locale ({current, number} of {total, number}).
+ * A Tour message as next-intl formats it: the catalog's ICU source formatted
+ * once in the locale with every value (the step numbers as {current, number}
+ * of {total, number}, a step's title and body as plain arguments). Nothing is
+ * substituted first, so an argument's own text is never parsed as ICU.
  */
 const tTour = (locale: Locale, key: string, values: Record<string, string | number>) =>
-  String(new IntlMessageFormat(t(locale, key, values), locale).format(values));
+  String(new IntlMessageFormat(catalogMessage(locale, key), locale).format(values));
 
 test("the tour is offered, never forced, and Skip remembers it @smoke", async ({
   page,

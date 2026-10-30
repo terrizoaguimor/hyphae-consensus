@@ -51,9 +51,9 @@ describe("the receipt a run record holds from run time", () => {
   );
 
   it("a run record of every battery holds its run's receipt, with its own limitations and time", () => {
-    expect(withRecord).toHaveLength(37);
-    // The first record of each battery (seven of them): enough to cover
-    // every driver version without reading all 37 files through the
+    expect(withRecord).toHaveLength(41);
+    // The first record of each battery (eight of them): enough to cover
+    // every driver version without reading all 41 files through the
     // container's bind mount while the chain tests read the logs.
     const firsts = new Map<string, (typeof withRecord)[number]>();
     for (const run of withRecord) {
@@ -61,11 +61,12 @@ describe("the receipt a run record holds from run time", () => {
         firsts.set(run.battery, run);
       }
     }
-    expect(firsts.size).toBe(7);
+    expect(firsts.size).toBe(8);
     for (const run of firsts.values()) {
       const receipt = runTimeReceipt(researchBytes(run.record), run.run_id);
       expect(receipt, run.label).not.toBeNull();
-      expect(receipt?.generatedAt, run.label).toMatch(/^2026-10-2\dT/);
+      // UTC days 2026-10-26 to 2026-10-28, and the operator server's battery of 2026-10-30.
+      expect(receipt?.generatedAt, run.label).toMatch(/^2026-10-(2[678]|30)T/);
       expect(receipt?.proofLimitations, run.label).not.toBeNull();
     }
   }, 30_000);

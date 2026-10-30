@@ -329,18 +329,49 @@ fn run_records_match_their_event_logs() {
             .events_for(&run)
             .map(|e| serde_json::to_value(e).unwrap())
             .collect();
-        // The console's run detail carried the run's chained events.
-        assert_eq!(rec["detail"]["events"].as_array(), Some(&events), "{label}");
         let receipt = &rec["receipt"];
+        // Records up to 2026-10-27 hold the console's detail (the stored
+        // events verbatim) and the first receipt format; those of the
+        // operator server's battery of 2026-10-30 hold the API v1 detail
+        // (each event as the view shows it) and receipt v2.
+        let v2 = receipt["format"] == "hyphae-consensus-run-receipt-v2";
+        if v2 {
+            let identity = |e: &Value| {
+                (
+                    e["sequence"].clone(),
+                    e["event_id"].clone(),
+                    e["run_id"].clone(),
+                    e["prev_hash"].clone(),
+                    e["hash"].clone(),
+                    e["payload"]["type"].clone(),
+                )
+            };
+            let shown: Vec<_> = rec["detail"]["events"]
+                .as_array()
+                .expect("detail events")
+                .iter()
+                .map(identity)
+                .collect();
+            let stored: Vec<_> = events.iter().map(identity).collect();
+            assert_eq!(shown, stored, "{label}");
+        } else {
+            // The console's run detail carried the run's chained events.
+            assert_eq!(rec["detail"]["events"].as_array(), Some(&events), "{label}");
+        }
         assert_eq!(receipt["run_id"], run.as_str(), "{label}");
         assert_eq!(
             receipt["event_count"].as_u64(),
             Some(events.len() as u64),
             "{label}"
         );
-        // The receipt's head_hash is the hash of the run's last event.
+        // The receipt's head hash is the hash of the run's last event.
+        let head_hash = if v2 {
+            &receipt["chain"]["head_hash"]
+        } else {
+            &receipt["head_hash"]
+        };
         assert_eq!(
-            receipt["head_hash"].as_str(),
+            head_hash.as_str(),
             log.events_for(&run).last().map(|e| e.hash.as_str()),
             "{label}"
         );

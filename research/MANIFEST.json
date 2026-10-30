@@ -1,6 +1,6 @@
 {
   "schema": "hyphae-consensus-research-manifest-v1",
-  "created": "2026-10-27",
+  "created": "2026-10-30",
   "source": "demo-run/ (git-ignored original, unmodified)",
   "files": [
     {
@@ -550,6 +550,106 @@
       ],
       "runs": 1,
       "description": "Run record for K04 (R06-timeout-30s), in the format scripts/live_battery.py writes: the task, the HTTP status and wall time of POST /api/runs, the console's run detail (summary, events, model invocations, verifications) and the receipt downloaded after the run."
+    },
+    {
+      "path": "2026-10-30/live-battery-2026-10-30-p13/runs/run-aa966e9f-db00-455d-bc04-8f714d8839ad.jsonl",
+      "source": "demo-run/battery-2026-10-29/store/runs/run-aa966e9f-db00-455d-bc04-8f714d8839ad.jsonl",
+      "bytes": 75962,
+      "sha256": "faaf46b9e506f90f53217ef9eac189f68b13af7ffe4c9afe81bc3e8a23fad6ee",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "events": 39,
+      "description": "Protocol 1.3 battery of 2026-10-30, run M01 (task R01-reference), schema 1.3: this run's chained records from genesis, as the operator server's run store wrote them (consensus-api serve-operator built at commit f0f3815); byte-identical to the copy GET /api/v1/runs/{id}/events.ndjson served, demo-run/battery-2026-10-29/results/M01.jsonl. Live Meta muse-wonder-1.0 + Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README)."
+    },
+    {
+      "path": "2026-10-30/live-battery-2026-10-30-p13/M01.json",
+      "source": "demo-run/battery-2026-10-29/results/M01.json",
+      "bytes": 182464,
+      "sha256": "7e97d1f8ac1f56982922944abe30fe235f4222f1108aa6e8f004ec4f8bcca73b",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for M01 (task R01-reference), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
+    },
+    {
+      "path": "2026-10-30/live-battery-2026-10-30-p13/runs/run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615.jsonl",
+      "source": "demo-run/battery-2026-10-29/store/runs/run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615.jsonl",
+      "bytes": 45968,
+      "sha256": "a76dc21718ca0341bea3cedebe4859dd81856e5421de5046f2eb79570bade427",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "events": 25,
+      "description": "Protocol 1.3 battery of 2026-10-30, run M02 (task R05-add-jitter), schema 1.3: this run's chained records from genesis, as the operator server's run store wrote them (consensus-api serve-operator built at commit f0f3815); byte-identical to the copy GET /api/v1/runs/{id}/events.ndjson served, demo-run/battery-2026-10-29/results/M02.jsonl. Live Meta muse-wonder-1.0 + Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README)."
+    },
+    {
+      "path": "2026-10-30/live-battery-2026-10-30-p13/M02.json",
+      "source": "demo-run/battery-2026-10-29/results/M02.json",
+      "bytes": 110055,
+      "sha256": "7e8337b395881bbcccd9ca37cbd9d1d0336683e4a96c15ee3d5e2d2092f1745b",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for M02 (task R05-add-jitter), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
+    },
+    {
+      "path": "2026-10-30/live-battery-2026-10-30-p13/runs/run-85a826e6-478c-412c-a6c8-baf56721a9d7.jsonl",
+      "source": "demo-run/battery-2026-10-29/store/runs/run-85a826e6-478c-412c-a6c8-baf56721a9d7.jsonl",
+      "bytes": 61875,
+      "sha256": "fa5b4174a87e9e5887e04fa0b4ae43285e52497ab207b419342055c407996118",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "events": 36,
+      "description": "Protocol 1.3 battery of 2026-10-30, run M03 (task R07-exp-backoff), schema 1.3: this run's chained records from genesis, as the operator server's run store wrote them (consensus-api serve-operator built at commit f0f3815); byte-identical to the copy GET /api/v1/runs/{id}/events.ndjson served, demo-run/battery-2026-10-29/results/M03.jsonl. Live Meta muse-wonder-1.0 + Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README)."
+    },
+    {
+      "path": "2026-10-30/live-battery-2026-10-30-p13/M03.json",
+      "source": "demo-run/battery-2026-10-29/results/M03.json",
+      "bytes": 152894,
+      "sha256": "8d50f81bf2e7a8cc1a978c30fd10af99dc0078a78c8c9105b05a627789e05259",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for M03 (task R07-exp-backoff), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
+    },
+    {
+      "path": "2026-10-30/live-battery-2026-10-30-p13/runs/run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451.jsonl",
+      "source": "demo-run/battery-2026-10-29/store/runs/run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451.jsonl",
+      "bytes": 48048,
+      "sha256": "cee9daee9a52b06630c8ac0c71f3618236c482a349a1d237495a0cb4a5ab452c",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "events": 29,
+      "description": "Protocol 1.3 battery of 2026-10-30, run M04 (task R04-remove-cap), schema 1.3: this run's chained records from genesis, as the operator server's run store wrote them (consensus-api serve-operator built at commit f0f3815); byte-identical to the copy GET /api/v1/runs/{id}/events.ndjson served, demo-run/battery-2026-10-29/results/M04.jsonl. Live Meta muse-wonder-1.0 + Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README)."
+    },
+    {
+      "path": "2026-10-30/live-battery-2026-10-30-p13/M04.json",
+      "source": "demo-run/battery-2026-10-29/results/M04.json",
+      "bytes": 114871,
+      "sha256": "a99f16a2a523cc9a9e517c067e54a8c29b27ff6480a78da8ca92df1031222d92",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for M04 (task R04-remove-cap), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
     }
   ],
   "runs": [
@@ -1080,6 +1180,54 @@
       "schema_version": "1.3",
       "file": "2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl",
       "record": "2026-10-27/live-battery-2026-10-27-pf2-smoke/R06-timeout-30s.json"
+    },
+    {
+      "run_id": "run-aa966e9f-db00-455d-bc04-8f714d8839ad",
+      "label": "M01",
+      "battery": "live-battery-2026-10-30-p13",
+      "task_title": "Fix payment client timeouts",
+      "project": "demo-repo",
+      "outcome": "failed:critique",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-aa966e9f-db00-455d-bc04-8f714d8839ad.jsonl",
+      "record": "2026-10-30/live-battery-2026-10-30-p13/M01.json"
+    },
+    {
+      "run_id": "run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615",
+      "label": "M02",
+      "battery": "live-battery-2026-10-30-p13",
+      "task_title": "Add jitter to payment retries",
+      "project": "demo-repo",
+      "outcome": "failed:critique",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615.jsonl",
+      "record": "2026-10-30/live-battery-2026-10-30-p13/M02.json"
+    },
+    {
+      "run_id": "run-85a826e6-478c-412c-a6c8-baf56721a9d7",
+      "label": "M03",
+      "battery": "live-battery-2026-10-30-p13",
+      "task_title": "Exponential backoff for payment retries",
+      "project": "demo-repo",
+      "outcome": "supported",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-85a826e6-478c-412c-a6c8-baf56721a9d7.jsonl",
+      "record": "2026-10-30/live-battery-2026-10-30-p13/M03.json"
+    },
+    {
+      "run_id": "run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451",
+      "label": "M04",
+      "battery": "live-battery-2026-10-30-p13",
+      "task_title": "Remove the retry cap from the payment client",
+      "project": "demo-repo",
+      "outcome": "failed:evaluate",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451.jsonl",
+      "record": "2026-10-30/live-battery-2026-10-30-p13/M04.json"
     }
   ]
 }

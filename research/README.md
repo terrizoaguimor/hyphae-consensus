@@ -1,14 +1,17 @@
 # Research archive
 
-Verbatim copies of every recorded Hyphae Consensus run from 2026-10-26 and
-2026-10-27: 8 event logs holding 44 runs (790 events), and 37 run records.
-Each file was copied byte for byte with `cp` from `demo-run/`, which is
-git-ignored and remains the unmodified original, and each copy was checked
-against its source with SHA-256. Nothing was edited, redacted or re-encoded.
+Verbatim copies of every recorded Hyphae Consensus run from 2026-10-26,
+2026-10-27 and 2026-10-30: 12 event logs holding 48 runs (919 events), and
+41 run records. Each file was copied byte for byte with `cp` from
+`demo-run/`, which is git-ignored and remains the unmodified original, and
+each copy was checked against its source with SHA-256. Nothing was edited,
+redacted or re-encoded.
 
 Dates in paths are the operator's local dates (UTC−05:00). Event timestamps
 are UTC, so the 2026-10-26 battery's events read `2026-10-27T04:26Z` to
-`04:47Z`.
+`04:47Z`. The 2026-10-30 battery ran from `demo-run/battery-2026-10-29/`, a
+directory named for the day it was planned; its events read
+`2026-10-30T18:52Z` to `19:08Z`.
 
 ## Files in research/ must never be edited
 
@@ -36,6 +39,7 @@ are UTC, so the 2026-10-26 battery's events read `2026-10-27T04:26Z` to
 | `2026-10-27/live-battery-2026-10-27-hostile.jsonl` and `-hostile/` | Hostile note with a valid proof, §5.4 | H01–H02 | 1.2 |
 | `2026-10-27/live-battery-2026-10-27-p13-smoke.jsonl` and `-p13-smoke/` | Protocol 1.3 smoke runs on tag `prompt-freeze-1` (superseded), §6.1; not counted as validation | K01–K02 | 1.3 |
 | `2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl` and `-pf2-smoke/` | Protocol 1.3 smoke runs on tag `prompt-freeze-2`, §6.2; not counted as validation | K03–K04 | 1.3 |
+| `2026-10-30/live-battery-2026-10-30-p13/` | Protocol 1.3 battery through the operator server's run store: one log per run in `runs/<run_id>.jsonl`, one run record per run in `M01.json`–`M04.json` (see "The 2026-10-30 battery" below) | M01–M04 | 1.3 |
 | `MANIFEST.json` | Per data file: path, original path, bytes, SHA-256, kind, schema versions, runs (and events, for logs). Per run: run id, label, battery, task title, project, outcome (recommendation kind or `failed:<stage>`), authorization, schema version, log, run record | | |
 | `SHA256SUMS` | The same digests, for `sha256sum -c` | | |
 
@@ -46,8 +50,11 @@ and `R02-reference-repeat.json` after the driver's task tags;
 smoke records of §6 are likewise named `R03-raise-to-10.json` and
 `R06-timeout-30s.json` after the driver's task tags (the same task texts as
 R03/F03 and R06/F06); `docs/evaluation.md` and `MANIFEST.json` call them
-K01–K02 (`-p13-smoke`) and K03–K04 (`-pf2-smoke`). The console runs have no
-labels elsewhere: C01–C07 are assigned here, in log order.
+K01–K02 (`-p13-smoke`) and K03–K04 (`-pf2-smoke`). M01–M04 are the names
+the driver was given for the 2026-10-30 runs (`M01=R01-reference` and so
+on); each record states its name in `name` and its task tag in `task_key`.
+The console runs have no labels elsewhere: C01–C07 are assigned here, in
+log order.
 
 Every run record has the fields `scripts/live_battery.py` writes for one
 task: the task, the HTTP status and wall time of `POST /api/runs`, the
@@ -57,20 +64,46 @@ stopped before the run returned, so `http_status` and `wall_seconds` are
 null and the record's `note` says the detail and receipt were fetched
 afterwards.
 
+The 2026-10-30 records come from the later driver, which talks to the
+operator server (`POST /api/v1/operator/runs`): each holds the task key and
+text, the status and body of the creation request, the API v1 run detail
+polled until the run rested (its events are shown as the view shows them,
+with display fields such as `proof_error_reported`; the log holds the
+stored lines), the receipt v2 downloaded after the run, the status of the
+`events.ndjson` download, and the wall time. Each of those runs is a log of
+its own, chained from genesis: the store's `runs/<run_id>.jsonl`, read after
+the server had stopped. The driver also saved the records the server served
+at `GET /api/v1/runs/{id}/events.ndjson` as `results/M0N.jsonl`; for every
+run that copy has the same SHA-256 as the store's file, so it is not
+archived twice.
+
 Not archived: the server pid, stdout and stderr files and the driver logs
 that sat next to the records, the raw Meta drafts (`meta-debug-*`), and the
-Hyphae recovery files (`recovery-2026-10-27/`).
+Hyphae recovery files (`recovery-2026-10-27/`); for the 2026-10-30 battery,
+the driver's log, the server's stdout and (empty) stderr, the run store's
+index, `.meta.json` and lock files, the served `results/M0N.jsonl` copies,
+and the files `commit.txt` and `consensus-api.sha256`, whose values are
+quoted below.
 
 ## How the runs were produced
 
 - **Model.** Live runs called Meta's `muse-wonder-1.0` through the Meta
   Model API (Chat Completions with structured output). Each completed call
   is recorded as an invocation with `provider: meta`, the model id, the
-  API's request id, latency and token counts: 184 calls in this archive, in
-  41 runs of the 8 logs, each with its own request id (165 before the smoke
-  runs K01–K04 added 7 and 12). A call that failed or timed out records no
-  invocation (the three `run_failed` runs). Scripted calls record
-  `provider: fake` (18, in C01, C02 and C05) and are not counted.
+  API's request id, latency and token counts: 207 calls in this archive, in
+  45 runs of the 12 logs, each with its own request id (165 before the smoke
+  runs K01–K04 added 7 and 12; 184 before M01–M04 added 7, 4, 6 and 6). The
+  count is of records whose payload carries an invocation with
+  `provider: meta` and a request id, as the server lists a run's
+  `meta_request_ids`: one per call that got an answer (a retried call is one
+  invocation; its HTTP attempts are not counted). A call that timed out,
+  failed in transport or was refused with an error status records no
+  invocation, so it is not counted: the failing calls of L06, L08 and K02,
+  M01's critique call (120 s budget) and M02's (HTTP 500). A call whose
+  answer arrived but was refused by the protocol 1.3 contract records its
+  invocation on the `run_failed` record, so it is counted: M04's evaluate
+  call. Scripted calls record `provider: fake` (18, in C01, C02 and C05) and
+  are not counted.
 - **Memory.** Hyphae 4.0.0 Agent Memory, Linux build, in the operator's
   local Docker container (`docs/evaluation.md` §2 and §5). Its records are
   operator-seeded demo memories (`scripts/hyphae-container/seed*.sh`), not
@@ -89,6 +122,12 @@ Hyphae recovery files (`recovery-2026-10-27/`).
   `hyphae proof verify` as the verifier, and state scope
   `semantic_reexecution` and kind `memory` in their detail. R08 queried
   `other-repo` and retrieved nothing.
+- **Proofs, 2026-10-30 runs.** The same check, against the re-seeded demo
+  store, pinned to
+  `27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c`. All 41
+  verification records of M01–M04 (14, 6, 14 and 7) are `valid`, name
+  `hyphae proof verify`, record that anchor as `verified_anchor`, and state
+  scope `semantic_reexecution` and kind `memory` in their detail.
 - **Policy.** The runtime derived every recommendation with the rules of
   its schema version (`crates/consensus-runtime/src/policy.rs`). A human
   decision only records the decision; nothing is executed. Every battery
@@ -99,7 +138,67 @@ Hyphae recovery files (`recovery-2026-10-27/`).
   `SIMULATED proof (scripted outcome, no cryptography checked): Valid` in
   S01–S03.
 
-## Notes and corrections (as of 2026-10-27)
+## The 2026-10-30 battery (M01–M04)
+
+The owner-authorized protocol 1.3 battery: 4 runs, which with the 4 smoke
+runs of 2026-10-27 (K01–K04) reach the 8-run cap. Not yet written up in
+`docs/evaluation.md`.
+
+- **When.** 2026-10-30, events from `18:52:01Z` (M01's first) to
+  `19:08:13Z` (M04's last), one run after another.
+- **Server.** `consensus-api serve-operator` on loopback, built at commit
+  `f0f3815f589933d5c0869cf276e471261bf8e3d3` (`commit.txt`); SHA-256 of the
+  binary `2db38aad8d51676a8f3c73bc9ccfd743882b3b0b16f0914cdac152c95e8efdc6`
+  (`consensus-api.sha256`, recorded in upper case). Driver
+  `scripts/live_battery.py`. The server's stdout says the executor was
+  disabled (decisions recorded only), the per-run token cap was 150000, and
+  operator Meta runs were unmetered (no live ledger configured). According
+  to the operator, an earlier attempt the same day never started a run (the
+  driver's health probe lacked the operator bearer token, so no run was
+  created and no Meta call made); nothing of it is in this archive.
+- **Model.** Meta `muse-wonder-1.0`, every recorded invocation.
+- **Memory.** The re-seeded Hyphae demo store, anchor `27943f61…f42347c`
+  pinned as `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` (above).
+- **Tasks**, the driver's task texts (`scripts/live_battery.py` `TASKS`):
+  M01 `R01-reference`, M02 `R05-add-jitter`, M03 `R07-exp-backoff`, M04
+  `R04-remove-cap`, all on project `demo-repo`.
+- **Outcomes, as the records say them.** Every authorization is `pending`.
+  - M01 (`run-aa966e9f-db00-455d-bc04-8f714d8839ad`, 39 events): failed at
+    critique, `meta_timeout`, "the Meta API call did not complete within its
+    120 s budget (attempt 1)", in its third round, after two evaluations and
+    two revisions; the last evaluation (of `prop-13`) left 3 items
+    unresolved, and the final revision `prop-21` was never evaluated.
+  - M02 (`run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615`, 25 events): failed at
+    critique, `meta_unavailable`, "the Meta API is unavailable (HTTP 500)",
+    in its second round; its one evaluation left 8 items unresolved, and the
+    revision `prop-14` was never evaluated.
+  - M03 (`run-85a826e6-478c-412c-a6c8-baf56721a9d7`, 36 events): `supported`
+    (state `awaiting_human_approval`) after two rounds: "4/4 claims
+    corroborated; proofs: 7 valid, 0 invalid, 0 unavailable/error; 0
+    unresolved challenges." The supported revision departs from the task
+    text, as K03/K04 did: the task asked for exponential backoff, and the
+    revision sets `max_attempts=3, jitter_ms=50` and states as an unresolved
+    uncertainty that no stored record specifies an exponential schedule, "so
+    this revision does not claim an exponential schedule". Its claim-17
+    restates word for word the seeded record that, per the R06 note below,
+    misdescribes the fixture test; the re-seeded store still holds it.
+  - M04 (`run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451`, 29 events): failed at
+    evaluate, `evaluation_contract`: the round-2 evaluation was refused by
+    the protocol 1.3 rule that an evidence record contradicted in an earlier
+    round is listed as contradicting again or cleared
+    (`carried_contradiction_judged` on record
+    `328114099256634798832222840773545327795`). That call's invocation is
+    recorded on the `run_failed` record. The last recorded evaluation is
+    round 1's (of `prop-1`), which left 8 items unresolved; the refused one
+    was of the revision `prop-15`.
+- **Objections from earlier rounds.** None was left unjudged in any of the
+  four runs: each receipt's `earlier_round_objections_never_rejudged` is
+  empty (see the note of that name below).
+- **Container paths.** Like the 2026-10-27 files, the records and logs carry
+  the evidence records' proof and witness paths inside the operator's
+  container (`/hyphae-home/…`), 14 occurrences in each of the eight files.
+
+## Notes and corrections (as of 2026-10-30)
 
 - **C01–C07: schema 1.0, pre-1.1, unchained.** Written before the hash
   chain existed (no `prev_hash`/`hash`), so there is no chain to check, and
@@ -183,8 +282,8 @@ Hyphae recovery files (`recovery-2026-10-27/`).
    directory, or compare with `MANIFEST.json`. This is only as strong as the
    copy of the digests you compare against, for example a `MANIFEST.json`
    in a tagged commit.
-2. **Every SHA-256 chain link, and gap-free sequences** (schema 1.1 and 1.2
-   logs). In each chained log, line *n* has `sequence` *n*, the first
+2. **Every SHA-256 chain link, and gap-free sequences** (schema 1.1, 1.2
+   and 1.3 logs). In each chained log, line *n* has `sequence` *n*, the first
    `prev_hash` is `genesis`, every later `prev_hash` is the previous line's
    `hash`, and `hash` is the lowercase hex SHA-256 of the `prev_hash` string
    followed by the line itself with its own hash value blanked
@@ -192,15 +291,19 @@ Hyphae recovery files (`recovery-2026-10-27/`).
    re-serializes byte for byte, so this textual recipe agrees with the
    runtime's own check. The chain spans the whole file: each run's first
    record links to the previous run's last record, so checking one run
-   needs the file from its first line.
-3. **Each recommendation** (schema 1.1 and 1.2 runs), re-derived from the
-   run's last evaluation and the verification records after it, with the
+   needs the file from its first line. Each 2026-10-30 log holds one run,
+   so that run is a chain from genesis on its own.
+3. **Each recommendation** (schema 1.1, 1.2 and 1.3 runs), re-derived from
+   the run's last evaluation and the verification records after it, with the
    rules of its recorded schema version (1.1: abstention outranks a recorded
-   contradiction; 1.2: a recorded contradiction outranks abstention).
+   contradiction; 1.2, and 1.3, which keeps the 1.2 rules: a recorded
+   contradiction outranks abstention).
 4. **Each receipt's `head_hash`**: in every run record, `receipt.head_hash`
-   is the `hash` of the run's last event in its log, `receipt.event_count`
-   is the run's number of events, and `detail.events` equals the run's
-   events in the log.
+   (`receipt.chain.head_hash` in the receipts v2 of 2026-10-30) is the
+   `hash` of the run's last event in its log, `receipt.event_count` is the
+   run's number of events, and `detail.events` equals the run's events in
+   the log (for 2026-10-30, the same events in the same order, with the same
+   ids and hashes, as the API view shows them).
 
 `cargo test -p consensus-tests --test research_archive` runs these checks;
 it opens and replays the logs only on temporary copies.

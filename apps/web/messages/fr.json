@@ -647,7 +647,7 @@
       "limitsHeading": "Ce que le reçu dit que les preuves établissent",
       "limits": {
         "valid": "Une preuve marquée valide signifie que le vérificateur de Hyphae a réexécuté la requête que la preuve a scellée contre son témoin et l’a acceptée à l’ancre qui lui était donnée (l’ancre fixée partout où une ancre est configurée, toujours pour l’instantané public).",
-        "covers": "Elle couvre le résultat complet de cette requête (pour l’instantané scellé, la liste complète des enregistrements qu’il a capturés), pas l’affirmation qui a mené à la récupération, et le texte d’un enregistrement n’est pas comparé octet par octet avec la preuve.",
+        "covers": "Elle couvre le résultat complet de cette requête (pour l’instantané scellé, la liste complète des enregistrements du projet de l’instantané à cette ancre), jamais une affirmation, même quand le texte de la requête est celui d’une affirmation, et le texte d’un enregistrement n’est pas comparé octet par octet avec la preuve.",
         "simulated": "Une preuve simulée ne vérifie rien.",
         "notEstablished": "Les preuves n’établissent pas que le contenu est vrai, pertinent ou complet, ni qu’un modèle a raisonné à partir de lui."
       },
@@ -667,8 +667,8 @@
         "generationFailed": "Rien n’a été vérifié : aucune preuve n’a pu être générée en amont pour cet enregistrement, il n’y avait donc aucune preuve à vérifier.",
         "accepted": "Ce qui a été vérifié : {verifier} a réexécuté la requête que la preuve de cet enregistrement a scellée contre son témoin et l’a acceptée à l’ancre {anchor}, le {date}.",
         "acceptedNoAnchor": "Ce qui a été vérifié : {verifier} a réexécuté la requête que la preuve de cet enregistrement a scellée contre son témoin et l’a acceptée à l’ancre qui lui était donnée, le {date}.",
-        "covers": "La preuve couvre le résultat complet de cette requête, pas l’affirmation qui a mené à la récupération, et le texte de l’enregistrement n’est pas comparé octet par octet avec la preuve.",
-        "coversSnapshot": "La preuve couvre le résultat complet de cette requête (pour l’instantané scellé, la liste complète des enregistrements qu’il a capturés), pas l’affirmation qui a mené à la récupération, et le texte de l’enregistrement n’est pas comparé octet par octet avec la preuve.",
+        "covers": "La preuve couvre le résultat complet de cette requête, jamais une affirmation, même quand le texte de la requête est celui d’une affirmation, et le texte de l’enregistrement n’est pas comparé octet par octet avec la preuve.",
+        "coversSnapshot": "La preuve couvre le résultat complet de cette requête (pour l’instantané scellé, la liste complète des enregistrements du projet de l’instantané à cette ancre), jamais une affirmation, et le texte de l’enregistrement n’est pas comparé octet par octet avec la preuve.",
         "coversRequest": "La preuve couvre le résultat complet de la requête qu’elle a scellée (détaillée dans l’onglet Éléments probants), et le texte de l’enregistrement n’est pas comparé octet par octet avec la preuve.",
         "coversRequestClaim": "La preuve couvre le résultat complet de la requête qu’elle a scellée (détaillée dans l’onglet Éléments probants), une récupération dont la requête est, mot pour mot, le texte d’une des affirmations de cette exécution : elle couvre ce qu’a renvoyé cette récupération, pas l’affirmation, et le texte de l’enregistrement n’est pas comparé octet par octet avec la preuve.",
         "notEstablished": "Elle n’établit pas que le contenu de l’enregistrement est vrai, pertinent ou complet, ni qu’un modèle a raisonné à partir de lui.",

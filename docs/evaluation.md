@@ -556,7 +556,8 @@ the five battery logs, re-derived the policy for all 33 recorded runs, and
 matched every table cell of §2, §3 and §5 against the logs and receipts: the
 numbers above are right. The corrections below concern descriptions,
 attribution and context. The sections above are kept as recorded; inline
-corrections are marked "corrected 2026-10-27".
+corrections are marked "corrected 2026-10-27". Item 10 is a later erratum
+(2026-10-29) from the W2 review, not from that audit.
 
 1. **Final-code claim corroboration (audit finding DOC-3).** "Every claim was
    corroborated" in the final round holds for the 6-run final battery F01–F06
@@ -669,6 +670,15 @@ corrections are marked "corrected 2026-10-27".
    the schema-1.2 policy changes and `token-budget-exceeded` covers the per-run
    token cap. §5: the demo store holds 7 records, the original constraint and
    fact plus four facts and one decision. Both are marked inline.
+
+10. **Erratum (2026-10-29): the archive's count of Meta calls (W2 review DATA-6,
+    lane data-low DL2-3, commit `4be708f`).** `research/README.md` said "165 calls
+    in this archive", a count written before the protocol 1.3 smoke runs K01–K04
+    (§6.1, §6.2) added 7 and 12 calls. It now says 184 calls in 41 runs of the 8
+    logs, each with its own request id (165 before the smoke runs K01–K04 added 7
+    and 12); a call that failed or timed out records no invocation (the three
+    `run_failed` runs), and the 18 scripted `provider: fake` calls (in C01, C02
+    and C05) are not counted. This changes no number recorded in this document.
 
 ## Request ids (2026-10-26, from receipts)
 

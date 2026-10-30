@@ -316,9 +316,11 @@ copy). Every receipt, the public ones included, carries
 public `sanitize_receipt` keeps it). Since `821c217` it says that a valid proof means the
 verifier re-executed the request the proof sealed against its witness and accepted it at
 the anchor it was given; that it covers that request's whole result (for the sealed
-snapshot, the complete captured record list), not the claim that led to the retrieval;
-that a record's text is not byte-compared with the proof; that a simulated proof checks
-nothing; and that proofs do not establish truth, relevance, completeness or a model's
+snapshot, the complete record list of the snapshot's project at that anchor), never a
+claim, even when the request's query is a claim's text (this clause reworded on
+2026-10-29, ADR-0008 decision 4; it used to say "not the claim that led to the
+retrieval"); that a record's text is not byte-compared with the proof; that a
+simulated proof checks nothing; and that proofs do not establish truth, relevance, completeness or a model's
 reasoning. The verifier's own detail says the same on the operator surface; public views
 drop the detail of every real verifier (`public_view::verification_v1`,
 `sanitize_receipt`). Tests: `valid_proof_does_not_imply_corroboration`,

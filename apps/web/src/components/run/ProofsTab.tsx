@@ -228,7 +228,14 @@ function PlainReading({ entry, recorded }: { entry: Entry; recorded: boolean }) 
       });
       lines.push({
         key: "covers",
-        text: coverage?.kind === "snapshot_list" ? t("coversSnapshot") : t("covers"),
+        text:
+          coverage?.kind === "snapshot_list"
+            ? t("coversSnapshot")
+            : coverage?.kind === "request"
+              ? coverage.queryIsClaim
+                ? t("coversRequestClaim")
+                : t("coversRequest")
+              : t("covers"),
       });
       lines.push({ key: "notEstablished", text: t("notEstablished") });
       break;

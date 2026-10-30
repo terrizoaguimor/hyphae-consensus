@@ -25,12 +25,16 @@ import type {
 } from "../src/lib/api/types";
 import {
   byRound,
+  claimStatements,
   digestPrefix,
   evidenceView,
   generationFailures,
   proofReading,
   roundedVerifications,
 } from "../src/lib/run/evidence";
+
+import { manifest } from "./research";
+import { recordedDetail } from "./research-detail";
 
 function fixture<T>(name: string): T {
   return JSON.parse(readFileSync(path.join(contractDir(), "fixtures", name), "utf8")) as T;
@@ -129,7 +133,7 @@ describe("what a proof covers", () => {
     expect(record?.evidence.snapshot_id).toBe("snap-2026-10-29");
   });
 
-  it("a live recall: the request the proof sealed, never the claim's query", () => {
+  it("a live recall whose query is no claim's text: the request the proof sealed, not marked as a claim", () => {
     const sealed = { operation: "recall", project: "demo-repo", query: "the proof's own query", limit: 5 };
     const detail = variant((evidence) => {
       evidence.retrieval = "live_recall";
@@ -141,8 +145,42 @@ describe("what a proof covers", () => {
       e.payload.type === "proposal_submitted" ? e.payload.proposal.claims.map((c) => c.statement) : [],
     );
     for (const record of view.records) {
-      expect(record.coverage).toEqual({ kind: "request", request: sealed, anchor: ANCHOR });
+      expect(record.coverage).toEqual({ kind: "request", request: sealed, anchor: ANCHOR, queryIsClaim: false });
       expect(claims).not.toContain(sealed.query);
+    }
+  });
+
+  it("a live recall made with a claim's statement (as the runtime recalls) is marked as that claim's text", () => {
+    const base = fixture<RunDetailV1>("run-detail-retry.json");
+    const statement = [...claimStatements(base.events)][0];
+    expect(statement).toBeDefined();
+    const sealed = { operation: "recall", project: "demo-repo", query: statement, limit: 5 };
+    const detail = variant((evidence) => {
+      evidence.retrieval = "live_recall";
+      evidence.anchor = ANCHOR;
+      evidence.proof_request = sealed;
+    });
+    for (const record of evidenceView(detail, []).records) {
+      expect(record.coverage).toEqual({ kind: "request", request: sealed, anchor: ANCHOR, queryIsClaim: true });
+    }
+    // A query that differs from every statement, even by one character, is not.
+    const near = variant((evidence) => {
+      evidence.retrieval = "live_recall";
+      evidence.proof_request = { ...sealed, query: `${String(statement)} ` };
+    });
+    for (const record of evidenceView(near, []).records) {
+      expect(record.coverage.kind === "request" && record.coverage.queryIsClaim).toBe(false);
+    }
+  });
+
+  it("a revision's claims count too", () => {
+    const detail = fixture<RunDetailV1>("run-detail-retry.json");
+    const revised = detail.events.flatMap((e) =>
+      e.payload.type === "revision_submitted" ? e.payload.revision.proposal.claims.map((c) => c.statement) : [],
+    );
+    expect(revised.length).toBeGreaterThan(0);
+    for (const statement of revised) {
+      expect(claimStatements(detail.events).has(statement)).toBe(true);
     }
   });
 
@@ -168,6 +206,52 @@ describe("what a proof covers", () => {
       delete evidence.retrieval;
     });
     expect(evidenceView(detail, []).records[0]?.coverage).toEqual({ kind: "simulated" });
+  });
+});
+
+describe("what a proof covers, over the research archive's live recalls", () => {
+  // p13-smoke R03 (run-382ff22d): claim-2's statement is the query of the
+  // recall that retrieved record 161896895843658017381255677281559699870
+  // (crates/consensus-runtime orchestrator: recall_with_proof(project,
+  // claim.statement, 5)), so its proof covers that recall, not the claim.
+  const FILE = "2026-10-27/live-battery-2026-10-27-p13-smoke.jsonl";
+  const RUN = "run-382ff22d-1fc3-4e0f-8aa5-f88bffb57ccd";
+  const CLAIM = "The proposed change sets the payment client's retry attempts to 10.";
+
+  it("a real p13-smoke record: the sealed request is recall(<claim-2's statement>), and it is marked so", () => {
+    const detail = recordedDetail(FILE, RUN);
+    expect(claimStatements(detail.events).has(CLAIM)).toBe(true);
+    const record = evidenceView(detail, []).records.find(
+      (r) => r.evidence.id === "161896895843658017381255677281559699870",
+    );
+    expect(record?.evidence.retrieval).toBe("live_recall");
+    expect(record?.coverage).toEqual({
+      kind: "request",
+      request: { operation: "recall", project: "demo-repo", query: CLAIM, limit: 5 },
+      anchor: record?.evidence.anchor ?? null,
+      queryIsClaim: true,
+    });
+  });
+
+  it("every archived live recall is marked exactly when its query is a claim statement of its run", () => {
+    let requests = 0;
+    for (const run of manifest().runs) {
+      const detail = recordedDetail(run.file, run.run_id);
+      const claims = claimStatements(detail.events);
+      for (const record of evidenceView(detail, []).records) {
+        if (record.coverage.kind !== "request") {
+          continue;
+        }
+        requests += 1;
+        const query = record.coverage.request.query ?? null;
+        expect(record.coverage.queryIsClaim, `${run.label} ${record.evidence.id}`).toBe(
+          query !== null && claims.has(query),
+        );
+        // As the runtime recalls (with the claim statement), every one of the archive's is.
+        expect(record.coverage.queryIsClaim, `${run.label} ${record.evidence.id}`).toBe(true);
+      }
+    }
+    expect(requests).toBeGreaterThan(0);
   });
 });
 

@@ -74,6 +74,8 @@ test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, p
 
   await hydrated(page);
   await expect(page.locator("h2.hc-run-title")).toHaveText("Fix payment client timeouts");
+  // An own run's title is the requester's text in any language: never marked lang="en".
+  await expect(page.locator("h2.hc-run-title")).not.toHaveAttribute("lang", /.*/u);
   // The guided run finished server-side: its frames replay, paced client-side.
   await expect(page.locator("[data-pacing='on']")).toBeVisible();
   await expect(page.getByText(t("en", "Run.pacing.label"), { exact: true })).toBeVisible();
@@ -623,6 +625,43 @@ test("sealed-snapshot evidence says what its proof covers, from the proof's own 
   );
   // Never the claim's query: the coverage names the proof's own list request.
   await expect(record).not.toContainText("Payment timeouts correlate");
+  await expectNoLive(page, "en");
+});
+
+test("a live recall whose query is a claim's own text says the proof covers that recall, not the claim", async ({
+  page,
+}) => {
+  // As the runtime records it: the recall is made with the claim statement.
+  const claim = "Payment timeouts correlate with retry bursts above 5 attempts";
+  const detail = sealedSnapshotDetail();
+  for (const event of detail.events as Array<{ payload: Record<string, unknown> }>) {
+    if (event.payload.type === "evidence_retrieved") {
+      const evidence = event.payload.evidence as Record<string, unknown>;
+      evidence.retrieval = "live_recall";
+      delete evidence.snapshot_id;
+      delete evidence.captured_at;
+      evidence.proof_request = { operation: "recall", project: "demo-repo", query: claim, limit: 5 };
+    }
+  }
+  const provenance = (detail.summary as { provenance: Record<string, unknown> }).provenance;
+  await mockApi(page, { detail, frames: framesWith(provenance, "replay") });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.evidence") }).click();
+  const coverage = page.locator("[data-evidence-id='ev-fact'] [data-coverage='request']");
+  await expect(coverage.locator("p").first()).toHaveText(
+    t("en", "Run.evidence.coverage.request", { anchor: SNAPSHOT_ANCHOR.slice(0, 12) }),
+  );
+  await expect(coverage.locator("[data-coverage-query-is-claim]")).toHaveText(
+    t("en", "Run.evidence.coverage.queryIsClaim"),
+  );
+  await expect(coverage.locator("dd[lang='en']")).toHaveText(claim);
+  // The sentence never denies the query the row under it shows.
+  await expect(coverage).not.toContainText("the query that led to the retrieval");
+  await page.getByRole("tab", { name: t("en", "Run.tabs.proofs") }).click();
+  const card = page.locator("[data-proof-sequence='7']");
+  await expect(card.locator("[data-plain-line='covers']")).toHaveText(t("en", "Run.proofs.plain.coversRequestClaim"));
   await expectNoLive(page, "en");
 });
 

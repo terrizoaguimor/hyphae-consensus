@@ -16,7 +16,7 @@
 
 import { Badge } from "@astryxdesign/core/Badge";
 import Link from "next/link";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
@@ -74,6 +74,24 @@ export function useAuthorizationText(): (authorization: string) => string {
       : t("otherAuthorization", { authorization });
 }
 
+/**
+ * The manifest's `created` date (a calendar day, "2026-10-27") in the page's
+ * locale, as every other date is shown; a value that is not a calendar day
+ * is shown as the manifest writes it.
+ */
+export function useManifestDate(): (created: string) => string {
+  const format = useFormatter();
+  return (created) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(created)) {
+      return created;
+    }
+    const date = new Date(`${created}T00:00:00Z`);
+    return Number.isNaN(date.getTime())
+      ? created
+      : format.dateTime(date, { dateStyle: "long", timeZone: "UTC" });
+  };
+}
+
 export function ManifestLine({
   state,
   file,
@@ -124,6 +142,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
   const tRun = useTranslations("Run");
   const outcomeText = useOutcomeText();
   const authorizationText = useAuthorizationText();
+  const manifestDate = useManifestDate();
   const { state, reload, retryManifest } = useArchive(true);
 
   if (state.status === "loading") {
@@ -197,7 +216,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
                       <p className="hc-supporting">
                         {notes?.created === null || notes?.created === undefined
                           ? t("noteHeading")
-                          : t("noteHeadingDated", { created: notes.created })}
+                          : t("noteHeadingDated", { created: manifestDate(notes.created) })}
                       </p>
                       <UntrustedText text={note} source="archive" />
                     </div>
@@ -212,11 +231,11 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
                 return (
                   <li key={entry.run_id} className="hc-run-card" data-showcase-run={entry.run_id} data-label={entry.label}>
                     <h3 className="hc-card-title">
-                      <Link
-                        href={showcaseRunPath(locale, entry.run_id)}
-                        className="hc-card-link"
-                        aria-label={t("open", { label: entry.label, title: entry.title })}
-                      >
+                      {/* The visible content is the link's name: the English
+                          archive title keeps its lang="en" for screen readers,
+                          which an aria-label in the page language would drop. */}
+                      <Link href={showcaseRunPath(locale, entry.run_id)} className="hc-card-link">
+                        <span className="hc-visually-hidden">{t("openPrefix")} </span>
                         {entry.label}
                         {" · "}
                         <span lang="en">{entry.title}</span>

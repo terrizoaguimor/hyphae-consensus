@@ -151,7 +151,7 @@
         },
         "showcase": {
           "heading": "What the showcase lets you re-check",
-          "body": "For each recorded run you can re-check the event chain against the archive’s manifest. The proofs in those runs were verified when the runs happened; their proof and witness files are held privately and cannot be re-verified from the portal."
+          "body": "For each recorded run whose log carries a hash chain (schema 1.1 and later), you can download its log, recompute that chain in your browser or with the read-only command line, and compare the file’s SHA-256 with the digest the server lists from the archive’s manifest; to rely on that digest, compare it yourself with the MANIFEST.json of a tagged commit of the repository. Runs recorded before schema 1.1 carry no hash chain: their records cannot be re-hashed or linked one by one, and only the file’s SHA-256 can be compared with the digest the manifest pins (where there is one), which shows that these are the archived bytes, not that no record was changed before they were archived. A run that began before schema 1.1 is chained only from its later records; each run’s page says which case applies. The proofs in those runs were verified when the runs happened; their proof and witness files are held privately and cannot be re-verified from the portal."
         },
         "chain": {
           "heading": "The hash chain is unsigned",

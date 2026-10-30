@@ -151,7 +151,7 @@
         },
         "showcase": {
           "heading": "Ce que la vitrine vous permet de revérifier",
-          "body": "Pour chaque exécution enregistrée, vous pouvez revérifier la chaîne d’événements par rapport au manifeste de l’archive. Les preuves de ces exécutions ont été vérifiées au moment où les exécutions ont eu lieu ; leurs fichiers de preuve et de témoin sont conservés en privé et ne peuvent pas être revérifiés depuis le portail."
+          "body": "Pour chaque exécution enregistrée dont le journal porte une chaîne de hachages (schéma 1.1 et suivants), vous pouvez télécharger son journal, recalculer cette chaîne dans votre navigateur ou avec la ligne de commande en lecture seule, et comparer le SHA-256 du fichier avec l’empreinte que le serveur reprend du manifeste de l’archive ; pour vous fier à cette empreinte, comparez-la vous-même avec le MANIFEST.json d’un commit étiqueté du dépôt. Les exécutions enregistrées avant le schéma 1.1 ne portent aucune chaîne de hachages : leurs enregistrements ne peuvent être ni recalculés ni reliés un à un, et seul le SHA-256 du fichier peut être comparé avec l’empreinte que fixe le manifeste (s’il y en a une), ce qui montre qu’il s’agit des octets archivés, non qu’aucun enregistrement n’a été modifié avant l’archivage. Une exécution commencée avant le schéma 1.1 n’est chaînée qu’à partir de ses enregistrements ultérieurs ; la page de chaque exécution indique le cas qui s’applique. Les preuves de ces exécutions ont été vérifiées au moment où les exécutions ont eu lieu ; leurs fichiers de preuve et de témoin sont conservés en privé et ne peuvent pas être revérifiés depuis le portail."
         },
         "chain": {
           "heading": "La chaîne de hachages n’est pas signée",

@@ -32,7 +32,7 @@
           }
         },
         "technical": {
-          "runtime": "El entorno de ejecución está escrito en Rust: contratos tipados, una máquina de estados determinista y un registro de eventos de solo anexión cuyos registros están encadenados con hashes SHA-256. La cadena se verifica al abrir un registro, y la reproducción vuelve a derivar cada recomendación registrada con el esquema 1.1 o posterior.",
+          "runtime": "El entorno de ejecución está escrito en Rust: contratos tipados, una máquina de estados determinista y un log de eventos de solo anexión cuyos registros están encadenados con hashes SHA-256. La cadena se verifica al abrir un log, y la reproducción vuelve a derivar cada recomendación registrada con el esquema 1.1 o posterior.",
           "integrations": "Los modelos se llaman a través de la Meta Model API (<code>muse-wonder-1.0</code>, salida estructurada). Hyphae se lee mediante su interfaz MCP con herramientas de solo lectura, y las pruebas se verifican sin conexión con <code>hyphae proof verify</code>.",
           "untrusted": "La memoria recuperada y las salidas de otros modelos se tratan como datos no confiables, nunca como instrucciones."
         }
@@ -82,7 +82,7 @@
           },
           "deterministic": {
             "heading": "Determinista, no neutral",
-            "body": "Los mismos juicios y estados de las pruebas siempre dan la misma recomendación, y la reproducción la vuelve a derivar a partir del registro. Pero los juicios provienen de un modelo, así que la política solo es tan buena como sus datos de entrada."
+            "body": "Los mismos juicios y estados de las pruebas siempre dan la misma recomendación, y la reproducción la vuelve a derivar a partir del log. Pero los juicios provienen de un modelo, así que la política solo es tan buena como sus datos de entrada."
           }
         },
         "technical": {
@@ -153,7 +153,7 @@
           },
           "record-only": {
             "heading": "Aprobar solo registra una decisión",
-            "body": "No existe ningún ejecutor: aprobar no cambia código, repositorios ni sistemas. Añade la decisión al registro de la ejecución, donde se puede auditar."
+            "body": "No existe ningún ejecutor: aprobar no cambia código, repositorios ni sistemas. Añade la decisión al log de la ejecución, donde se puede auditar."
           },
           "public": {
             "heading": "Las decisiones públicas no tienen autoridad",

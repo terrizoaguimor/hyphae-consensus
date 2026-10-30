@@ -48,6 +48,7 @@ import { localePath, SHOWCASE_SOURCE } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { ProvenanceBadges } from "../ProvenanceBadges";
+import { useManifestDate } from "../showcase/ShowcaseList";
 import { archivePin, checkedManifest } from "../showcase/useArchive";
 import { AuditTab } from "./AuditTab";
 import { DecisionTab, type DecisionLinks } from "./DecisionTab";
@@ -184,7 +185,12 @@ function Workspace({
   }
 
   const latest = frames.at(-1);
-  const title = detail?.task?.title ?? summary.title ?? t("title");
+  const recordedTitle = detail?.task?.title ?? summary.title ?? null;
+  const title = recordedTitle ?? t("title");
+  // A recorded run's title is the archive's English task text; an own run's
+  // title is the requester's text in any language, and the fallback is
+  // localized, so only the former is marked lang="en".
+  const titleLang = recorded && recordedTitle !== null ? "en" : undefined;
   // The stage tab says Live only while the run deliberates and its newest
   // frame is LIVE (isLive: a live frame of a live-model run without a
   // blocking flag); a replayed, flagged, scripted, still undetermined or
@@ -236,7 +242,9 @@ function Workspace({
       data-run-mode={recorded ? "recorded" : "own"}
     >
       <header className="hc-run-header hc-panel">
-        <h2 className="hc-run-title">{title}</h2>
+        <h2 className="hc-run-title" lang={titleLang}>
+          {title}
+        </h2>
         <dl className="hc-kv">
           <div>
             <dt>{t("header.state")}</dt>
@@ -450,6 +458,7 @@ function RecordedNotes({
   const t = useTranslations("Showcase.run");
   const tShowcase = useTranslations("Showcase");
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
+  const manifestDate = useManifestDate();
   const failures = useMemo(() => (detail === null ? [] : generationFailures(evidenceView(detail, []))), [detail]);
   const summary = detail?.summary ?? null;
   // The source axis as provenance.ts labels it: RECORDED.
@@ -505,7 +514,7 @@ function RecordedNotes({
           <p className="hc-supporting">
             {manifest?.created === null || manifest?.created === undefined
               ? tShowcase("noteHeading")
-              : tShowcase("noteHeadingDated", { created: manifest.created })}
+              : tShowcase("noteHeadingDated", { created: manifestDate(manifest.created) })}
           </p>
           <UntrustedText text={note} source="archive" />
         </div>

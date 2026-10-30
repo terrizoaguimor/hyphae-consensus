@@ -40,8 +40,11 @@ Blocked until all of these are done, in this order:
 - [ ] **(owner)** The counted protocol 1.3 battery has run on `prompt-freeze-2`
       and is archived in `research/` and written up in `docs/evaluation.md` §6,
       exactly as observed. The presets repeat task texts of the recorded
-      batteries (`crates/consensus-api/src/live/presets.rs`); the task set of
-      the 1.3 battery is not fixed yet.
+      batteries (`crates/consensus-api/src/live/presets.rs`). Ran on 2026-10-30
+      as M01–M04 (task tags `R01-reference`, `R05-add-jitter`,
+      `R07-exp-backoff`, `R04-remove-cap`), archived in
+      `research/2026-10-30/` and written up in `docs/evaluation.md` §6.3, on
+      local branches; left unticked for the owner, who also needs them merged.
 - [ ] **(owner)** Staging is up behind Cloudflare Access with live mode on, the
       snapshot loaded and the staging ledger in place
       (`docs/deployment/runbook.md` §4.5, §7.9, §8; staging live runs spend real

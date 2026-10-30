@@ -1,7 +1,8 @@
 # Roadmap
 
 Date: 2026-10-29 · State of branch `feat/public-portal` at `bc3b262`, with the snapshot
-capture (`b0375df`) added the same day; its boot-check fix (`0515f29`) is merged (`7e26866`) · Submission
+capture (`b0375df`) added the same day; its boot-check fix (`0515f29`) is merged (`7e26866`);
+updated 2026-10-30 for the counted protocol 1.3 battery only · Submission
 deadline: 2026-11-05T02:00Z (development window October 26 – November 4, 2026).
 
 Nothing is deployed. The public portal stays unexposed until every release gate G1–G12
@@ -73,6 +74,12 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 | Sealed snapshot `snap-2026-10-29-demo-repo` captured in the `hyphae-consensus` container (now on the new development machine): hyphae 4.0.0, 7 records whose ids equal the research ids, both proofs verified (`kind memory`, `scope semantic_reexecution`), `snapshot_manifest.py check --reverify` reproduced both verifier reports, `check --public-only` passed; anchor `43a2dea9…8f02`, manifest SHA-256 `b731346c…014a`. The capture script now sends an integer request id (`agent ui` refuses a string id) | `b0375df` | `docs/architecture/sealed-snapshot.md`, "Observed in the capture session"; `snapshots/snap-2026-10-29-demo-repo/` |
 | Boot check on the real snapshot: the runtime at `6e202eb` refused it (`response_invalid: … no memories array`, because `agent ui` 4.0.0 wraps the result object in an envelope with `result`); fixed, then the snapshot boots with the pinned anchor and the manifest pin (the verifier-binary pin `CONSENSUS_HYPHAE_BIN_SHA256` was not set), both proofs re-verified by hyphae 4.0.0 in the container, and an in-process live run through the public router was served from it (7 records, every `integrity_status` valid, local fake Meta server only). Mutated copies are refused (`checksums_mismatch`, `digest_mismatch`, `manifest_pin_mismatch`, `pinned_anchor_mismatch`), and the committed checkout, which lacks the git-ignored proofs and witnesses, is refused with `checksums_incomplete` | `0515f29` (merged as `7e26866`) | `git show 0515f29` (test `the_agent_ui_envelope_of_the_real_capture_loads_and_opens`, correction of `sealed-snapshot.md` section 9 item 2) |
 
+### 2026-10-30 — the counted protocol 1.3 battery (M01–M04)
+
+| What | Commits | Source |
+|---|---|---|
+| Counted protocol 1.3 battery, the last 4 of the 8 authorized live runs, through `consensus-api serve-operator` built at `f0f3815`, on the `prompt-freeze-2` prompts, against the re-seeded demo store (anchor `27943f61…f42347c`): M01 failed at critique on a 120 s Meta timeout and M02 at critique on a Meta HTTP 500 (2 of 4 runs lost to provider errors); M03 `supported`, the battery's only one, for a revision that does not claim the exponential schedule the task asked for; M04 failed closed at evaluate (`evaluation_contract`: a contradiction carried from round 1 neither cited again nor cleared, ADR-0010). 25 Meta calls (23 answered, 0 retries); all 41 verification records `valid`. No rate of any outcome is claimed | archive `a6cef95`, `825a4b0` (branch `research/battery-2026-10-30`, not yet merged) | `docs/evaluation.md` §6.3; `research/README.md`, "The 2026-10-30 battery" |
+
 ## In progress (2026-10-29)
 
 - An independent review of the W2 web views (`bc3b262`).
@@ -93,12 +100,12 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
   (`checksums_incomplete`): the `.proof` and `.witness` files are git-ignored, so the
   server copy must come from the container or the main checkout, under a directory named
   `snap-2026-10-29-demo-repo`.
-- **Counted protocol 1.3 battery.** Four of the eight authorized live re-validation runs
-  remain; until it runs, no rate of any outcome under protocol 1.3 is claimed
-  (`docs/evaluation.md` §6). Results go into `docs/evaluation.md` exactly as observed and
-  into `research/` with its manifest. Not run on 2026-10-29: the Hyphae container is now on
-  the development machine, but `META_API_KEY` is not set there, and only the owner can set
-  it. The battery script stopped before starting the server; no Meta call was made.
+- **Counted protocol 1.3 battery: done on 2026-10-30** (see "Done"; `docs/evaluation.md`
+  §6.3). It was not run on 2026-10-29, when `META_API_KEY` was not set on the development
+  machine (no Meta call was made then). The 8 authorized runs are spent. Still owed: merging
+  the archive branch `research/battery-2026-10-30` and this write-up into
+  `feat/public-portal`. With 2 of the 4 runs lost to provider errors, no rate of any outcome
+  under protocol 1.3 is claimed; any further live run needs the owner's authorization.
 - **Release gates.** G1–G7 and G9–G11 pending, G12 partly
   (`docs/security/release-checklist.md`): among them the fresh-clone G8 run before the
   tag, the deployed-ingress review and probe (G1), the two-browser isolation probe (G2),
@@ -134,9 +141,9 @@ Only the owner can do these (runbook section 1, release checklist "Owner-only st
 - Create a dedicated Meta key for the public server (never the development key), claim
   the hackathon credits on its account and set a spend alert; set the daily and lifetime
   USD caps ($10 and $60 decided).
-- Set the Meta key on the development machine for the counted battery (the battery is
-  authorized; the snapshot capture session took place on 2026-10-29), and authorize
-  placing the snapshot on the server.
+- Authorize placing the snapshot on the server (the snapshot capture session took place
+  on 2026-10-29; the counted battery, which needed the Meta key on the development machine,
+  ran on 2026-10-30).
 - Approve the legal texts (terms, privacy notice, limitations, about) in all four
   languages and set the public contact email; sign off the ES, PT-BR and FR texts.
 - Generate the judge invite codes on the server and place them only in the submission's

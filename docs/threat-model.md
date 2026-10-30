@@ -269,8 +269,10 @@ exposes them (`public_view::detail`: `current_proposal`, `challenge_items`,
 `apps/web/src/components/run/DecisionTab.tsx`) shows the scope change next to the
 outcome (the original and revised proposals side by side, the rationale, the
 assumptions, the uncertainties and the open objections); it does not render the policy
-trace, and its tests were not run for this document. The counted protocol-1.3 battery is
-pending (section 5), so no rate of `supported` is claimed.
+trace, and its tests were not run for this document. The counted protocol-1.3 battery ran
+on 2026-10-30 (`docs/evaluation.md` §6.3; section 5): its one `supported` run, M03, is again
+for a revision that departs from the task, and with 2 of its 4 runs lost to provider
+errors no rate of `supported` is claimed.
 
 **T5. Endless debate and token exhaustion.** `MAX_REVISION_ROUNDS = 2`
 (`state_machine.rs`), a set-based no-progress exit, at most 12 claims per proposal
@@ -1405,7 +1407,7 @@ anywhere in the tree.
 | HY-11 | `agent ui` path for capture | exercised in the capture session of 2026-10-29, used there only and never exposed: it works through the session's daemon, refuses a string request id (the script now sends an integer, `b0375df`), and wraps its result in an envelope with `result`, which the runtime at `6e202eb` did not read (`response_invalid` at boot; fixed in `0515f29`, merged as `7e26866`) | `capture-snapshot.sh`, `docs/architecture/sealed-snapshot.md` §9 and "Observed in the capture session" |
 | HY-12 | Empty-recall proofs discarded | closed | `Recall::proof`, `RecallProven{empty: true}`; `an_empty_proven_recall_still_returns_its_proof`, `foreign_records_are_dropped_and_proofs_recorded_even_when_empty` |
 | HY-13 | Verification cache keyed by path | closed; a fresh verifier per public live run | `hyphae.rs::HyphaeProofVerifier::verify`, `live/snapshot_factory.rs::run_verifier`; `results_are_reused_by_artifact_bytes_never_by_path`, `every_run_verifies_the_proofs_again_with_a_fresh_verifier` |
-| RT-1 | Earlier-round objections forgotten | closed in code; counted live battery pending | `state_machine.rs`, `contract.rs`, `meta.rs` prompts; `rt1_round_two_silence_cannot_reach_supported`; `1ee386a` |
+| RT-1 | Earlier-round objections forgotten | closed in code; in the counted live battery (2026-10-30, `docs/evaluation.md` §6.3) every receipt's `earlier_round_objections_never_rejudged` is empty, and the contract refused one evaluation that left a carried contradiction unjudged (M04) | `state_machine.rs`, `contract.rs`, `meta.rs` prompts; `rt1_round_two_silence_cannot_reach_supported`; `1ee386a` |
 | RT-2 | Global mutex, no cancellation, no subprocess timeout | closed | `runs.rs`, `control.rs`, `hyphae.rs`; `cancel_at_every_stage_records_a_cancelled_failure`, `a_disconnected_client_never_stops_a_run` |
 | RT-3 | Event store does not scale; one bad record takes all offline | closed | `run_store.rs`; `a_damaged_stored_run_is_reported_never_served_as_if_whole` |
 | RT-4 | Receipts commit to one global chain | closed (per-run chain, receipt v2 chain scope, verify CLI); signed receipts post-hackathon | `receipts.rs`, `verify_cli.rs`; `interleaved_runs_need_the_whole_log_and_head_is_the_runs_own`, `a_good_log_and_its_receipt_verify`; `40b6d06` |
@@ -1495,11 +1497,13 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
    matched against the release asset (runbook 3.2) and the snapshot on the server. Without
    `CONSENSUS_SNAPSHOT_DIR`, `serve-public` refuses to start with live mode on
    (`server.rs::build_live_gate`), and on the socket it also needs both pins.
-2. **The counted protocol-1.3 live battery is pending** (4 of the 8 authorized runs left;
-   K01–K04 were smoke runs). It did not run on 2026-10-29: the Meta key is not set on the
-   new development machine, and the battery script stopped before starting the server (no
-   Meta call). No claim about live behaviour under protocol 1.3 beyond
-   `docs/evaluation.md` §6 is made.
+2. **The counted protocol-1.3 live battery ran on 2026-10-30 and settles no rate**
+   (`docs/evaluation.md` §6.3; the last 4 of the 8 authorized runs, K01–K04 having been
+   smoke runs). It did not run on 2026-10-29, when the Meta key was not set on the new
+   development machine (no Meta call then). Of the 4 runs, 2 were lost to provider errors
+   (a 120 s timeout, an HTTP 500), 1 ended `supported` for a revision that departs from the
+   task, and 1 was failed closed by the evaluation contract. No claim about live behaviour
+   under protocol 1.3 beyond `docs/evaluation.md` §6 is made.
 3. **The verifier binary is checked at boot only** (`snapshot.rs::check_verifier_binary`):
    a binary replaced while the server runs, or a wrapper that prints the boot-accepted
    reports, is not detected until the next start.

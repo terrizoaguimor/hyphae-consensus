@@ -242,15 +242,21 @@ comparison (no single-agent baseline was executed).
   **for a revised proposal that departs from the task text**; every claim received one
   assessment and every objection an explicit verdict. No rate of any outcome under
   protocol 1.3 is claimed.
-- **The counted protocol 1.3 battery, M01–M04** (2026-10-30, 18:52–19:08 UTC; the last 4
-  of the 8 authorized runs), through `consensus-api serve-operator` built at `f0f3815`,
-  against the re-seeded demo store: M01 failed at critique (a Meta call past its 120 s
-  budget), M02 failed at critique (Meta HTTP 500), M03 ended `supported` **for a revision
-  that departs from the task text** (it does not claim the exponential schedule the task
-  asked for), and M04 failed at evaluate, refused by protocol 1.3's rule on a carried
-  contradiction. Every verification record is `valid`. Archived verbatim in
-  `research/2026-10-30/` (`research/README.md`, "The 2026-10-30 battery"); not yet written
-  up in `docs/evaluation.md`. No rate of any outcome is claimed.
+- **The counted protocol 1.3 battery, M01–M04** ([`docs/evaluation.md` §6.3](docs/evaluation.md);
+  2026-10-30, 18:52–19:08 UTC; the last 4 of the 8 authorized runs), through
+  `consensus-api serve-operator` built at `f0f3815`, on the `prompt-freeze-2` prompts,
+  against the re-seeded demo store. **2 of the 4 runs were lost to provider errors**: M01
+  failed at critique (a Meta call past its 120 s budget, in round 3) and M02 failed at
+  critique (Meta HTTP 500, in round 2). **M03 is the battery's only `supported` run**, and
+  it is `supported` **for a revision that departs from the task text** (it does not claim
+  the exponential schedule the task asked for; one of its claims restates the seeded
+  record that misdescribes the fixture test). M04 failed at evaluate: protocol 1.3's
+  contract refused the round-2 evaluation because it neither cited again nor cleared a
+  contradiction carried from round 1, the fail-closed behaviour ADR-0010 specifies. 25
+  Meta calls (23 answered, 0 retries), 37,363 / 95,850 tokens; all 41 verification records
+  `valid`. Archived verbatim in `research/2026-10-30/` (`research/README.md`, "The
+  2026-10-30 battery"). With 2 of 4 runs lost, no rate of any outcome under protocol 1.3
+  is claimed.
 
 No run self-authorized; every battery run's authorization is `pending`. The archive holds
 12 event logs with 48 runs (919 events) and 41 run records, byte-identical to the originals
@@ -385,6 +391,15 @@ read-only (`consensus-api verify`, the showcase).
 
 ## Status
 
+**2026-10-30 (nothing is deployed).** The counted protocol 1.3 battery ran on 2026-10-30,
+spending the last 4 of the 8 authorized live runs ([`docs/evaluation.md` §6.3](docs/evaluation.md)):
+2 runs lost to provider errors (a 120 s timeout, an HTTP 500), 1 `supported` for a
+revision that departs from the task (M03), 1 failed closed by the evaluation contract
+(M04); every verification `valid`. It is archived in `research/2026-10-30/` on local
+branches not yet merged into `feat/public-portal`. The authorized cap of 8 live
+re-validation runs is reached. The block below is the status of 2026-10-29; apart from the battery it has
+not been re-checked.
+
 **2026-10-29 (branch `feat/public-portal` at `6e202eb`; nothing is deployed).**
 Protocol 1.3 with policy rules 1.2, the public API v1, the loopback operator console, the
 live-mode admission (two-phase gate, Turnstile, per-client quota, USD ledger) and the
@@ -403,8 +418,8 @@ With it, the snapshot loads, Hyphae 4.0.0 re-verifies both proofs, and a local t
 over it served all 7 records as verified, against a stand-in for the Meta API (no real
 Meta call). Not done yet: merging that fix; comparing the published
 binary digest with the release tarball (runbook 3.2); the counted protocol 1.3 battery (not
-run on 2026-10-29: the Meta key is not set on this machine and only the owner can set it;
-no Meta call was made); the staging deployment and the snapshot on the server (owner
+run on 2026-10-29: the Meta key was not set on this machine and only the owner could set it;
+no Meta call was made; it ran on 2026-10-30, see above); the staging deployment and the snapshot on the server (owner
 authorization); the video; the owner's sign-off of the legal texts; and the final report.
 Earlier status blocks (2026-10-27 and 2026-10-28) are in `docs/journal.md`, "README status
 history".

@@ -909,7 +909,7 @@ test("Audit before decide: after the decision the check compares the log with a 
   await expect(result("chain")).toContainText(t("en", "Run.chain.verdicts.pass"));
   await expect(result("head")).toContainText(headAfter);
   await expect(result("head")).toContainText(t("en", "Run.chain.verdicts.pass"));
-  await expect(result("count")).toContainText(t("en", "Run.chain.count", { count: 15 }));
+  await expect(result("count")).toContainText(tCountEn("Run.chain.count", 15));
   await expect(result("count")).toContainText(t("en", "Run.chain.verdicts.pass"));
   await expect(result("range")).toContainText("sequences 1 to 15");
   await expect(result("range")).toContainText(t("en", "Run.chain.verdicts.pass"));

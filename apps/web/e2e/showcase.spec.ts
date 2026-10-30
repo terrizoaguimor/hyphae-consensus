@@ -987,8 +987,8 @@ test("a listed log digest that differs from the checked manifest's pin is said, 
   await expect(sha256).not.toContainText(t("en", "Run.chain.verdicts.pass"));
   await expect(sha256).toContainText(rewrittenSha);
   await expect(sha256).toContainText("against the digest the archive’s manifest pins");
-  await expect(sha256).toContainText(t("en", "Run.chain.sha256", { sha256: rewrittenSha, bytes: rewritten.length }));
-  await expect(sha256).not.toContainText(t("en", "Run.chain.sha256Listing", { sha256: rewrittenSha, bytes: rewritten.length }));
+  await expect(sha256).toContainText(icu("en", "Run.chain.sha256", { sha256: rewrittenSha, bytes: rewritten.length }));
+  await expect(sha256).not.toContainText(icu("en", "Run.chain.sha256Listing", { sha256: rewrittenSha, bytes: rewritten.length }));
 });
 
 // A checked manifest that does not name the listed file: the digest is the
@@ -1025,8 +1025,8 @@ test("a listed log the checked manifest does not name is labelled as the server 
   await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
   await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
   const sha256 = page.locator("[data-chain-result='sha256']");
-  await expect(sha256).toContainText(t("en", "Run.chain.sha256Unlisted", { sha256: String(r06.sha256), bytes: bytes.length }));
-  await expect(sha256).not.toContainText(t("en", "Run.chain.sha256Listing", { sha256: String(r06.sha256), bytes: bytes.length }));
+  await expect(sha256).toContainText(icu("en", "Run.chain.sha256Unlisted", { sha256: String(r06.sha256), bytes: bytes.length }));
+  await expect(sha256).not.toContainText(icu("en", "Run.chain.sha256Listing", { sha256: String(r06.sha256), bytes: bytes.length }));
   await expect(sha256).toContainText(t("en", "Run.chain.verdicts.pass"));
 });
 
@@ -1060,8 +1060,8 @@ test("a chain check run before the manifest was read keeps its listing wording a
   await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
   const sha256 = page.locator("[data-chain-result='sha256']");
   const bytes = researchBytes(String(r06.file)).length;
-  const listing = t("en", "Run.chain.sha256Listing", { sha256: String(r06.sha256), bytes });
-  const manifest = t("en", "Run.chain.sha256", { sha256: String(r06.sha256), bytes });
+  const listing = icu("en", "Run.chain.sha256Listing", { sha256: String(r06.sha256), bytes });
+  const manifest = icu("en", "Run.chain.sha256", { sha256: String(r06.sha256), bytes });
   await expect(sha256).toContainText(listing);
   // The manifest is read on its retry and pins this file: the finished check still names what it compared with.
   await problem.getByRole("button", { name: t("en", "Api.retry") }).click();

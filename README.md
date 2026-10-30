@@ -242,13 +242,18 @@ comparison (no single-agent baseline was executed).
   **for a revised proposal that departs from the task text**; every claim received one
   assessment and every objection an explicit verdict. No rate of any outcome under
   protocol 1.3 is claimed.
-- **Pending: the counted protocol 1.3 battery** (4 runs remain of the 8 authorized; §6.2).
-  It did not run on 2026-10-29: the Meta key is not set on the new development machine
-  (only the owner can set it); the battery script stopped before starting the server and
-  no Meta call was made.
+- **The counted protocol 1.3 battery, M01–M04** (2026-10-30, 18:52–19:08 UTC; the last 4
+  of the 8 authorized runs), through `consensus-api serve-operator` built at `f0f3815`,
+  against the re-seeded demo store: M01 failed at critique (a Meta call past its 120 s
+  budget), M02 failed at critique (Meta HTTP 500), M03 ended `supported` **for a revision
+  that departs from the task text** (it does not claim the exponential schedule the task
+  asked for), and M04 failed at evaluate, refused by protocol 1.3's rule on a carried
+  contradiction. Every verification record is `valid`. Archived verbatim in
+  `research/2026-10-30/` (`research/README.md`, "The 2026-10-30 battery"); not yet written
+  up in `docs/evaluation.md`. No rate of any outcome is claimed.
 
 No run self-authorized; every battery run's authorization is `pending`. The archive holds
-8 event logs with 44 runs (790 events) and 37 run records, byte-identical to the originals
+12 event logs with 48 runs (919 events) and 41 run records, byte-identical to the originals
 and pinned by `research/MANIFEST.json` and `research/SHA256SUMS`; the raw model drafts and
 the Hyphae proof witnesses are not published (`research/README.md` explains why and what a
 third party can and cannot check).

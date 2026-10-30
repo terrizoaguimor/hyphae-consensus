@@ -45,7 +45,7 @@ Do not crop it or cover it with a caption.
 
 | # | Route · tab | State | Must be visible | Must not appear |
 |---|---|---|---|---|
-| 1a | `/en/showcase/` | archive loaded, manifest check done | the count line ("… recorded runs (… records), as the server lists them from the archived chains"; `research/README.md`: 44 runs, 790 events), the `live-battery-2026-10-27-final` battery group with F01–F06, all contested | — |
+| 1a | `/en/showcase/` | archive loaded, manifest check done | the count line ("… recorded runs (… records), as the server lists them from the archived chains"; `research/README.md`: 48 runs, 919 events), the `live-battery-2026-10-27-final` battery group with F01–F06, all contested | — |
 | 1b | F03 recorded · Evidence | loaded | claim 2 of the first proposal ("…set to exactly 10 attempts."), marked contradicted; the constraint record "Constraint: outbound retries must be capped at 3 attempts with jitter; …"; the RECORDED badge in the header (scroll or split-screen so it is seen at least once); the burned-in caption "Demo-repo fixture · 7 seeded records" | the constraint-test fact (record 5) as the focus of the shot (it misdescribes the fixture test, Corrections item 3) |
 
 ## Beat 2 · 0:25–0:55 · Architecture

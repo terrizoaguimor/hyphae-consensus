@@ -10,7 +10,11 @@
 // unchained prefix; and a flipped byte, a changed link, a missing record, a
 // duplicated id, a torn tail and an empty line each fail at the right line
 // and sequence. A small chain written here checks the textual recipe
-// itself: only the top-level hash value is blanked.
+// itself: only the top-level hash value is blanked. A non-canonical line
+// shows that this check and the runtime's disagree in both directions. A
+// UTF-8 byte order mark fails its line, as event_log.rs fails it, and a
+// long run of carriage returns is trimmed in linear time. The tests that
+// read the archive carry the I/O-bound timeout of tests/io-timeout.ts.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -25,9 +29,11 @@ import {
   checkSegment,
   recordHash,
   topLevelStringSpan,
+  trimTrailingCarriageReturns,
   verifyLog,
 } from "../src/lib/chain/verify";
 
+import { IO_BOUND_TEST_TIMEOUT_MS } from "./io-timeout";
 import { manifest, researchBytes } from "./research";
 
 const F03 = JSON.parse(
@@ -72,7 +78,7 @@ describe("the archive's logs, as pinned", () => {
       expect(bytes.length, file.path).toBe(file.bytes);
       expect(await sha256Hex(bytes), file.path).toBe(file.sha256);
     }
-  });
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 
   it.each(logs.map((file) => [file.path, file] as const))(
     "%s verifies record by record",
@@ -97,6 +103,7 @@ describe("the archive's logs, as pinned", () => {
         expect(segment.legacyRecords, run.label).toBe(result.records.length - chained);
       }
     },
+    IO_BOUND_TEST_TIMEOUT_MS,
   );
 
   it("F03's segment ends at the head the server computed, in the file it pins", async () => {
@@ -115,7 +122,7 @@ describe("the archive's logs, as pinned", () => {
     // The run's records are one contiguous segment of the multi-run log.
     expect((segment.last ?? 0) - (segment.first ?? 0) + 1).toBe(F03.event_count);
     expect(segment.first).toBeGreaterThan(1);
-  });
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 
   it("the schema-1.0 console log is an unchained prefix: nothing to recompute", async () => {
     const run = manifest().runs.find((r) => r.label === "C01");
@@ -128,7 +135,7 @@ describe("the archive's logs, as pinned", () => {
     // No head on either side is nothing compared, never a match (HONESTY-01).
     expect(segment.head_matches).toBe("not_compared");
     expect(segment).toMatchObject({ chain: "not_checked", outcome: "unchained", pass: false, chainedRecords: 0 });
-  });
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 
   // HONESTY-01: an unchained run never reads as a chain that checks out, even
   // when every comparison the views allow (pinned digest, receipt count, the
@@ -177,6 +184,7 @@ describe("the archive's logs, as pinned", () => {
         outcome: "failed",
       });
     },
+    IO_BOUND_TEST_TIMEOUT_MS,
   );
 
   it("there are schema-1.0 runs in the archive to check (C01-C07)", () => {
@@ -366,5 +374,147 @@ describe("the textual recipe", () => {
         expect(segment.outcome, `${file} ${runId}`).not.toBe("partial");
       }
     }
-  }, 120_000);
+  }, IO_BOUND_TEST_TIMEOUT_MS);
+});
+
+describe("a non-canonical line: the browser's recipe and the runtime's disagree in both directions", () => {
+  // event_log.rs hashes its serde re-serialization of the parsed record; this
+  // check hashes the raw line with its hash blanked. They agree on the
+  // canonical lines the runtime writes and differ on any other line, so
+  // neither check is a superset of the other. Reproduced with a built
+  // consensus-api on the same edits of the prefix log's last record (line 47):
+  // re-hashed over the raw line, `consensus-api verify` fails both with "hash
+  // chain broken at line 47: hash mismatch" while this check passes them; the
+  // unedited copy gives "VERIFIED: 2/2". An edit that is not re-hashed passes
+  // the runtime (its re-serialization is unchanged) and fails here.
+  const LAST = 47;
+
+  /** The prefix log with its last record edited by `edit`, re-hashed over the edited raw line when `rehash`. */
+  async function editedLast(edit: (line: string) => string, rehash: boolean): Promise<Uint8Array> {
+    const original = decoder.decode(researchBytes(PREFIX_LOG)).split("\n")[LAST - 1] ?? "";
+    const prev = (JSON.parse(original) as { prev_hash: string }).prev_hash;
+    let edited = edit(original);
+    if (rehash) {
+      const hash = await recordHash(prev, edited);
+      const span = topLevelStringSpan(edited, "hash");
+      if (hash === null || span === null) {
+        throw new Error("no hash field");
+      }
+      edited = `${edited.slice(0, span.start)}"${hash}"${edited.slice(span.end)}`;
+    }
+    return editLine(researchBytes(PREFIX_LOG), LAST, () => edited);
+  }
+
+  const extraMember = (line: string): string => line.replace(/\}$/, ',"zz_extra":"x"}');
+  const spaceAfterSequence = (line: string): string => line.replace('"sequence":', '"sequence": ');
+
+  it("the prefix log has its last record at line 47, and verifies unedited", async () => {
+    const result = await verifyLog(researchBytes(PREFIX_LOG));
+    expect(result.failure).toBeNull();
+    expect(result.records).toHaveLength(LAST);
+  }, IO_BOUND_TEST_TIMEOUT_MS);
+
+  it.each([
+    ["an unknown member", extraMember],
+    ["a space after a colon", spaceAfterSequence],
+  ])("%s, re-hashed over the raw line, checks out here (the runtime refuses it)", async (_name, edit) => {
+    const bytes = await editedLast(edit, true);
+    expect(decoder.decode(bytes)).not.toBe(decoder.decode(researchBytes(PREFIX_LOG)));
+    const result = await verifyLog(bytes);
+    expect(result.failure).toBeNull();
+    expect(result.records).toHaveLength(LAST);
+  }, IO_BOUND_TEST_TIMEOUT_MS);
+
+  it.each([
+    ["an unknown member", extraMember],
+    ["a space after a colon", spaceAfterSequence],
+  ])("%s, not re-hashed, fails here at line 47 (the runtime's re-serialization is unchanged)", async (_name, edit) => {
+    const result = await verifyLog(await editedLast(edit, false));
+    expect(result.failure).toMatchObject({ line: LAST, sequence: LAST, problem: { kind: "hash_mismatch" } });
+  }, IO_BOUND_TEST_TIMEOUT_MS);
+});
+
+describe("a byte order mark, as event_log.rs reads it", () => {
+  // event_log.rs decodes the file (keeping U+FEFF), splits it on "\n" and
+  // hands each line to serde_json, which refuses a leading U+FEFF ("expected
+  // value at line 1 column 1"): consensus-api verify fails the file there.
+  // The browser must not drop the mark and pass the line.
+  const original = researchBytes(PREFIX_LOG);
+  const BOM = Uint8Array.of(0xef, 0xbb, 0xbf);
+
+  /** The bytes with a BOM inserted at byte `at`. */
+  const withBom = (at: number): Uint8Array => {
+    const out = new Uint8Array(original.length + BOM.length);
+    out.set(original.subarray(0, at), 0);
+    out.set(BOM, at);
+    out.set(original.subarray(at), at + BOM.length);
+    return out;
+  };
+
+  it("at the start of the file: the first line is not a record", async () => {
+    const result = await verifyLog(withBom(0));
+    expect(result.failure).toEqual({ line: 1, sequence: null, problem: { kind: "not_json" } });
+    expect(result.records).toHaveLength(0);
+  });
+
+  it("at the start of a middle line: that line is not a record, the ones before it verify", async () => {
+    const at = lineStarts(original)[19] ?? 0;
+    expect(at).toBeGreaterThan(0);
+    const result = await verifyLog(withBom(at));
+    expect(result.failure).toEqual({ line: 20, sequence: null, problem: { kind: "not_json" } });
+    expect(result.records).toHaveLength(19);
+  });
+
+  it("at the start of an unterminated last line: a torn tail, as event_log.rs reads a final chunk that does not parse", async () => {
+    const unterminated = original.subarray(0, original.length - 1);
+    const starts = lineStarts(unterminated);
+    const at = starts.at(-1) ?? 0;
+    const bytes = new Uint8Array(unterminated.length + BOM.length);
+    bytes.set(unterminated.subarray(0, at), 0);
+    bytes.set(BOM, at);
+    bytes.set(unterminated.subarray(at), at + BOM.length);
+    const result = await verifyLog(bytes);
+    expect(result.failure).toEqual({ line: starts.length, sequence: null, problem: { kind: "torn_tail" } });
+    expect(result.records).toHaveLength(starts.length - 1);
+  });
+
+  it("the unmodified file still verifies (the mark is the only difference)", async () => {
+    expect((await verifyLog(original)).failure).toBeNull();
+  });
+});
+
+describe("trailing carriage returns", () => {
+  it("are cut as trim_end_matches('\\r') cuts them, and nothing else is", () => {
+    expect(trimTrailingCarriageReturns("")).toBe("");
+    expect(trimTrailingCarriageReturns("\r\r\r")).toBe("");
+    expect(trimTrailingCarriageReturns("{}\r")).toBe("{}");
+    expect(trimTrailingCarriageReturns("{}\r\r\r")).toBe("{}");
+    expect(trimTrailingCarriageReturns("\r{}")).toBe("\r{}");
+    expect(trimTrailingCarriageReturns("{}\r \r")).toBe("{}\r ");
+    expect(trimTrailingCarriageReturns("{}\n")).toBe("{}\n");
+  });
+
+  it("a line of CRs ending in a CR still verifies as a record when it is one", async () => {
+    const prefix = researchBytes(PREFIX_LOG);
+    const text = decoder.decode(prefix).replace(/\n/g, "\r\r\n");
+    const result = await verifyLog(encoder.encode(text));
+    expect(result.failure).toBeNull();
+    expect(result.records).toHaveLength(47);
+  });
+
+  // SECURITY-1: /\r+$/ backtracks quadratically on a run of CRs followed by
+  // another character and a final CR (about 2.4 s for 40,000 CRs, measured
+  // in V8; a tab frozen for minutes on a log the size of the archive's
+  // largest). The linear trim reads 400,000 of them in milliseconds. The
+  // bound is generous for a loaded machine, and far below the quadratic
+  // cost (hundreds of seconds at this length).
+  it("a long run of CRs inside a line is read in linear time, and the line still fails as not JSON", async () => {
+    const n = 400_000;
+    const hostile = encoder.encode(`${"\r".repeat(n)}x\r\n`);
+    const started = performance.now();
+    const result = await verifyLog(hostile);
+    const elapsed = performance.now() - started;
+    expect(result.failure).toEqual({ line: 1, sequence: null, problem: { kind: "not_json" } });
+    expect(elapsed).toBeLessThan(2_000);
+  });
 });

@@ -875,7 +875,7 @@
     },
     "chain": {
       "heading": "Check the chain in this browser",
-      "intro": "Downloads {name} and recomputes every record’s SHA-256 here, as the runtime’s own check does (each line with its hash blanked, never re-serialized), follows every link, and compares this run’s records with the receipt and the detail.",
+      "intro": "Downloads {name} and, for every record that carries a hash, recomputes its SHA-256 here from the line as written in the file, with only its hash value blanked. The runtime’s own check hashes instead its re-serialization of what it parses. On the canonical lines the runtime writes, the two give the same hash; on a line written any other way they give different hashes, so this check and the runtime’s can disagree in either direction: a record can check out here and fail the read-only command above, or the reverse. The check follows every link and compares this run’s records with the receipt and the detail.",
       "run": "Check the chain",
       "again": "Check again",
       "running": "Downloading {name} and recomputing every hash…",
@@ -908,7 +908,7 @@
         "chained_1_0": "a schema 1.0 record carries a hash",
         "prev_mismatch": "its prev_hash {stored} is not the expected {expected}",
         "no_hash_field": "its hash field is not where the record format puts it",
-        "hash_mismatch": "its hash {stored} is not the SHA-256 recomputed here, {computed}",
+        "hash_mismatch": "its hash {stored} is not the SHA-256 recomputed here, {computed} (recomputed from the line as written; a record not in the runtime’s canonical form hashes differently here than in the runtime)",
         "schema_downgrade": "schema {found} is older than {earlier}, recorded earlier for run {runId}"
       },
       "verdicts": {
@@ -929,9 +929,9 @@
       "noHead": "This run’s last record carries no hash, so there is no head to compare.",
       "count": "Record count against the receipt’s ({count}).",
       "countNoReceipt": "The receipt has not been read, so the record count is not compared.",
-      "limits": "A chain that checks out shows that these bytes are consistent with each other and with the copies compared above. The chain is unsigned: a log rewritten and re-hashed as a whole would check out too, unless a digest obtained earlier (a manifest in a tagged commit, a receipt saved before) says otherwise; and it says nothing about whether the records are true.",
-      "limitsUnchained": "Without a chain, a record can be changed without leaving any trace inside the file: a SHA-256 that matches the digest the archive’s manifest pins shows only that these are the bytes archived, and only as far as that manifest is trusted. Nothing here is signed, and it says nothing about whether the records are true.",
-      "limitsUnchainedOwn": "Without a chain, a record can be changed without leaving any trace inside the file, and this server’s log has no pinned digest to compare it with: nothing here shows that these are the records first written. Nothing here is signed, and it says nothing about whether the records are true."
+      "limits": "A chain that checks out shows that these bytes are consistent with each other and with the copies compared above. The chain is unsigned: a log rewritten and re-hashed as a whole would check out too, unless a digest obtained earlier (a manifest in a tagged commit, a receipt saved before) says otherwise; and it says nothing about whether the records are true. This check reads only the fields the chain is made of (schema version, sequence, event and run ids, link and hash): it does not check the rest of each record against the record format, does not replay the history and does not re-derive the recommendation, and it checks no content of a record without a hash (schema 1.0). The read-only command above also parses every record in full, replays the history and re-derives the recommendation. It is unsigned too and compares no pinned digest, so the same limit on a log rewritten and re-hashed as a whole applies to it.",
+      "limitsUnchained": "Without a chain, a record can be changed without leaving any trace inside the file: a SHA-256 that matches the digest the archive’s manifest pins shows only that these are the bytes archived, and only as far as that manifest is trusted. Nothing here is signed, and it says nothing about whether the records are true. This check reads only the fields the chain is made of (schema version, sequence, event and run ids, link and hash): it does not check the rest of each record against the record format and does not replay the history. The read-only command above also parses every record in full and replays the history, but without a chain it cannot show that the records are unchanged either.",
+      "limitsUnchainedOwn": "Without a chain, a record can be changed without leaving any trace inside the file, and this server’s log has no pinned digest to compare it with: nothing here shows that these are the records first written. Nothing here is signed, and it says nothing about whether the records are true. This check reads only the fields the chain is made of (schema version, sequence, event and run ids, link and hash): it does not check the rest of each record against the record format and does not replay the history. The read-only command above also parses every record in full and replays the history, but without a chain it cannot show that the records are unchanged either."
     },
     "revision": {
       "heading": "Claims of {original} and {revised}, side by side",

@@ -1,20 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// In-browser verification of a verbatim event log, exactly as
-// crates/consensus-runtime/src/event_log.rs verifies one from its bytes
-// (`verify_bytes`): the file is split into lines on "\n" (a trailing "\r" is
-// cut), every line parses as one record, sequences run gap-free from 1,
-// event ids are unique, schema versions are readable and never go back
-// within a run, and every record from schema 1.1 on carries its link and
-// hash: `prev_hash` is "genesis" for the first record, `pre-1.1:<n>` after a
-// legacy record, the previous record's `hash` otherwise; `hash` is the
-// lowercase hex SHA-256 of the `prev_hash` string followed by the record's
-// own line with its top-level hash value blanked (`"hash":"<hex>"` becomes
-// `"hash":""`). The line is blanked textually, never re-serialized: the
-// archive's lines re-serialize byte for byte (research/README.md), so the
-// textual recipe agrees with the runtime's own check, and a re-serializer
-// here could only hide a difference. Legacy records (schema 1.0, no hash)
-// are a readable prefix that is not chain-verified.
+// In-browser verification of a verbatim event log, following the chain
+// checks of crates/consensus-runtime/src/event_log.rs (`parse`, used by
+// `verify_bytes`) in their order: the file is split into lines on "\n"
+// (trailing "\r"s are cut), every line parses as one record, sequences run
+// gap-free from 1, event ids are unique, schema versions are readable and
+// never go back within a run, and every record from schema 1.1 on carries
+// its link and hash: `prev_hash` is "genesis" for the first record,
+// `pre-1.1:<n>` after a legacy record, the previous record's `hash`
+// otherwise; `hash` is the lowercase hex SHA-256 of the `prev_hash` string
+// followed by the record with its hash blanked.
+//
+// What it reproduces and what it does not:
+// - The hash input. The runtime (`compute_hash`) parses the record and hashes
+//   `serde_json::to_string` of it with the hash cleared: a re-serialization,
+//   which drops unknown members and normalizes whitespace, member order and
+//   escapes. Here the raw line is hashed with its top-level hash value
+//   blanked textually (`"hash":"<hex>"` becomes `"hash":""`). The two agree
+//   on the canonical lines the runtime writes (the archive's lines
+//   re-serialize byte for byte, research/README.md, and the server's
+//   events.ndjson is serde output). On a non-canonical line the two recipes
+//   give different hashes, so the two checks disagree, in either direction:
+//   a line hashed the runtime's way fails here and passes there, and a line
+//   hashed over its raw text passes here and fails there (pinned in
+//   tests/chain-verify.test.ts). Neither check is a superset of the other.
+// - Record typing. Only the chain fields are read (schema_version, sequence,
+//   event_id, run_id, prev_hash, hash); the runtime deserializes the whole
+//   ConsensusEvent (actor, occurred_at, typed payload, duplicate fields
+//   refused). A legacy record (schema 1.0, no hash) is a readable prefix
+//   whose content is not checked at all.
+// - Decoding. A line that is not valid UTF-8 fails here (`not_utf8`); the
+//   runtime decodes lossily (U+FFFD), accepts that in a legacy record (no
+//   hash covers it) and fails a chained record at parsing or at the hash. A
+//   byte order mark is kept as U+FEFF (`ignoreBOM`), so a line that starts
+//   with one fails to parse here, as serde_json fails it.
+// - Not done here at all: `consensus-api verify` also replays every run
+//   through the state machine and re-derives the recommendation against the
+//   receipt; this module does neither. That command is the reference check;
+//   it is unsigned too and compares no pinned file digest (which the panel
+//   does, ShowcaseEntryV1.sha256).
 //
 // The digest function is passed in (WebCrypto's SHA-256 in the browser and
 // in Node), so this module is pure and unit-tested over real archived bytes
@@ -235,13 +259,32 @@ function byteLines(bytes: Uint8Array): Uint8Array[] {
   return lines;
 }
 
+/**
+ * The text without its trailing "\r"s, as `trim_end_matches('\r')` cuts
+ * them in event_log.rs. A linear scan: a regular expression such as
+ * /\r+$/ backtracks quadratically on a long run of "\r"s that is not at the
+ * end, and a tampered log is exactly what this module is meant to read.
+ */
+export function trimTrailingCarriageReturns(text: string): string {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 0x0d) {
+    end -= 1;
+  }
+  return end === text.length ? text : text.slice(0, end);
+}
+
 /** Verifies a log file from its bytes; stops at the first failing line. */
 export async function verifyLog(bytes: Uint8Array, digest: Digest = sha256): Promise<ChainResult> {
   const fileSha256 = hex(await digest(bytes));
   const records: CheckedRecord[] = [];
   const ids = new Set<string>();
   const runSchema = new Map<string, string>();
-  const decoder = new TextDecoder("utf-8", { fatal: true });
+  // ignoreBOM: a leading EF BB BF stays in the text as U+FEFF. Without it,
+  // every (non-streaming) decode() call would drop a BOM at the start of the
+  // file or of any line, and the line would parse and hash here although
+  // event_log.rs hands it, BOM included, to serde_json, which refuses it.
+  // JSON.parse refuses U+FEFF too (it is not JSON whitespace).
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   const endsWithNewline = bytes.length > 0 && bytes[bytes.length - 1] === 0x0a;
   const result = (failure: LineFailure | null, unterminated = false): ChainResult => ({
     sha256: fileSha256,
@@ -263,7 +306,7 @@ export async function verifyLog(bytes: Uint8Array, digest: Digest = sha256): Pro
     } catch {
       return result({ line: lineNo, sequence: null, problem: { kind: "not_utf8" } });
     }
-    const line = text.endsWith("\r") ? text.replace(/\r+$/, "") : text;
+    const line = trimTrailingCarriageReturns(text);
     if (line === "") {
       if (isLast) {
         break;

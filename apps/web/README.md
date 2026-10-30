@@ -186,9 +186,18 @@ turns the pacing off. Server timestamps are shown untouched.
   with its pinned SHA-256) with the receipt download, the exact check
   `consensus-api verify <log.jsonl> --run <id> --receipt <receipt.json>`, and
   the chain checked in the browser (`ChainCheck`, `src/lib/chain/verify.ts`:
-  every record's SHA-256 recomputed with WebCrypto exactly as `event_log.rs`
-  does, the raw line with its top-level hash blanked textually, never
-  re-serialized; every link followed; the run's segment compared with the
+  every record's SHA-256 recomputed with WebCrypto from the raw line with its
+  top-level hash blanked textually, where `event_log.rs` hashes its
+  `serde_json` re-serialization: the two agree on the canonical lines the
+  runtime writes (the archive's and the server's `events.ndjson`), and on
+  any other line the two recipes give different hashes, so the two checks
+  can disagree in either direction (neither is a superset of the other);
+  it reads only the chain fields
+  (schema version, sequence, ids, link, hash), checks no content of a
+  schema-1.0 record, and neither replays the history nor re-derives the
+  recommendation, which the panel says and leaves to `consensus-api verify`;
+  a UTF-8 byte order mark is kept and fails the line, as `serde_json` fails
+  it; every link followed; the run's segment compared with the
   pinned digest, the receipt's head and count and the detail's chain; pass,
   or the first failing record, or, for a run whose records carry no hash
   (schema 1.0), a neutral "no chain to check" with the chain "not checked"
@@ -861,8 +870,17 @@ the axe scans.
   panel says they are not published; the contract publishes no prices, so no
   cost is shown; showcase entries carry no dates, so the Overview's figures
   name runs, batteries, schema versions and policy rules but no dates; and
-  the in-browser chain check reads a line with invalid UTF-8 as a failure
-  where the runtime's lossy decoding would fail it at the hash instead.
+  the in-browser chain check always fails a line with invalid UTF-8, where
+  the runtime decodes it lossily (U+FFFD): the runtime accepts that in a
+  pre-1.1 record, which no hash covers, and fails it in a chained record
+  either at parsing or at the hash. On a non-canonical line (other
+  whitespace, member order or escapes, unknown members) the browser, which
+  hashes the raw line, and the runtime, which hashes its own
+  re-serialization, compute different hashes: a record hashed the runtime's
+  way fails in the browser and passes the runtime, and a record hashed over
+  its raw line passes in the browser and fails the runtime; and the runtime
+  ignores, and does not hash, top-level members it does not know (a crate
+  matter, not changed here).
 - Script weight: `/en/` loads 13 async scripts, 797,215 bytes raw (230,921
   gzip at level 9), plus a 112,594-byte `noModule` polyfill that modern
   browsers skip. The whole export is 460 files, 7,132,989 bytes (each page

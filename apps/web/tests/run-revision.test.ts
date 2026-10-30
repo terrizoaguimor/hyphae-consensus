@@ -19,6 +19,7 @@ import type { Proposal, RunDetailV1 } from "../src/lib/api/types";
 import { claimComparison, compareClaims, revisedByMetaModel, revisionSteps } from "../src/lib/run/revision";
 import { supersededProposal } from "../src/lib/run/view";
 
+import { IO_BOUND_TEST_TIMEOUT_MS } from "./io-timeout";
 import { manifest, researchBytes } from "./research";
 
 const detail = JSON.parse(
@@ -71,6 +72,9 @@ describe("compareClaims", () => {
 // The archived runs of research/ (verbatim): each run's records from its log,
 // as a run detail carries them (events), with its last proposal as the
 // current one. supersededProposal and the comparison read nothing else.
+// The first test to call archivedRuns() (whichever runs first, a -t filter
+// included) reads every log of the archive: each such test carries the
+// I/O-bound timeout (tests/io-timeout.ts).
 type ArchivedRun = { label: string; detail: RunDetailV1; revisionProviders: string[] };
 
 let archiveCache: ArchivedRun[] | null = null;
@@ -163,7 +167,7 @@ describe("claimComparison", () => {
     expect(comparison.revised[0]?.statement).toBe(
       "The payment-client RetryPolicy will be set to max_attempts=3 and jitter_ms=50.",
     );
-  });
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 
   it("no revision written by the Meta model in the archive shares a claim id; the scripted ones do", () => {
     const revisedRuns = archivedRuns().filter((run) => run.revisionProviders.length > 0);
@@ -187,14 +191,14 @@ describe("claimComparison", () => {
       );
     }
     expect(scripted.map((run) => run.label)).toEqual(["C01", "C02", "C05"]);
-  });
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 
   it("F01, revised twice: the comparison is against the first proposal, and still pairs nothing", () => {
     const { detail } = archivedRun("F01");
     const before = supersededProposal(detail) as Proposal;
     expect([before.id, detail.current_proposal?.id]).toEqual(["prop-1", "prop-25"]);
     expect(claimComparison(before, detail.current_proposal as Proposal).pairing).toBe("none");
-  });
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 
   it("is partial only when some claim id is in one proposal alone", () => {
     const full = claimComparison(original, revised);
@@ -216,7 +220,7 @@ describe("claimComparison", () => {
       const comparison = claimComparison(supersededProposal(run.detail) as Proposal, run.detail.current_proposal as Proposal);
       expect(comparison.pairing === "id" ? comparison.partial : null, label).toBe(false);
     }
-  });
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 });
 
 describe("revisedByMetaModel", () => {
@@ -229,7 +233,7 @@ describe("revisedByMetaModel", () => {
     for (const label of ["C01", "C02", "C05"]) {
       expect(revisedByMetaModel(archivedRun(label).detail), label).toBe(false);
     }
-  });
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 
   it("names no adapter for a scripted revision, even one whose claim ids are all new", () => {
     // The retry fixture's revision is a scripted double's (provider fake).

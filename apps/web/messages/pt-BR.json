@@ -875,7 +875,7 @@
     },
     "chain": {
       "heading": "Verificar a cadeia neste navegador",
-      "intro": "Baixa {name} e recalcula aqui o SHA-256 de cada registro, como faz a própria verificação do ambiente de execução (cada linha com o hash em branco, sem ser serializada de novo), segue cada vínculo e compara os registros desta execução com o recibo e o detalhe.",
+      "intro": "Baixa {name} e, para cada registro que traz um hash, recalcula aqui o SHA-256 dele a partir da linha tal como está escrita no arquivo, só com o valor do hash em branco. A verificação do próprio ambiente de execução calcula, em vez disso, o hash do que lê serializado de novo. Nas linhas canônicas que o ambiente de execução escreve, as duas dão o mesmo hash; numa linha escrita de qualquer outra forma dão hashes diferentes, então esta verificação e a do ambiente de execução podem divergir em qualquer sentido: um registro pode conferir aqui e ser reprovado pelo comando somente leitura acima, ou o contrário. A verificação segue cada vínculo e compara os registros desta execução com o recibo e o detalhe.",
       "run": "Verificar a cadeia",
       "again": "Verificar de novo",
       "running": "Baixando {name} e recalculando cada hash…",
@@ -908,7 +908,7 @@
         "chained_1_0": "um registro de esquema 1.0 traz um hash",
         "prev_mismatch": "o prev_hash {stored} dele não é o esperado, {expected}",
         "no_hash_field": "o campo hash dele não está onde o formato do registro o coloca",
-        "hash_mismatch": "o hash {stored} dele não é o SHA-256 recalculado aqui, {computed}",
+        "hash_mismatch": "o hash {stored} dele não é o SHA-256 recalculado aqui, {computed} (recalculado a partir da linha tal como está escrita; um registro fora da forma canônica do ambiente de execução dá aqui um hash diferente do que dá no ambiente de execução)",
         "schema_downgrade": "o esquema {found} é anterior a {earlier}, registrado antes para a execução {runId}"
       },
       "verdicts": {
@@ -929,9 +929,9 @@
       "noHead": "O último registro desta execução não traz hash, então não há hash final a comparar.",
       "count": "Número de registros em relação ao do recibo ({count}).",
       "countNoReceipt": "O recibo não foi lido, então o número de registros não é comparado.",
-      "limits": "Uma cadeia que confere mostra que estes bytes são coerentes entre si e com as cópias comparadas acima. A cadeia não é assinada: um log reescrito e com os hashes recalculados por inteiro também conferiria, a menos que um resumo obtido antes (um manifesto num commit com tag, um recibo guardado antes) diga o contrário; e ela não diz nada sobre se os registros são verdadeiros.",
-      "limitsUnchained": "Sem cadeia, um registro pode ser alterado sem deixar nenhum rastro dentro do arquivo: um SHA-256 que corresponde ao resumo que o manifesto do arquivo fixa mostra apenas que estes são os bytes arquivados, e só na medida em que se confia nesse manifesto. Nada aqui é assinado, e não diz nada sobre se os registros são verdadeiros.",
-      "limitsUnchainedOwn": "Sem cadeia, um registro pode ser alterado sem deixar nenhum rastro dentro do arquivo, e o log deste servidor não tem nenhum resumo fixado para comparar: nada aqui mostra que estes são os registros escritos originalmente. Nada aqui é assinado, e não diz nada sobre se os registros são verdadeiros."
+      "limits": "Uma cadeia que confere mostra que estes bytes são coerentes entre si e com as cópias comparadas acima. A cadeia não é assinada: um log reescrito e com os hashes recalculados por inteiro também conferiria, a menos que um resumo obtido antes (um manifesto num commit com tag, um recibo guardado antes) diga o contrário; e ela não diz nada sobre se os registros são verdadeiros. Esta verificação lê só os campos de que a cadeia é feita (versão do esquema, sequência, ids do evento e da execução, vínculo e hash): não confere o resto de cada registro com o formato de registro, não reproduz o histórico nem deriva de novo a recomendação, e não verifica nenhum conteúdo de um registro sem hash (esquema 1.0). O comando somente leitura acima também lê cada registro por inteiro, reproduz o histórico e deriva de novo a recomendação. Ele também não é assinado nem compara nenhum resumo fixado, então o mesmo limite sobre um log reescrito e com os hashes recalculados por inteiro se aplica a ele.",
+      "limitsUnchained": "Sem cadeia, um registro pode ser alterado sem deixar nenhum rastro dentro do arquivo: um SHA-256 que corresponde ao resumo que o manifesto do arquivo fixa mostra apenas que estes são os bytes arquivados, e só na medida em que se confia nesse manifesto. Nada aqui é assinado, e não diz nada sobre se os registros são verdadeiros. Esta verificação lê só os campos de que a cadeia é feita (versão do esquema, sequência, ids do evento e da execução, vínculo e hash): não confere o resto de cada registro com o formato de registro nem reproduz o histórico. O comando somente leitura acima também lê cada registro por inteiro e reproduz o histórico, mas sem cadeia também não pode mostrar que os registros não mudaram.",
+      "limitsUnchainedOwn": "Sem cadeia, um registro pode ser alterado sem deixar nenhum rastro dentro do arquivo, e o log deste servidor não tem nenhum resumo fixado para comparar: nada aqui mostra que estes são os registros escritos originalmente. Nada aqui é assinado, e não diz nada sobre se os registros são verdadeiros. Esta verificação lê só os campos de que a cadeia é feita (versão do esquema, sequência, ids do evento e da execução, vínculo e hash): não confere o resto de cada registro com o formato de registro nem reproduz o histórico. O comando somente leitura acima também lê cada registro por inteiro e reproduz o histórico, mas sem cadeia também não pode mostrar que os registros não mudaram."
     },
     "revision": {
       "heading": "Afirmações de {original} e {revised}, lado a lado",

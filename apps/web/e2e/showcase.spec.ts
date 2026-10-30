@@ -1908,8 +1908,18 @@ async function spanningRun(entry: Json): Promise<{ entry: Json; recorded: { deta
     throw new Error("no hash field in the record");
   }
   const bytes = Buffer.from(`${[...legacy, blank.replace('"hash":""', `"hash":"${head}"`)].join("\n")}\n`);
-  const spanning = { ...entry, sha256: createHash("sha256").update(bytes).digest("hex"), head_hash: head, event_count: 3 };
-  const recorded = recordedRun(spanning, { base: "retry" });
+  // Listed under a path the checked manifest does not name: the chain check
+  // then compares the file with the listed digest (the manifest's own pin of
+  // the archived file is of other bytes), as it does for any unnamed file.
+  const spanning = {
+    ...entry,
+    file: "2026-10-28/spanning-run.jsonl",
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    head_hash: head,
+    event_count: 3,
+  };
+  // The detail is built from the archived file's records (recordedRun reads it), then given this run's chain.
+  const recorded = recordedRun({ ...spanning, file: entry.file }, { base: "retry" });
   recorded.detail.chain = { scope: "run", first_sequence: 1, last_sequence: 3, head_hash: head };
   recorded.receipt.event_count = 3;
   recorded.receipt.chain = { ...(recorded.receipt.chain as Json), scope: "run", first_sequence: 1, last_sequence: 3, head_hash: head };
@@ -1952,7 +1962,7 @@ for (const theme of themes) {
     await remock({
       showcase: list.map((entry) => (entry.run_id === r06.run_id ? spanning.entry : entry)),
       recordedRuns: [spanning.recorded],
-      research: { [String(r06.file)]: spanning.bytes },
+      research: { [String(spanning.entry.file)]: spanning.bytes },
     });
     await openRecorded(page, locale, String(r06.run_id));
     await runChainCheck(page, locale, "partial");

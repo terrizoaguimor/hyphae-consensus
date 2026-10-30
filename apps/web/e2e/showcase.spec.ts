@@ -24,8 +24,6 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { createHash } from "node:crypto";
-
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 import { IntlMessageFormat } from "intl-messageformat";

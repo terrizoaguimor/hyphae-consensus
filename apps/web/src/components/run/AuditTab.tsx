@@ -7,7 +7,8 @@
 // model calls, verifications, protocol, proof limitations), the verbatim log
 // where the public surface publishes it (a guided run's events.ndjson; for a
 // recorded run, the research file its showcase entry names, with the SHA-256
-// the archive's manifest pins), and the exact command a third party runs to
+// the archive's manifest pins, cross-checked against the manifest this
+// browser checked), and the exact command a third party runs to
 // check a downloaded log against the receipt, and the same check run in this
 // browser over the verbatim log (ChainCheck). The records and the receipt
 // shown here are display copies (the public view drops operator-only fields
@@ -34,11 +35,14 @@ import { ndjsonPublishable } from "@/lib/provenance";
 import { digestPrefix } from "@/lib/run/evidence";
 import { baseName, ownLogFileName, receiptFileName, verifyCommand } from "@/lib/run/receipt";
 import { mergeEvents } from "@/lib/run/view";
+import { type LogPin, pinDisplay, pinSource } from "@/lib/showcase";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { LogPinNote } from "../showcase/LogPinNote";
 import { ChainCheck } from "./ChainCheck";
 import { type RunTimeReceiptReader, RunTimeReceiptNote } from "./RunTimeReceipt";
 import type { RunReceipt } from "./useReceipt";
+import type { MissingEntry } from "./useRecordedRun";
 
 type AuditTabProps = {
   runId: string;
@@ -49,6 +53,10 @@ type AuditTabProps = {
   receipt: RunReceipt;
   /** The showcase entry of a recorded run (its research file and SHA-256); null for a run of this server. */
   archive: ShowcaseEntryV1 | null;
+  /** The entry's log digest cross-checked against the manifest this browser checked; null without an entry. */
+  pin: LogPin | null;
+  /** Why a recorded run has no entry (the listing is being read, failed, or does not list it); null otherwise. */
+  archiveMissing: MissingEntry | null;
   /** The receipt a recorded run's record holds, read on request. */
   runTime: RunTimeReceiptReader;
 };
@@ -56,7 +64,25 @@ type AuditTabProps = {
 /** Authorities with their own word (`Run.explorer.authority.<value>`). */
 const AUTHORITIES = ["operator", "public_demo", "unspecified"] as const;
 
-export function AuditTab({ runId, detail, frames, detailError, summary, receipt, archive, runTime }: AuditTabProps) {
+/** The log section of a recorded run without its entry (data-audit-log), and its sentence, by why. */
+const MISSING_LOG = {
+  loading: { attribute: "archive-loading", key: "archiveLoading" },
+  error: { attribute: "archive-error", key: "archiveFailed" },
+  unlisted: { attribute: "archive-pending", key: "archivePending" },
+} as const;
+
+export function AuditTab({
+  runId,
+  detail,
+  frames,
+  detailError,
+  summary,
+  receipt,
+  archive,
+  pin,
+  archiveMissing,
+  runTime,
+}: AuditTabProps) {
   const t = useTranslations("Run.audit");
   const events = useMemo(() => mergeEvents(detail, frames), [detail, frames]);
   const recorded = summary?.provenance.source === "research_archive";
@@ -73,6 +99,22 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
         : null;
   const receiptHref = recorded ? api.showcaseReceiptUrl(runId) : api.receiptUrl(runId);
   const command = verifyCommand(log?.name ?? ownLogFileName(runId), runId, receiptFileName(runId));
+  // A recorded run's missing log, by why: the listing still read, failed, or not listing it.
+  const missing = recorded && log === null ? MISSING_LOG[archiveMissing ?? "unlisted"] : null;
+  // The digest a downloaded research file is compared with: the checked manifest's own pin when there is one.
+  const expected =
+    log === null || log.sha256 === null
+      ? null
+      : pin === null
+        ? { sha256: log.sha256, source: "listing" as const }
+        : { sha256: pin.sha256, source: pinSource(pin) };
+  // The digest shown as the manifest's pin, and the listing's when the checked manifest contradicts it or does not name the file.
+  const shown =
+    log === null || log.sha256 === null
+      ? null
+      : pin === null
+        ? { pinned: log.sha256, listed: null }
+        : pinDisplay(pin);
 
   return (
     <div className="hc-audit-tab" data-audit-tab>
@@ -151,16 +193,22 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
       <section
         className="hc-section"
         aria-labelledby="audit-log"
-        data-audit-log={log === null ? (recorded ? "archive-pending" : "unavailable") : "published"}
+        data-audit-log={log === null ? (missing?.attribute ?? "unavailable") : "published"}
       >
         <h4 id="audit-log">{t("logHeading")}</h4>
         {log === null ? (
-          <p className="hc-supporting" data-log-unavailable>
-            {recorded ? t("archivePending") : t("logUnavailable")}
+          <p
+            className="hc-supporting"
+            data-log-unavailable
+            role={missing?.attribute === "archive-loading" ? "status" : undefined}
+          >
+            {missing === null ? t("logUnavailable") : t(missing.key)}
           </p>
         ) : (
           <>
-            <p>{archive !== null ? t("logArchive") : t("logOwn")}</p>
+            <p>
+              {archive === null ? t("logOwn") : pin?.status === "unlisted" ? t("logArchiveUnlisted") : t("logArchive")}
+            </p>
             <ul className="hc-related" role="list">
               <li>
                 <a href={log.href} download={log.name} className="hc-link" data-log-link>
@@ -168,16 +216,27 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
                 </a>
               </li>
             </ul>
-            {log.sha256 === null ? null : (
+            {shown === null ? null : (
               <dl className="hc-kv">
-                <div className="hc-kv-wide">
-                  <dt>{t("pinnedSha256")}</dt>
-                  <dd data-log-sha256>
-                    <code className="hc-code">{log.sha256}</code>
-                  </dd>
-                </div>
+                {shown.pinned === null ? null : (
+                  <div className="hc-kv-wide">
+                    <dt>{t("pinnedSha256")}</dt>
+                    <dd data-log-sha256>
+                      <code className="hc-code">{shown.pinned}</code>
+                    </dd>
+                  </div>
+                )}
+                {shown.listed === null ? null : (
+                  <div className="hc-kv-wide">
+                    <dt>{t("listedSha256")}</dt>
+                    <dd data-log-listed-sha256>
+                      <code className="hc-code">{shown.listed}</code>
+                    </dd>
+                  </div>
+                )}
               </dl>
             )}
+            {pin === null ? null : <LogPinNote pin={pin} />}
           </>
         )}
         <ul className="hc-related" role="list">
@@ -207,7 +266,12 @@ export function AuditTab({ runId, detail, frames, detailError, summary, receipt,
       {log === null ? null : (
         <ChainCheck
           runId={runId}
-          source={{ url: log.href, name: log.name, sha256: log.sha256 }}
+          source={{
+            url: log.href,
+            name: log.name,
+            sha256: expected?.sha256 ?? null,
+            pinSource: expected?.source ?? null,
+          }}
           chain={chain}
           readReceipt={receipt.read}
         />

@@ -8,8 +8,8 @@
 // battery, the research file it is a segment of and that file's pinned
 // SHA-256) and the archive manifest's note on that file (src/components/
 // showcase/useArchive.ts: the manifest is hashed in this browser first). A
-// failed detail request is kept as an error to show with a retry, never as a
-// loading line.
+// failed request (the detail, the listing, the manifest) is kept as an error
+// to show with its retry, never as a loading line.
 
 import { useCallback, useEffect, useState } from "react";
 
@@ -26,11 +26,29 @@ export type RecordedRunData = {
   summary: RunSummaryV1 | null;
   reloadDetail: () => void;
   archive: ArchiveState;
+  /** Reads GET /showcase (and the manifest) again: the retry of a failed listing. */
+  reloadArchive: () => void;
+  /** Reads the manifest again: the retry of a manifest that could not be read. */
+  retryManifest: () => void;
   /** The run's showcase entry, once GET /showcase answered (null if it does not list it). */
   entry: ShowcaseEntryV1 | null;
 };
 
 const NO_FRAMES: ConsensusFrameV1[] = [];
+
+/**
+ * Why a recorded run has no showcase entry (and so no log file, pinned
+ * digest, command or chain check): the listing is still being read, it
+ * could not be read, or it does not list the run; null once it does.
+ */
+export type MissingEntry = "loading" | "error" | "unlisted";
+
+export function missingEntry(data: Pick<RecordedRunData, "archive" | "entry">): MissingEntry | null {
+  if (data.entry !== null) {
+    return null;
+  }
+  return data.archive.status === "ready" ? "unlisted" : data.archive.status;
+}
 
 function toApiError(error: unknown, path: string): ApiError {
   return isApiError(error)
@@ -47,7 +65,7 @@ export function useRecordedRun(runId: string): RecordedRunData {
   const [detail, setDetail] = useState<RunDetailV1 | null>(null);
   const [detailError, setDetailError] = useState<ApiError | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const { state: archive } = useArchive(true);
+  const { state: archive, reload: reloadArchive, retryManifest } = useArchive(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +87,14 @@ export function useRecordedRun(runId: string): RecordedRunData {
     };
   }, [runId, attempt]);
 
-  const reloadDetail = useCallback(() => setAttempt((n) => n + 1), []);
+  // The run's own retry reads the listing again too while it is in error.
+  const archiveFailed = archive.status === "error";
+  const reloadDetail = useCallback(() => {
+    setAttempt((n) => n + 1);
+    if (archiveFailed) {
+      reloadArchive();
+    }
+  }, [archiveFailed, reloadArchive]);
   const entry =
     archive.status === "ready"
       ? (archive.showcase.entries.find((e) => e.run_id === runId) ?? null)
@@ -82,6 +107,8 @@ export function useRecordedRun(runId: string): RecordedRunData {
     summary: detail?.summary ?? null,
     reloadDetail,
     archive,
+    reloadArchive,
+    retryManifest,
     entry,
   };
 }

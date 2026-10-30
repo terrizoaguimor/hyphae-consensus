@@ -8,14 +8,17 @@
 // recorded runs: no evidence or source label carries the LIVE word, in any
 // locale (a recorded run never reads LIVE).
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { IntlMessageFormat } from "intl-messageformat";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { contractDir } from "../scripts/gen-api-types.mjs";
+import { archivePin, readManifest } from "../src/components/showcase/useArchive";
 import { routing } from "../src/i18n/routing";
+import { api } from "../src/lib/api/client";
 import { archiveManifestSchema } from "../src/lib/api/schemas";
 import type { EvidenceProvenance, ShowcaseEntryV1 } from "../src/lib/api/types";
 import { evidenceLabel, sourceLabel } from "../src/lib/provenance";
@@ -23,8 +26,11 @@ import {
   archiveFigures,
   byBattery,
   isUnchained,
+  logPin,
   manifestNote,
   parseOutcome,
+  pinDisplay,
+  pinSource,
   policyRulesOf,
 } from "../src/lib/showcase";
 
@@ -155,6 +161,94 @@ describe("the archive's manifest", () => {
     expect(note).toContain("a deployment misconfiguration");
     expect(manifestNote(notes, "no/such/file.jsonl")).toBeNull();
     expect(manifestNote(null, F03.file)).toBeNull();
+  });
+
+  // CRITIC-2: the listing's digest of a log is compared with the checked manifest's own pin.
+  it("cross-checks a listed log digest against the checked manifest's own pin", () => {
+    expect(logPin(notes, F03.file, F03.sha256)).toEqual({ status: "matches", sha256: F03.sha256 });
+    expect(logPin(notes, F03.file, F03.sha256.toUpperCase())).toEqual({ status: "matches", sha256: F03.sha256 });
+    const rewritten = "a".repeat(64);
+    // The manifest's pin is the one a downloaded file is compared with; the listing's is kept to be named.
+    expect(logPin(notes, F03.file, rewritten)).toEqual({ status: "differs", sha256: F03.sha256, listing: rewritten });
+    expect(logPin(notes, "no/such/file.jsonl", rewritten)).toEqual({ status: "unlisted", sha256: rewritten });
+    // No checked manifest: only the listing's digest is known, and said to be unchecked.
+    expect(logPin(null, F03.file, rewritten)).toEqual({ status: "unchecked", sha256: rewritten });
+  });
+
+  // A digest is labelled pinned by the manifest only when no checked manifest contradicts that.
+  it("labels the manifest's own pin as pinned, and the listing's digest as listed where the manifest disagrees", () => {
+    const rewritten = "a".repeat(64);
+    expect(pinDisplay(logPin(notes, F03.file, F03.sha256))).toEqual({ pinned: F03.sha256, listed: null });
+    expect(pinDisplay(logPin(notes, F03.file, rewritten))).toEqual({ pinned: F03.sha256, listed: rewritten });
+    expect(pinDisplay(logPin(notes, "no/such/file.jsonl", rewritten))).toEqual({ pinned: null, listed: rewritten });
+    // No checked manifest: the listing's copy of the pin, as the contract defines it.
+    expect(pinDisplay(logPin(null, F03.file, rewritten))).toEqual({ pinned: rewritten, listed: null });
+    expect(pinDisplay({ status: "checking", sha256: rewritten })).toEqual({ pinned: rewritten, listed: null });
+  });
+
+  it("says where the digest a downloaded file is compared with comes from", () => {
+    const rewritten = "a".repeat(64);
+    expect(pinSource(logPin(notes, F03.file, F03.sha256))).toBe("manifest");
+    expect(pinSource(logPin(notes, F03.file, rewritten))).toBe("manifest");
+    expect(pinSource(logPin(notes, "no/such/file.jsonl", rewritten))).toBe("unlisted");
+    expect(pinSource(logPin(null, F03.file, rewritten))).toBe("listing");
+    expect(pinSource({ status: "checking", sha256: rewritten })).toBe("listing");
+  });
+
+  it("reads a pin as being checked while the manifest is read, never as unchecked", () => {
+    const showcase = { entries: [F03], manifest_file: "MANIFEST.json", manifest_sha256: "0".repeat(64) };
+    expect(archivePin({ status: "ready", showcase, manifest: { status: "loading" } }, F03.file, F03.sha256)).toEqual({
+      status: "checking",
+      sha256: F03.sha256,
+    });
+    expect(
+      archivePin({ status: "ready", showcase, manifest: { status: "ready", sha256: "0".repeat(64), matches: true, manifest: notes } }, F03.file, F03.sha256),
+    ).toEqual({ status: "matches", sha256: F03.sha256 });
+    expect(
+      archivePin({ status: "ready", showcase, manifest: { status: "ready", sha256: "1".repeat(64), matches: false, manifest: null } }, F03.file, F03.sha256),
+    ).toEqual({ status: "unchecked", sha256: F03.sha256 });
+  });
+});
+
+// GATES-03: a manifest whose bytes do not hash to the published digest lends nothing.
+describe("readManifest", () => {
+  const genuine = researchBytes("MANIFEST.json");
+  const listing = (bytes: Uint8Array) => ({
+    entries: [],
+    manifest_file: "MANIFEST.json",
+    manifest_sha256: createHash("sha256").update(bytes).digest("hex"),
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("parses a manifest that matches the published digest", async () => {
+    vi.spyOn(api, "bytes").mockResolvedValue(new Uint8Array(genuine));
+    const state = await readManifest(listing(genuine));
+    expect(state.status).toBe("ready");
+    expect(state.status === "ready" && state.matches).toBe(true);
+    expect(state.status === "ready" ? manifestNote(state.manifest, "2026-10-26/live-battery-2026-10-26.jsonl") : null).toContain(
+      "a deployment misconfiguration",
+    );
+  });
+
+  it("keeps nothing of a forged manifest that parses but does not match", async () => {
+    const forged = Buffer.from(
+      JSON.stringify({
+        created: "2026-10-27",
+        files: [{ path: "2026-10-26/live-battery-2026-10-26.jsonl", sha256: "0", kind: "event_log", description: "forged note" }],
+      }),
+    );
+    vi.spyOn(api, "bytes").mockResolvedValue(new Uint8Array(forged));
+    const state = await readManifest(listing(genuine));
+    expect(state).toMatchObject({ status: "ready", matches: false, manifest: null });
+  });
+
+  it("keeps a failed download as an error, never as a manifest", async () => {
+    vi.spyOn(api, "bytes").mockRejectedValue(new Error("network down"));
+    const state = await readManifest(listing(genuine));
+    expect(state.status).toBe("error");
   });
 });
 

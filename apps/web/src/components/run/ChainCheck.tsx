@@ -11,7 +11,9 @@
 // only the chain fields and replays nothing, see the header of verify.ts and
 // the Run.chain.limits text), every link is followed, and the
 // run's own segment is compared with what the views hold: the file's SHA-256
-// with the digest the archive's manifest pins (ShowcaseEntryV1.sha256), the
+// with the digest the archive's manifest pins (the manifest's own entry once
+// this browser checked the manifest, else the listing's copy of it,
+// ShowcaseEntryV1.sha256, and said to be that), the
 // head (the hash of the run's last record) with the receipt's, the record
 // count with the receipt's, the first and last sequence with the detail's
 // chain. The result is pass, the first failing record, or, for a run whose
@@ -60,7 +62,17 @@ export type ChainSource = {
   name: string;
   /** The file's pinned SHA-256 (a research file); null for this server's log. */
   sha256: string | null;
+  /**
+   * Where `sha256` comes from: the manifest this browser checked ("manifest");
+   * the listing's copy of the pin, because the checked manifest does not name
+   * the file ("unlisted") or because no manifest was checked ("listing");
+   * null for this server's log.
+   */
+  pinSource: "manifest" | "unlisted" | "listing" | null;
 };
+
+/** The digest a finished check compared the file with, and where it came from, as of when it ran. */
+type ComparedPin = Pick<ChainSource, "sha256" | "pinSource">;
 
 type ChainCheckProps = {
   runId: string;
@@ -81,6 +93,8 @@ type CheckState =
       receipt: RunReceiptV2 | null;
       /** The detail's chain as it stood when this check started. */
       chain: ChainV1 | null;
+      /** The digest the file was compared with, and where it came from, when this check started. */
+      pin: ComparedPin;
     }
   | { status: "error"; error: ApiError }
   | { status: "unsupported" };
@@ -147,6 +161,10 @@ export function ChainCheck({ runId, source, chain, readReceipt }: ChainCheckProp
       return;
     }
     setState({ status: "running" });
+    // The verdict and the sentence that says what it was compared with come
+    // from the same digest: the one in hand when the check ran, even if the
+    // manifest is read (or read again) afterwards.
+    const pin: ComparedPin = { sha256: source.sha256, pinSource: source.pinSource };
     // The detail's chain as it stands now, and the receipt read now, before
     // the log: the log is append-only, so it holds every record they count.
     const expectedChain = chain;
@@ -163,14 +181,14 @@ export function ChainCheck({ runId, source, chain, readReceipt }: ChainCheckProp
       const result = await verifyLog(bytes);
       const segment = checkSegment(result, {
         runId,
-        sha256: source.sha256,
+        sha256: pin.sha256,
         receiptHead: receipt === null ? undefined : (receipt.chain.head_hash ?? null),
         receiptEventCount: receipt?.event_count ?? null,
         firstSequence: expectedChain?.first_sequence ?? null,
         lastSequence: expectedChain?.last_sequence ?? null,
         chainHead: expectedChain?.head_hash ?? null,
       });
-      setState({ status: "done", result, segment, receipt, chain: expectedChain });
+      setState({ status: "done", result, segment, receipt, chain: expectedChain, pin });
     } catch (error) {
       setState({
         status: "error",
@@ -303,7 +321,6 @@ export function ChainCheck({ runId, source, chain, readReceipt }: ChainCheckProp
       {state.status === "done" ? (
         <ChainResultPanel
           state={state}
-          source={source}
           headline={headline(state.segment)}
           verdictBadge={verdictBadge}
           failureText={failureText}
@@ -319,21 +336,20 @@ type DoneState = Extract<CheckState, { status: "done" }>;
 /** The detailed results of a finished check (outside the status region). */
 function ChainResultPanel({
   state,
-  source,
   headline,
   verdictBadge,
   failureText,
   receiptDate,
 }: {
   state: DoneState;
-  source: ChainSource;
   headline: ReactNode;
   verdictBadge: (verdict: Verdict) => ReactNode;
   failureText: (failure: NonNullable<ChainResult["failure"]>) => string;
   receiptDate: (iso: string) => string;
 }) {
   const t = useTranslations("Run.chain");
-  const { result, segment, receipt } = state;
+  // The receipt, the detail's chain and the pin as they stood when this check started.
+  const { result, segment, receipt, pin } = state;
   const lastSequence = state.chain?.last_sequence;
   const earlier = isEarlier(segment);
   // The record at the receipt's own last position (the receipt's head), when the log grew past it.
@@ -354,9 +370,13 @@ function ChainResultPanel({
       <ul className="hc-list" data-chain-results>
         <li data-chain-result="sha256">
           {verdictBadge(segment.sha256)}{" "}
-          {source.sha256 === null
+          {pin.sha256 === null
             ? t("sha256Own", { sha256: result.sha256, bytes: result.bytes })
-            : t("sha256", { sha256: result.sha256, bytes: result.bytes })}
+            : pin.pinSource === "manifest"
+              ? t("sha256", { sha256: result.sha256, bytes: result.bytes })
+              : pin.pinSource === "unlisted"
+                ? t("sha256Unlisted", { sha256: result.sha256, bytes: result.bytes })
+                : t("sha256Listing", { sha256: result.sha256, bytes: result.bytes })}
         </li>
         <li data-chain-result="chain">
           {verdictBadge(segment.chain)}{" "}
@@ -407,7 +427,7 @@ function ChainResultPanel({
         </li>
       </ul>
       <p className="hc-supporting">
-        {!segment.unchained ? t("limits") : source.sha256 === null ? t("limitsUnchainedOwn") : t("limitsUnchained")}
+        {!segment.unchained ? t("limits") : pin.sha256 === null ? t("limitsUnchainedOwn") : t("limitsUnchained")}
       </p>
     </div>
   );

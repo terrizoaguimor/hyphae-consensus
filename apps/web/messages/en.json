@@ -506,7 +506,9 @@
       "cancelHint": "Only a run that is still deliberating can be cancelled.",
       "archiveLog": "Download the archived log file {name} (this run is one segment of it)",
       "recordedReadOnly": "A recorded run of the research archive is read-only: no decision can be recorded here.",
-      "archiveLogPending": "The archived log file comes with the showcase listing, which has not been read, or does not list this run."
+      "archiveLogPending": "The archived log file comes with the showcase listing, which does not list this run.",
+      "archiveLogLoading": "Reading the showcase listing, which names the archived log file…",
+      "archiveLogFailed": "The archived log file comes with the showcase listing, which could not be read: its error, with a retry, is shown above."
     },
     "failure": {
       "title": "The run failed",
@@ -716,10 +718,12 @@
       "logHeading": "Verbatim log",
       "logOwn": "The run’s stored records, line for line, as the chain hashes them.",
       "logArchive": "The archived log file this run is a segment of, byte for byte as the research archive holds it; its SHA-256 is pinned in the archive’s manifest.",
+      "logArchiveUnlisted": "The archived log file this run is a segment of, byte for byte as the research archive holds it; the manifest checked in this browser does not name it, so the SHA-256 below is the one the server lists.",
       "logUnavailable": "The verbatim log of this run is not published on the public surface: a live model’s records may quote upstream text. The receipt carries its sanitized view.",
       "logDownload": "Download {name}",
       "receiptDownload": "Download {name}",
       "pinnedSha256": "SHA-256 pinned by MANIFEST.json",
+      "listedSha256": "SHA-256 the server lists for this file",
       "cli": "To check the downloaded log and receipt yourself, run this read-only command:",
       "cliOperator": "With the operator’s copy of the log, the same read-only check runs as:",
       "receiptHeading": "Receipt",
@@ -766,7 +770,9 @@
       "verificationsSimulated": "{count, plural, =0 {No SIMULATED proof among them.} one {# of them is a SIMULATED proof: scripted, nothing checked.} other {# of them are SIMULATED proofs: scripted, nothing checked.}}",
       "limitationsHeading": "Proof limitations, as the receipt states them (English)",
       "receiptJson": "The receipt as JSON",
-      "archivePending": "This run’s log file and its pinned digest come with the showcase listing, which has not been read, or does not list this run."
+      "archivePending": "This run’s log file and its pinned digest come with the showcase listing, which does not list this run.",
+      "archiveLoading": "Reading the showcase listing, which names this run’s log file and its pinned digest…",
+      "archiveFailed": "This run’s log file, its pinned digest, the command that checks it and the in-browser chain check come with the showcase listing, which could not be read: its error, with a retry, is shown above."
     },
     "meta": {
       "heading": "Meta API panel",
@@ -929,6 +935,8 @@
       "segmentEarlier": "This run’s records in the file: sequences {first} to {last} ({count, plural, =0 {none} one {# record} other {# records}}). The detail’s chain was read when the run stood at sequence {detailLast}, and the file’s record {detailLast} hashes to that chain’s head: the later records were appended after it.",
       "sha256": "File SHA-256 {sha256} ({bytes} bytes), against the digest the archive’s manifest pins.",
       "sha256Own": "File SHA-256 {sha256} ({bytes} bytes); this server’s log has no pinned digest to compare it with.",
+      "sha256Listing": "File SHA-256 {sha256} ({bytes} bytes), against the digest the server lists for this file; the manifest’s own pin of it was not checked in this browser.",
+      "sha256Unlisted": "File SHA-256 {sha256} ({bytes} bytes), against the digest the server lists for this file; the manifest checked in this browser does not name this file.",
       "records": "{count, plural, =0 {No record of the file checked.} one {# record of the file checked: its hash recomputed, its link followed.} other {# records of the file checked: every hash recomputed, every link followed.}}",
       "recordsLegacy": "{chained, plural, =0 {No record of the file checked.} one {# record of the file checked: its hash recomputed, its link followed.} other {# records of the file checked: every hash recomputed, every link followed.}} {legacy, plural, =0 {Every record of the file carries a hash.} one {The # record before the chain carries no hash (pre-1.1) and is not chain-verified.} other {The # records before the chain carry no hash (pre-1.1) and are not chain-verified.}}",
       "unchained": "{count, plural, =0 {This run has no record in the file.} one {This run’s # record carries no hash (pre-1.1): there is nothing to recompute.} other {This run’s # records carry no hash (pre-1.1): there is nothing to recompute.}}",
@@ -981,6 +989,7 @@
     "recordedNote": "Every run here is RECORDED: shown from the archive, read-only, never as running. Its model and evidence labels are the ones its records carry.",
     "batteryCount": "{count, plural, =0 {No run} one {# run} other {# runs}}",
     "logFile": "Log file {file}, SHA-256 {sha256}… (pinned by the archive’s manifest).",
+    "logFileListed": "Log file {file}, SHA-256 {sha256}… (as the server lists it: the manifest checked in this browser does not name it).",
     "download": "Download {name}",
     "noteHeading": "The archive’s note on this file (MANIFEST.json, English):",
     "noteHeadingDated": "The archive’s note on this file (MANIFEST.json of {created}, English):",
@@ -1000,6 +1009,14 @@
       "differs": "Checked in this browser: the manifest’s bytes hash to {sha256}…, not to the published SHA-256, so its notes are not shown.",
       "trust": "This is only as strong as the copy of the digest you compare with, for example a MANIFEST.json in a tagged commit."
     },
+    "pin": {
+      "matches": "The manifest checked in this browser pins this same SHA-256 for this file.",
+      "differs": "The manifest checked in this browser pins {sha256}… for this file, not the {listing}… the server lists: the file the server describes is not the one the manifest pins.",
+      "differsBadge": "differs from the manifest",
+      "unlisted": "The manifest checked in this browser does not name this file, so this SHA-256 rests on the server’s word alone.",
+      "checking": "The manifest is still being checked in this browser; this SHA-256 is compared with its pin once it is.",
+      "unchecked": "Not compared with the manifest’s own pin: no manifest whose bytes match the published SHA-256 has been read and parsed in this browser."
+    },
     "run": {
       "heading": "Recorded run, read-only",
       "banner": "Run {label} of battery {battery}, shown from the research archive: nothing streams, nothing runs, and no decision can be recorded here.",
@@ -1008,8 +1025,14 @@
       "generationFailed": "{count, plural, =0 {No proof generation failed.} one {Blocked because no proof could be generated upstream for the # record whose proof reads invalid (it reports a proof error): that status records a failure to produce a proof, not a check that found the record altered.} other {Blocked because no proof could be generated upstream for the # records whose proofs read invalid (each reports a proof error): that status records a failure to produce proofs, not a check that found a record altered.}}",
       "generationFailedNote": {
         "shown": "The archive’s own note on this log, shown below, names the cause.",
-        "unread": "The archive’s manifest could not be read or parsed in this browser, so its note on this log is not shown.",
-        "differs": "The archive manifest’s bytes do not hash to the published SHA-256, so its note on this log is not shown."
+        "unread": "The archive’s note on this log is not shown: its manifest could not be used in this browser, as said above.",
+        "differs": "The archive’s note on this log is not shown: its manifest does not match the published SHA-256, as said above."
+      },
+      "listingFailed": "The showcase listing could not be read, so this run’s log file, its pinned SHA-256, the command that checks it and the in-browser chain check are not available until it is read.",
+      "manifestProblem": {
+        "unread": "The archive’s manifest could not be read, so its note on this run’s log, if it has one, is not shown, and the log’s SHA-256 is not compared with the manifest’s own pin.",
+        "unparsed": "The archive’s manifest does not read as the archive’s format in this browser, so its note on this run’s log, if it has one, is not shown, and the log’s SHA-256 is not compared with the manifest’s own pin.",
+        "differs": "The archive manifest’s bytes do not hash to the published SHA-256, so its note on this run’s log, if it has one, is not shown, and the log’s SHA-256 is not compared with it."
       },
       "awaiting": "stopped at its decision point; no decision was recorded",
       "back": "Back to the showcase"

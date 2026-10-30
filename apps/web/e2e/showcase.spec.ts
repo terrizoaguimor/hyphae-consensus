@@ -15,6 +15,8 @@
 // or dropped; and nothing reads LIVE, in any locale. axe on the list and on
 // the recorded run's tabs, in four locales and both themes.
 
+import { createHash } from "node:crypto";
+
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 import { IntlMessageFormat } from "intl-messageformat";
@@ -111,6 +113,8 @@ test("the showcase lists the archive as RECORDED, by battery, every outcome next
   );
   await expect(battery).toContainText(String(l01.sha256).slice(0, 12));
   await expect(page.locator("[data-manifest-check='matches']")).toHaveText(t("en", "Showcase.manifest.matches"));
+  // The listed digest agrees with the checked manifest's own pin.
+  await expect(battery.locator("[data-log-pin='matches']")).toHaveText(t("en", "Showcase.pin.matches"));
   // The archive's own note on the 2026-10-26 battery names the cause of its blocked runs.
   await expect(battery.locator("[data-archive-note] blockquote")).toContainText("a deployment misconfiguration");
   await expectNoLiveOnPage(page, "en", IDENTIFIERS);
@@ -649,11 +653,22 @@ test("a showcase that cannot be read is said, with a retry", async ({ page, page
 });
 
 test("a manifest that does not match its published digest lends no note", async ({ page }) => {
-  const { list } = entries();
+  const { l01, r06, list } = entries();
   const forged = Buffer.from(
-    JSON.stringify({ created: "2026-10-27", files: [{ path: "2026-10-26/live-battery-2026-10-26.jsonl", sha256: "0", kind: "event_log", description: "forged note" }] }),
+    JSON.stringify({
+      created: "2026-10-27",
+      files: [
+        { path: "2026-10-26/live-battery-2026-10-26.jsonl", sha256: "0", kind: "event_log", description: "forged note" },
+        // A forged pin that parses and agrees with the listing: still not the checked manifest's.
+        { path: String(r06.file), sha256: String(r06.sha256), kind: "event_log", description: "forged note on R06" },
+      ],
+    }),
   );
-  await mockApi(page, { showcase: list, research: { "MANIFEST.json": forged } });
+  await mockApi(page, {
+    showcase: list,
+    research: { "MANIFEST.json": forged },
+    recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true }), recordedRun(r06, { base: "retry" })],
+  });
   await openShowcase(page, "en");
   await expect(page.locator("[data-manifest-check='differs']")).toBeVisible();
   await expect(page.locator("[data-archive-note]")).toHaveCount(0);
@@ -663,6 +678,392 @@ test("a manifest that does not match its published digest lends no note", async 
     "Checked in this browser: the manifest’s bytes hash to",
   );
   await expect(page.locator("[data-manifest-announcement]")).toContainText("not to the published SHA-256");
+  // GATES-03: no log digest reads as the manifest's pin.
+  await expect(page.locator("[data-log-pin='matches']")).toHaveCount(0);
+  await expect(page.locator(`[data-archive-file='${String(r06.file)}'] [data-log-pin='unchecked']`)).toHaveText(
+    t("en", "Showcase.pin.unchecked"),
+  );
+
+  // GATES-03: the recorded run header of the 2026-10-26 blocked battery lends nothing of it either.
+  await openRecorded(page, "en", String(l01.run_id));
+  const header = page.locator("[data-recorded-run]");
+  await expect(header.locator("[data-manifest-problem='differs']")).toHaveText(
+    t("en", "Showcase.run.manifestProblem.differs"),
+  );
+  await expect(header.locator("[data-archive-note-reference='differs']")).toBeVisible();
+  // The header says why once; the blocked-run sentence points to it instead of repeating it.
+  const said = (await header.innerText()).split("hash to the published SHA-256").length - 1;
+  expect(said).toBe(1);
+  await expect(header.locator("[data-archive-note-reference='differs']")).toHaveText(
+    t("en", "Showcase.run.generationFailedNote.differs"),
+  );
+  await expect(page.locator("[data-archive-note]")).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText("forged note");
+  // And a run that is not blocked (R06), whose forged entry agrees with the listing.
+  await openRecorded(page, "en", String(r06.run_id));
+  await expect(page.locator("[data-recorded-run] [data-manifest-problem='differs']")).toBeVisible();
+  await expect(page.locator("[data-archive-note]")).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText("forged note");
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-log] [data-log-pin='unchecked']")).toHaveText(t("en", "Showcase.pin.unchecked"));
+  await expect(page.locator("[data-log-pin='matches']")).toHaveCount(0);
+});
+
+// RECORDED-UX-1: a recorded run whose listing cannot be read says so, with
+// a retry, and names what it leaves out; never "not read, or not listed".
+test("a recorded run whose showcase listing cannot be read says what it leaves out, with a retry", async ({
+  page,
+  pageProblems,
+}) => {
+  const { r06, list } = entries();
+  const runId = String(r06.run_id);
+  const mock = await mockApi(page, {
+    showcase: list,
+    recordedRuns: [recordedRun(r06, { base: "retry" })],
+    showcaseFailures: { count: 1, answer: { status: 503, body: { code: "shutting_down", message: "shutting down" } } },
+  });
+  await openRecorded(page, "en", runId);
+  const header = page.locator("[data-recorded-run]");
+  const failed = header.locator("[data-archive-error]");
+  await expect(failed).toContainText(t("en", "Showcase.run.listingFailed"));
+  await expect(failed.locator("[data-error-code='shutting_down']")).toContainText(t("en", "Api.errors.shutting_down"));
+  // The Decision tab names the cause in place of the log link.
+  await expect(page.locator("[data-ndjson-unavailable='error']")).toHaveText(t("en", "Run.decision.archiveLogFailed"));
+  await expect(page.locator("[data-ndjson-link]")).toHaveCount(0);
+  await expect(page.getByText(t("en", "Run.decision.archiveLogPending"))).toHaveCount(0);
+  // So does the Audit trail: no log, digest, command or chain check, and why.
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-log='archive-error'] [data-log-unavailable]")).toHaveText(
+    t("en", "Run.audit.archiveFailed"),
+  );
+  await expect(page.getByText(t("en", "Run.audit.archivePending"))).toHaveCount(0);
+  await expect(page.locator("[data-cli]")).toHaveCount(0);
+  await expect(page.locator("[data-chain-check]")).toHaveCount(0);
+  expect(mock.calls.filter((c) => c.path === "/api/v1/showcase")).toHaveLength(1);
+
+  // The retry reads the listing again: the entry, its log, digest, command and check appear.
+  await failed.getByRole("button", { name: t("en", "Api.retry") }).click();
+  await expect(header.locator("[data-archive-error]")).toHaveCount(0);
+  await expect(header).toContainText(t("en", "Showcase.run.banner", { label: "R06", battery: "live-battery-2026-10-27" }));
+  await expect(page.locator("[data-audit-log='published'] [data-log-link]")).toHaveAttribute(
+    "href",
+    `/research/${String(r06.file)}`,
+  );
+  await expect(page.locator("[data-log-sha256]")).toHaveText(String(r06.sha256));
+  await expect(page.locator("[data-log-pin='matches']")).toHaveText(t("en", "Showcase.pin.matches"));
+  await expect(page.locator("[data-cli]")).toBeVisible();
+  await expect(page.locator("[data-chain-check]")).toBeVisible();
+  expect(mock.calls.filter((c) => c.path === "/api/v1/showcase")).toHaveLength(2);
+  takeProblem(pageProblems, "HTTP 503: /api/v1/showcase");
+});
+
+test("a recorded run whose detail and listing both fail: the run's retry reads the listing again too", async ({
+  page,
+  pageProblems,
+}) => {
+  const { r06, list } = entries();
+  const runId = String(r06.run_id);
+  const mock = await mockApi(page, {
+    showcase: list,
+    recordedRuns: [recordedRun(r06, { base: "retry" })],
+    showcaseFailures: { count: 1, answer: { status: 503, body: { code: "shutting_down", message: "shutting down" } } },
+  });
+  // Registered after mockApi: the first GET /showcase/{id} fails, then the mock answers.
+  let detailFailures = 1;
+  await page.route(`**/api/v1/showcase/${runId}`, async (route) => {
+    if (detailFailures > 0) {
+      detailFailures -= 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ code: "shutting_down", message: "shutting down" }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.goto(showcaseRunPath("en", runId));
+  await hydrated(page);
+  const error = page.locator("[data-run='error']");
+  await expect(error.locator("[data-error-code='shutting_down']")).toBeVisible();
+  await expect.poll(() => mock.calls.filter((c) => c.path === "/api/v1/showcase").length).toBe(1);
+  await error.getByRole("button", { name: t("en", "Api.retry") }).click();
+  await expect(page.locator("[data-run-mode='recorded']")).toBeVisible();
+  // The listing was read again with the detail: the run is named, with its log.
+  await expect(page.locator("[data-recorded-run]")).toContainText(
+    t("en", "Showcase.run.banner", { label: "R06", battery: "live-battery-2026-10-27" }),
+  );
+  await expect(page.locator("[data-archive-error]")).toHaveCount(0);
+  await expect(page.locator("[data-ndjson-link]")).toHaveAttribute("href", `/research/${String(r06.file)}`);
+  expect(mock.calls.filter((c) => c.path === "/api/v1/showcase")).toHaveLength(2);
+  takeProblem(pageProblems, `HTTP 503: /api/v1/showcase/${runId}`);
+  takeProblem(pageProblems, "HTTP 503: /api/v1/showcase");
+});
+
+// RECORDED-UX-3: a manifest that cannot be downloaded has its own retry,
+// and a recorded run says its note could not be read instead of dropping it.
+test("a manifest that cannot be downloaded is said, with a retry of the manifest alone", async ({ page, pageProblems }) => {
+  const { list } = entries();
+  const mock = await mockApi(page, { showcase: list });
+  // Answers the first manifest request with an error, then hands the rest to the archive route.
+  let failures = 1;
+  let manifestRequests = 0;
+  await page.route("**/research/MANIFEST.json", async (route) => {
+    manifestRequests += 1;
+    if (failures > 0) {
+      failures -= 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ code: "shutting_down", message: "shutting down" }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await openShowcase(page, "en");
+  const line = page.locator("[data-manifest='error']");
+  await expect(line.locator("[data-error-code='shutting_down']")).toContainText(t("en", "Api.errors.shutting_down"));
+  await expect(page.locator("[data-archive-note]")).toHaveCount(0);
+  await expect(page.locator("[data-log-pin='unchecked']").first()).toHaveText(t("en", "Showcase.pin.unchecked"));
+  await line.getByRole("button", { name: t("en", "Api.retry") }).click();
+  await expect(page.locator("[data-manifest-check='matches']")).toHaveText(t("en", "Showcase.manifest.matches"));
+  await expect(
+    page.locator("[data-battery='live-battery-2026-10-26'] [data-archive-note] blockquote"),
+  ).toContainText("a deployment misconfiguration");
+  await expect(page.locator("[data-log-pin='unchecked']")).toHaveCount(0);
+  // Only the manifest was read again, not the listing.
+  expect(manifestRequests).toBe(2);
+  expect(mock.calls.filter((c) => c.path === "/research/MANIFEST.json")).toHaveLength(1);
+  expect(mock.calls.filter((c) => c.path === "/api/v1/showcase")).toHaveLength(1);
+  takeProblem(pageProblems, "HTTP 503: /research/MANIFEST.json");
+  dropProblems(pageProblems, /^console: Failed to load resource: the server responded with a status of 503/);
+});
+
+test("a recorded run whose manifest cannot be downloaded says its note is not shown, with a retry", async ({
+  page,
+  pageProblems,
+}) => {
+  const { l01, list } = entries();
+  const mock = await mockApi(page, {
+    showcase: list,
+    recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true })],
+  });
+  // Answers the first manifest request with an error, then hands the rest to the archive route.
+  let failures = 1;
+  let manifestRequests = 0;
+  await page.route("**/research/MANIFEST.json", async (route) => {
+    manifestRequests += 1;
+    if (failures > 0) {
+      failures -= 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ code: "shutting_down", message: "shutting down" }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await openRecorded(page, "en", String(l01.run_id));
+  const header = page.locator("[data-recorded-run]");
+  const problem = header.locator("[data-manifest-problem='unread']");
+  await expect(problem).toContainText(t("en", "Showcase.run.manifestProblem.unread"));
+  await expect(problem.locator("[data-error-code='shutting_down']")).toContainText(t("en", "Api.errors.shutting_down"));
+  await expect(page.locator("[data-archive-note]")).toHaveCount(0);
+  // The header says why once; the blocked-run sentence points to it instead of repeating it.
+  await expect(header.locator("[data-archive-note-reference='unread']")).toHaveText(
+    t("en", "Showcase.run.generationFailedNote.unread"),
+  );
+  const said = (await header.innerText()).split("manifest could not be read").length - 1;
+  expect(said).toBe(1);
+  await problem.getByRole("button", { name: t("en", "Api.retry") }).click();
+  await expect(header.locator("[data-manifest-problem]")).toHaveCount(0);
+  await expect(header.locator("[data-archive-note] blockquote")).toContainText("a deployment misconfiguration");
+  await expect(header.locator("[data-archive-note-reference='shown']")).toHaveText(
+    t("en", "Showcase.run.generationFailedNote.shown"),
+  );
+  expect(manifestRequests).toBe(2);
+  expect(mock.calls.filter((c) => c.path === "/research/MANIFEST.json")).toHaveLength(1);
+  expect(mock.calls.filter((c) => c.path === "/api/v1/showcase")).toHaveLength(1);
+  takeProblem(pageProblems, "HTTP 503: /research/MANIFEST.json");
+  dropProblems(pageProblems, /^console: Failed to load resource: the server responded with a status of 503/);
+});
+
+// CRITIC-2: the listed digest of a log is compared with the checked
+// manifest's own pin, and the chain check compares the file with that pin.
+test("a listed log digest that differs from the checked manifest's pin is said, and the file is checked against the manifest", async ({
+  page,
+}) => {
+  const { c01, l01, r06 } = entries();
+  const file = String(r06.file);
+  // A rewritten log served with the listing re-hashed to it; the manifest is the genuine one.
+  const original = researchBytes(file);
+  const at = original.indexOf(Buffer.from('"type":"'));
+  expect(at).toBeGreaterThanOrEqual(0);
+  const rewritten = Buffer.from(original);
+  rewritten[at + 8] = (rewritten[at + 8] ?? 0) ^ 0x20;
+  const rewrittenSha = createHash("sha256").update(rewritten).digest("hex");
+  const pinned = String(r06.sha256);
+  expect(rewrittenSha).not.toBe(pinned);
+  const listed = { ...r06, sha256: rewrittenSha };
+  await mockApi(page, {
+    showcase: [c01, l01, listed, F03],
+    recordedRuns: [recordedRun(listed, { base: "retry" })],
+    research: { [file]: rewritten },
+  });
+  await openShowcase(page, "en");
+  await expect(page.locator("[data-manifest-check='matches']")).toBeVisible();
+  const pin = page.locator(`[data-archive-file='${file}'] [data-log-pin='differs']`);
+  await expect(pin).toContainText(t("en", "Showcase.pin.differsBadge"));
+  await expect(pin).toContainText(pinned.slice(0, 12));
+  await expect(pin).toContainText(rewrittenSha.slice(0, 12));
+  // The digest said to be pinned by the manifest is the manifest's own, not the listing's.
+  const logFile = page.locator(`[data-archive-file='${file}'] [data-log-file-sha256]`);
+  await expect(logFile).toHaveAttribute("data-log-file-sha256", pinned);
+  await expect(logFile).toHaveText(t("en", "Showcase.logFile", { file, sha256: pinned.slice(0, 12) }));
+  // The other battery's log agrees with the manifest.
+  await expect(page.locator("[data-archive-file='2026-10-26/live-battery-2026-10-26.jsonl'] [data-log-pin='matches']")).toHaveText(
+    t("en", "Showcase.pin.matches"),
+  );
+
+  await openRecorded(page, "en", String(r06.run_id));
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  // Under "pinned by MANIFEST.json", the checked manifest's own pin; the listing's digest under its own label.
+  await expect(page.locator("[data-log-sha256]")).toHaveText(pinned);
+  await expect(page.locator("[data-audit-log] dt").first()).toHaveText(t("en", "Run.audit.pinnedSha256"));
+  const listedRow = page.locator("[data-audit-log] .hc-kv-wide").filter({ has: page.locator("[data-log-listed-sha256]") });
+  await expect(listedRow.locator("dt")).toHaveText(t("en", "Run.audit.listedSha256"));
+  await expect(listedRow.locator("[data-log-listed-sha256]")).toHaveText(rewrittenSha);
+  await expect(page.locator("[data-audit-log]")).toContainText(t("en", "Run.audit.logArchive"));
+  const auditPin = page.locator("[data-audit-log] [data-log-pin='differs']");
+  await expect(auditPin).toContainText(pinned.slice(0, 12));
+  await expect(auditPin).toContainText(rewrittenSha.slice(0, 12));
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const verdict = page.locator("[data-chain-verdict='fail']");
+  await expect(verdict).toBeVisible();
+  const sha256 = verdict.locator("[data-chain-result='sha256']");
+  // The file is the listed one, not the one the checked manifest pins: a mismatch.
+  await expect(sha256).toContainText(t("en", "Run.chain.verdicts.fail"));
+  await expect(sha256).not.toContainText(t("en", "Run.chain.verdicts.pass"));
+  await expect(sha256).toContainText(rewrittenSha);
+  await expect(sha256).toContainText("against the digest the archive’s manifest pins");
+  await expect(sha256).toContainText(t("en", "Run.chain.sha256", { sha256: rewrittenSha, bytes: rewritten.length }));
+  await expect(sha256).not.toContainText(t("en", "Run.chain.sha256Listing", { sha256: rewrittenSha, bytes: rewritten.length }));
+});
+
+// A checked manifest that does not name the listed file: the digest is the
+// server's word alone, and nothing calls it pinned by the manifest.
+test("a listed log the checked manifest does not name is labelled as the server lists it", async ({ page }) => {
+  const { c01, l01, r06 } = entries();
+  const file = "2026-10-27/live-battery-2026-10-27-unnamed.jsonl";
+  const bytes = researchBytes(String(r06.file));
+  const listed = { ...r06, file };
+  await mockApi(page, {
+    showcase: [c01, l01, listed, F03],
+    // The run's records are R06's own (read from its archived file); the listing names the same bytes under another path.
+    recordedRuns: [recordedRun(r06, { base: "retry" })],
+    research: { [file]: bytes },
+  });
+  await openShowcase(page, "en");
+  await expect(page.locator("[data-manifest-check='matches']")).toBeVisible();
+  const archived = page.locator(`[data-archive-file='${file}']`);
+  await expect(archived.locator("[data-log-pin='unlisted']")).toHaveText(t("en", "Showcase.pin.unlisted"));
+  await expect(archived.locator("[data-log-file-sha256]")).toHaveText(
+    t("en", "Showcase.logFileListed", { file, sha256: String(r06.sha256).slice(0, 12) }),
+  );
+  await expect(archived).not.toContainText(t("en", "Showcase.logFile", { file, sha256: String(r06.sha256).slice(0, 12) }));
+
+  await openRecorded(page, "en", String(r06.run_id));
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  const log = page.locator("[data-audit-log='published']");
+  await expect(log).toContainText(t("en", "Run.audit.logArchiveUnlisted"));
+  await expect(log).not.toContainText(t("en", "Run.audit.logArchive"));
+  await expect(log.locator("[data-log-sha256]")).toHaveCount(0);
+  await expect(log).not.toContainText(t("en", "Run.audit.pinnedSha256"));
+  await expect(log.locator("[data-log-listed-sha256]")).toHaveText(String(r06.sha256));
+  await expect(log.locator("[data-log-pin='unlisted']")).toHaveText(t("en", "Showcase.pin.unlisted"));
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const sha256 = page.locator("[data-chain-result='sha256']");
+  await expect(sha256).toContainText(t("en", "Run.chain.sha256Unlisted", { sha256: String(r06.sha256), bytes: bytes.length }));
+  await expect(sha256).not.toContainText(t("en", "Run.chain.sha256Listing", { sha256: String(r06.sha256), bytes: bytes.length }));
+  await expect(sha256).toContainText(t("en", "Run.chain.verdicts.pass"));
+});
+
+// A finished chain check keeps saying what it compared the file with, even
+// when the manifest is read afterwards and would lend its own pin.
+test("a chain check run before the manifest was read keeps its listing wording after the manifest's retry", async ({
+  page,
+  pageProblems,
+}) => {
+  const { r06, list } = entries();
+  await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })] });
+  let failures = 1;
+  await page.route("**/research/MANIFEST.json", async (route) => {
+    if (failures > 0) {
+      failures -= 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ code: "shutting_down", message: "shutting down" }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await openRecorded(page, "en", String(r06.run_id));
+  const problem = page.locator("[data-recorded-run] [data-manifest-problem='unread']");
+  await expect(problem).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-log] [data-log-pin='unchecked']")).toBeVisible();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  const sha256 = page.locator("[data-chain-result='sha256']");
+  const bytes = researchBytes(String(r06.file)).length;
+  const listing = t("en", "Run.chain.sha256Listing", { sha256: String(r06.sha256), bytes });
+  const manifest = t("en", "Run.chain.sha256", { sha256: String(r06.sha256), bytes });
+  await expect(sha256).toContainText(listing);
+  // The manifest is read on its retry and pins this file: the finished check still names what it compared with.
+  await problem.getByRole("button", { name: t("en", "Api.retry") }).click();
+  await expect(page.locator("[data-audit-log] [data-log-pin='matches']")).toHaveText(t("en", "Showcase.pin.matches"));
+  await expect(sha256).toContainText(listing);
+  await expect(sha256).not.toContainText(manifest);
+  takeProblem(pageProblems, "HTTP 503: /research/MANIFEST.json");
+  dropProblems(pageProblems, /^console: Failed to load resource: the server responded with a status of 503/);
+});
+
+// While the manifest is still being checked, a log's pin reads as a loading line, not as a result.
+test("a log digest reads as being checked while the manifest is still read", async ({ page }) => {
+  const { list } = entries();
+  await mockApi(page, { showcase: list });
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requested: () => void = () => undefined;
+  const asked = new Promise<void>((resolve) => {
+    requested = resolve;
+  });
+  // Registered after mockApi, so it holds the manifest open; fallback() then
+  // hands the request to the archive route, which serves the real bytes.
+  await page.route("**/research/MANIFEST.json", async (route) => {
+    requested();
+    await held;
+    await route.fallback();
+  });
+  await page.goto(localePath("en", "showcase"));
+  await hydrated(page);
+  await asked;
+  const battery = page.locator("[data-battery='live-battery-2026-10-26']");
+  const checking = battery.locator("[data-log-pin='checking']");
+  await expect(checking).toHaveText(t("en", "Showcase.pin.checking"));
+  await expect(checking).toHaveAttribute("role", "status");
+  await expect(page.locator("[data-log-pin='unchecked']")).toHaveCount(0);
+  release();
+  await expect(battery.locator("[data-log-pin='matches']")).toHaveText(t("en", "Showcase.pin.matches"));
+  await expect(page.locator("[data-log-pin='checking']")).toHaveCount(0);
 });
 
 // A11Y-I18N-2: the manifest check's status region is mounted empty while the

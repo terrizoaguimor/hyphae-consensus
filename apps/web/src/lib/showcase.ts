@@ -221,3 +221,70 @@ export type ArchiveManifest = {
 export function manifestNote(manifest: ArchiveManifest | null, path: string): string | null {
   return manifest?.files.find((file) => file.path === path)?.description ?? null;
 }
+
+/**
+ * A log file's SHA-256 as the views may present it, cross-checked against
+ * the manifest this browser checked:
+ * - "matches": the manifest (its bytes matched the published digest) pins
+ *   the same digest the listing gives;
+ * - "differs": it pins another one (`sha256` is the manifest's, `listing`
+ *   the listing's): the file the listing describes is not the one pinned;
+ * - "unlisted": the checked manifest does not name the file;
+ * - "checking": the manifest is still being read and checked;
+ * - "unchecked": no checked manifest (it could not be read or parsed, or its
+ *   bytes differ), so only the listing's digest is known.
+ * `sha256` is the digest a downloaded file is compared with: the manifest's
+ * whenever there is one, the listing's otherwise.
+ */
+export type LogPin =
+  | { status: "matches"; sha256: string }
+  | { status: "differs"; sha256: string; listing: string }
+  | { status: "unlisted"; sha256: string }
+  | { status: "checking"; sha256: string }
+  | { status: "unchecked"; sha256: string };
+
+/**
+ * How a view labels the log's digest given its pin: the digest it may call
+ * pinned by the manifest (the manifest's own when one was checked, the
+ * listing's copy of it otherwise, as the contract defines that field; none
+ * when the checked manifest does not name the file), and the listing's
+ * digest, named as the server's, when the checked manifest contradicts it
+ * or does not name the file.
+ */
+export function pinDisplay(pin: LogPin): { pinned: string | null; listed: string | null } {
+  switch (pin.status) {
+    case "differs":
+      return { pinned: pin.sha256, listed: pin.listing };
+    case "unlisted":
+      return { pinned: null, listed: pin.sha256 };
+    default:
+      return { pinned: pin.sha256, listed: null };
+  }
+}
+
+/** Where the digest a downloaded file is compared with comes from, by pin (ChainSource.pinSource). */
+export function pinSource(pin: LogPin): "manifest" | "unlisted" | "listing" {
+  switch (pin.status) {
+    case "matches":
+    case "differs":
+      return "manifest";
+    case "unlisted":
+      return "unlisted";
+    default:
+      return "listing";
+  }
+}
+
+/** The pin of `path`, the listing's `listing` digest against a checked manifest (null when there is none). */
+export function logPin(manifest: ArchiveManifest | null, path: string, listing: string): LogPin {
+  if (manifest === null) {
+    return { status: "unchecked", sha256: listing };
+  }
+  const pinned = manifest.files.find((file) => file.path === path)?.sha256;
+  if (pinned === undefined) {
+    return { status: "unlisted", sha256: listing };
+  }
+  return pinned.toLowerCase() === listing.toLowerCase()
+    ? { status: "matches", sha256: pinned }
+    : { status: "differs", sha256: pinned, listing };
+}

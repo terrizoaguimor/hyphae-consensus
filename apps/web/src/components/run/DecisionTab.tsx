@@ -32,6 +32,7 @@ import { ApiErrorNotice } from "../ApiErrorNotice";
 import { Explanation } from "./Explanation";
 import { RevisionComparison } from "./RevisionComparison";
 import { RecommendationLine } from "./StageTab";
+import type { MissingEntry } from "./useRecordedRun";
 import type { RunData } from "./useRunData";
 
 /** Where the receipt and the verbatim log are, for this run's source. */
@@ -43,9 +44,20 @@ export type DecisionLinks = {
    * file); null when it is not published.
    */
   log: { href: string; name: string | null; archive: boolean } | null;
-  /** A recorded run whose archive entry (its log file) is not known yet or at all. */
-  logPending?: boolean;
+  /**
+   * A recorded run without its archive entry (its log file): the listing is
+   * being read, could not be read (its error and retry are in the header),
+   * or does not list the run.
+   */
+  logMissing?: MissingEntry | null;
 };
+
+/** The sentence in place of a recorded run's log link, by why it is missing. */
+const MISSING_LOG = {
+  loading: "archiveLogLoading",
+  error: "archiveLogFailed",
+  unlisted: "archiveLogPending",
+} as const;
 
 type DecisionTabProps = {
   runId: string;
@@ -336,8 +348,14 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
                 {links.log.archive ? t("archiveLog", { name: links.log.name ?? "" }) : t("ndjson")}
               </a>
             ) : (
-              <span className="hc-supporting" data-ndjson-unavailable>
-                {links.logPending === true ? t("archiveLogPending") : t("ndjsonUnavailable")}
+              <span
+                className="hc-supporting"
+                data-ndjson-unavailable={links.logMissing ?? "unpublished"}
+                role={links.logMissing === "loading" ? "status" : undefined}
+              >
+                {links.logMissing === undefined || links.logMissing === null
+                  ? t("ndjsonUnavailable")
+                  : t(MISSING_LOG[links.logMissing])}
               </span>
             )}
           </li>

@@ -4,10 +4,14 @@
 // skippable (button, Escape, backdrop), remembered in localStorage, always
 // reachable from Docs, a modal dialog with a strict focus trap.
 
+import { IntlMessageFormat } from "intl-messageformat";
+
 import {
+  catalogMessage,
   expect,
   focusInOpenDialog,
   hydrated,
+  type Locale,
   locales,
   storedKeys,
   t,
@@ -15,6 +19,15 @@ import {
 } from "./fixtures";
 
 const steps = ["welcome", "guided", "live", "runs", "labels", "decide"];
+
+/**
+ * A Tour message as next-intl formats it: the catalog's ICU source formatted
+ * once in the locale with every value (the step numbers as {current, number}
+ * of {total, number}, a step's title and body as plain arguments). Nothing is
+ * substituted first, so an argument's own text is never parsed as ICU.
+ */
+const tTour = (locale: Locale, key: string, values: Record<string, string | number>) =>
+  String(new IntlMessageFormat(catalogMessage(locale, key), locale).format(values));
 
 test("the tour is offered, never forced, and Skip remembers it @smoke", async ({
   page,
@@ -32,7 +45,7 @@ test("the tour is offered, never forced, and Skip remembers it @smoke", async ({
   });
   await expect(dialog).toBeVisible();
   await expect(dialog.locator(".hc-tour-progress")).toHaveText(
-    t("en", "Tour.progress", { current: 1, total: 6 }),
+    tTour("en", "Tour.progress", { current: 1, total: 6 }),
   );
   await expect(dialog.getByRole("button", { name: t("en", "Tour.next") })).toBeFocused();
 
@@ -60,7 +73,7 @@ test("Next walks all six steps, Back returns, and Finish remembers completion", 
   for (const [index, step] of steps.entries()) {
     await expect(dialog.locator("h2")).toHaveText(t("en", `Tour.steps.${step}.title`));
     await expect(dialog.locator(".hc-tour-progress")).toHaveText(
-      t("en", "Tour.progress", { current: index + 1, total: 6 }),
+      tTour("en", "Tour.progress", { current: index + 1, total: 6 }),
     );
     await expect(dialog).toHaveAccessibleName(t("en", `Tour.steps.${step}.title`));
     if (index === 2) {
@@ -79,7 +92,7 @@ test("Next walks all six steps, Back returns, and Finish remembers completion", 
     if (!isLast) {
       const next = steps[index + 1] ?? "";
       await expect(live).toHaveText(
-        t("en", "Tour.announcement", {
+        tTour("en", "Tour.announcement", {
           current: index + 2,
           total: 6,
           title: t("en", `Tour.steps.${next}.title`),
@@ -160,6 +173,9 @@ for (const locale of locales) {
       name: t(locale, "Tour.steps.welcome.title"),
     });
     await expect(dialog).toBeVisible();
+    await expect(dialog.locator(".hc-tour-progress")).toHaveText(
+      tTour(locale, "Tour.progress", { current: 1, total: 6 }),
+    );
     await expect(dialog.getByRole("button", { name: t(locale, "Tour.next") })).toBeVisible();
     await expect(dialog.getByRole("button", { name: t(locale, "Tour.skip") })).toBeVisible();
     await expect(dialog).toHaveAccessibleDescription(

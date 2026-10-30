@@ -38,12 +38,14 @@ import type {
   ScenarioV1,
 } from "@/lib/api/types";
 import {
+  focusAfterRefusal,
   isTripCode,
   type LiveClosedReason,
   liveClosedReason,
   parseUsd,
   type StartBlocker,
   startBlocker,
+  startNativelyDisabled,
 } from "@/lib/live/form";
 import { evidenceLabel, modelLabel } from "@/lib/provenance";
 import { localePath, runPath } from "@/lib/site";
@@ -99,6 +101,11 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
   }, [attempt]);
 
   const startGuided = async (scenario: GuidedScenario) => {
+    // The pressed button is busy (aria-disabled, still focusable) rather than
+    // disabled, so a second press reaches here and is dropped.
+    if (starting !== null) {
+      return;
+    }
     setStarting(scenario);
     setStartError(null);
     try {
@@ -158,11 +165,12 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
                       />
                     </p>
                     <div className="hc-actions">
+                      {/* The pressed button is busy, never disabled: a disabled button would drop the keyboard focus. */}
                       <Button
                         variant="primary"
                         label={starting === scenario.id ? t("guided.starting") : t("guided.run")}
                         aria-label={t("guided.runScenario", { title: scenario.title })}
-                        isDisabled={starting !== null}
+                        isDisabled={starting !== null && starting !== scenario.id}
                         isLoading={starting === scenario.id}
                         onClick={() => void startGuided(scenario.id)}
                       />
@@ -222,11 +230,38 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const turnstile = useRef<TurnstileControl | null>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  // Set when a request has just been refused, until the form that comes back
+  // has been rendered: where the keyboard focus goes then.
+  const refused = useRef(false);
   const onToken = useCallback((value: string | null) => setToken(value), []);
 
   const closed = liveClosedReason(live, TURNSTILE_SITE_KEY);
   const blocker = startBlocker({ live, presetId, attested, judgeCode, token, starting });
   const budget = live.budget ?? null;
+
+  // The refused request spent the Turnstile token, so the form usually comes
+  // back waiting for a fresh one, with Start natively disabled again: the
+  // focus it held would fall to <body>. The error notice takes it then
+  // (src/lib/live/form.ts focusAfterRefusal); a Start that can be pressed
+  // again keeps it. Only a focus still on Start (or already dropped) moves.
+  useEffect(() => {
+    if (!refused.current || starting) {
+      return;
+    }
+    refused.current = false;
+    const button = submitRef.current;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && active !== button) {
+      return;
+    }
+    if (focusAfterRefusal(closed, blocker) === "notice") {
+      errorRef.current?.focus();
+    } else {
+      button?.focus();
+    }
+  });
 
   const start = async () => {
     if (closed !== null || blocker !== null) {
@@ -236,6 +271,10 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
     // before it reserves the budget, whatever it answers): it leaves with
     // this request only, and the widget is asked for a fresh one at once.
     const spent = live.requires_turnstile ? (turnstile.current?.spend() ?? null) : null;
+    // The fields are disabled while the request is in flight: a submit made
+    // with Enter from one of them would drop the keyboard focus with it, so
+    // the focus goes to the Start button, which stays focusable (busy).
+    submitRef.current?.focus();
     setToken(null);
     setStarting(true);
     setError(null);
@@ -252,6 +291,7 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
       );
       router.push(runPath(locale, created.run.run_id));
     } catch (cause) {
+      refused.current = true;
       setError(toApiError(cause, "/live-runs"));
       setStarting(false);
     }
@@ -346,15 +386,22 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
         </p>
       ) : null}
       <div className="hc-actions">
+        {/* Busy while the request is in flight, never disabled by it: a disabled button would drop the keyboard focus. */}
         <Button
+          ref={submitRef}
           type="submit"
           variant="primary"
           label={starting ? t("starting") : t("start")}
-          isDisabled={closed !== null || blocker !== null}
+          isDisabled={startNativelyDisabled(closed, blocker)}
           isLoading={starting}
         />
       </div>
-      {error === null ? null : <ApiErrorNotice error={error} />}
+      {error === null ? null : (
+        // Focusable from script only: it takes the focus after a refusal that leaves Start disabled.
+        <div ref={errorRef} tabIndex={-1} data-live-error>
+          <ApiErrorNotice error={error} />
+        </div>
+      )}
     </form>
   );
 }

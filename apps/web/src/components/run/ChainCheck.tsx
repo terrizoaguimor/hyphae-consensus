@@ -20,7 +20,9 @@
 // records carry no hash (schema 1.0), a neutral "no chain to check" that says
 // what was and was not checked: it is never shown as a chain that checks out.
 // A run that began before schema 1.1 (its first records carry no hash, the
-// rest are chained) reads as checked in part, naming its unverified records.
+// rest are chained) reads as checked in part, naming its unverified records;
+// when the detail says so (scope partly_chained) its intro says up front that
+// only the later records' hashes are recomputed.
 // A chain that checks out is consistent and matches those copies; it is
 // unsigned, and it says nothing about whether the content is true.
 //
@@ -150,6 +152,10 @@ export function ChainCheck({ runId, source, chain, readReceipt }: ChainCheckProp
   // The detail says the run's records carry no hash (schema 1.0): the check
   // recomputes nothing for them, so the method is described without hashing.
   const unchainedScope = chain?.scope === "unchained";
+  // A run that began before schema 1.1 (its first records carry no hash):
+  // the method is described as recomputing only the hashes the later
+  // records carry, as the "checked in part" outcome says.
+  const intro = unchainedScope ? "unchained" : chain?.scope === "partly_chained" ? "partly_chained" : "chained";
   const running = state.status === "running";
 
   const run = async () => {
@@ -295,8 +301,12 @@ export function ChainCheck({ runId, source, chain, readReceipt }: ChainCheckProp
   return (
     <section className="hc-section" aria-labelledby="chain-check" data-chain-check={state.status}>
       <h4 id="chain-check">{t("heading")}</h4>
-      <p data-chain-intro={unchainedScope ? "unchained" : "chained"}>
-        {unchainedScope ? t("introUnchained", { name: source.name }) : t("intro", { name: source.name })}
+      <p data-chain-intro={intro}>
+        {intro === "unchained"
+          ? t("introUnchained", { name: source.name })
+          : intro === "partly_chained"
+            ? t("introPartlyChained", { name: source.name })
+            : t("intro", { name: source.name })}
       </p>
       <div className="hc-actions">
         {/* Busy, never disabled: a disabled button would drop the keyboard focus; Astryx ignores clicks while busy. */}

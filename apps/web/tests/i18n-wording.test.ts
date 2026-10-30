@@ -67,6 +67,10 @@ describe.each(routing.locales)("numbers in sentences (%s)", (locale) => {
     ["Run.explorer.summaries.evaluation_submitted", { corroborated: 2, claims: 12345, unresolved: 3 }, 12345],
     ["Run.explorer.summaries.evaluation_submitted", { corroborated: 2, claims: 3, unresolved: 12345 }, 12345],
     ["Run.audit.claims", { count: 2, corroborated: 12345 }, 12345],
+    ["Tour.progress", { current: 12345, total: 2 }, 12345],
+    ["Tour.progress", { current: 2, total: 12345 }, 12345],
+    ["Tour.announcement", { current: 12345, total: 2, title: "x", body: "y" }, 12345],
+    ["Tour.announcement", { current: 2, total: 12345, title: "x", body: "y" }, 12345],
   ] as const)("%s groups its number as the locale does", (key, values, value) => {
     const text = format(locale, key, values);
     expect(text).toContain(grouped(value));
@@ -207,6 +211,24 @@ describe("translations of the review's round 2", () => {
     expect(body).toContain("MANIFEST.json");
     // No count is typed into the page: the runs are listed from the data.
     expect(body).not.toMatch(/\b(seven|siete|sete|sept|7)\b/iu);
+  });
+
+  it.each([
+    // [locale, the partial verdict's own clause for the records without a hash, the narrowed wording that is gone]
+    ["en", "not chain-verified or tamper-evident", "For every later record, which carries a hash"],
+    ["es", "no están verificados por la cadena ni dejan rastro si se alteran", "Para cada registro posterior, que lleva un hash"],
+    ["pt-BR", "não são verificados pela cadeia nem deixam rastro se forem alterados", "Para cada registro posterior, que traz um hash"],
+    ["fr", "ne sont pas vérifiés par la chaîne et ne laissent pas de trace s’ils sont modifiés", "Pour chaque enregistrement suivant, qui porte une empreinte"],
+  ] as const)("the partly chained intro matches the partial verdict and every hashed record of the file (%s)", (locale, untouched, narrowed) => {
+    const ui = load(`${locale}.json`);
+    const intro = message(ui, "Run.chain.introPartlyChained");
+    const partial = message(ui, "Run.chain.partialSentence");
+    // The records without a hash are described with the verdict's own words ...
+    expect(partial).toContain(untouched);
+    expect(intro).toContain(untouched);
+    // ... and the recomputation is not narrowed to this run's later records:
+    // the check recomputes every hashed record of the downloaded file.
+    expect(intro).not.toContain(narrowed);
   });
 
   it("the English Limitations page no longer promises every recorded run a re-check", () => {

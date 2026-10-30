@@ -43,7 +43,7 @@ pub struct RunReceipt {
 }
 
 impl RunReceipt {
-    pub const DEFAULT_LIMITATIONS: &'static str = "A proof marked valid means that Hyphae's verifier re-executed the request the proof sealed against its witness and accepted it at the anchor it was given (the pinned anchor wherever one is configured, always for the public snapshot). It covers that request's whole result (for the sealed snapshot, the complete record list it captured), not the claim that led to the retrieval, and a record's text is not byte-compared with the proof. A simulated proof checks nothing. Proofs do not establish that the content is true, relevant, or complete, or that a model reasoned from it.";
+    pub const DEFAULT_LIMITATIONS: &'static str = "A proof marked valid means that Hyphae's verifier re-executed the request the proof sealed against its witness and accepted it at the anchor it was given (the pinned anchor wherever one is configured, always for the public snapshot). It covers the whole result of that request (for the sealed snapshot, the complete record list of the snapshot's project at that anchor), never a claim, even when the request's query is a claim's text, and a record's text is not byte-compared with the proof. A simulated proof checks nothing. Proofs do not establish that the content is true, relevant, or complete, or that a model reasoned from it.";
 }
 
 /// Policy rule order a [`PolicyTrace`] was derived under, serialized as
@@ -421,5 +421,21 @@ mod tests {
         assert!(reasons
             .iter()
             .all(|r| r["required"].as_array().unwrap().contains(&tag)));
+    }
+
+    /// ADR-0008 decision 4: a proof covers the complete record list of the
+    /// snapshot's project at its anchor (or, elsewhere, the whole result of the
+    /// request it sealed), never a claim, even a recall whose query is a
+    /// claim's text; integrity is not truth.
+    #[test]
+    fn default_limitations_say_what_a_proof_covers() {
+        let text = RunReceipt::DEFAULT_LIMITATIONS;
+        assert!(text.contains(
+            "It covers the whole result of that request (for the sealed snapshot, the complete record list of the snapshot's project at that anchor), never a claim, even when the request's query is a claim's text,"
+        ));
+        assert!(!text.contains("led to the retrieval"));
+        assert!(!text.contains("list it captured"));
+        assert!(text.contains("a record's text is not byte-compared with the proof"));
+        assert!(text.contains("Proofs do not establish that the content is true"));
     }
 }

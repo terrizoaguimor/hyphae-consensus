@@ -647,7 +647,7 @@
       "limitsHeading": "What the receipt says proofs establish",
       "limits": {
         "valid": "A proof marked valid means that Hyphae’s verifier re-executed the request the proof sealed against its witness and accepted it at the anchor it was given (the pinned anchor wherever one is configured, always for the public snapshot).",
-        "covers": "It covers that request’s whole result (for the sealed snapshot, the complete record list it captured), not the claim that led to the retrieval, and a record’s text is not byte-compared with the proof.",
+        "covers": "It covers the whole result of that request (for the sealed snapshot, the complete record list of the snapshot’s project at that anchor), never a claim, even when the request’s query is a claim’s text, and a record’s text is not byte-compared with the proof.",
         "simulated": "A simulated proof checks nothing.",
         "notEstablished": "Proofs do not establish that the content is true, relevant or complete, or that a model reasoned from it."
       },
@@ -667,8 +667,8 @@
         "generationFailed": "Nothing was checked: no proof could be generated upstream for this record, so there was no proof to verify.",
         "accepted": "What was checked: {verifier} re-executed the request this record’s proof sealed against its witness and accepted it at anchor {anchor}, on {date}.",
         "acceptedNoAnchor": "What was checked: {verifier} re-executed the request this record’s proof sealed against its witness and accepted it at the anchor it was given, on {date}.",
-        "covers": "The proof covers that request’s whole result, not the claim that led to the retrieval, and the record’s text is not byte-compared with the proof.",
-        "coversSnapshot": "The proof covers that request’s whole result (for the sealed snapshot, the complete record list it captured), not the claim that led to the retrieval, and the record’s text is not byte-compared with the proof.",
+        "covers": "The proof covers the whole result of that request, never a claim, even when the request’s query is a claim’s text, and the record’s text is not byte-compared with the proof.",
+        "coversSnapshot": "The proof covers the whole result of that request (for the sealed snapshot, the complete record list of the snapshot’s project at that anchor), never a claim, and the record’s text is not byte-compared with the proof.",
         "coversRequest": "The proof covers the whole result of the request it sealed (listed in the Evidence tab), and the record’s text is not byte-compared with the proof.",
         "coversRequestClaim": "The proof covers the whole result of the request it sealed (listed in the Evidence tab), a recall whose query is, word for word, the text of one of this run’s claims: it covers what that recall returned, not the claim, and the record’s text is not byte-compared with the proof.",
         "notEstablished": "It does not establish that the record’s content is true, relevant or complete, or that a model reasoned from it.",

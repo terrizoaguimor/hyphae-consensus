@@ -25,6 +25,7 @@ import { IntlMessageFormat } from "intl-messageformat";
 import { describe, expect, it } from "vitest";
 
 import { routing } from "../src/i18n/routing";
+import { KNOWN_PROOF_LIMITATIONS } from "../src/lib/run/receipt";
 
 type Catalog = { [key: string]: string | Catalog };
 
@@ -88,6 +89,48 @@ describe.each(routing.locales)("a live recall's coverage (%s)", (locale) => {
   it("the claim reading exists and differs from the plain request reading", () => {
     expect(message(ui, "Run.evidence.coverage.queryIsClaim")).not.toBe("");
     expect(message(ui, "Run.proofs.plain.coversRequestClaim")).not.toBe(message(ui, "Run.proofs.plain.coversRequest"));
+  });
+});
+
+// What a proof covers (ADR-0008, decision 4): the complete record list of the
+// snapshot's project at its anchor, or elsewhere the whole result of the
+// request the proof sealed; never a claim, even a recall made with a claim's
+// text. The receipt's limitations and the catalogs say the same thing.
+const coverage = {
+  en: { scope: "the snapshot’s project at that anchor", claim: "even when the request’s query is a claim’s text", old: /led to the retrieval/ },
+  es: { scope: "del proyecto de la instantánea en ese anclaje", claim: "aunque la consulta de la solicitud sea el texto de una afirmación", old: /llevó a la recuperación/ },
+  fr: { scope: "du projet de l’instantané à cette ancre", claim: "même quand le texte de la requête est celui d’une affirmation", old: /mené à la récupération/ },
+  "pt-BR": { scope: "do projeto do snapshot nessa âncora", claim: "mesmo quando a consulta da solicitação é o texto de uma afirmação", old: /levou à recuperação/ },
+} as const;
+
+describe.each(routing.locales)("what a proof covers (%s)", (locale) => {
+  const ui = load(`${locale}.json`);
+  const words = coverage[locale as keyof typeof coverage];
+
+  it("the limitations name the snapshot's project and anchor, and never a claim", () => {
+    expect(words).toBeDefined();
+    const covers = message(ui, "Run.proofs.limits.covers");
+    expect(covers).toContain(words.scope);
+    expect(covers).toContain(words.claim);
+    expect(covers).not.toMatch(words.old);
+    expect(covers).not.toMatch(/captur/);
+  });
+
+  it("the plain readings of a proof no longer point at the claim that led to the retrieval", () => {
+    expect(message(ui, "Run.proofs.plain.coversSnapshot")).toContain(words.scope);
+    expect(message(ui, "Run.proofs.plain.coversSnapshot")).not.toMatch(words.old);
+    expect(message(ui, "Run.proofs.plain.covers")).toContain(words.claim);
+    expect(message(ui, "Run.proofs.plain.covers")).not.toMatch(words.old);
+  });
+});
+
+describe("the receipt's limitations and the English catalog", () => {
+  it("restate the same sentences", () => {
+    const en = load("en.json");
+    const ascii = (text: string) => text.replaceAll("’", "'");
+    for (const key of ["valid", "covers", "simulated"]) {
+      expect(KNOWN_PROOF_LIMITATIONS).toContain(ascii(message(en, `Run.proofs.limits.${key}`)));
+    }
   });
 });
 

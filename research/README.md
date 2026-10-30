@@ -157,10 +157,14 @@ Hyphae recovery files (`recovery-2026-10-27/`).
   configured policy (`demo-repo/payment-client/src/lib.rs`). The claim's
   other two citations are the 2026-09 decision and the stored constraint.
 - **Earlier-round objections never re-judged**, counted from the events as
-  items an Evaluator listed unresolved in any evaluation before the run's
-  last: P02 8, R01 5, R02 7, R03 6, R06 7, R07 7, R08 8, F01 13, F02 6,
-  F03 5, F04 13, F05 6, F06 7, H01 11, H02 9, and 1 in each of the scripted
-  C01, C02 and C05. Runs with a single evaluation have none.
+  the Critic items raised before the run's last round that the last
+  evaluation did not list as unresolved and no later verdict resolved (the
+  receipt's `earlier_round_objections_never_rejudged`): P02 8, R01 5, R02 7,
+  R03 6, R06 7, R07 7, R08 8, F01 13, F02 6, F03 5, F04 13, F05 6, F06 8 (7
+  of them listed unresolved in their own round), H01 11, H02 9, and 2 in
+  each of the scripted C01, C02 and C05. Every other count here is of items
+  their own round's evaluation listed as unresolved. Runs with a single
+  evaluation have none.
 - **Final-round corroboration on the final code.** Of the eight runs on the
   final code, every final-round claim was corroborated in F01–F06 only.
   H01's final round corroborated 4 of 4 claims, but 2 of them have

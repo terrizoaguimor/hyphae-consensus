@@ -37,7 +37,7 @@ import {
   ungeneratedProofs,
 } from "../src/lib/run/explain";
 
-import { manifest } from "./research";
+import { manifest, researchBytes } from "./research";
 import { recordedDetail, runRecords } from "./research-detail";
 
 type Catalog = { [key: string]: string | Catalog };
@@ -405,6 +405,29 @@ describe("over the research archive's own records", () => {
       expect([never, listed], run.label).toEqual(NEVER_REJUDGED[run.label]);
     }
   }, 60_000);
+
+  it("research/README.md states the same never re-judged counts as the records", () => {
+    const readme = new TextDecoder().decode(researchBytes("README.md")).replace(/\s+/g, " ");
+    const start = readme.indexOf("**Earlier-round objections never re-judged**");
+    expect(start).toBeGreaterThan(-1);
+    const section = readme.slice(start, readme.indexOf("Runs with a single evaluation have none.", start));
+    const stated = new Map<string, number>();
+    for (const [, label, count] of section.matchAll(/\b([A-Z]\d\d) (\d+)\b/g)) {
+      stated.set(label as string, Number(count));
+    }
+    const each = /(\d+) in each of the scripted (C\d\d), (C\d\d) and (C\d\d)/.exec(section);
+    expect(each).not.toBeNull();
+    for (const label of (each ?? []).slice(2)) {
+      stated.set(label, Number(each?.[1]));
+    }
+    const expected = Object.entries(NEVER_REJUDGED)
+      .filter(([, [never]]) => never > 0)
+      .map(([label, [never]]) => [label, never] as const)
+      .sort();
+    expect([...stated.entries()].sort()).toEqual(expected);
+    // F06 is the one run where a never re-judged item was not listed even by its own round.
+    expect(section).toContain("F06 8 (7 of them listed unresolved in their own round)");
+  });
 
   it("R06 reads 7 earlier-round objections never re-judged, each listed unresolved by its own round", () => {
     const { detail } = archivedRun("R06");

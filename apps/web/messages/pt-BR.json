@@ -647,7 +647,7 @@
       "limitsHeading": "O que o recibo diz que as provas estabelecem",
       "limits": {
         "valid": "Uma prova marcada como válida significa que o verificador do Hyphae executou de novo a solicitação que a prova selou contra a sua testemunha e a aceitou na âncora que recebeu (a âncora fixada onde houver uma configurada, sempre no snapshot público).",
-        "covers": "Ela cobre o resultado completo dessa solicitação (no snapshot selado, a lista completa de registros que ele capturou), não a afirmação que levou à recuperação, e o texto de um registro não é comparado byte a byte com a prova.",
+        "covers": "Ela cobre o resultado completo dessa solicitação (no snapshot selado, a lista completa de registros do projeto do snapshot nessa âncora), nunca uma afirmação, mesmo quando a consulta da solicitação é o texto de uma afirmação, e o texto de um registro não é comparado byte a byte com a prova.",
         "simulated": "Uma prova simulada não verifica nada.",
         "notEstablished": "As provas não estabelecem que o conteúdo seja verdadeiro, relevante ou completo, nem que um modelo tenha raciocinado a partir dele."
       },
@@ -667,8 +667,8 @@
         "generationFailed": "Nada foi verificado: nenhuma prova pôde ser gerada na origem para este registro, então não havia prova a verificar.",
         "accepted": "O que foi verificado: {verifier} executou de novo a solicitação que a prova deste registro selou contra a sua testemunha e a aceitou na âncora {anchor}, em {date}.",
         "acceptedNoAnchor": "O que foi verificado: {verifier} executou de novo a solicitação que a prova deste registro selou contra a sua testemunha e a aceitou na âncora que recebeu, em {date}.",
-        "covers": "A prova cobre o resultado completo dessa solicitação, não a afirmação que levou à recuperação, e o texto do registro não é comparado byte a byte com a prova.",
-        "coversSnapshot": "A prova cobre o resultado completo dessa solicitação (no snapshot selado, a lista completa de registros que ele capturou), não a afirmação que levou à recuperação, e o texto do registro não é comparado byte a byte com a prova.",
+        "covers": "A prova cobre o resultado completo dessa solicitação, nunca uma afirmação, mesmo quando a consulta da solicitação é o texto de uma afirmação, e o texto do registro não é comparado byte a byte com a prova.",
+        "coversSnapshot": "A prova cobre o resultado completo dessa solicitação (no snapshot selado, a lista completa de registros do projeto do snapshot nessa âncora), nunca uma afirmação, e o texto do registro não é comparado byte a byte com a prova.",
         "coversRequest": "A prova cobre o resultado completo da solicitação que selou (detalhada na aba Evidências), e o texto do registro não é comparado byte a byte com a prova.",
         "coversRequestClaim": "A prova cobre o resultado completo da solicitação que selou (detalhada na aba Evidências), uma recuperação cuja consulta é, palavra por palavra, o texto de uma das afirmações desta execução: cobre o que essa recuperação retornou, não a afirmação, e o texto do registro não é comparado byte a byte com a prova.",
         "notEstablished": "Ela não estabelece que o conteúdo do registro seja verdadeiro, relevante ou completo, nem que um modelo tenha raciocinado a partir dele.",

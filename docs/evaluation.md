@@ -670,6 +670,15 @@ corrections are marked "corrected 2026-10-27".
    token cap. §5: the demo store holds 7 records, the original constraint and
    fact plus four facts and one decision. Both are marked inline.
 
+10. **Erratum (2026-10-29): the archive's count of Meta calls (W2 review DATA-6,
+    lane data-low DL2-3, commit `4be708f`).** `research/README.md` said "165 calls
+    in this archive", a count written before the protocol 1.3 smoke runs K01–K04
+    (§6.1, §6.2) added 7 and 12 calls. It now says 184 calls in 41 runs of the 8
+    logs, each with its own request id (165 before the smoke runs K01–K04 added 7
+    and 12); a call that failed or timed out records no invocation (the three
+    `run_failed` runs), and the 18 scripted `provider: fake` calls (in C01, C02
+    and C05) are not counted. This changes no number recorded in this document.
+
 ## Request ids (2026-10-26, from receipts)
 
 - L01: `chatcmpl-01a17b9c-4bd9-70a3-8232-17005ea6d8c2`, `chatcmpl-01a17b9c-d6d8-718c-8aa4-1ceb221b5b45`, `chatcmpl-01a17b9d-2f93-76f7-8ace-855fe65e425e`

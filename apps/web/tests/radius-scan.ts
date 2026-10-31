@@ -380,8 +380,9 @@ export const VENDOR_ALLOW_LIST: Readonly<Record<string, string>> = {
     "Astryx's :root defaults (element 8, container 12, page and chat 28, full 9999): the theme layer redeclares inner/element/container/page as 2/4/6/6 on every page; --radius-chat and --radius-full are used only as listed below",
   // --radius-full (9999px) and 50%.
   xjspbzw:
-    "radius-full, an atomic class shared by Badge, the radio, checkbox and input-status indicators, Switch, Tab, Token, Slider, Skeleton, Calendar, Chat and others: rendered by the app only on Badge (tags: globals.css draws every tag at radius 2, tags lane) and the radio mark (globals.css draws it at radius 2); e2e/shapes.spec.ts checks every rendered corner",
-  xq94oqs: "RadioListItem's press overlay (::after, full): globals.css draws it at radius 2 on every radio of the app",
+    "radius-full, an atomic class shared by Badge, the radio, checkbox and input-status indicators, Switch, Tab, Token, Slider, Skeleton, Calendar, Chat and others: rendered by the app only on Badge (tags: globals.css draws every tag at radius 2, tags lane) and the radio mark and its selected dot, which stay circles (design-direction 3.7: radius/full for radio marks only; 4.2 RadioList: the one allowed circle; RENDERED_EXCEPTIONS); e2e/shapes.spec.ts checks every rendered corner",
+  xq94oqs:
+    "RadioListItem's press overlay around the radio mark (::after, full): it follows the circular mark, which stays a circle (design-direction 3.7 and 4.2; RENDERED_EXCEPTIONS)",
   xeincmr: "Avatar (--_avatar-radius: full): not used by the app",
   x1rjw8qi: "Carousel (--_button-radius: full): not used by the app",
   xnpej1e: "ChatLayoutScrollButton (--radius-element: full): Chat is not used by the app",
@@ -431,8 +432,18 @@ export function allowedFinding(declaration: Declaration): boolean {
 
 /**
  * Elements the browser may draw with a corner off the scale, by selector,
- * with the reason. None: tags (Astryx Badge), the one exception while the
- * shapes and tags lanes were apart, are 2px rectangles since the tags lane
- * (globals.css), so the rendered scan checks them like every element.
+ * with the reason. A key ending in ::before or ::after exempts only that
+ * pseudo-element; the element itself is still checked. Tags (Astryx Badge)
+ * are not here: they are 2px rectangles since the tags lane (globals.css),
+ * so the rendered scan checks them like every element. The radio mark is:
+ * the integration of round 5 kept radio marks circles (design-direction
+ * 3.7, radius/full "radio marks only"; 4.2 RadioList, "the one allowed
+ * circle"), and e2e/shapes.spec.ts checks that they are true circles.
  */
-export const RENDERED_EXCEPTIONS: Readonly<Record<string, string>> = {};
+export const RENDERED_EXCEPTIONS: Readonly<Record<string, string>> = {
+  ".astryx-radio-indicator":
+    "the radio mark: a circle, the one shape design-direction keeps round (3.7 radius/full for radio marks only; 4.2 RadioList)",
+  ".astryx-radio-indicator > *": "the radio mark's selected dot, a circle inside the circular mark (same reason)",
+  ':has(> input[type="radio"] + span > .astryx-radio-indicator)::after':
+    "Astryx's press overlay around a radio mark (RadioListItem), which follows the circular mark (same reason)",
+};

@@ -3,16 +3,19 @@
 // Square-first shapes (design-direction.md 3.7 and 4.2, owner direction
 // 2026-10-31): every corner the app ships or the browser draws is 0, 2, 4
 // or 6 px; no pill, oval or circle outside the reasoned allow-lists of
-// tests/radius-scan.ts (tags included: the tags lane draws them at 2 px).
+// tests/radius-scan.ts (tags included: the tags lane draws them at 2 px;
+// the one circle kept is the radio mark, design-direction 3.7 and 4.2).
 //
 // - the built CSS: off the scale only in allow-listed Astryx classes.
 // - the rendered pages: every element and its ::before / ::after computes
 //   corners on the scale, on every page of the export, a run's tabs, the
-//   live form, Settings, the drawer and the tour.
+//   live form, Settings, the drawer and the tour (the radio marks, their
+//   dot and their press overlay excepted, by RENDERED_EXCEPTIONS).
 // - the shapes this change draws: the theme control (outer 4, inner joins
 //   0), the 24px square Overview step markers (radius 4), the tour's
 //   segmented progress bar (24x4 segments, radius 0, the current one 40
-//   wide), square-cornered radio marks (radius 2, still native radios) and
+//   wide), radio marks that are true circles over native radios whose
+//   invisible input is a square-cornered box (radius 2), and
 //   the navigation rows (radius 0 on every corner).
 // - the theme control as a keyboard radio group (one tab stop, arrows move
 //   and select, Space selects), keeping the stored preference semantics,
@@ -75,12 +78,21 @@ async function offScaleCorners(page: Page): Promise<string[]> {
             const number = Number.parseFloat(match[1] ?? "NaN");
             return match[2] === "px" ? scale.includes(number) : number === 0;
           });
+      // An exception ending in ::before or ::after exempts only that
+      // pseudo-element of the elements its selector matches.
+      const exempt = exceptions.map((key) => {
+        const match = /^(.*)(::before|::after)$/.exec(key);
+        return match === null ? { selector: key, pseudo: null } : { selector: match[1] ?? "", pseudo: match[2] ?? null };
+      });
       const found: string[] = [];
       for (const element of Array.from(document.querySelectorAll("*"))) {
-        if (exceptions.some((selector) => element.matches(selector))) {
+        if (exempt.some(({ selector, pseudo }) => pseudo === null && element.matches(selector))) {
           continue;
         }
         for (const pseudo of [null, "::before", "::after"]) {
+          if (pseudo !== null && exempt.some((entry) => entry.pseudo === pseudo && element.matches(entry.selector))) {
+            continue;
+          }
           const style = getComputedStyle(element, pseudo);
           if (pseudo !== null && (style.content === "none" || style.content === "normal")) {
             continue;
@@ -254,7 +266,7 @@ test.describe("the shapes of this change", () => {
     }
   });
 
-  test("radio marks are square-cornered (radius 2) and still native radios", async ({ page }) => {
+  test("radio marks are circles (the one allowed circle) and still native radios", async ({ page }) => {
     await page.goto(localePath("en", "settings"));
     await hydrated(page);
     const group = page.getByRole("radiogroup", { name: t("en", "Settings.motion.label") });
@@ -262,18 +274,40 @@ test.describe("the shapes of this change", () => {
     await expect(radios).toHaveCount(2);
     for (const radio of await radios.all()) {
       expect(await radio.evaluate((input) => input instanceof HTMLInputElement && input.type === "radio")).toBe(true);
+      // The invisible input is a square-cornered box, never a native round drawing.
+      expect(await corners(radio)).toEqual(["2px", "2px", "2px", "2px"]);
+      expect(await radio.evaluate((input) => getComputedStyle(input).appearance)).toBe("none");
     }
+    // Integrator decision (design-direction 3.7 radius/full "radio marks
+    // only", 4.2 RadioList "the one allowed circle"): every mark and its
+    // selected dot is a true circle: a square box with every corner at
+    // least half its side, so it is neither a rounded square nor an oval.
+    const isCircle = (element: Element) => {
+      const style = getComputedStyle(element);
+      const { width, height } = element.getBoundingClientRect();
+      const corner = (value: string) =>
+        value.endsWith("%") ? (Number.parseFloat(value) / 100) * width : Number.parseFloat(value);
+      return {
+        square: width > 0 && Math.abs(width - height) < 0.5,
+        round: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].every(
+          (value) => corner(value) >= width / 2,
+        ),
+      };
+    };
     const marks = page.locator(".hc-settings .astryx-radio-indicator");
     expect(await marks.count()).toBeGreaterThan(5);
     for (const mark of await marks.all()) {
-      expect(await corners(mark)).toEqual(["2px", "2px", "2px", "2px"]);
+      expect(await mark.evaluate(isCircle)).toEqual({ square: true, round: true });
     }
-    // The selected dot inside a mark is square-cornered too.
     const dots = page.locator(".hc-settings .astryx-radio-indicator > *");
     expect(await dots.count()).toBeGreaterThan(0);
     for (const dot of await dots.all()) {
-      expect(await corners(dot)).toEqual(["2px", "2px", "2px", "2px"]);
+      if (await dot.isVisible()) {
+        expect(await dot.evaluate(isCircle)).toEqual({ square: true, round: true });
+      }
     }
+    // At least one dot (the checked option's) is drawn.
+    expect(await dots.evaluateAll((items) => items.filter((item) => item.getBoundingClientRect().width > 0).length)).toBeGreaterThan(0);
     // Arrow keys still move the selection, as in any native radio group.
     await group.getByRole("radio", { name: t("en", "Settings.motion.options.system") }).focus();
     await page.keyboard.press("ArrowDown");

@@ -1068,20 +1068,19 @@
   }
 
   /*
-   * Radio marks are square-cornered (radius 2), the mark and its selected
-   * dot alike; the input stays a native radio (role, keyboard, form value),
-   * so only the drawing changes. Astryx's press overlay around the mark
-   * follows it.
+   * Radio marks stay circles (design-direction 3.7: radius/full is for
+   * radio marks only; 4.2 RadioList: "the one allowed circle"): Astryx's
+   * indicator, its selected dot and the press overlay around the mark keep
+   * Astryx's full radius, so no rule here re-shapes them. The radio input
+   * itself is never what the user sees, and is square-cornered (radius 2)
+   * like every other box.
    */
-  .astryx-radio-indicator,
-  .astryx-radio-indicator > *,
-  input[type="radio"],
-  :has(> input[type="radio"] + span > .astryx-radio-indicator)::after {
+  input[type="radio"] {
     border-radius: var(--radius-inner);
   }
 
   /* Every radio input of the app is an invisible hit target (opacity 0)
-     over the mark that draws it (Astryx's indicator, or a theme-control
+     over the mark that draws it (Astryx's circle, or a theme-control
      segment). Chromium keeps a native-appearance radio round whatever its
      border-radius, so the native drawing is switched off; nothing visible
      changes and the input stays a native radio. */
@@ -1152,7 +1151,7 @@
     height: 100%;
     margin: 0;
     /* Still a native radio (role, keyboard, form value); its native
-       drawing is off and its corners follow the radio rules above. */
+       drawing is off and its corners follow the radio input rule above. */
     opacity: 0;
     cursor: pointer;
   }

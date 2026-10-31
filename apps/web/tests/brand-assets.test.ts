@@ -122,12 +122,31 @@ describe("the brand PNGs", () => {
     [brandFiles.ogImage]: [OG_IMAGE_SIZE.width, OG_IMAGE_SIZE.height],
   };
 
-  it("are exactly the files public/ holds", () => {
+  // The other PNGs public/ holds: the material tiles of the brushed glass
+  // (grey + alpha, checked by tests/glass.test.ts) and of the simulated
+  // tag's hatch (checked by tests/tags.test.ts). They are not logo files, so
+  // the logo checks below do not apply to them, but they are named here so
+  // that no unlisted PNG ships.
+  const materialTiles = [
+    "/brand/brushed-dark.png",
+    "/brand/brushed-dark@2x.png",
+    "/brand/brushed-light.png",
+    "/brand/brushed-light@2x.png",
+    "/brand/hatch-dark.png",
+    "/brand/hatch-light.png",
+  ];
+
+  it("are exactly the files public/ holds, with the material tiles", () => {
     const shipped = readdirSync(publicDir, { recursive: true, encoding: "utf8" })
       .filter((file) => file.endsWith(".png"))
       .map((file) => `/${file.split(path.sep).join("/")}`)
       .sort();
-    expect(shipped).toEqual(Object.keys(sizes).sort());
+    expect(shipped).toEqual([...Object.keys(sizes), ...materialTiles].sort());
+    // No logo file is a material tile, and no logo file is under /brand/.
+    for (const url of Object.keys(sizes)) {
+      expect(materialTiles, url).not.toContain(url);
+      expect(url.startsWith("/brand/"), url).toBe(false);
+    }
   });
 
   it.each(Object.entries(sizes))(

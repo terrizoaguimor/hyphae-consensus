@@ -34,7 +34,6 @@ import type { Locale } from "@/i18n/routing";
 import { api, isRunId } from "@/lib/api/client";
 import type { RunDetailV1, ShowcaseEntryV1 } from "@/lib/api/types";
 import {
-  evidenceLabel,
   isLive,
   ndjsonPublishable,
   RECOMMENDATION_VARIANTS,
@@ -47,6 +46,7 @@ import { manifestNote } from "@/lib/showcase";
 import { localePath, SHOWCASE_SOURCE } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { OutcomeTags } from "../OutcomeTags";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { useManifestDate } from "../showcase/ShowcaseList";
 import { archivePin, checkedManifest } from "../showcase/useArchive";
@@ -130,7 +130,6 @@ function Workspace({
 }: RunViewProps & { receipt: RunReceipt; mode: Mode }) {
   const t = useTranslations("Run");
   const tShowcase = useTranslations("Showcase.run");
-  const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const format = useFormatter();
   const recorded = mode.kind === "recorded";
   const [tab, setTab] = useState<TabKey>(recorded ? "decision" : "stage");
@@ -261,12 +260,10 @@ function Workspace({
                 )
               ) : (
                 <>
-                  <Badge
+                  <OutcomeTags
+                    outcome={t(`kinds.${summary.recommendation}`)}
                     variant={RECOMMENDATION_VARIANTS[summary.recommendation]}
-                    label={t("outcome", {
-                      kind: t(`kinds.${summary.recommendation}`),
-                      evidence: tProvenance(evidenceLabel(summary.provenance.evidence).key),
-                    })}
+                    evidence={summary.provenance.evidence}
                   />
                   {revisedId === null ? null : (
                     <span className="hc-supporting" data-outcome-revision>

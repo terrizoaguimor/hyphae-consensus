@@ -329,7 +329,8 @@ flagged run reads META MODEL (always in the info colour; a blocking flag is
 its own warning badge) with "Meta model · recorded <date>" next to REPLAY, in every locale
 (`tests/provenance.test.ts` checks each locale's LIVE word); a scripted
 provider reads "scripted double, no model call"; simulated evidence is named
-next to every outcome ("supported — on SIMULATED evidence"); a simulated
+next to every outcome, as a second tag ("supported" + "Evidence: SIMULATED",
+`OutcomeTags`: both tags wrap and are never truncated); a simulated
 proof is the neutral SIMULATED token with its scripted outcome as text,
 never a green "valid"; every count comes from the run data; nothing
 pretends to load. Colours (round 4, HE #1, #2, #16): only a real verifier's

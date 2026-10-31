@@ -13,15 +13,15 @@ import Link from "next/link";
 import { useFormatter, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
-import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
 import { api, ApiError, isApiError } from "@/lib/api/client";
 import type { Capabilities } from "@/lib/api/schemas";
 import type { RunSummaryV1 } from "@/lib/api/types";
-import { evidenceLabel, RECOMMENDATION_VARIANTS } from "@/lib/provenance";
+import { RECOMMENDATION_VARIANTS } from "@/lib/provenance";
 import { localePath, runPath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { OutcomeTags, StatusTag } from "../OutcomeTags";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { useFailureText } from "../run/FailureSentence";
 
@@ -57,7 +57,6 @@ function toApiError(error: unknown): ApiError {
 export function RunsList({ locale }: RunsListProps) {
   const t = useTranslations("Runs");
   const tRun = useTranslations("Run");
-  const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const format = useFormatter();
   const failureText = useFailureText();
   const [state, setState] = useState<ListState>({ status: "loading" });
@@ -185,8 +184,13 @@ export function RunsList({ locale }: RunsListProps) {
                 <dl className="hc-kv">
                   <div>
                     <dt>{t("state")}</dt>
-                    <dd>
-                      {tRun(`states.${run.state}`)}
+                    <dd data-runs-state={run.state}>
+                      {/* The state that needs the visitor is a status tag, not plain text. */}
+                      {run.state === "awaiting_human_approval" ? (
+                        <StatusTag variant="blue" label={tRun(`states.${run.state}`)} />
+                      ) : (
+                        tRun(`states.${run.state}`)
+                      )}
                       {run.active ? (
                         <Badge variant="blue" label={t("active")} />
                       ) : null}
@@ -202,12 +206,10 @@ export function RunsList({ locale }: RunsListProps) {
                           tRun("header.noOutcome")
                         )
                       ) : (
-                        <Badge
+                        <OutcomeTags
+                          outcome={tRun(`kinds.${run.recommendation}`)}
                           variant={RECOMMENDATION_VARIANTS[run.recommendation]}
-                          label={tRun("outcome", {
-                            kind: tRun(`kinds.${run.recommendation}`),
-                            evidence: tProvenance(evidenceLabel(run.provenance.evidence).key),
-                          })}
+                          evidence={run.provenance.evidence}
                         />
                       )}
                     </dd>

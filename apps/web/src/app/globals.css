@@ -1215,6 +1215,33 @@
     list-style: none;
   }
 
+  /* An outcome next to its evidence (OutcomeTags): two tags that wrap as a
+     group, and a tag (.hc-tag) that wraps inside itself instead of being
+     cut off. Astryx's badge is one line with an ellipsis on its label, which
+     truncated exactly the honesty qualifier ("supported — on SIMULAT…"). */
+  .hc-outcome-tags {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-2);
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .hc-tag {
+    height: auto;
+    min-height: var(--spacing-5);
+    padding-block: 0.125rem;
+    white-space: normal;
+    overflow-wrap: break-word;
+    text-align: start;
+  }
+
+  .hc-tag > span {
+    overflow: visible;
+    text-overflow: clip;
+  }
+
   .hc-provenance-badges {
     display: flex;
     flex-direction: column;

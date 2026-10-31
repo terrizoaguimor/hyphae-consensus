@@ -33,13 +33,13 @@ import type {
 import {
   assessmentVariant,
   deliveryLabel,
-  evidenceLabel,
   isScriptedRun,
   proofToken,
   RECOMMENDATION_VARIANTS,
 } from "@/lib/provenance";
 import { type Carried, type ShownRecord, stageOf, stageRecords } from "@/lib/run/view";
 
+import { OutcomeTags } from "../OutcomeTags";
 import type { RunData } from "./useRunData";
 
 type StageTabProps = {
@@ -225,16 +225,9 @@ export function RecommendationLine({
   evidence: ProvenanceV1["evidence"];
 }) {
   const t = useTranslations("Run");
-  const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   return (
     <p data-recommendation-kind={kind}>
-      <Badge
-        variant={RECOMMENDATION_VARIANTS[kind]}
-        label={t("outcome", {
-          kind: t(`kinds.${kind}`),
-          evidence: tProvenance(evidenceLabel(evidence).key),
-        })}
-      />
+      <OutcomeTags outcome={t(`kinds.${kind}`)} variant={RECOMMENDATION_VARIANTS[kind]} evidence={evidence} />
     </p>
   );
 }

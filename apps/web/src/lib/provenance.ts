@@ -17,9 +17,10 @@
 // - Client-side pacing ("simulated · paced for readability") only for the
 //   replayed frames of a scripted run (`isPaceable`), never for a live or
 //   mixed model run.
-// - Simulated evidence is always named next to the outcome ("supported, on
-//   SIMULATED evidence"), and a simulated proof is never a green "valid": it
-//   gets the neutral SIMULATED token with its scripted outcome as text.
+// - Simulated evidence is always named next to the outcome, as its own tag
+//   ("supported" + "Evidence: SIMULATED", components/OutcomeTags), and a
+//   simulated proof is never a green "valid": it gets the neutral SIMULATED
+//   token with its scripted outcome as text.
 // - Nothing that is not verified real evidence uses the success (green)
 //   variant: a "supported" outcome and a "corroborated" assessment are the
 //   info role whatever their evidence (a simulated run's are never green),

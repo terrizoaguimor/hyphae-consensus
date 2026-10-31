@@ -45,11 +45,14 @@ import { expect, hydrated, locales, t, test, useTheme } from "./fixtures";
 import {
   dropProblems,
   EVIDENCE_BADGE,
+  expectEncoding,
   expectNoLive,
   liveBadge,
   openRun,
   OUTCOME_BADGE,
+  tagEncodings,
   takeProblem,
+  VARIANT_ENCODING,
 } from "./helpers";
 
 type Json = Record<string, unknown>;
@@ -57,10 +60,12 @@ type Json = Record<string, unknown>;
 const LIVE_RUN_ID = "run-00000000-0000-4000-8000-000000000006";
 
 /**
- * Every badge the locator finds (at least one) is in the `variant` colour
- * token (Astryx reflects it as data-variant), and none is the success or
- * green one: an outcome or a claim tag on simulated evidence is never green
- * (HE #1); one label keeps one colour (HE #16).
+ * Every badge the locator finds (at least one) is the `variant` token
+ * (Astryx reflects it as data-variant), and none is the success or green
+ * one; on screen it shows that variant's monochrome encoding (frame,
+ * polarity, marker) and never the verified look: an outcome or a claim tag
+ * on simulated evidence never looks verified (HE #1); one label keeps one
+ * encoding (HE #16).
  */
 async function expectNotGreen(badges: Locator, variant: string) {
   await expect(badges.first()).toBeVisible();
@@ -71,6 +76,15 @@ async function expectNotGreen(badges: Locator, variant: string) {
     expect(value).not.toBe("green");
     expect(value).toBe(variant);
   }
+  await expectEncoding(badges, variant);
+}
+
+/** The trimmed texts of the badges the locator finds that show the LIVE encoding. */
+async function liveLooking(badges: Locator): Promise<string[]> {
+  const encodings = await tagEncodings(badges);
+  const texts = await badges.allInnerTexts();
+  const live = JSON.stringify(VARIANT_ENCODING.pink);
+  return texts.filter((_, index) => JSON.stringify(encodings[index]) === live).map((text) => text.trim());
 }
 
 test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, pageProblems }) => {
@@ -314,8 +328,9 @@ test("a live-model run in progress with live frames reads LIVE and is named Live
   await expect(header.getByText(t("en", "Provenance.liveMeta.label"), { exact: true })).toBeVisible();
   await expect(header.getByText(t("en", "Provenance.live.label"), { exact: true })).toBeVisible();
   await expect(header.getByText(t("en", "Provenance.liveMeta.evidence"), { exact: true })).toBeVisible();
-  // LIVE and LIVE META keep the LIVE colour, which nothing else uses: never
-  // the green of a verified proof, never the info colour of META MODEL (HE #16).
+  // LIVE and LIVE META keep the LIVE variant and its encoding (a 2px ink
+  // frame and the square), which nothing else uses: never the verified look,
+  // never META MODEL's info tag (HE #16).
   const liveLabels = [t("en", "Provenance.live.label"), t("en", "Provenance.liveMeta.label")];
   for (const label of liveLabels) {
     await expectNotGreen(header.locator(".astryx-badge", { hasText: new RegExp(`^${label}$`) }), "pink");
@@ -325,6 +340,12 @@ test("a live-model run in progress with live frames reads LIVE and is named Live
   for (const text of pink) {
     expect(liveLabels, `a non-LIVE label in the LIVE colour: ${text}`).toContain(text.trim());
   }
+  // The same on screen: every badge with the LIVE encoding is a LIVE label.
+  const looksLive = await liveLooking(page.locator(".astryx-badge"));
+  expect(looksLive.length).toBeGreaterThan(1);
+  for (const text of looksLive) {
+    expect(liveLabels, `a non-LIVE label with the LIVE encoding: ${text}`).toContain(text);
+  }
   await expect(page.locator("[data-provenance-note='liveMeta.live']")).toHaveText(
     t("en", "Provenance.liveMeta.live"),
   );
@@ -333,7 +354,7 @@ test("a live-model run in progress with live frames reads LIVE and is named Live
 });
 
 for (const locale of locales) {
-  test(`the Overview legend: LIVE META in the LIVE colour, META MODEL in info, nothing green (HE #16, ${locale})`, async ({
+  test(`the Overview legend: LIVE META in the LIVE encoding, META MODEL in info, nothing green (HE #16, ${locale})`, async ({
     page,
   }) => {
     await mockApi(page);
@@ -353,9 +374,14 @@ for (const locale of locales) {
       expect(variant).not.toBe("success");
       expect(variant).not.toBe("green");
     }
+    for (const encoding of await tagEncodings(badges)) {
+      expect(encoding).not.toEqual(VARIANT_ENCODING.success);
+    }
     // The LIVE colour is LIVE META's alone.
     const pink = await legend.locator(".astryx-badge[data-variant='pink']").allInnerTexts();
     expect(pink.map((text) => text.trim())).toEqual([liveMeta]);
+    // And on screen: the LIVE encoding is LIVE META's alone.
+    expect(await liveLooking(badges)).toEqual([liveMeta]);
   });
 }
 
@@ -1075,10 +1101,15 @@ test("the Evidence tab lists each record with its coverage, text and verificatio
     "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage.",
   );
   await expect(constraint.locator("figcaption")).toHaveText(t("en", "Run.content.recordNote"));
-  // Its verifications, round by round: SIMULATED, never a green valid.
+  // Its verifications, round by round: SIMULATED, never a green valid, and on
+  // screen never the verified look: the dashed simulated tag, not a solid one.
   await expect(constraint.locator("[data-round]")).toHaveCount(2);
   await expect(constraint.locator("[data-proof-simulated='true']")).toHaveCount(2);
   await expect(constraint.locator("[data-proof-simulated='false']")).toHaveCount(0);
+  await expectEncoding(constraint.locator("[data-round] .astryx-badge[data-variant='purple']"), "purple");
+  for (const encoding of await tagEncodings(constraint.locator(".astryx-badge"))) {
+    expect(encoding).not.toEqual(VARIANT_ENCODING.success);
+  }
   await expect(constraint.locator("[data-round='1']")).toContainText(
     t("en", "Run.stage.simulatedProof", { status: t("en", "Provenance.proof.valid") }),
   );

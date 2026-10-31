@@ -20,6 +20,78 @@ import { expect, hydrated, type Locale, t } from "./fixtures";
 export const OUTCOME_BADGE = ".astryx-badge[data-outcome-tag='outcome'], [data-outcome-tag='outcome'] .astryx-badge";
 export const EVIDENCE_BADGE = ".astryx-badge[data-outcome-tag='evidence'], [data-outcome-tag='evidence'] .astryx-badge";
 
+/**
+ * How a status tag looks without hue (design/palette-mono.md 2.1, the
+ * variant rules in globals.css), read from the rendered badge: its frame
+ * (outline style and width, "none" when there is none), whether its label is
+ * inverted (lighter than its fill in the light theme, darker in the dark
+ * one: the two solid verdicts), and whether it carries the LIVE square.
+ */
+export type TagEncoding = { frame: string; inverted: boolean; marker: boolean };
+
+/** The monochrome encoding of each badge variant the views use. */
+export const VARIANT_ENCODING: Record<string, TagEncoding> = {
+  success: { frame: "none", inverted: true, marker: false },
+  error: { frame: "double 3px", inverted: true, marker: false },
+  purple: { frame: "dashed 1px", inverted: false, marker: false },
+  pink: { frame: "solid 2px", inverted: false, marker: true },
+  warning: { frame: "double 3px", inverted: false, marker: false },
+  neutral: { frame: "solid 1px", inverted: false, marker: false },
+  info: { frame: "solid 1px", inverted: false, marker: false },
+  blue: { frame: "solid 1px", inverted: false, marker: false },
+};
+
+/** The verified look: a solid fill under an inverted label, no frame. Nothing simulated may have it. */
+export const VERIFIED_ENCODING = VARIANT_ENCODING.success as TagEncoding;
+
+/** The rendered encoding of every badge the locator finds, in order. */
+export async function tagEncodings(badges: Locator): Promise<TagEncoding[]> {
+  return badges.evaluateAll((nodes) => {
+    const luminance = (value: string): number => {
+      const [r = 0, g = 0, b = 0] = (/rgba?\(([^)]+)\)/.exec(value)?.[1] ?? "")
+        .split(/[\s,/]+/)
+        .filter(Boolean)
+        .map(Number)
+        .map((channel) => {
+          const c = channel / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    return nodes.map((node) => {
+      const style = getComputedStyle(node);
+      const width = Number.parseFloat(style.outlineWidth);
+      const label = luminance(style.color);
+      const fill = luminance(style.backgroundColor);
+      const before = getComputedStyle(node, "::before");
+      return {
+        frame: style.outlineStyle === "none" || width === 0 ? "none" : `${style.outlineStyle} ${style.outlineWidth}`,
+        inverted: dark ? label < fill : label > fill,
+        marker: before.content !== "none" && before.width === "8px" && before.height === "8px",
+      };
+    });
+  });
+}
+
+/**
+ * Every badge the locator finds (at least one) shows `variant`'s monochrome
+ * encoding, and none shows the verified look unless `variant` is success.
+ */
+export async function expectEncoding(badges: Locator, variant: string) {
+  await expect(badges.first()).toBeVisible();
+  const expected = VARIANT_ENCODING[variant];
+  expect(expected, `no encoding for variant ${variant}`).toBeDefined();
+  const found = await tagEncodings(badges);
+  expect(found.length).toBeGreaterThan(0);
+  for (const encoding of found) {
+    expect(encoding).toEqual(expected);
+    if (variant !== "success") {
+      expect(encoding).not.toEqual(VERIFIED_ENCODING);
+    }
+  }
+}
+
 /** Removes an expected API error response from the page's problem list, asserting it happened. */
 export function takeProblem(problems: string[], text: string): void {
   const index = problems.indexOf(text);

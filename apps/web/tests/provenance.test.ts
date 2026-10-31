@@ -35,6 +35,7 @@ import {
   sourceLabel,
 } from "../src/lib/provenance";
 
+import { declarations } from "./colour-scan";
 import { IO_BOUND_TEST_TIMEOUT_MS } from "./io-timeout";
 
 const liveMeta: ProvenanceV1 = {
@@ -74,7 +75,8 @@ describe("isLive", () => {
 
 describe("delivery and model labels", () => {
   it("LIVE for a live frame of a live-model run; REPLAY for stored records", () => {
-    // LIVE has its own colour (LIVE_VARIANT), never the green of a verified proof.
+    // LIVE has its own variant (LIVE_VARIANT: the 2px ink frame and the
+    // square, "status encodings without hue" below), never a verified proof's.
     expect(deliveryLabel("live", liveMeta)).toEqual({ key: "live.label", variant: "pink" });
     expect(LIVE_VARIANT).toBe("pink");
     expect(deliveryLabel("replay", liveMeta)).toEqual({ key: "replay.label", variant: "blue" });
@@ -99,7 +101,7 @@ describe("delivery and model labels", () => {
   });
 
   it("LIVE META only for a live frame of a live-model run (isLive), META MODEL otherwise", () => {
-    // LIVE META in the LIVE colour; META MODEL in the info colour, never the same.
+    // LIVE META in the LIVE variant; META MODEL in the info variant, never the same.
     expect(modelLabel(liveMeta, "live")).toEqual({ key: "liveMeta.label", variant: "pink" });
     // A replayed frame, a list entry (no delivery) and a preset read META MODEL.
     expect(modelLabel(liveMeta, "replay")).toEqual({ key: "metaModel.label", variant: "info" });
@@ -450,5 +452,125 @@ describe("the verbatim log link follows the server's publication rule", () => {
     expect(ndjsonPublishable({ ...guided, evidence: "hyphae_snapshot" })).toBe(false);
     expect(ndjsonPublishable({ ...guided, declared: null })).toBe(false);
     expect(ndjsonPublishable({ ...guided, declared: undefined })).toBe(false);
+  });
+});
+
+// The palette has no hue (design/palette-mono.md, 2026-10-31), so the colour
+// of a variant no longer tells two labels apart: each variant's monochrome
+// encoding does (globals.css, "Status without hue"). These tests hold the
+// same honesty lines as the colour assertions above, on that encoding:
+// verified is the only solid mid grey without a frame, simulated the only
+// dashed frame, LIVE the only 2px solid frame with a square, and failed the
+// only solid inside a double frame. e2e/api.spec.ts and showcase.spec.ts
+// check the same encodings on the rendered tags.
+describe("status encodings without hue", () => {
+  const globals = declarations(readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8"));
+
+  /** The declarations of `.astryx-badge[data-variant="<variant>"]` (and of its ::before, as "before:<property>"). */
+  function rule(variant: string): Record<string, string> {
+    const own = `.astryx-badge[data-variant="${variant}"]`;
+    const result: Record<string, string> = {};
+    for (const { selector, property, value, context } of globals) {
+      if (context.some((entry) => entry.startsWith("@media"))) {
+        continue;
+      }
+      const selectors = selector.split(",").map((part) => part.trim());
+      if (selectors.includes(own)) {
+        result[property] = value;
+      } else if (selectors.includes(`${own}::before`)) {
+        result[`before:${property}`] = value;
+      }
+    }
+    return result;
+  }
+
+  /** "style width" of a variant's frame, or "none". */
+  function frame(variant: string): string {
+    const outline = rule(variant).outline;
+    if (outline === undefined) {
+      return "none";
+    }
+    const [width = "", style = ""] = outline.split(/\s+/);
+    return `${style} ${width}`;
+  }
+
+  const solid = (variant: string) => /--hc-role-(verified|failed)-solid/.test(rule(variant)["background-color"] ?? "");
+
+  it("every variant a label uses has its own encoding rule", () => {
+    const used = new Set<string>([
+      LIVE_VARIANT,
+      INFO_VARIANT,
+      ...Object.values(RECOMMENDATION_VARIANTS),
+      assessmentVariant(true),
+      assessmentVariant(false),
+      ...(["valid", "invalid", "unavailable", "verification_error", "not_checked"] as const).flatMap((status) => [
+        proofToken(status, true).variant,
+        proofToken(status, false).variant,
+      ]),
+      ...BLOCKING_FLAGS.map((flag) => flagLabel(flag).variant),
+      ...MODEL_PROVENANCES.flatMap((model) =>
+        (["live", "replay", undefined] as const).map((delivery) => modelLabel({ model }, delivery).variant),
+      ),
+      ...(["simulated", "hyphae_snapshot", "hyphae_live", "none", "mixed"] as const).map(
+        (evidence) => evidenceLabel(evidence).variant,
+      ),
+      sourceLabel("this_server").variant,
+      sourceLabel("research_archive").variant,
+      deliveryLabel("live", liveMeta).variant,
+      deliveryLabel("replay", liveMeta).variant,
+      deliveryLabel("live", scripted).variant,
+    ]);
+    for (const variant of used) {
+      expect(rule(variant)["background-color"], variant).toMatch(/^var\(--hc-role-[a-z]+-(bg|solid)\)$/);
+      expect(rule(variant).color, variant).toMatch(/^var\(--hc-role-[a-z]+-(fg|on-solid)\)$/);
+    }
+  });
+
+  it("verified is a solid mid grey under an inverted label, with no frame; nothing else looks like it", () => {
+    expect(rule("success")).toEqual({
+      color: "var(--hc-role-verified-on-solid)",
+      "background-color": "var(--hc-role-verified-solid)",
+    });
+    expect(frame("success")).toBe("none");
+    for (const variant of ["error", "purple", "pink", "warning", "neutral", "info", "blue"]) {
+      expect(solid(variant) && frame(variant) === "none", variant).toBe(false);
+    }
+  });
+
+  it("a simulated proof is never solid: the dashed frame, which no other variant has", () => {
+    const simulated = proofToken("valid", true).variant;
+    expect(simulated).not.toBe(proofToken("valid", false).variant);
+    expect(solid(simulated)).toBe(false);
+    expect(frame(simulated)).toBe("dashed 1px");
+    for (const variant of ["success", "error", "pink", "warning", "neutral", "info", "blue"]) {
+      expect(frame(variant), variant).not.toMatch(/^dashed/);
+    }
+  });
+
+  it("LIVE is the only 2px solid ink frame with the 8px square", () => {
+    expect(frame(LIVE_VARIANT)).toBe("solid 2px");
+    expect(rule(LIVE_VARIANT)["background-color"]).toBe("var(--hc-role-live-bg)");
+    expect(rule(LIVE_VARIANT)["before:width"]).toBe("8px");
+    expect(rule(LIVE_VARIANT)["before:height"]).toBe("8px");
+    expect(rule(LIVE_VARIANT)["before:background-color"]).toBe("var(--hc-role-live-solid)");
+    for (const variant of ["success", "error", "purple", "warning", "neutral", "info", "blue"]) {
+      expect(frame(variant), variant).not.toBe("solid 2px");
+      expect(rule(variant)["before:width"], variant).toBeUndefined();
+    }
+  });
+
+  it("META MODEL and a supported outcome are the quiet info tag: a tint and a hairline, never solid", () => {
+    expect(rule(INFO_VARIANT)["background-color"]).toBe("var(--hc-role-info-bg)");
+    expect(frame(INFO_VARIANT)).toBe("solid 1px");
+    expect(solid(INFO_VARIANT)).toBe(false);
+    expect(rule(INFO_VARIANT)).not.toEqual(rule(LIVE_VARIANT));
+  });
+
+  it("failed is the only solid inside a double frame; contested is double on a tint", () => {
+    expect(solid("error")).toBe(true);
+    expect(frame("error")).toBe("double 3px");
+    expect(rule("error")["outline-offset"]).toBeUndefined();
+    expect(solid("warning")).toBe(false);
+    expect(frame("warning")).toBe("double 3px");
   });
 });

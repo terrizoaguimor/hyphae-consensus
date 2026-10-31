@@ -356,7 +356,11 @@ pretends to load. Colours (round 4, HE #1, #2, #16): only a real verifier's
 accepted proof (and the in-browser chain check) is green; a "supported"
 outcome and a "corroborated" assessment are the info role (`INFO_VARIANT`),
 never green, on any evidence; META MODEL is the info colour in every state;
-LIVE and LIVE META share `LIVE_VARIANT`, used by nothing else. Every counter
+LIVE and LIVE META share `LIVE_VARIANT`, used by nothing else. Round 5 has
+no hue: "green" is now the verified encoding (a solid mid grey under an
+inverted label, no frame), and the same rules hold on the monochrome
+encodings (globals.css "Status without hue"; checked on the rendered tags by
+`e2e/api.spec.ts` and `e2e/showcase.spec.ts`). Every counter
 of simulated proofs says so on the same line ("4 simulated proofs (not
 checked)", "SIMULATED, scripted “valid”: 4 proofs (not checked)", the plain
 explanation's "all SIMULATED … (scripted, not checked)"), and a server text or
@@ -400,7 +404,8 @@ exists; none of it is to be duplicated.
   `ndjsonPublishable`, `isPaceable`) and `<ProvenanceBadges>` (pass
   `delivery` only for a frame being watched). A simulated proof is never a
   green or cyan "valid" (`proofToken`; `ProofStatus` in `StageTab.tsx`
-  renders it); Hyphae cyan is for real proof and evidence only. Request ids
+  renders it); since round 5 it is the dashed SIMULATED tag, never the
+  verified solid. Request ids
   (`meta_request_ids`, `ModelInvocationV1.request_id`) are evidence of a
   recorded Meta call, never of liveness.
 - **Errors and failures**: `<ApiErrorNotice error context onRetry remaining>` (every
@@ -727,26 +732,49 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
 - **Stylesheets** (`src/app/styles.ts`, imported by both root layouts), in
   layer order: `@astryxdesign/core/reset.css` (`reset`) →
   `@astryxdesign/core/astryx.css` (`astryx-base`) →
-  `src/theme/hyphae-mission.css` (`astryx-theme`) → `src/app/globals.css`
-  (`app`). App rules stay inside `@layer app`, because unlayered rules would
-  beat every Astryx layer.
+  `src/theme/hyphae-mission.css` (`astryx-theme`) →
+  `src/app/hc-mono-tokens.css` and `src/app/globals.css` (`app`). App rules
+  stay inside `@layer app`, because unlayered rules would beat every Astryx
+  layer.
+- **Monochrome** (owner direction 2026-10-31,
+  `design/palette-mono.md` revision 2): every colour is a true grey (R = G =
+  B) from one 14-step scale (`mono/0` `#FFFFFF` to `mono/13` `#0B0B0B`), in
+  both themes; no hue anywhere. Token names are unchanged; their values
+  follow the mapping of palette-mono.md section 5. `hc-mono-tokens.css` is
+  the palette's generated token layer (the `--hc-*` functional, role, body,
+  glass and button tokens as `light-dark()` tuples), copied from
+  `design/palette-mono/` with one change (`color-scheme` is not forced on
+  `:root`). The accent is ink: links are always underlined (the only link
+  cue without hue; buttons drawn as `<a>` and navigation are not), the
+  focus ring is ink, and `accent-color`, `caret-color`, `scrollbar-color`,
+  `::selection` and autofill take grey tokens. The two blue glows became the
+  grey body gradient (`body::before`), and the glass and its backdrop are
+  greyed. Status tags are told apart by fill weight, label polarity, frame
+  style and a marker, not by colour (globals.css "Status without hue":
+  verified solid mid grey, failed solid ink in a double frame, simulated
+  dashed, LIVE a 2px ink frame with a square, contested double, recorded a
+  mid tint, info a tint). `tests/no-hue.test.ts` fails on any colour literal
+  with a hue in the theme output or the app's stylesheets, and on any colour
+  Astryx's base stylesheet sets with a hue that the theme does not
+  redeclare; `e2e/no-hue.spec.ts` checks the built CSS and every colour the
+  browser renders, in both themes.
 - **Theme**: `src/theme/hyphaeMissionTheme.ts` extends the neutral theme with
   `defineTheme`. `pnpm theme:build` writes the committed
   `hyphae-mission.{css,js,d.ts,css.d.ts,variants.d.ts}`; rebuild after any
-  Astryx upgrade. Tokens: accent `#0064E0` (light) and `#4BA9FE` (dark, text
-  and icons); text on accent white in light mode and `#111112` in dark mode
-  (white on `#4BA9FE` measures 2.50:1 and fails WCAG AA); surfaces white and
-  ice blue in light mode (body `#F3F7FC`, muted `#EDF3FB`) and deep midnight
-  in dark mode (body `#0A0F1E`, surface `#121A2D`, card `#0F1628`, popover
-  `#141D33`), with a soft blue ambient glow behind the content sheet; Hyphae
-  cyan `#45E4D0` as local tokens reserved for proof and evidence (nothing in
-  E2 uses it); radii 8 px (element) and 16 px (container).
+  Astryx upgrade. Tokens: accent ink (`#0B0B0B` light, `#F4F4F4` dark; text
+  and icons `#0B0B0B` / `#FFFFFF`); text on accent white in light mode and
+  `#0B0B0B` in dark mode; surfaces white in light mode (body and muted
+  `#F4F4F4`) and near-black in dark mode (body and muted `#0B0B0B`, surface
+  `#131313`, card `#1B1B1B`, popover `#242424`); the status colours, the
+  nine hue families, the syntax and data-visualisation palettes and the
+  inset status shadows re-pointed at greys; `--hc-color-proof` is now the
+  verified solid (`#6E6E6E` / `#9E9E9E`, the cyan is gone); square-first
+  radii (design-direction 3.7): 2 px (inner), 4 px (element: buttons,
+  inputs) and 6 px (container: cards, panels, dialogs).
   `tests/contrast.test.ts` reads the compiled theme and requires 4.5:1 for
   every text token on every surface token, in both modes, and 3:1 (WCAG
-  1.4.11) for the local token `--hc-color-border-strong` (`#7A8496` /
-  `#677388`: the slate v2 border-strong of `design/palette`, kept because it
-  matches this theme's blue-tinted surfaces; design-direction.md's mono
-  `border/strong` belongs to the redesign), the boundary of controls and of
+  1.4.11) for the local token `--hc-color-border-strong` (`#6E6E6E` /
+  `#9E9E9E`, palette-mono `border/strong`), the boundary of controls and of
   panels that bound one: radio rings, checkbox boxes, the off Switch track,
   native selects, the Settings panels and the dashed not-connected panel
   (`globals.css` points Astryx's

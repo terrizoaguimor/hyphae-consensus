@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <title>Hyphae Consensus</title>
+  <!-- Favicon = the 16 px pixel cut (mark-flat-16), crisp at 16, 32 and 48 device px. Ink #141414; #EDEDED when the browser is dark. Link it with rel="icon" type="image/svg+xml" only: the style element lives in this separate image document. Never inline it in a page (the app CSP is hash-only); to inline, use mark-flat-16-black.svg or mark-flat-16-white.svg, which have no style. -->
+  <style>path{fill:#141414}@media (prefers-color-scheme:dark){path{fill:#EDEDED}}</style>
+  <path shape-rendering="crispEdges" d="M6 1h4v1h-4z M6 2h4v1h-4z M5 3h2v1h-2z M5 4h2v1h-2z M4 5h2v1h-2z M10 5h2v1h-2z M4 6h2v1h-2z M10 6h2v1h-2z M3 7h2v1h-2z M7 7h2v1h-2z M11 7h2v1h-2z M3 8h2v1h-2z M7 8h2v1h-2z M11 8h2v1h-2z M2 9h2v1h-2z M6 9h4v1h-4z M12 9h2v1h-2z M2 10h2v1h-2z M6 10h4v1h-4z M12 10h2v1h-2z M13 11h2v1h-2z M13 12h2v1h-2z M0 13h12v1h-12z M14 13h2v1h-2z M0 14h12v1h-12z M14 14h2v1h-2z"/>
+</svg>

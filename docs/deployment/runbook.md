@@ -387,6 +387,8 @@ after replacing it, restart the service.
 ```sh
 # owner machine
 sh apps/web/scripts/in-docker.sh pnpm install --frozen-lockfile
+# optional: the public origin, for an absolute og:image (apps/web/README.md, "Logo (Quorum)")
+printf 'NEXT_PUBLIC_SITE_ORIGIN=https://<hostname>\n' > apps/web/.env.production.local
 sh apps/web/scripts/in-docker.sh pnpm build
 ( cd apps/web/out && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum ) > web.SHA256SUMS
 tar -czf web.tar.gz -C apps/web/out .

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Root layout of every localized page, pre-rendered once per locale, and the
-// app shell around them: skip link, top bar (wordmark, language, theme;
+// app shell around them: skip link, top bar (Quorum mark and wordmark, language, theme;
 // Menu below the desktop breakpoint), primary navigation, main content and
 // a footer with the non-affiliation line and the legal pages.
 
@@ -17,12 +17,15 @@ import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { MobileNav } from "@/components/MobileNav";
 import { PrimaryNav } from "@/components/PrimaryNav";
 import { Providers } from "@/components/Providers";
+import { QuorumMark } from "@/components/Quorum";
 import { RouteFocus } from "@/components/RouteFocus";
+import { SocialMeta } from "@/components/SocialMeta";
 import { ThemeScript } from "@/components/ThemeScript";
 import { ThemeControl } from "@/components/ThemeControl";
 import { endonyms } from "@/i18n/endonyms";
 import { pickClientMessages } from "@/i18n/messages";
 import { routing } from "@/i18n/routing";
+import { brandIcons, brandViewport } from "@/lib/brand";
 import { type LocaleParams, pageLocale } from "@/lib/pageLocale";
 import { localePath } from "@/lib/site";
 
@@ -34,9 +37,7 @@ export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));
 }
 
-export const viewport: Viewport = {
-  colorScheme: "light dark",
-};
+export const viewport: Viewport = brandViewport;
 
 export async function generateMetadata({
   params,
@@ -46,6 +47,7 @@ export async function generateMetadata({
   return {
     title: { template: t("titleTemplate"), default: t("title") },
     description: t("description"),
+    icons: brandIcons,
   };
 }
 
@@ -68,6 +70,12 @@ export default async function LocaleLayout({
     >
       <head>
         <ThemeScript />
+        <SocialMeta
+          siteName={t("App.name")}
+          title={t("Metadata.title")}
+          description={t("Metadata.description")}
+          imageAlt={t("Metadata.ogImageAlt")}
+        />
       </head>
       <body>
         <Providers locale={locale} messages={pickClientMessages(messages)}>
@@ -77,7 +85,8 @@ export default async function LocaleLayout({
           <div className="hc-shell">
             <header className="hc-topbar hc-glass hc-glass--region">
               <Link href={localePath(locale, "")} className="hc-wordmark">
-                {t("App.name")}
+                <QuorumMark />
+                <span className="hc-wordmark-text">{t("App.name")}</span>
               </Link>
               <div className="hc-topbar-controls">
                 <LocaleSwitcher current={locale} endonyms={endonyms} />

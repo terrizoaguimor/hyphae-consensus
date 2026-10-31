@@ -334,14 +334,91 @@
     }
   }
 
+  /* The wordmark (Quorum README: Inter Semi Bold, tracking -1.5 %, flat and
+     one ink, never glass). In the top bar it follows the flat 32 px mark:
+     the gap plus the cut's 2 px right margin is the lockup's 12-unit gap
+     (6 px at 32 px). */
   .hc-wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-family: var(--font-family-heading);
     font-size: var(--font-size-lg);
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
     color: var(--color-text-primary);
     text-decoration: none;
     border-radius: var(--radius-element);
+  }
+
+  /* A horizontal lockup: the wordmark is never re-set on two lines. */
+  .hc-wordmark-text {
+    white-space: nowrap;
+  }
+
+  /* At the narrowest widths (320 px, the WCAG 1.4.10 reflow width) the bar
+     gives the lockup room for one line beside the Menu button: a smaller
+     edge padding and gap. */
+  @media (max-width: 22.5rem) {
+    .hc-topbar {
+      gap: var(--spacing-2);
+      padding-inline: var(--spacing-2);
+    }
+  }
+
+  /* The flat mark, 32 px (below 64 px the mark is always flat): one ink, the
+     wordmark's own colour (currentColor), whole pixels. */
+  .hc-quorum-mark {
+    display: block;
+    flex: none;
+    width: 32px;
+    height: 32px;
+  }
+
+  /* The brushed-glass mark, only at 64 px or more (here 96): the light-surface
+     file in the light theme, the dark-surface file in the dark theme, by
+     <html data-theme> (set by the head script), or by the OS setting when the
+     script has not run. Print is light. */
+  .hc-quorum-glass {
+    display: block;
+    flex: none;
+    width: 96px;
+    height: 96px;
+  }
+
+  .hc-quorum-glass-img {
+    display: block;
+    width: 96px;
+    height: 96px;
+  }
+
+  .hc-quorum-glass-img[data-surface="dark"],
+  [data-theme="dark"] .hc-quorum-glass-img[data-surface="light"] {
+    display: none;
+  }
+
+  [data-theme="dark"] .hc-quorum-glass-img[data-surface="dark"] {
+    display: block;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) .hc-quorum-glass-img[data-surface="light"] {
+      display: none;
+    }
+
+    :root:not([data-theme]) .hc-quorum-glass-img[data-surface="dark"] {
+      display: block;
+    }
+  }
+
+  @media print {
+    :root:root .hc-quorum-glass .hc-quorum-glass-img[data-surface="light"] {
+      display: block;
+    }
+
+    :root:root .hc-quorum-glass .hc-quorum-glass-img[data-surface="dark"] {
+      display: none;
+    }
   }
 
   .hc-topbar-controls {

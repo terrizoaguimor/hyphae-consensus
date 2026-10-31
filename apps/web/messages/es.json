@@ -2,7 +2,8 @@
   "Metadata": {
     "title": "Hyphae Consensus",
     "titleTemplate": "%s · Hyphae Consensus",
-    "description": "Portal de Hyphae Consensus: razonamiento multiagente verificable y rendición de cuentas en las decisiones."
+    "description": "Portal de Hyphae Consensus: razonamiento multiagente verificable y rendición de cuentas en las decisiones.",
+    "ogImageAlt": "El símbolo Quorum, tres facetas de vidrio alrededor de un nodo central, sobre las palabras Hyphae Consensus, en un fondo gris oscuro."
   },
   "App": {
     "name": "Hyphae Consensus",

@@ -5,12 +5,15 @@
 // one <h1> (the wordmark) and the non-affiliation line.
 
 import { LocaleRedirect } from "@/components/LocaleRedirect";
+import { QuorumGlass } from "@/components/Quorum";
 import { defaultMessages, endonyms } from "@/i18n/endonyms";
 import { routing } from "@/i18n/routing";
 
 export default function RootPage() {
   return (
     <main className="hc-root">
+      {/* The hero: the brushed-glass mark (96 px, at or above the 64 px threshold). */}
+      <QuorumGlass />
       <h1 className="hc-wordmark">{defaultMessages.App.name}</h1>
       <nav aria-label={defaultMessages.LocaleSwitcher.label}>
         {/* role="list": Safari drops list semantics when list-style is none. */}

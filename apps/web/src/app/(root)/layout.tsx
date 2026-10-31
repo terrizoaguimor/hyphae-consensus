@@ -9,20 +9,21 @@ import "../styles";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
+import { SocialMeta } from "@/components/SocialMeta";
 import { ThemeScript } from "@/components/ThemeScript";
 import { defaultMessages } from "@/i18n/endonyms";
 import { routing } from "@/i18n/routing";
+import { brandIcons, brandViewport } from "@/lib/brand";
 
 import { fontVariables } from "../fonts";
 
 export const metadata: Metadata = {
   title: defaultMessages.Metadata.title,
   description: defaultMessages.Metadata.description,
+  icons: brandIcons,
 };
 
-export const viewport: Viewport = {
-  colorScheme: "light dark",
-};
+export const viewport: Viewport = brandViewport;
 
 export default function RootRedirectLayout({
   children,
@@ -40,6 +41,12 @@ export default function RootRedirectLayout({
     >
       <head>
         <ThemeScript />
+        <SocialMeta
+          siteName={defaultMessages.App.name}
+          title={defaultMessages.Metadata.title}
+          description={defaultMessages.Metadata.description}
+          imageAlt={defaultMessages.Metadata.ogImageAlt}
+        />
         <noscript>
           <meta
             httpEquiv="refresh"

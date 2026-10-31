@@ -12,9 +12,11 @@ import "./styles";
 
 import type { Metadata, Viewport } from "next";
 
+import { QuorumGlass } from "@/components/Quorum";
 import { ThemeScript } from "@/components/ThemeScript";
 import { defaultMessages, endonyms } from "@/i18n/endonyms";
 import { routing } from "@/i18n/routing";
+import { brandIcons, brandViewport } from "@/lib/brand";
 
 import { fontVariables } from "./fonts";
 
@@ -25,11 +27,10 @@ export const metadata: Metadata = {
     "%s",
     defaultMessages.NotFound.title,
   ),
+  icons: brandIcons,
 };
 
-export const viewport: Viewport = {
-  colorScheme: "light dark",
-};
+export const viewport: Viewport = brandViewport;
 
 export default function GlobalNotFound() {
   // suppressHydrationWarning: the head script sets data-theme on <html>.
@@ -45,6 +46,8 @@ export default function GlobalNotFound() {
       </head>
       <body>
         <main className="hc-root hc-not-found">
+          {/* The brushed-glass mark (96 px, at or above the 64 px threshold). */}
+          <QuorumGlass />
           <p className="hc-wordmark">{defaultMessages.App.name}</p>
           <h1 className="hc-page-title">{defaultMessages.NotFound.title}</h1>
           <p className="hc-lead">{defaultMessages.NotFound.body}</p>

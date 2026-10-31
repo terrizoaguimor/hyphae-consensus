@@ -852,12 +852,13 @@
     min-width: 0;
   }
 
-  /* The outcome tag carries the evidence label at its end ("... on
-     SIMULATED evidence"), so it wraps instead of being cut with an ellipsis
-     when the panel is narrower than the tag (a phone, a long locale):
-     simulated evidence stays visible next to the outcome (G7). Astryx's
-     Badge is one fixed-height line that clips its label. */
-  [data-recommendation-kind] > .astryx-badge {
+  /* The outcome tag and its evidence tag (OutcomeTags, inside the
+     recommendation line) wrap instead of being cut with an ellipsis when the
+     panel is narrower than a tag (a phone, a long locale): simulated
+     evidence stays visible next to the outcome (G7). Astryx's Badge is one
+     fixed-height line that clips its label; .hc-tag lets it grow, and this
+     also breaks a word longer than the panel. */
+  [data-recommendation-kind] .astryx-badge {
     height: auto;
     min-height: var(--spacing-5);
     padding-block: calc(var(--spacing-1) / 2);
@@ -866,7 +867,7 @@
     text-align: start;
   }
 
-  [data-recommendation-kind] > .astryx-badge > span {
+  [data-recommendation-kind] .astryx-badge > span {
     overflow: visible;
     text-overflow: clip;
     white-space: normal;

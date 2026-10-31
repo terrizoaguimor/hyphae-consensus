@@ -25,6 +25,7 @@ import { docSlugs, localePath, runPath, showcaseRunPath } from "../src/lib/site"
 import { awaitingDecisionDetail, liveModelDetail, mockApi, recordedRun, RUN_ID } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
+import { EVIDENCE_BADGE, OUTCOME_BADGE } from "./helpers";
 import { archiveEntry, manifestRun, metaRequestIds } from "./research";
 
 type Json = Record<string, unknown>;
@@ -270,8 +271,8 @@ test.describe("HE #9: every main screen fits a 390 px phone", () => {
   });
 
   // Capping the decision panel's children at its width must not cut the
-  // outcome tag: its evidence label (SIMULATED, sealed snapshot) is at the
-  // end, and it stays visible next to the outcome (G7) by wrapping.
+  // outcome or its evidence tag (SIMULATED, sealed snapshot): the evidence
+  // stays visible next to the outcome (G7) by wrapping.
   const decisions: { name: string; evidence: string; open: (page: Page, locale: Locale) => Promise<void> }[] = [
     { name: "simulated evidence", evidence: "Provenance.simulated.label", open: (page, locale) => openDecision(page, locale) },
     {
@@ -292,25 +293,32 @@ test.describe("HE #9: every main screen fits a 390 px phone", () => {
         const line = page.locator("[data-recommendation-kind]:visible").first();
         await expect(line).toBeVisible();
         const kind = await line.getAttribute("data-recommendation-kind");
-        const label = t(locale, "Run.outcome", {
-          kind: t(locale, `Run.kinds.${kind ?? ""}`),
-          evidence: t(locale, decision.evidence),
-        });
-        const tag = line.locator(".astryx-badge");
-        await expect(tag).toHaveText(label);
+        // The outcome and its evidence are two tags (OutcomeTags, HE #3):
+        // neither is cut, and neither reaches past the panel.
+        const tags = [
+          { selector: OUTCOME_BADGE, label: t(locale, `Run.kinds.${kind ?? ""}`) },
+          {
+            selector: EVIDENCE_BADGE,
+            label: t(locale, "Run.outcomeEvidence", { evidence: t(locale, decision.evidence) }),
+          },
+        ];
         await page.evaluate(() => document.fonts.ready.then(() => undefined));
-        const box = await tag.evaluate((element) => {
-          const text = element.lastElementChild as HTMLElement;
-          const panel = element.closest(".hc-panel")?.getBoundingClientRect();
-          const own = element.getBoundingClientRect();
-          return {
-            clipped: text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight,
-            overflow: getComputedStyle(text).textOverflow,
-            inside: panel === undefined || own.right <= panel.right + 0.5,
-          };
-        });
-        expect(box.clipped, `"${label}" is cut (text-overflow ${box.overflow})`).toBe(false);
-        expect(box.inside, `"${label}" reaches past its panel`).toBe(true);
+        for (const { selector, label } of tags) {
+          const tag = line.locator(selector);
+          await expect(tag).toHaveText(label);
+          const box = await tag.evaluate((element) => {
+            const text = element.lastElementChild as HTMLElement;
+            const panel = element.closest(".hc-panel")?.getBoundingClientRect();
+            const own = element.getBoundingClientRect();
+            return {
+              clipped: text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight,
+              overflow: getComputedStyle(text).textOverflow,
+              inside: panel === undefined || own.right <= panel.right + 0.5,
+            };
+          });
+          expect(box.clipped, `"${label}" is cut (text-overflow ${box.overflow})`).toBe(false);
+          expect(box.inside, `"${label}" reaches past its panel`).toBe(true);
+        }
         await expectFitsPhone(page);
       });
     }

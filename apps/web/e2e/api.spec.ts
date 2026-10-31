@@ -13,7 +13,7 @@
 // and theme.
 
 import AxeBuilder from "@axe-core/playwright";
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 import { IntlMessageFormat } from "intl-messageformat";
 
 import { CONTRACT_SHA256 } from "../src/lib/api/types";
@@ -732,9 +732,12 @@ test("a scripted run whose stream sends no frame shows its workspace and stream 
   pageProblems,
 }) => {
   await mockApi(page);
-  // The stream answers nothing: the request is held, so no frame ever
-  // arrives and the stream is never settled.
-  await page.route(/\/api\/v1\/runs\/[^/]+\/events(\?.*)?$/u, () => undefined);
+  // The stream answers nothing: the request is held, so no frame arrives
+  // and the stream is not settled, until the test lets it through.
+  const held: Route[] = [];
+  await page.route(/\/api\/v1\/runs\/[^/]+\/events(\?.*)?$/u, (route) => {
+    held.push(route);
+  });
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await openRun(page, "en");
   await expect(page.locator("[data-run='loading']")).toHaveCount(0);
@@ -758,6 +761,17 @@ test("a scripted run whose stream sends no frame shows its workspace and stream 
   );
   await expect(page.getByRole("tab", { name: t("en", "Run.tabs.evidence") })).toBeVisible();
   await expect(page.locator("[data-recommendation]")).toContainText(t("en", "Run.stage.noRecommendation"));
+  // Once the stream answers, the playback starts and the header follows it;
+  // the mocked stream (the earlier route) serves the run's frames.
+  await page.unroute(/\/api\/v1\/runs\/[^/]+\/events(\?.*)?$/u);
+  expect(held.length).toBeGreaterThan(0);
+  for (const route of held.splice(0)) {
+    await route.fallback();
+  }
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await expect(header).not.toHaveAttribute("data-header-state", "not_shown");
+  await page.getByRole("button", { name: t("en", "Run.pacing.skip") }).click();
+  await expect(header).toHaveAttribute("data-header-state", "approved");
   expect(pageProblems).toEqual([]);
 });
 

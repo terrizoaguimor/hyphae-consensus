@@ -21,10 +21,49 @@ import {
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
+function isRadio(element: Element): element is HTMLInputElement {
+  return element instanceof HTMLInputElement && element.type === "radio";
+}
+
+/**
+ * The Tab stops inside `root`, in order. A named radio group (the drawer's
+ * theme control) is one stop, as the browser makes it: its checked radio,
+ * or its first one while none is checked. Otherwise Tab from the checked
+ * radio would leave the dialog before the trap saw the last stop.
+ */
 function focusableIn(root: HTMLElement): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+  const candidates = [
+    ...root.querySelectorAll<HTMLElement>(FOCUSABLE),
+  ].filter(
     (element) =>
       !element.closest("[inert]") && element.getClientRects().length > 0,
+  );
+  return candidates.filter((element) => {
+    if (!isRadio(element) || element.name === "") {
+      return true;
+    }
+    const group = candidates.filter(
+      (other): other is HTMLInputElement =>
+        isRadio(other) && other.name === element.name,
+    );
+    return element === (group.find((radio) => radio.checked) ?? group[0]);
+  });
+}
+
+/**
+ * Whether `a` and `b` are the same Tab stop: the same element, or two radios
+ * of one named group. Focus can sit on an unchecked radio of the group (a
+ * screen reader's virtual cursor or focus() puts it there), and Tab from it
+ * leaves the group just as from the checked one.
+ */
+function sameStop(a: Element | null, b: Element): boolean {
+  return (
+    a === b ||
+    (a !== null &&
+      isRadio(a) &&
+      isRadio(b) &&
+      a.name !== "" &&
+      a.name === b.name)
   );
 }
 
@@ -120,11 +159,15 @@ export function Modal({
     }
     const active = document.activeElement;
     if (event.shiftKey) {
-      if (active === first || !dialog.contains(active) || active === dialog) {
+      if (
+        sameStop(active, first) ||
+        !dialog.contains(active) ||
+        active === dialog
+      ) {
         event.preventDefault();
         last.focus();
       }
-    } else if (active === last || !dialog.contains(active)) {
+    } else if (sameStop(active, last) || !dialog.contains(active)) {
       event.preventDefault();
       first.focus();
     }

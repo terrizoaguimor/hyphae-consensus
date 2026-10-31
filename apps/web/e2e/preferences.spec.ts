@@ -13,7 +13,7 @@ import {
   test,
 } from "./fixtures";
 
-test("the theme toggle switches, persists and sets no cookie @smoke", async ({
+test("the header theme control switches, persists and sets no cookie @smoke", async ({
   page,
   context,
 }) => {
@@ -22,20 +22,33 @@ test("the theme toggle switches, persists and sets no cookie @smoke", async ({
   await hydrated(page);
   const html = page.locator("html");
   await expect(html).toHaveAttribute("data-theme", "light");
-  const toggle = page.getByRole("switch", { name: t("en", "Theme.darkTheme") });
-  await expect(toggle).not.toBeChecked();
-  await toggle.click();
+  // The System / Light / Dark control (a radio group) replaced the Switch.
+  const control = page
+    .locator(".hc-topbar-controls")
+    .getByRole("radiogroup", { name: t("en", "Theme.label") });
+  const option = (name: "system" | "light" | "dark") =>
+    control.getByRole("radio", { name: t("en", `Theme.options.${name}`), exact: true });
+  await expect(page.getByRole("switch")).toHaveCount(0);
+  await expect(option("system")).toBeChecked();
+  await expect(option("dark")).not.toBeChecked();
+  await option("dark").click();
   await expect(html).toHaveAttribute("data-theme", "dark");
   expect(await storedKeys(page)).toEqual({ "hc-theme": "dark" });
 
   await page.reload();
   await hydrated(page);
   await expect(html).toHaveAttribute("data-theme", "dark");
-  await expect(toggle).toBeChecked();
+  await expect(option("dark")).toBeChecked();
+  await expect(option("system")).not.toBeChecked();
 
-  await toggle.click();
+  await option("light").click();
   await expect(html).toHaveAttribute("data-theme", "light");
   expect(await storedKeys(page)).toEqual({ "hc-theme": "light" });
+
+  // System removes the stored choice; the OS decides again.
+  await option("system").click();
+  expect(await storedKeys(page)).toEqual({});
+  await expect(html).toHaveAttribute("data-theme", "light");
   expect(await context.cookies()).toEqual([]);
   expect(await page.evaluate(() => document.cookie)).toBe("");
 });
@@ -61,7 +74,7 @@ test("Settings apply at once, announce each change and persist", async ({
   // Astryx buttons carry their own (empty) status regions; this is ours.
   const status = page.locator("p.hc-status[role=status]");
   const html = page.locator("html");
-  const group = (label: string) => page.getByRole("radiogroup", { name: label });
+  const group = (label: string) => page.locator("main").getByRole("radiogroup", { name: label });
 
   await group(t("en", "Settings.theme.label"))
     .getByRole("radio", { name: t("en", "Settings.theme.options.dark") })
@@ -150,7 +163,7 @@ test("Match system follows the OS after an explicit theme", async ({ page }) => 
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/en/settings/");
   await hydrated(page);
-  const themes = page.getByRole("radiogroup", { name: t("en", "Settings.theme.label") });
+  const themes = page.locator("main").getByRole("radiogroup", { name: t("en", "Settings.theme.label") });
   await themes.getByRole("radio", { name: t("en", "Settings.theme.options.light") }).check();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await themes.getByRole("radio", { name: t("en", "Settings.theme.options.system") }).check();

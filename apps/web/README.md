@@ -784,17 +784,35 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
   Astryx's base stylesheet sets with a hue that the theme does not
   redeclare; `e2e/no-hue.spec.ts` checks the built CSS and every colour the
   browser renders, in both themes.
+- **Shapes (round 5, square first, design-direction 3.7)**: every corner
+  except tags is 0, 2, 4 or 6 px (tags, the Astryx Badge, are still pills
+  until the tags lane squares them: the one entry in the drawn-corner
+  exceptions of `tests/radius-scan.ts`). The theme control is a 3-segment System / Light / Dark
+  radio group (`ThemeControl.tsx`: outer radius 4, inner joins 0, the
+  selected segment in the ink material with a check; icons only in the top
+  bar, icons and words in the drawer), the Overview step markers are 24 px
+  squares at radius 4, the tour's progress is a segmented bar (24x4
+  segments, radius 0), radio marks are square-cornered (radius 2, still
+  native radios: globals.css switches off the invisible input's native
+  drawing, which Chromium keeps round whatever its radius), and navigation
+  rows are square. `tests/radius-scan.test.ts` evaluates every radius
+  declaration of the stylesheets the build bundles (and of `out/` when a
+  build exists) against the theme's tokens: the app's own sheets allow no
+  exception, and Astryx's sheet is off the scale only in the classes of the
+  allow-list in `tests/radius-scan.ts`, each with the component that uses
+  it and why it may ship (no entry may be stale). `e2e/shapes.spec.ts`
+  checks the built CSS on every run and the corners the browser computes
+  for every element; tags (Astryx Badge) are its one rendered exception,
+  left to the tags lane.
 - **Left for the later round 5 lanes** (known deviations of this
   foundation from palette-mono and design-direction):
-  - The end corners of `.hc-nav-link` follow the shrunken
-    `--radius-element` (now 4 px); navigation items should be 0. The shapes
-    lane sets it on purpose. (The tags lane set every tag, including
-    `[data-recommendation-kind] .astryx-badge`, to 2 px, and gave RECORDED
-    its own role hook, so the other neutral labels now take the
-    informational tint.)
-  - Every tile `hc-mono-tokens.css` names is shipped: the brushed grain
-    tiles with the glass (below), the hatch tiles with the tags lane
-    (`--hc-hatch`, used by the simulated tag).
+  - Resolved since the foundation: RECORDED has its own role hook, so the
+    other neutral labels take the informational tint, and every tag,
+    including `[data-recommendation-kind] .astryx-badge`, is 2 px (tags
+    lane); the end corners of `.hc-nav-link` are 0 (shapes lane); every
+    tile `hc-mono-tokens.css` names is shipped (the brushed grain tiles
+    with the glass, below; the hatch tiles, for `--hc-hatch` on the
+    simulated tag, with the tags lane).
   - Tags that palette-mono gives an icon outside the shipped families keep
     their role's default icon: In progress (`loader`), Draft
     (`pencil-ruler`) and the chain row cells (`check`, `x`, `minus`,
@@ -896,8 +914,9 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
   `/_next/static/media`. theme-neutral's `fonts.css` is never imported (it
   loads Figtree from Google at runtime). `.hc-tabular-nums` and `.hc-code`
   are the utilities for metrics and for hashes and ids.
-- **Components used**: `Button`, `RadioList`, `Switch`, `Badge`, `Heading`,
-  `Text`, `CheckboxInput`, `TextInput` and `TextArea`. Long-form content
+- **Components used**: `Button`, `RadioList`, `Badge`, `Heading`,
+  `Text`, `CheckboxInput`, `TextInput` and `TextArea` (the header's
+  `Switch` became the app's own theme control in round 5). Long-form content
   (docs, legal pages) is plain HTML styled by the theme's reset layer, so it
   needs no hydration. Dialogs (tour, mobile drawer) are our own
   `src/components/Modal.tsx` on the native `<dialog>`, with a strict focus
@@ -956,8 +975,9 @@ first client render and applies it in a layout effect, before the first
 paint after hydration. Until then, `globals.css` makes the root Theme wrapper
 inherit the color scheme of `<html>`, including Lightning CSS's
 `--lightningcss-light` / `--lightningcss-dark` switches (the build compiles
-every `light-dark()` into them). The header switch shows "off" in the static
-HTML and takes its real state on hydration.
+every `light-dark()` into them). The header's theme control (System / Light
+/ Dark, `src/components/ThemeControl.tsx`) shows "System" in the static HTML
+and takes the stored choice on hydration.
 
 Reduced motion comes from the OS (`prefers-reduced-motion`) or from Settings
 (`data-motion="reduce"` on `<html>`), and is tiered: the drawer's slide and
@@ -1083,7 +1103,9 @@ scripts (the theme script with the same hash everywhere, two Next.js
 flight-data scripts and Turbopack's chunk-loader bootstrap), no inline
 style, and 2 `style` attributes (the header and drawer theme switches; 9 on
 Settings, from the radio lists), so the policy needs
-`style-src-attr 'unsafe-inline'`. The 404 page (`/404.html`, also exported as
+`style-src-attr 'unsafe-inline'`. Since round 5 the theme control is built
+from native radios with static classes: no page has a `style` attribute
+except Settings (7, from Astryx's radio lists), which still needs it. The 404 page (`/404.html`, also exported as
 `/404/` and `/_not-found/`) is rendered from `src/app/global-not-found.tsx`
 and has the same 4 inline scripts, no inline style and no style attribute;
 the e2e server sends it with its own hashes for every unknown path.
@@ -1101,13 +1123,14 @@ same-origin request or request to another origin.
 | Spec | Covers |
 |---|---|
 | `navigation.spec.ts` | Every primary nav item in every locale (URL, `<h1>`, focus on the `<h1>`, `aria-current`, `lang`, title); a crawl of all 69 pages that requests every internal link without following redirects and allows only the four known external links; unknown paths answer 404 with the global not-found page (lang, language links, non-affiliation line, CSP); skip link; landmarks; docs pager and section marking; the mobile drawer (modal, focus trap, Escape, focus return, navigation, language and theme) |
-| `preferences.spec.ts` | Theme switch and persistence; OS following; Settings (each choice, its announcement, persistence, Docs details, reset); "Match system"; a language chosen in Settings confirmed in the new language; the locale switcher and the root page's redirect; no cookies at all |
+| `preferences.spec.ts` | The header theme control (System / Light / Dark) and persistence; OS following; Settings (each choice, its announcement, persistence, Docs details, reset); "Match system"; a language chosen in Settings confirmed in the new language; the locale switcher and the root page's redirect; no cookies at all |
 | `onboarding.spec.ts` | Offered but never opened by itself; Skip, Escape and backdrop close it and are remembered; all six steps with Back and Finish; strict focus trap and inert page; reopening from Docs; translated in every locale |
 | `motion.spec.ts` | OS reduced motion and the in-app setting remove movement and keep a short fade; "Match system" follows the OS live; the drawer; reduced transparency makes the glass solid (Chromium, through the DevTools protocol) |
 | `glass.spec.ts` | The brushed glass, in both themes: a live backdrop filter only on the top bar and, at 390 px, the decision card (from 672 px the card is static), with the theme's grain tile; an open drawer or tour is the one modal dialog, live level 3 (the drawer at the 16 px blur on a phone), with its scrim; static glass (grain, opaque gradient, no backdrop) on the sidebar, the run header, the Overview steps (their number untouched), the docs cards and the Settings panels (their 3:1 border kept); no glass nested in glass; tables and tags solid (opaque fill, no grain, no backdrop) on the Decision, Audit trail and Meta API tabs at both widths; the primary button's ink gradient and grain, and its pressed state (flat, no shadow); more contrast, forced colours and print drop every backdrop filter; in forced colours the tour keeps a 1px frame, the drawer its inline-end edge and the top bar its bottom line only; a hovered docs card shows `border/strong` (no ink border over it); disabled-colour text inside the top bar and the decision card is the secondary ink; axe with no violation at all on the Decision tab at both widths |
 | `a11y.spec.ts` | axe on every page in both themes and all locales, the overlays, the 404 page in both themes, and phone layouts |
 | `api.spec.ts` | Over the mocked `/api/v1` (`e2e/api-mock.ts`, the contract fixtures; the live section in the contract's shape, validated with the client's zod mirror): New deliberation -> run -> frames -> decision -> receipt link (with the `Idempotency-Key` and the `expected` block checked); a replayed finished run never reads LIVE and is named Playback; no LIVE word on a replayed, flagged or listed live-model run in the four locales, and LIVE for a live-model run in progress; a `provenance_inconsistent` run never reads LIVE even on live-delivered frames; pacing only for scripted runs, and off with the in-app Reduced setting; the header's labels; the live section's disabled state, the closed form (no site key, tripped or unreadable ledger) and the open form's request (trimmed invite code, a live refusal's sentence); an error's sentence and Retry-After; a failed detail request with its retry; a failed stream with the stored records and a reconnect; a failed run explained from its code; the scope line of a revision; no verbatim-log link for a live-declared run; My runs with and without a session; the Explorer (filter, translated statuses, SIMULATED proofs, =0 count); the run page without an id; the runtime NotConnected state against the static server; the Overview's button (and a server on another contract); the four locales; axe on `/new`, `/runs` and the three tabs of `/run` in every locale and theme, and on the open live form, a failed run and a failed detail; lane W2: the Evidence tab (simulated and sealed-snapshot coverage, the English original note), the Proof inspector (simulated and real proofs, a failed receipt, a receipt with other limitations), the Audit trail (chain, receipt, log, check command; a live-declared run), a guided run's log checked in the browser (pass, then a changed record failing at its sequence), the Meta API panel (scripted doubles, recorded Meta calls and totals), the explanations (plain, technical, before protocol 1.3, three locales), the revision view, and axe on all seven tabs; the guided Run, live Start, Approve and Reject buttons keeping the keyboard focus while their request is in flight and after it (and through a 429 wait); round 4: the connected and not-connected variants of the legend intro, the tour, the Docs build note, Modes and Settings, the outage wording, and error headlines by class and context (500, 503, 429 distinct; a refused decision; a showcase read), the 429 countdown with disabled buttons and the recorded-run link, and the guided error inside its card; the pending variants while the health probe is held, the notice's countdown reaching "You can retry now", a `rate_limited` wait shared with live Start (and a busy wait that is not), a refused cancel headed by its class, a decision answered with an unreadable 200 headed as uncertain, and the guided Run button keeping the focus after a 500 |
-| `layout-contrast.spec.ts` | Round 4, heuristic evaluation #9 and #10: every main screen (Overview, New deliberation and its open live form, Runs, a run's Playback and Decision with a revision, its Explorer, Evidence, Proof inspector, Audit trail and Meta API tabs on a guided run and on a recorded run, the showcase, a recorded run's Decision, Docs, Settings, the legal pages) no wider than a 390 px phone in English and Spanish, the Decision screens in all four locales (`document.scrollingElement.scrollWidth`); the claim comparison stacked one block per claim below 672 px (its column names visual only), a table above, claim ids on one line; the decision's outcome tag never cut, its evidence label visible (simulated, sealed snapshot and a recorded run, four locales); and the computed colors of radio rings, checkbox boxes, the native select, the Settings panels and the dashed not-connected panel at 3:1 or more against their fill and surroundings in both themes, and of the off Switch track (top bar and drawer) in the light theme, where it is off |
+| `layout-contrast.spec.ts` | Round 4, heuristic evaluation #9 and #10: every main screen (Overview, New deliberation and its open live form, Runs, a run's Playback and Decision with a revision, its Explorer, Evidence, Proof inspector, Audit trail and Meta API tabs on a guided run and on a recorded run, the showcase, a recorded run's Decision, Docs, Settings, the legal pages) no wider than a 390 px phone in English and Spanish, the Decision screens in all four locales (`document.scrollingElement.scrollWidth`); the claim comparison stacked one block per claim below 672 px (its column names visual only), a table above, claim ids on one line; the decision's outcome tag never cut, its evidence label visible (simulated, sealed snapshot and a recorded run, four locales); and the computed colors of radio rings, checkbox boxes, the native select, the Settings panels and the dashed not-connected panel at 3:1 or more against their fill and surroundings in both themes, and of the theme control (its frame against the bar and its own fill, its dividers, the selected segment's ink fill against the bar and against its own icon and check; top bar and drawer) in both themes, in place of the off Switch track it replaced |
+| `shapes.spec.ts` | Round 5, square-first shapes (design-direction 3.7): the built CSS keeps every corner on the 0/2/4/6 px scale outside the reasoned Astryx allow-list of `tests/radius-scan.ts`; every rendered element and pseudo-element computes corners on the scale (every page, a run's tabs, the live form, the tour, the drawer; tags excepted, tags lane); the theme control (outer 4, joins 0, ink and check on the selected segment, no Switch), the 24 px square Overview step markers (radius 4), the tour's segmented progress bar (24x4, radius 0, current 40 wide, upcoming an empty frame), radio marks at radius 2 that stay native radios, navigation rows at radius 0; the theme control as a keyboard radio group (one tab stop on the selected segment, arrows move, select and wrap, Space selects, System removes the stored key, reload keeps the choice, no cookie), its names in all four locales, its icons at a 1.5 px drawn stroke, the drawer's worded variant, the drawer's focus trap holding from every segment whichever is checked (Tab and Shift+Tab, also from an unchecked segment that holds focus), and axe with no violation of any impact on it in both themes |
 | `showcase.spec.ts` | Over the mocked `/showcase` and `/research` (entries from the archive's manifest and logs, the server's F03 entry): the list (RECORDED, by battery, outcomes next to their evidence, the manifest checked, the archive's note), a recorded run in RECORDED mode (no stream, read-only Decision, archive receipt and log, recorded proofs, the check command), its archived log checked in the browser (pass against the pinned digest and the receipt's head; a flipped byte failing at its record), its receipt said to be the server's rebuild with the run record's own limitations quoted on request (and an unreadable record said), a run blocked by proof-generation failures, a schema-1.0 run (no run record), a run the listing does not name, a failed listing, a forged manifest, no LIVE in four locales, the Overview's figures recounted from the same entries, and axe on the figures, the list and every recorded tab in four locales and both themes; a recorded live-model run with no flag at all (no delivery badge, never LIVE, four locales); the Overview's figures read as visible text against numbers counted from two different archives; hostile markup, markdown links and an unclosed bidi override in record text, model output, the manifest's note, the receipt's and the run record's strings, titles and labels rendered inert in every recorded view (with a control showing the check sees each); axe on a failing and a partial chain check, a schema-1.0 run, a forged manifest (list and run), a failed listing, a failed recorded detail and a run the listing does not name (fr, both themes), and on a phone (390x844); the recorded tabs (arrows, Home, End) and the chain check driven by the keyboard; a partly chained run's chain check intro in four locales |
 
 The page fixture (`e2e/fixtures.ts`) fails a test on any console error, page

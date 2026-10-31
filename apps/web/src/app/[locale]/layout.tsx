@@ -19,7 +19,7 @@ import { PrimaryNav } from "@/components/PrimaryNav";
 import { Providers } from "@/components/Providers";
 import { RouteFocus } from "@/components/RouteFocus";
 import { ThemeScript } from "@/components/ThemeScript";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { ThemeControl } from "@/components/ThemeControl";
 import { endonyms } from "@/i18n/endonyms";
 import { pickClientMessages } from "@/i18n/messages";
 import { routing } from "@/i18n/routing";
@@ -81,7 +81,7 @@ export default async function LocaleLayout({
               </Link>
               <div className="hc-topbar-controls">
                 <LocaleSwitcher current={locale} endonyms={endonyms} />
-                <ThemeToggle />
+                <ThemeControl variant="icons" />
               </div>
               <MobileNav locale={locale} endonyms={endonyms} />
             </header>

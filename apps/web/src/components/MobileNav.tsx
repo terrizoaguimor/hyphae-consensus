@@ -15,7 +15,7 @@ import type { Locale } from "@/i18n/routing";
 import { LocaleSwitcher } from "./LocaleSwitcher";
 import { Modal } from "./Modal";
 import { PrimaryNav } from "./PrimaryNav";
-import { ThemeToggle } from "./ThemeToggle";
+import { ThemeControl } from "./ThemeControl";
 
 /** Keep in sync with the desktop breakpoint in globals.css (64rem). */
 const DESKTOP_QUERY = "(min-width: 64rem)";
@@ -80,7 +80,7 @@ export function MobileNav({ locale, endonyms }: MobileNavProps) {
             />
           </div>
           <div className="hc-drawer-section">
-            <ThemeToggle />
+            <ThemeControl />
           </div>
         </div>
       </Modal>

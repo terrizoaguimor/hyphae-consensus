@@ -457,14 +457,20 @@ above, and the 7 Inter files read "Copyright 2016 The Inter Project Authors
 
 - Lucide: Copyright (c) 2026 Lucide Icons and Contributors
   (https://lucide.dev), ISC License. The Lucide icons derived from the
-  Feather project (among those used here: circle-minus, database, hash, info, plus, server)
-  are also under the MIT License, Copyright (c) 2013-present Cole Bemis.
+  Feather project (among those used here: check, circle-minus, database,
+  hash, info, monitor, moon, plus, server) are also under the MIT License,
+  Copyright (c) 2013-present Cole Bemis.
 
 No icon package is a dependency of the web app. The status icons of the
 tags and callouts are Lucide 1.61.0 shapes (24-unit grid), redrawn as
 inline SVG geometry in `apps/web/src/components/icons.tsx`, whose header
-carries the ISC notice. Lucide's licence file (the ISC text and the Feather
-MIT notice) ships with the static export as
+carries the ISC notice. The theme control
+(`apps/web/src/components/ThemeControl.tsx`) draws four more Lucide icons
+(monitor, sun, moon, check) as inline SVG, redrawn from their published
+path data. Both licences require their notices to accompany copies, so
+Lucide's own LICENSE file (the ISC text and the Feather MIT notice;
+lucide-react 1.61.0, already in the install closure above, read
+2026-10-31) ships with the static export as
 `apps/web/public/licenses/Lucide-LICENSE.txt`, served as
 `/licenses/Lucide-LICENSE.txt`.
 <!-- hand-written:end -->

@@ -241,14 +241,17 @@ test.describe("mobile", () => {
     await expect(page.locator("main h1")).toBeFocused();
   });
 
-  test("the drawer holds the language links and the theme switch @mobile", async ({
+  test("the drawer holds the language links and the theme control @mobile", async ({
     page,
   }) => {
     await page.goto("/en/docs/modes/");
     await hydrated(page);
     await page.getByRole("button", { name: t("en", "Shell.menuButton"), exact: true }).click();
     const drawer = page.getByRole("dialog", { name: t("en", "Shell.menuTitle") });
-    await drawer.getByRole("switch", { name: t("en", "Theme.darkTheme") }).click();
+    await drawer
+      .getByRole("radiogroup", { name: t("en", "Theme.label") })
+      .getByRole("radio", { name: t("en", "Theme.options.dark"), exact: true })
+      .click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await drawer
       .getByRole("navigation", { name: "Language" })

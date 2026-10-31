@@ -31,7 +31,12 @@
     "about": "Acerca del proyecto"
   },
   "Theme": {
-    "darkTheme": "Tema oscuro"
+    "label": "Tema",
+    "options": {
+      "system": "Sistema",
+      "light": "Claro",
+      "dark": "Oscuro"
+    }
   },
   "LocaleSwitcher": {
     "label": "Idioma",

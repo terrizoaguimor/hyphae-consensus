@@ -31,7 +31,12 @@
     "about": "À propos"
   },
   "Theme": {
-    "darkTheme": "Thème sombre"
+    "label": "Thème",
+    "options": {
+      "system": "Système",
+      "light": "Clair",
+      "dark": "Sombre"
+    }
   },
   "LocaleSwitcher": {
     "label": "Langue",

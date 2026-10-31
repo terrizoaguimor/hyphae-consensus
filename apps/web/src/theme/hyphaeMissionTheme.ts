@@ -66,6 +66,15 @@ export const hyphaeMissionTheme = defineTheme({
     // instead of --color-accent; point it at the same accent.
     "--astryx-theme-neutral-color-status-fill-accent": accent,
 
+    // Boundaries of controls and of panels that bound a control (WCAG 1.4.11
+    // non-text contrast, 3:1): radio rings, checkbox boxes, the off Switch
+    // track, the Settings panels and the dashed not-connected panel. Light
+    // #7A8496 measures 3.77:1 on white, 3.48:1 on the body, 3.24:1 on muted;
+    // dark #677388 measures 3.71:1 on the surface, 4.00:1 on the body, 3.41:1
+    // on the card. Neutral's --color-border-emphasized (#d4d4d4 / #525252)
+    // measured 1.48:1 and 2.22:1 there (tests/contrast.test.ts).
+    "--hc-color-border-strong": ["#7A8496", "#677388"],
+
     // Hyphae cyan, reserved for proof and evidence. Use it as a fill under
     // --hc-color-on-proof text (11.9:1), or as text on dark surfaces only:
     // on white it measures 1.58:1, too low for text or a lone indicator.

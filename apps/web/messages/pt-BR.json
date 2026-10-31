@@ -983,8 +983,8 @@
     },
     "chainBroken": {
       "title": "Cadeia quebrada neste navegador",
-      "atRecord": "A verificação da cadeia feita nesta página falhou no registro {sequence} (linha {line}): o log não coincide com sua própria cadeia de hashes.",
-      "atLine": "A verificação da cadeia feita nesta página falhou na linha {line}: o log não coincide com sua própria cadeia de hashes.",
+      "atRecord": "A verificação da cadeia feita nesta página falhou no registro {sequence} (linha {line}): {problem}.",
+      "atLine": "A verificação da cadeia feita nesta página falhou na linha {line}: {problem}.",
       "copies": "A verificação da cadeia feita nesta página falhou: o log não coincide com as cópias com que foi comparado.",
       "beforeDeciding": "Veja a trilha de auditoria antes de decidir.",
       "details": "A trilha de auditoria diz o que não coincidiu.",
@@ -1045,7 +1045,10 @@
       "differsTag": "Difere",
       "differsTitle": "O manifesto do arquivo não coincide com seu SHA-256 publicado",
       "differsBody": "Suas notas ficam ocultas e os logs não podem ser verificados com ele. As execuções abaixo são mostradas como o servidor as lista.",
-      "unconfirmedTag": "Arquivo não confirmado"
+      "unconfirmedTag": "Arquivo não confirmado",
+      "unparsedTag": "Ilegível",
+      "unparsed": "Verificado neste navegador: os bytes do manifesto dão o SHA-256 publicado, mas não se leem no formato do arquivo, então suas notas não são mostradas.",
+      "unparsedTitle": "O manifesto do arquivo não se lê no formato do arquivo"
     },
     "pin": {
       "matches": "O manifesto verificado neste navegador fixa este mesmo SHA-256 para este arquivo.",

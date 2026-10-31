@@ -86,6 +86,35 @@ describe("labelDisagreements", () => {
     ]);
   });
 
+  it("counts no proof as a real verifier's when no verifier ran", () => {
+    // The proof verifier with its artifacts missing: status unavailable and no
+    // verifier named, so the proof is not simulated, and not a real verifier's either.
+    const detail = realRecords(retryAs("scripted", "simulated"));
+    const verifications = detail.events
+      .filter((event) => event.payload.type === "evidence_verified")
+      .map((event) => (event.payload as { verification?: VerificationV1 }).verification)
+      .filter((verification): verification is VerificationV1 => verification !== undefined);
+    expect(verifications.length).toBeGreaterThan(0);
+    for (const verification of verifications) {
+      verification.verifier = null;
+    }
+    expect(labelDisagreements(detail.summary.provenance, detail.events).map((d) => d.kind)).toEqual([
+      "scriptedModelCalls",
+    ]);
+    for (const verification of verifications) {
+      delete verification.verifier;
+    }
+    expect(labelDisagreements(detail.summary.provenance, detail.events).map((d) => d.kind)).toEqual([
+      "scriptedModelCalls",
+    ]);
+    // One proof that names its verifier is counted, alone.
+    verifications[0]!.verifier = "hyphae proof verify";
+    expect(labelDisagreements(detail.summary.provenance, detail.events)).toContainEqual({
+      kind: "simulatedEvidenceRealProofs",
+      count: 1,
+    });
+  });
+
   it("says nothing for a mixed or undetermined axis, nor for no evidence", () => {
     const detail = retryAs("mixed", "mixed");
     expect(labelDisagreements(detail.summary.provenance, detail.events)).toEqual([]);
@@ -139,10 +168,20 @@ describe("receiptDisagreements", () => {
 
 type Catalog = { [key: string]: string | Catalog };
 
+/** Each catalog read and parsed once (the bind-mounted file is slow to read again for every key). */
+const catalogs = new Map<string, Catalog>();
+
+function catalog(locale: string): Catalog {
+  let parsed = catalogs.get(locale);
+  if (parsed === undefined) {
+    parsed = JSON.parse(readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8")) as Catalog;
+    catalogs.set(locale, parsed);
+  }
+  return parsed;
+}
+
 function lookup(locale: string, key: string): string {
-  let node: string | Catalog | undefined = JSON.parse(
-    readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
-  ) as Catalog;
+  let node: string | Catalog | undefined = catalog(locale);
   for (const part of key.split(".")) {
     node = typeof node === "object" ? node[part] : undefined;
   }
@@ -177,6 +216,9 @@ const STATIC_KEYS = [
   "Showcase.manifest.differsTitle",
   "Showcase.manifest.differsBody",
   "Showcase.manifest.unconfirmedTag",
+  "Showcase.manifest.unparsedTag",
+  "Showcase.manifest.unparsed",
+  "Showcase.manifest.unparsedTitle",
 ];
 
 describe.each(routing.locales)("%s consistency sentences", (locale) => {
@@ -205,9 +247,15 @@ describe.each(routing.locales)("%s consistency sentences", (locale) => {
     }
     const format = (key: string, values: Record<string, string | number>) =>
       String(new IntlMessageFormat(lookup(locale, key), locale).format(values));
-    expect(format("Run.chainBroken.atRecord", { sequence: 120, line: 121 })).toContain("120");
-    expect(format("Run.chainBroken.atRecord", { sequence: 120, line: 121 })).toContain("121");
-    expect(format("Run.chainBroken.atLine", { line: 7 })).toContain("7");
+    const problem = "x_problem";
+    expect(format("Run.chainBroken.atRecord", { sequence: 120, line: 121, problem })).toContain("120");
+    expect(format("Run.chainBroken.atRecord", { sequence: 120, line: 121, problem })).toContain("121");
+    expect(format("Run.chainBroken.atLine", { line: 7, problem })).toContain("7");
+    // The reason is the verifier's own sentence, passed in: the catalog claims no cause of its own.
+    expect(format("Run.chainBroken.atRecord", { sequence: 120, line: 121, problem })).toContain(problem);
+    expect(format("Run.chainBroken.atLine", { line: 7, problem })).toContain(problem);
+    expect(lookup(locale, "Run.chainBroken.atRecord")).not.toMatch(/hash|hachage/iu);
+    expect(lookup(locale, "Run.chainBroken.atLine")).not.toMatch(/hash|hachage/iu);
     expect(format("Run.consistency.receipt.finalState", { receipt: "x_receipt", run: "x_run" })).toContain("x_receipt");
     expect(format("Run.consistency.receipt.finalState", { receipt: "x_receipt", run: "x_run" })).toContain("x_run");
     expect(format("Run.consistency.receipt.eventCount", { receipt: 15, run: 1 })).toMatch(/15.*1/u);

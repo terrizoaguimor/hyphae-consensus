@@ -1905,6 +1905,9 @@ test("a chain check that fails in this browser travels to the header and to the 
   await expect(broken.locator(".hc-callout-title")).toHaveText(t("en", "Run.chainBroken.title"));
   await expect(broken.locator("svg[aria-hidden='true']")).toHaveCount(1);
   await expect(broken).toContainText("failed at record 4 (line 4)");
+  // The reason is the verifier's own: an altered record is a hash mismatch.
+  await expect(broken).toHaveAttribute("data-chain-broken-problem", "hash_mismatch");
+  await expect(broken).toContainText("is not the SHA-256 recomputed here");
   await expect(broken).toContainText(t("en", "Run.chainBroken.beforeDeciding"));
   await expect(broken).toContainText(t("en", "Run.chainBroken.pageState"));
   // Inside the Audit trail there is no button to open it.
@@ -1939,6 +1942,33 @@ test("a chain check that fails in this browser travels to the header and to the 
   await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
   await expect(page.locator("[data-decision-form]")).toBeVisible();
   await expect(page.locator("[data-chain-broken]")).toHaveCount(0);
+});
+
+// The callout gives the verifier's own reason: a failure that is not a hash
+// mismatch (here a line that is not JSON) is never called one.
+test("a chain check that fails on a line that is not a record says so, not a hash-chain mismatch", async ({ page }) => {
+  const chained = await chainedRun(awaitingDecisionDetail());
+  const lines = chained.ndjson.toString("utf8").split("\n");
+  const tampered = Buffer.from(lines.map((line, i) => (i === 3 ? "this line is not a record" : line)).join("\n"));
+  await mockApi(page, { detail: chained.detail, receipt: chained.receipt, ndjson: { [RUN_ID]: tampered } });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  await expect(page.locator("[data-chain-verdict='fail']")).toBeVisible();
+  const broken = page.locator("header.hc-run-header [data-chain-broken='header']");
+  await expect(broken).toHaveAttribute("data-callout-tone", "failed");
+  await expect(broken).toHaveAttribute("data-chain-broken-problem", "not_json");
+  await expect(broken).toContainText(t("en", "Run.chain.problems.not_json"));
+  await expect(broken).toContainText("line 4");
+  await expect(broken).not.toContainText("hash chain");
+  await expect(broken).not.toContainText("hash");
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const atDecision = page.locator("[data-decision] [data-chain-broken='decision']");
+  await expect(atDecision).toContainText(t("en", "Run.chain.problems.not_json"));
+  await expect(atDecision).not.toContainText("hash");
 });
 
 // Heuristic evaluation, problem 7: the system's PROVENANCE INCONSISTENT flag

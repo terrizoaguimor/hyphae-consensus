@@ -132,7 +132,7 @@ const isEarlier = (segment: SegmentResult) =>
 const short = (value: string) => `${digestPrefix(value) ?? value}…`;
 
 /** The values a problem's sentence names, hashes cut to their prefix. */
-function problemValues(problem: ChainProblem): Record<string, string | number> {
+export function problemValues(problem: ChainProblem): Record<string, string | number> {
   switch (problem.kind) {
     case "schema_version":
     case "legacy_not_1_0":
@@ -205,7 +205,11 @@ export function ChainCheck({ runId, source, chain, readReceipt, onOutcome }: Cha
       setState({ status: "done", result, segment, receipt, chain: expectedChain, pin });
       onOutcome?.(
         segment.outcome === "failed"
-          ? { sequence: result.failure?.sequence ?? null, line: result.failure?.line ?? null }
+          ? {
+              sequence: result.failure?.sequence ?? null,
+              line: result.failure?.line ?? null,
+              problem: result.failure?.problem ?? null,
+            }
           : null,
       );
     } catch (error) {

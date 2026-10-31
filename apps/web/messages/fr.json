@@ -983,8 +983,8 @@
     },
     "chainBroken": {
       "title": "Chaîne rompue dans ce navigateur",
-      "atRecord": "La vérification de la chaîne faite sur cette page a échoué à l’enregistrement {sequence} (ligne {line}) : le journal ne concorde pas avec sa propre chaîne de hachage.",
-      "atLine": "La vérification de la chaîne faite sur cette page a échoué à la ligne {line} : le journal ne concorde pas avec sa propre chaîne de hachage.",
+      "atRecord": "La vérification de la chaîne faite sur cette page a échoué à l’enregistrement {sequence} (ligne {line}) : {problem}.",
+      "atLine": "La vérification de la chaîne faite sur cette page a échoué à la ligne {line} : {problem}.",
       "copies": "La vérification de la chaîne faite sur cette page a échoué : le journal ne concorde pas avec les copies auxquelles il a été comparé.",
       "beforeDeciding": "Consultez la piste d’audit avant de décider.",
       "details": "La piste d’audit indique ce qui ne concorde pas.",
@@ -1045,7 +1045,10 @@
       "differsTag": "Diffère",
       "differsTitle": "Le manifeste de l’archive ne correspond pas à son SHA-256 publié",
       "differsBody": "Ses notes sont masquées et les journaux ne peuvent pas être vérifiés avec lui. Les exécutions ci-dessous sont affichées telles que le serveur les liste.",
-      "unconfirmedTag": "Archive non confirmée"
+      "unconfirmedTag": "Archive non confirmée",
+      "unparsedTag": "Illisible",
+      "unparsed": "Vérifié dans ce navigateur : les octets du manifeste donnent le SHA-256 publié, mais ils ne se lisent pas au format de l’archive, donc ses notes ne sont pas affichées.",
+      "unparsedTitle": "Le manifeste de l’archive ne se lit pas au format de l’archive"
     },
     "pin": {
       "matches": "Le manifeste vérifié dans ce navigateur fixe ce même SHA-256 pour ce fichier.",

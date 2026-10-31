@@ -30,7 +30,7 @@ export type LabelDisagreement =
   | { kind: "scriptedModelCalls"; count: number }
   /** The evidence axis is the shared memory; `count` recorded proofs are simulated. */
   | { kind: "memoryEvidenceSimulatedProofs"; count: number }
-  /** The evidence axis is simulated; `count` recorded proofs are a real verifier's. */
+  /** The evidence axis is simulated; `count` recorded proofs are not simulated and name the verifier that checked them. */
   | { kind: "simulatedEvidenceRealProofs"; count: number };
 
 export const LABEL_DISAGREEMENT_KINDS: readonly LabelDisagreement["kind"][] = [
@@ -57,7 +57,12 @@ export function labelDisagreements(
   }
   const proofs = roundedVerifications(events).map(({ verification }) => verification);
   const simulated = proofs.filter((verification) => verification.simulated).length;
-  const real = proofs.length - simulated;
+  // A real verifier's proof names its verifier: a verification no verifier
+  // ran (the proof unavailable, verifier absent) is not simulated, and not a
+  // real verifier's either.
+  const real = proofs.filter(
+    (verification) => !verification.simulated && typeof verification.verifier === "string" && verification.verifier !== "",
+  ).length;
   if ((provenance.evidence === "hyphae_snapshot" || provenance.evidence === "hyphae_live") && simulated > 0) {
     out.push({ kind: "memoryEvidenceSimulatedProofs", count: simulated });
   }

@@ -1922,6 +1922,7 @@ async function spanningRun(entry: Json): Promise<{ entry: Json; recorded: { deta
   const recorded = recordedRun({ ...spanning, file: entry.file }, { base: "retry" });
   recorded.detail.chain = { scope: "run", first_sequence: 1, last_sequence: 3, head_hash: head };
   recorded.receipt.event_count = 3;
+  (recorded.detail.summary as Json).event_count = 3;
   recorded.receipt.chain = { ...(recorded.receipt.chain as Json), scope: "run", first_sequence: 1, last_sequence: 3, head_hash: head };
   return { entry: spanning, recorded, bytes };
 }
@@ -2237,6 +2238,56 @@ test("a manifest that does not match is a failed status and banner, and every ca
   await expect(problem.locator("[data-manifest-problem='differs']")).toHaveText(t("en", "Showcase.run.manifestProblem.differs"));
 });
 
+// A manifest whose bytes match the published digest but that does not read
+// as the archive's format is not confirmed: never the success tag next to
+// cards that read "Archive not confirmed", and a banner says why.
+test("a manifest that matches its digest but does not parse is no success, and a banner explains every unconfirmed card", async ({
+  page,
+}) => {
+  const { l01, list } = entries();
+  // Valid JSON, published digest its own, but not the archive manifest's shape.
+  const malformed = Buffer.from(JSON.stringify({ created: "2026-10-27", files: "not a list" }));
+  await mockApi(page, {
+    showcase: list,
+    research: { "MANIFEST.json": malformed },
+    publishServedManifest: true,
+    recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true })],
+  });
+  await openShowcase(page, "en");
+  await expect(page.locator("[data-manifest='unparsed']")).toBeVisible();
+  await expect(page.locator("[data-manifest-status='matches']")).toHaveCount(0);
+  await expect(page.locator("[data-manifest-check='matches']")).toHaveCount(0);
+  const status = page.locator("[data-manifest-status='unparsed']");
+  await expect(status.getByText(t("en", "Showcase.manifest.unparsedTag"), { exact: true })).toBeVisible();
+  await expect(status.locator("[data-manifest-check='unparsed']")).toHaveText(t("en", "Showcase.manifest.unparsed"));
+  await expect(page.locator("[data-manifest-announcement]")).toHaveText(t("en", "Showcase.manifest.unparsed"));
+  const banner = page.locator("[data-manifest-banner='unparsed']");
+  await expect(banner).toHaveAttribute("data-callout-tone", "contested");
+  await expect(banner.locator(".hc-callout-title")).toHaveText(t("en", "Showcase.manifest.unparsedTitle"));
+  await expect(banner).toContainText(t("en", "Showcase.manifest.differsBody"));
+  await expect(page.locator("[data-manifest-banner='differs']")).toHaveCount(0);
+  const order = await page
+    .locator("[data-manifest-banner], [data-manifest], [data-battery]")
+    .evaluateAll((nodes) =>
+      nodes.map((node) =>
+        node.hasAttribute("data-manifest-banner") ? "banner" : node.hasAttribute("data-manifest") ? "manifest" : "battery",
+      ),
+    );
+  expect(order.slice(0, 2)).toEqual(["banner", "manifest"]);
+  await expect(page.locator("[data-showcase-run]")).toHaveCount(list.length);
+  await expect(page.locator("[data-showcase-run] [data-archive-unconfirmed]")).toHaveCount(list.length);
+  await expect(page.locator("[data-archive-note]")).toHaveCount(0);
+  await expect(page.locator("[data-log-pin='matches']")).toHaveCount(0);
+
+  // The recorded run says the same, as its own contested callout.
+  await openRecorded(page, "en", String(l01.run_id));
+  const problem = page.locator("[data-recorded-run] [data-manifest-problem-callout='unparsed']");
+  await expect(problem).toHaveAttribute("data-callout-tone", "contested");
+  await expect(problem.locator("[data-manifest-problem='unparsed']")).toHaveText(
+    t("en", "Showcase.run.manifestProblem.unparsed"),
+  );
+});
+
 test("a manifest that cannot be read leaves every card 'Archive not confirmed' until it is", async ({
   page,
   pageProblems,
@@ -2324,6 +2375,13 @@ test("a recorded run's receipt states its final state when recorded, never 'awai
   await expect(finalState).toContainText(t("en", "Showcase.run.awaiting"));
   await expect(finalState).toContainText(t("en", "Run.audit.finalStateReadOnly"));
   await expect(receipt.getByText(t("en", "Run.audit.finalStateRecorded"), { exact: true })).toBeVisible();
+  // As on the server, the receipt and the detail count the same records: no "receipt and run disagree" alarm.
+  const records = logSegment(String(r06.file), String(r06.run_id)).count;
+  await expect(receipt.locator("[data-receipt-field='event_count']")).toHaveText(String(records));
+  await expect(page.locator("[data-run-field='records']")).toHaveText(
+    String(new IntlMessageFormat(t("en", "Run.header.records"), "en").format({ count: records })),
+  );
+  await expect(page.locator("[data-receipt-disagrees]")).toHaveCount(0);
   for (const tab of ["decision", "explorer", "evidence", "proofs", "audit", "meta"] as const) {
     await page.getByRole("tab", { name: t("en", `Run.tabs.${tab}`) }).click();
     await expect(page.locator(`[data-tab='${tab}']`)).toBeVisible();

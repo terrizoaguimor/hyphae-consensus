@@ -983,8 +983,8 @@
     },
     "chainBroken": {
       "title": "Chain broken in this browser",
-      "atRecord": "The chain check run on this page failed at record {sequence} (line {line}): the log does not match its own hash chain.",
-      "atLine": "The chain check run on this page failed at line {line}: the log does not match its own hash chain.",
+      "atRecord": "The chain check run on this page failed at record {sequence} (line {line}): {problem}.",
+      "atLine": "The chain check run on this page failed at line {line}: {problem}.",
       "copies": "The chain check run on this page failed: the log does not match the copies it was compared with.",
       "beforeDeciding": "Look at the Audit trail before you decide.",
       "details": "The Audit trail says what did not match.",
@@ -1045,7 +1045,10 @@
       "differsTag": "Differs",
       "differsTitle": "The archive’s manifest does not match its published SHA-256",
       "differsBody": "Its notes are hidden and the log files cannot be checked against it. The runs below are shown as the server lists them.",
-      "unconfirmedTag": "Archive not confirmed"
+      "unconfirmedTag": "Archive not confirmed",
+      "unparsedTag": "Not readable",
+      "unparsed": "Checked in this browser: the manifest’s bytes hash to the published SHA-256, but they do not read as the archive’s format, so its notes are not shown.",
+      "unparsedTitle": "The archive’s manifest does not read as the archive’s format"
     },
     "pin": {
       "matches": "The manifest checked in this browser pins this same SHA-256 for this file.",

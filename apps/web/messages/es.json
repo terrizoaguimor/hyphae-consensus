@@ -983,8 +983,8 @@
     },
     "chainBroken": {
       "title": "Cadena rota en este navegador",
-      "atRecord": "La comprobación de la cadena hecha en esta página falló en el registro {sequence} (línea {line}): el log no coincide con su propia cadena de hashes.",
-      "atLine": "La comprobación de la cadena hecha en esta página falló en la línea {line}: el log no coincide con su propia cadena de hashes.",
+      "atRecord": "La comprobación de la cadena hecha en esta página falló en el registro {sequence} (línea {line}): {problem}.",
+      "atLine": "La comprobación de la cadena hecha en esta página falló en la línea {line}: {problem}.",
       "copies": "La comprobación de la cadena hecha en esta página falló: el log no coincide con las copias con las que se comparó.",
       "beforeDeciding": "Mira el rastro de auditoría antes de decidir.",
       "details": "El rastro de auditoría dice qué no coincidió.",
@@ -1045,7 +1045,10 @@
       "differsTag": "Difiere",
       "differsTitle": "El manifiesto del archivo no coincide con su SHA-256 publicado",
       "differsBody": "Sus notas están ocultas y los logs no se pueden comprobar con él. Las ejecuciones de abajo se muestran tal como las lista el servidor.",
-      "unconfirmedTag": "Archivo no confirmado"
+      "unconfirmedTag": "Archivo no confirmado",
+      "unparsedTag": "No legible",
+      "unparsed": "Comprobado en este navegador: los bytes del manifiesto dan el SHA-256 publicado, pero no se interpretan con el formato del archivo, así que sus notas no se muestran.",
+      "unparsedTitle": "El manifiesto del archivo no se interpreta con el formato del archivo"
     },
     "pin": {
       "matches": "El manifiesto comprobado en este navegador fija este mismo SHA-256 para este archivo.",

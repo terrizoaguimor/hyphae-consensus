@@ -400,6 +400,21 @@ exists; none of it is to be duplicated.
   code through `FailureSentence` / `useFailureText` / `useUnavailableText`
   (`src/components/run/FailureSentence.tsx`). A settled failure is never a
   loading line.
+- **States the reader must not miss** (round 4, heuristic evaluation
+  problems 5 and 7) are a full-width `<Callout tone>` (`src/components/Callout.tsx`:
+  icon, title in words, body; failed, contested, success or info), never one
+  more equal tag: a chain check that failed in this browser travels to the
+  run header and the decision (`ChainBroken`, a page state kept by the
+  workspace until a later check does not fail, its reason the verifier's own
+  `Run.chain.problems` sentence); PROVENANCE INCONSISTENT keeps
+  its tag and gets its note in a callout; labels the records contradict and a
+  receipt that disagrees with the run come from `src/lib/run/consistency.ts`
+  (the page's own check: it never adds, removes or changes a label); a
+  manifest that does not match is a failed banner, one that matches but does
+  not parse a contested banner (the success tag only for a confirmed
+  manifest), and every showcase card
+  then reads "Archive not confirmed". A recorded run never reads "awaiting
+  your decision" (its receipt's state is the state when recorded).
 - **Explanations**: `RecommendationV1.trace` (`PolicyTrace`: rule, reasons,
   counts, version) and `rationale_code` are the data; render them through
   catalog templates keyed by rule and reason, plain or technical after the

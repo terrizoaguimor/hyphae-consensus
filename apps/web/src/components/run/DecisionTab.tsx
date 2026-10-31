@@ -39,6 +39,7 @@ import { explainContext } from "@/lib/run/explain";
 import { supersededProposal } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { type ChainBreak, ChainBroken } from "./ChainBroken";
 import { Explanation } from "./Explanation";
 import { RevisionComparison } from "./RevisionComparison";
 import { RecommendationLine, SimulatedRationaleNote } from "./StageTab";
@@ -82,6 +83,10 @@ type DecisionTabProps = {
   decided?: DecisionV1 | null;
   /** Called with the decision the server recorded, before the detail is read again. */
   onDecided?: (decision: DecisionV1) => void;
+  /** Where a chain check run in this browser failed (it travels here, next to the decision); null when none did. */
+  chainBreak?: ChainBreak | null;
+  /** Opens the Audit trail, where the failed check is. */
+  onOpenAudit?: () => void;
 };
 
 function toApiError(error: unknown, path: string): ApiError {
@@ -95,7 +100,16 @@ function toApiError(error: unknown, path: string): ApiError {
       });
 }
 
-export function DecisionTab({ runId, data, links, onDetail, decided, onDecided }: DecisionTabProps) {
+export function DecisionTab({
+  runId,
+  data,
+  links,
+  onDetail,
+  decided,
+  onDecided,
+  chainBreak = null,
+  onOpenAudit,
+}: DecisionTabProps) {
   const t = useTranslations("Run.decision");
   const tRun = useTranslations("Run");
   const format = useFormatter();
@@ -232,6 +246,9 @@ export function DecisionTab({ runId, data, links, onDetail, decided, onDecided }
       <h3 id="decision-form" ref={formHeadingRef} tabIndex={-1}>
         {t("formHeading")}
       </h3>
+      {chainBreak === null ? null : (
+        <ChainBroken chainBreak={chainBreak} place="decision" deciding={awaiting} onOpenAudit={onOpenAudit} />
+      )}
       {awaiting && recommendation !== null ? (
         <div data-decision-card-lead>
           <p>{t("cardLead")}</p>

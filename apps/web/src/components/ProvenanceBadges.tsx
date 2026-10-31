@@ -14,7 +14,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { useFormatter, useTranslations } from "next-intl";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
-import type { Delivery, ProvenanceV1 } from "@/lib/api/types";
+import type { Delivery, ProvenanceFlag, ProvenanceV1 } from "@/lib/api/types";
 import {
   deliveryLabel,
   evidenceLabel,
@@ -32,6 +32,8 @@ type ProvenanceBadgesProps = {
   recordedAt?: string;
   /** Adds the model note and the flag notes (for a header) to the badges. */
   withNote?: boolean;
+  /** Flags whose note the caller shows itself (in a full-width callout); their badge stays here. */
+  notesElsewhere?: readonly ProvenanceFlag[];
 };
 
 export function ProvenanceBadges({
@@ -39,6 +41,7 @@ export function ProvenanceBadges({
   delivery,
   recordedAt,
   withNote = false,
+  notesElsewhere = [],
 }: ProvenanceBadgesProps) {
   // Label keys are computed from the recorded provenance; every one of them
   // is checked against every catalog by tests/provenance.test.ts.
@@ -95,7 +98,7 @@ export function ProvenanceBadges({
         </p>
       ) : null}
       {withNote
-        ? flags.map((flag) => (
+        ? flags.filter((flag) => !notesElsewhere.includes(flag)).map((flag) => (
             <p key={flag} className="hc-supporting">
               {t(`flagNotes.${flag}`)}
             </p>

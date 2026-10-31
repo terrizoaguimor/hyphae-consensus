@@ -788,7 +788,9 @@
       "receiptJson": "O recibo em JSON",
       "archivePending": "O arquivo de log desta execução e o resumo fixado dele vêm com a listagem da vitrine, que não lista esta execução.",
       "archiveLoading": "Lendo a listagem da vitrine, que nomeia o arquivo de log desta execução e o resumo fixado dele…",
-      "archiveFailed": "O arquivo de log desta execução, o resumo fixado dele, o comando que o verifica e a verificação da cadeia no navegador vêm com a listagem da vitrine, que não pôde ser lida: o erro dela, com uma nova tentativa, é mostrado acima."
+      "archiveFailed": "O arquivo de log desta execução, o resumo fixado dele, o comando que o verifica e a verificação da cadeia no navegador vêm com a listagem da vitrine, que não pôde ser lida: o erro dela, com uma nova tentativa, é mostrado acima.",
+      "finalStateRecorded": "Estado final quando gravada",
+      "finalStateReadOnly": "Nenhuma decisão pode ser registrada aqui."
     },
     "meta": {
       "heading": "Painel da API da Meta",
@@ -998,6 +1000,33 @@
       "unpairedMeta": "Todas as revisões desta execução foram escritas pelo adaptador do modelo da Meta, que numera de novo as afirmações de cada proposta.",
       "partialIds": "Alguns ids de afirmação aparecem em apenas uma das duas propostas: só pelos ids não dá para saber se essa afirmação foi adicionada ou removida, ou reformulada com outro id.",
       "noClaims": "Nenhuma afirmação registrada."
+    },
+    "chainBroken": {
+      "title": "Cadeia quebrada neste navegador",
+      "atRecord": "A verificação da cadeia feita nesta página falhou no registro {sequence} (linha {line}): {problem}.",
+      "atLine": "A verificação da cadeia feita nesta página falhou na linha {line}: {problem}.",
+      "copies": "A verificação da cadeia feita nesta página falhou: o log não coincide com as cópias com que foi comparado.",
+      "beforeDeciding": "Veja a trilha de auditoria antes de decidir.",
+      "details": "A trilha de auditoria diz o que não coincidiu.",
+      "pageState": "Isto é o que esta página encontrou: não fica guardado no servidor e não é um rótulo da execução. Fazer a verificação de novo o substitui.",
+      "openAudit": "Abrir a trilha de auditoria"
+    },
+    "consistency": {
+      "flagTitle": "Os rótulos não coincidem: trate esta execução como não verificada.",
+      "labelsTitle": "Esta página encontrou rótulos que não coincidem com os registros da execução",
+      "labelsBody": "Trate esta execução como não verificada até que seja explicada. É a verificação da própria página sobre os registros mostrados; ela não adiciona nem remove nenhum rótulo.",
+      "labels": {
+        "metaModelScriptedSteps": "{count, plural, =0 {O rótulo do modelo nomeia o modelo da Meta, e nenhuma etapa registrada é o dublê roteirizado.} one {O rótulo do modelo nomeia o modelo da Meta, mas # etapa registrada é o dublê roteirizado: nenhum modelo foi chamado para ela.} many {O rótulo do modelo nomeia o modelo da Meta, mas # de etapas registradas são o dublê roteirizado: nenhum modelo foi chamado para elas.} other {O rótulo do modelo nomeia o modelo da Meta, mas # etapas registradas são o dublê roteirizado: nenhum modelo foi chamado para elas.}}",
+        "scriptedModelCalls": "{count, plural, =0 {O rótulo do modelo diz roteirizado, e nenhuma etapa registrada é uma chamada a um modelo.} one {O rótulo do modelo diz roteirizado, mas # etapa registrada é uma chamada a um modelo.} many {O rótulo do modelo diz roteirizado, mas # de etapas registradas são chamadas a um modelo.} other {O rótulo do modelo diz roteirizado, mas # etapas registradas são chamadas a um modelo.}}",
+        "memoryEvidenceSimulatedProofs": "{count, plural, =0 {O rótulo das evidências nomeia evidências do Hyphae, e nenhuma prova registrada é SIMULADA.} one {O rótulo das evidências nomeia evidências do Hyphae, mas # prova registrada é SIMULADA: roteirizada, nada verificado.} many {O rótulo das evidências nomeia evidências do Hyphae, mas # de provas registradas são SIMULADAS: roteirizadas, nada verificado.} other {O rótulo das evidências nomeia evidências do Hyphae, mas # provas registradas são SIMULADAS: roteirizadas, nada verificado.}}",
+        "simulatedEvidenceRealProofs": "{count, plural, =0 {O rótulo das evidências diz simuladas, e nenhuma prova registrada é de um verificador real.} one {O rótulo das evidências diz simuladas, mas # prova registrada é de um verificador real.} many {O rótulo das evidências diz simuladas, mas # de provas registradas são de um verificador real.} other {O rótulo das evidências diz simuladas, mas # provas registradas são de um verificador real.}}"
+      },
+      "receipt": {
+        "title": "O recibo e a execução não coincidem",
+        "finalState": "Estado final: o recibo diz “{receipt}”, a execução diz “{run}”.",
+        "eventCount": "Eventos: o recibo conta {receipt}, a execução {run}.",
+        "body": "O servidor monta o recibo a partir dos registros da execução, então os dois deveriam coincidir. Leia o recibo de novo; se continuarem sem coincidir, trate os dois com cuidado."
+      }
     }
   },
   "Showcase": {
@@ -1031,7 +1060,15 @@
       "checking": "Verificando o SHA-256 do manifesto neste navegador…",
       "matches": "Verificado neste navegador: os bytes do manifesto dão o SHA-256 publicado.",
       "differs": "Conferido neste navegador: os bytes do manifesto dão {sha256}…, não o SHA-256 publicado, então as notas dele não são mostradas.",
-      "trust": "Isso só é tão forte quanto a cópia do resumo com que você compara, por exemplo um MANIFEST.json de um commit com tag."
+      "trust": "Isso só é tão forte quanto a cópia do resumo com que você compara, por exemplo um MANIFEST.json de um commit com tag.",
+      "matchesTag": "Coincide",
+      "differsTag": "Difere",
+      "differsTitle": "O manifesto do arquivo não coincide com seu SHA-256 publicado",
+      "differsBody": "Suas notas ficam ocultas e os logs não podem ser verificados com ele. As execuções abaixo são mostradas como o servidor as lista.",
+      "unconfirmedTag": "Arquivo não confirmado",
+      "unparsedTag": "Ilegível",
+      "unparsed": "Verificado neste navegador: os bytes do manifesto dão o SHA-256 publicado, mas não se leem no formato do arquivo, então suas notas não são mostradas.",
+      "unparsedTitle": "O manifesto do arquivo não se lê no formato do arquivo"
     },
     "pin": {
       "matches": "O manifesto verificado neste navegador fixa este mesmo SHA-256 para este arquivo.",
@@ -1059,7 +1096,8 @@
         "differs": "Os bytes do manifesto do arquivo não dão o SHA-256 publicado, então a nota dele sobre o log desta execução, se houver, não é mostrada, e o SHA-256 do log não é comparado com ele."
       },
       "awaiting": "parada no seu ponto de decisão; nenhuma decisão foi registrada",
-      "back": "Voltar à vitrine"
+      "back": "Voltar à vitrine",
+      "manifestProblemTitle": "Não foi possível confirmar o manifesto do arquivo"
     }
   },
   "Settings": {

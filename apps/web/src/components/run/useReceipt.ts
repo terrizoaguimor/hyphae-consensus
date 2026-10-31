@@ -30,6 +30,8 @@ export type ReceiptState =
 
 export type RunReceipt = {
   state: ReceiptState;
+  /** A request for the receipt is in flight (the receipt shown, if any, may be older than the run). */
+  pending: boolean;
   /** Requests the receipt unless it is loaded or loading. */
   ensure: () => void;
   /** Requests it again (a retry, or a newer receipt of a run in progress). */
@@ -56,6 +58,8 @@ function toApiError(error: unknown, path: string): ApiError {
 export function useReceipt(runId: string, source: RunSourceKind): RunReceipt {
   const [state, setState] = useState<ReceiptState>({ status: "idle" });
   const latest = useRef(0);
+  // The ticket of the request in flight; 0 once the newest one settled.
+  const [inFlight, setInFlight] = useState(0);
 
   // keepShown: a failure leaves a receipt already shown in place (the chain
   // check's own read); otherwise the error replaces it, with a retry.
@@ -63,6 +67,7 @@ export function useReceipt(runId: string, source: RunSourceKind): RunReceipt {
     (keepShown: boolean): Promise<RunReceiptV2> => {
       latest.current += 1;
       const ticket = latest.current;
+      setInFlight(ticket);
       // A receipt already shown stays until the newer one arrives.
       setState((current) => (current.status === "ready" ? current : { status: "loading" }));
       const path =
@@ -72,12 +77,14 @@ export function useReceipt(runId: string, source: RunSourceKind): RunReceipt {
         (receipt) => {
           if (ticket === latest.current) {
             setState({ status: "ready", receipt });
+            setInFlight(0);
           }
           return receipt;
         },
         (error: unknown) => {
           const apiError = toApiError(error, path);
           if (ticket === latest.current) {
+            setInFlight(0);
             setState((current) =>
               keepShown && current.status === "ready" ? current : { status: "error", error: apiError },
             );
@@ -110,5 +117,5 @@ export function useReceipt(runId: string, source: RunSourceKind): RunReceipt {
     }
   }, [reload]);
 
-  return { state, ensure, reload, refresh, read };
+  return { state, pending: inFlight !== 0, ensure, reload, refresh, read };
 }

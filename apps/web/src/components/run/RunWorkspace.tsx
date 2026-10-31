@@ -29,31 +29,34 @@ import { Button } from "@astryxdesign/core/Button";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
 import { api, isRunId } from "@/lib/api/client";
-import type { DecisionV1, RunDetailV1, ShowcaseEntryV1 } from "@/lib/api/types";
+import type { DecisionV1, ProvenanceFlag, RunDetailV1, ShowcaseEntryV1 } from "@/lib/api/types";
 import {
   isLive,
   ndjsonPublishable,
   RECOMMENDATION_VARIANTS,
   sourceLabel,
 } from "@/lib/provenance";
+import { labelDisagreements } from "@/lib/run/consistency";
 import { awaitsDecision, runTabOrder, type RunTabKey } from "@/lib/run/decision";
 import { evidenceView, generationFailures } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
-import { supersededProposal } from "@/lib/run/view";
+import { mergeEvents, supersededProposal } from "@/lib/run/view";
 import { manifestNote } from "@/lib/showcase";
 import { localePath, SHOWCASE_SOURCE } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { Callout } from "../Callout";
 import { OutcomeTags } from "../OutcomeTags";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { useManifestDate } from "../showcase/ShowcaseList";
 import { archivePin, checkedManifest } from "../showcase/useArchive";
 import { AuditTab } from "./AuditTab";
+import { type ChainBreak, ChainBroken } from "./ChainBroken";
 import { DecisionTab, type DecisionLinks } from "./DecisionTab";
 import { EvidenceTab } from "./EvidenceTab";
 import { ExplorerTab } from "./ExplorerTab";
@@ -73,6 +76,9 @@ type RunWorkspaceProps = {
 };
 
 type TabKey = RunTabKey;
+
+/** The flag whose note the header shows in its own full-width callout, not under the labels. */
+const INCONSISTENT: readonly ProvenanceFlag[] = ["provenance_inconsistent"];
 
 /** Tabs that show the receipt. */
 const RECEIPT_TABS: ReadonlySet<TabKey> = new Set<TabKey>(["proofs", "audit"]);
@@ -133,6 +139,8 @@ function Workspace({
 }: RunViewProps & { receipt: RunReceipt; mode: Mode }) {
   const t = useTranslations("Run");
   const tShowcase = useTranslations("Showcase.run");
+  const tProvenance = dynamicTranslator(useTranslations("Provenance"));
+  const tConsistency = dynamicTranslator(useTranslations("Run.consistency"));
   const format = useFormatter();
   const recorded = mode.kind === "recorded";
   const [tab, setTab] = useState<TabKey>(recorded ? "decision" : "stage");
@@ -178,13 +186,25 @@ function Workspace({
   // decision, the end of the stream, a re-read after a gap): the server
   // rebuilds it from the run's current records, so the copy held would be
   // stale (an authorization still pending, an older head and count).
+  // A layout effect: the newer receipt is asked for (and marked pending)
+  // before the moved-on detail is painted, so the page never compares it
+  // with the stale receipt (the "receipt disagrees" callout).
   const detailSequence = detail?.summary.last_sequence ?? null;
   const { refresh: refreshReceipt } = receipt;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (detailSequence !== null) {
       refreshReceipt();
     }
   }, [detailSequence, refreshReceipt]);
+  // Where a chain check run on this page failed: a state of this page (not
+  // of the run), shown on every tab until a later check does not fail.
+  const [chainBreak, setChainBreak] = useState<ChainBreak | null>(null);
+  // The page's own check: provenance labels that its records contradict.
+  const provenance = summary?.provenance ?? null;
+  const disagreements = useMemo(
+    () => (provenance === null ? [] : labelDisagreements(provenance, mergeEvents(detail, frames))),
+    [provenance, detail, frames],
+  );
 
   if (summary === null) {
     if (detailError !== null) {
@@ -241,6 +261,12 @@ function Workspace({
   // A decision sent from the Decision tab counts at once, even when the
   // detail could not be read again after it (the tab shows it as recorded).
   const awaiting = !recorded && awaitsDecision(summary, detail?.decision ?? decided);
+  // A decision can still be recorded on this run here (the chain-broken
+  // callouts then say "before you decide"): the same rule as the header's
+  // "Go to your decision" (src/lib/run/decision.ts awaitsDecision).
+  const deciding = awaiting;
+  const inconsistent = (summary.provenance.flags ?? []).includes("provenance_inconsistent");
+  const openAudit = () => selectTab("audit");
   const links: DecisionLinks =
     mode.kind === "recorded"
       ? {
@@ -339,8 +365,44 @@ function Workspace({
             delivery={latest?.delivery}
             recordedAt={latest?.event.occurred_at ?? summary.updated_at}
             withNote
+            notesElsewhere={inconsistent ? INCONSISTENT : undefined}
           />
         </div>
+        {/* Full width under the labels, so a warning is never one more equal tag in the row. */}
+        {inconsistent ? (
+          <Callout tone="contested" title={tConsistency("flagTitle")} data-provenance-flag-callout="provenance_inconsistent">
+            <p>{tProvenance("flagNotes.provenance_inconsistent")}</p>
+            {tab === "audit" ? null : (
+              <div className="hc-actions">
+                <Button variant="secondary" size="sm" label={t("chainBroken.openAudit")} onClick={openAudit} />
+              </div>
+            )}
+          </Callout>
+        ) : null}
+        {disagreements.length === 0 ? null : (
+          <Callout
+            tone="contested"
+            title={tConsistency("labelsTitle")}
+            data-labels-disagree={disagreements.map((d) => d.kind).join(" ")}
+          >
+            <ul className="hc-list">
+              {disagreements.map((disagreement) => (
+                <li key={disagreement.kind} data-labels-disagreement={disagreement.kind}>
+                  {tConsistency(`labels.${disagreement.kind}`, { count: disagreement.count })}
+                </li>
+              ))}
+            </ul>
+            <p>{tConsistency("labelsBody")}</p>
+          </Callout>
+        )}
+        {chainBreak === null ? null : (
+          <ChainBroken
+            chainBreak={chainBreak}
+            place="header"
+            deciding={deciding}
+            onOpenAudit={tab === "audit" ? undefined : openAudit}
+          />
+        )}
         {mode.kind === "recorded" ? (
           <RecordedNotes locale={locale} detail={detail} data={mode.data} entry={archive} />
         ) : null}
@@ -398,6 +460,7 @@ function Workspace({
             pin={pin}
             archiveMissing={mode.kind === "recorded" ? missingEntry(mode.data) : null}
             runTime={runTime}
+            onChainOutcome={setChainBreak}
           />
         ) : null}
         {tab === "meta" ? <MetaTab detail={detail} frames={frames} detailError={detailError} /> : null}
@@ -409,6 +472,8 @@ function Workspace({
             onDetail={mode.kind === "own" ? mode.data.setDetail : undefined}
             decided={decided}
             onDecided={mode.kind === "own" ? setDecided : undefined}
+            chainBreak={chainBreak}
+            onOpenAudit={openAudit}
           />
         ) : null}
       </div>
@@ -521,12 +586,20 @@ function RecordedNotes({
         </div>
       ) : null}
       {problem === null ? null : (
-        <div data-manifest-problem={problem}>
-          <p>{t(`manifestProblem.${problem}`)}</p>
-          {data.archive.status === "ready" && data.archive.manifest.status === "error" ? (
-            <ApiErrorNotice error={data.archive.manifest.error} onRetry={data.retryManifest} />
-          ) : null}
-        </div>
+        // A failed callout for a manifest that does not match its digest; a manifest
+        // that could not be read or understood is contested: not confirmed either way.
+        <Callout
+          tone={problem === "differs" ? "failed" : "contested"}
+          title={t("manifestProblemTitle")}
+          data-manifest-problem-callout={problem}
+        >
+          <div data-manifest-problem={problem}>
+            <p>{t(`manifestProblem.${problem}`)}</p>
+            {data.archive.status === "ready" && data.archive.manifest.status === "error" ? (
+              <ApiErrorNotice error={data.archive.manifest.error} onRetry={data.retryManifest} />
+            ) : null}
+          </div>
+        </Callout>
       )}
       {unchained ? (
         <p data-archive-label="unchained">

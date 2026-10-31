@@ -38,6 +38,32 @@ export function checkedManifest(state: ArchiveState): ArchiveManifest | null {
 }
 
 /**
+ * What the manifest check found, once it has: "matches" only when the bytes
+ * match the published digest AND read as the archive's format (the manifest
+ * is confirmed); "unparsed" when they match but do not read as that format;
+ * "differs" when they do not match. Null while it is checked or after an error.
+ */
+export function manifestOutcome(state: ManifestState): "matches" | "unparsed" | "differs" | null {
+  if (state.status !== "ready") {
+    return null;
+  }
+  return !state.matches ? "differs" : state.manifest === null ? "unparsed" : "matches";
+}
+
+/**
+ * The archive could not be confirmed in this browser: its manifest could not
+ * be read, does not match the published digest, or does not read as the
+ * archive's format. False while it is still being checked, and once it is
+ * confirmed (checkedManifest is not null).
+ */
+export function manifestUnconfirmed(state: ArchiveState): boolean {
+  if (state.status !== "ready" || state.manifest.status === "loading") {
+    return false;
+  }
+  return checkedManifest(state) === null;
+}
+
+/**
  * The pin of one archive file as the views show it: "checking" while the
  * manifest is still being read and checked, else the listing's digest
  * cross-checked against the checked manifest (src/lib/showcase.ts logPin).

@@ -271,6 +271,9 @@ export function recordedRun(entry: Json, options: RecordedOptions): { detail: Js
   summary.provenance = entry.provenance;
   summary.title = entry.title;
   summary.active = false;
+  // The server counts the detail's records and the receipt's from the same
+  // events (showcase.rs detail() and receipt()): the run's real segment.
+  summary.event_count = segment.count;
   (detail.task as Json).title = entry.title;
   (detail.task as Json).schema_version = schema;
   delete (detail.task as Json).mode;

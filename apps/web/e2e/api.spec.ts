@@ -312,6 +312,33 @@ test("a live-model run in progress with live frames reads LIVE and is named Live
   await expect(page.locator("[data-pacing]")).toHaveCount(0);
 });
 
+for (const locale of locales) {
+  test(`the Overview legend: LIVE META in the LIVE colour, META MODEL in info, nothing green (HE #16, ${locale})`, async ({
+    page,
+  }) => {
+    await mockApi(page);
+    await page.goto(`/${locale}/`);
+    await hydrated(page);
+    const legend = page.locator(".hc-provenance-list");
+    const badges = legend.locator(".astryx-badge");
+    await expect(badges.first()).toBeVisible();
+    const liveMeta = t(locale, "Provenance.liveMeta.label");
+    const metaModel = t(locale, "Provenance.metaModel.label");
+    await expectNotGreen(legend.locator(".astryx-badge", { hasText: new RegExp(`^${liveMeta}$`) }), "pink");
+    // META MODEL appears twice (the live model, and the hybrid runs with simulated proofs): info both times.
+    const metaModels = legend.locator(".astryx-badge", { hasText: new RegExp(`^${metaModel}$`) });
+    await expect(metaModels).toHaveCount(2);
+    await expectNotGreen(metaModels, "info");
+    for (const variant of await badges.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-variant")))) {
+      expect(variant).not.toBe("success");
+      expect(variant).not.toBe("green");
+    }
+    // The LIVE colour is LIVE META's alone.
+    const pink = await legend.locator(".astryx-badge[data-variant='pink']").allInnerTexts();
+    expect(pink.map((text) => text.trim())).toEqual([liveMeta]);
+  });
+}
+
 for (const delivery of ["live", "replay"] as const) {
   test(`a live-model run is never paced or labelled simulated (${delivery} frames)`, async ({ page }) => {
     const detail = liveModelDetail();

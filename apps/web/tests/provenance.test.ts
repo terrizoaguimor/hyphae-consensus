@@ -35,6 +35,8 @@ import {
   sourceLabel,
 } from "../src/lib/provenance";
 
+import { IO_BOUND_TEST_TIMEOUT_MS } from "./io-timeout";
+
 const liveMeta: ProvenanceV1 = {
   model: "live_meta",
   evidence: "hyphae_snapshot",
@@ -266,7 +268,9 @@ describe("proofs and outcomes", () => {
     };
     walk(dir);
     expect(offenders.sort()).toEqual(["ChainCheck.tsx"]);
-  });
+    // Reads every file of src/components/ through the bind mount: see
+    // tests/io-timeout.ts.
+  }, IO_BOUND_TEST_TIMEOUT_MS);
 
   it("knows which states are terminal and when a run is at rest", () => {
     expect(isTerminal("approved")).toBe(true);

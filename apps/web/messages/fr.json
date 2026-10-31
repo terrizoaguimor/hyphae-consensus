@@ -396,6 +396,7 @@
       "simulatedProof": "Preuve SIMULÉE : résultat scénarisé « {status} », aucune cryptographie vérifiée",
       "simulatedProofShort": "Preuve SIMULÉE (résultat scénarisé « {status} »)",
       "rationaleSimulated": "Toutes les preuves de cette exécution sont SIMULÉES : là où la justification du serveur ci-dessus compte des preuves « valides » ou « invalides », ce sont des états scénarisés, et rien n’a été vérifié.",
+      "rationaleMixed": "Certaines preuves de cette exécution sont SIMULÉES : là où la justification du serveur ci-dessus compte des preuves « valides » ou « invalides », elle compte aussi leurs états scénarisés, qui n’ont pas été vérifiés.",
       "proofStatus": "preuve {status}",
       "recommendation": "Recommandation",
       "noRecommendation": "Aucune recommandation émise pour l’instant.",
@@ -837,6 +838,7 @@
           "proofs": "Preuves du tour final : {valid, plural, =0 {aucune valide} one {# valide} many {# de valides} other {# valides}}, {invalid, plural, =0 {aucune invalide} one {# invalide} many {# d’invalides} other {# invalides}}, {unavailable, plural, =0 {aucune indisponible ou en échec} one {# indisponible ou en échec} many {# d’indisponibles ou en échec} other {# indisponibles ou en échec}}.",
           "proofs_ungenerated": "États d’intégrité du tour final : {valid, plural, =0 {aucun valide} one {# valide} many {# de valides} other {# valides}}, {invalid, plural, =0 {aucun invalide} one {# invalide, sans preuve générée} many {# d’invalides, sans preuve générée} other {# invalides, sans preuve générée}}, {unavailable, plural, =0 {aucun indisponible ni en erreur de vérification} one {# indisponible ou en erreur de vérification} many {# d’indisponibles ou en erreur de vérification} other {# indisponibles ou en erreur de vérification}}.",
           "proofs_simulated": "Preuves du tour final, toutes SIMULÉES : {valid, plural, =0 {aucune « valide » simulée} one {# « valide » simulée} many {# de « valides » simulées} other {# « valides » simulées}}, {invalid, plural, =0 {aucune « invalide » simulée} one {# « invalide » simulée} many {# d’« invalides » simulées} other {# « invalides » simulées}}, {unavailable, plural, =0 {aucune indisponible ou en échec} one {# indisponible ou en échec} many {# d’indisponibles ou en échec} other {# indisponibles ou en échec}} (scénarisées, non vérifiées).",
+          "proofs_mixed": "Preuves du tour final, dont certaines SIMULÉES : {valid, plural, =0 {aucune « valide »} one {# « valide »} many {# de « valides »} other {# « valides »}}, {invalid, plural, =0 {aucune « invalide »} one {# « invalide »} many {# d’« invalides »} other {# « invalides »}}, {unavailable, plural, =0 {aucune indisponible ou en échec} one {# indisponible ou en échec} many {# d’indisponibles ou en échec} other {# indisponibles ou en échec}} (les simulées sont scénarisées, non vérifiées).",
           "open": "{unresolved, plural, =0 {L’évaluation finale n’a indiqué aucune objection comme non résolue.} one {L’évaluation finale a indiqué # objection comme non résolue.} many {L’évaluation finale a indiqué # d’objections comme non résolues.} other {L’évaluation finale a indiqué # objections comme non résolues.}}"
         },
         "reasons": {
@@ -855,6 +857,7 @@
       },
       "context": {
         "simulated": "Tous les états de preuve de cette exécution sont SIMULÉS : le vérificateur scénarisé les a enregistrés, et rien n’a été vérifié.",
+        "simulatedSome": "Certains états de preuve de cette exécution sont SIMULÉS : le vérificateur scénarisé les a enregistrés, et ils n’ont pas été vérifiés.",
         "finalRoundOnly": "Cette exécution a été enregistrée avant le protocole 1.3 : l’évaluation de chaque tour n’a jugé que les objections de ce tour, et la politique n’a lu que le tour final.",
         "neverRejudged": "{count, plural, =0 {Objections des tours précédents jamais rejugées : aucune.} one {Objections des tours précédents jamais rejugées : #.} many {Objections des tours précédents jamais rejugées : #.} other {Objections des tours précédents jamais rejugées : #.}}",
         "neverRejudgedUnlisted": "{count, plural, =0 {Chacune d’elles a été listée comme non résolue par l’évaluation de son propre tour.} one {Parmi elles, # n’a pas été listée comme non résolue, pas même par l’évaluation de son propre tour, qui l’a omise sans raison énoncée.} many {Parmi elles, # d’objections n’ont pas été listées comme non résolues, pas même par l’évaluation de leur propre tour, qui les a omises sans raison énoncée.} other {Parmi elles, # n’ont pas été listées comme non résolues, pas même par l’évaluation de leur propre tour, qui les a omises sans raison énoncée.}}"
@@ -868,6 +871,7 @@
         "ids": "ids : {ids}",
         "rationale": "La justification du serveur, telle qu’enregistrée :",
         "countsSimulated": "Toutes les preuves de cette exécution sont SIMULÉES : ces décomptes de preuves, et ceux de la justification du serveur ci-dessous, sont des états scénarisés, et rien n’a été vérifié.",
+        "countsMixed": "Certaines preuves de cette exécution sont SIMULÉES : ces décomptes de preuves, et ceux de la justification du serveur ci-dessous, incluent des états scénarisés, qui n’ont pas été vérifiés.",
         "protocol": "Protocole : {protocol}"
       },
       "ruleNames": {

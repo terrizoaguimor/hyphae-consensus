@@ -209,7 +209,7 @@ export function StageTab({ data }: StageTabProps) {
             />
             <FrameBadge record={stage.recommendation.record} summary={summary} />
             <p>{stage.recommendation.document.rationale}</p>
-            {simulatedProofs > 0 && checkedProofs === 0 ? <SimulatedRationaleNote /> : null}
+            {simulatedProofs > 0 ? <SimulatedRationaleNote mixed={checkedProofs > 0} /> : null}
           </div>
         )}
       </section>
@@ -242,13 +242,15 @@ export function RecommendationLine({
 /**
  * The caption under a server rationale of a run whose proofs are all
  * SIMULATED: the server's text counts their scripted statuses ("2 valid"),
- * and nothing was checked.
+ * and nothing was checked. With `mixed` (some proofs SIMULATED, some
+ * checked by a real verifier), it says that the server's counts include
+ * scripted statuses, which were not checked.
  */
-export function SimulatedRationaleNote() {
+export function SimulatedRationaleNote({ mixed = false }: { mixed?: boolean }) {
   const t = useTranslations("Run.stage");
   return (
-    <p className="hc-supporting" data-rationale-simulated>
-      {t("rationaleSimulated")}
+    <p className="hc-supporting" data-rationale-simulated={mixed ? "some" : "all"}>
+      {t(mixed ? "rationaleMixed" : "rationaleSimulated")}
     </p>
   );
 }

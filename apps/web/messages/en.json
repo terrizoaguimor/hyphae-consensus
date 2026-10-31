@@ -396,6 +396,7 @@
       "simulatedProof": "SIMULATED proof: scripted outcome “{status}”, no cryptography checked",
       "simulatedProofShort": "SIMULATED proof (scripted outcome “{status}”)",
       "rationaleSimulated": "Every proof of this run is SIMULATED: where the server’s rationale above counts proofs as “valid” or “invalid”, those are scripted statuses, and nothing was checked.",
+      "rationaleMixed": "Some proofs of this run are SIMULATED: where the server’s rationale above counts proofs as “valid” or “invalid”, it counts their scripted statuses too, and those were not checked.",
       "proofStatus": "proof {status}",
       "recommendation": "Recommendation",
       "noRecommendation": "No recommendation issued yet.",
@@ -837,6 +838,7 @@
           "proofs": "Proofs of the final round: {valid, plural, =0 {none valid} one {# valid} other {# valid}}, {invalid, plural, =0 {none invalid} one {# invalid} other {# invalid}}, {unavailable, plural, =0 {none unavailable or failed} one {# unavailable or failed} other {# unavailable or failed}}.",
           "proofs_ungenerated": "Integrity statuses of the final round: {valid, plural, =0 {none valid} one {# valid} other {# valid}}, {invalid, plural, =0 {none invalid} one {# invalid, with no proof generated} other {# invalid, with no proof generated}}, {unavailable, plural, =0 {none unavailable or with a verification error} one {# unavailable or with a verification error} other {# unavailable or with a verification error}}.",
           "proofs_simulated": "Proofs of the final round, all SIMULATED: {valid, plural, =0 {none simulated “valid”} one {# simulated “valid”} other {# simulated “valid”}}, {invalid, plural, =0 {none simulated “invalid”} one {# simulated “invalid”} other {# simulated “invalid”}}, {unavailable, plural, =0 {none unavailable or failed} one {# unavailable or failed} other {# unavailable or failed}} (scripted, not checked).",
+          "proofs_mixed": "Proofs of the final round, some of them SIMULATED: {valid, plural, =0 {none “valid”} one {# “valid”} other {# “valid”}}, {invalid, plural, =0 {none “invalid”} one {# “invalid”} other {# “invalid”}}, {unavailable, plural, =0 {none unavailable or failed} one {# unavailable or failed} other {# unavailable or failed}} (the simulated ones are scripted, not checked).",
           "open": "{unresolved, plural, =0 {The final evaluation listed no objection as unresolved.} one {The final evaluation listed # objection as unresolved.} other {The final evaluation listed # objections as unresolved.}}"
         },
         "reasons": {
@@ -855,6 +857,7 @@
       },
       "context": {
         "simulated": "Every proof status of this run is SIMULATED: the scripted verifier recorded it, and nothing was checked.",
+        "simulatedSome": "Some proof statuses of this run are SIMULATED: the scripted verifier recorded them, and they were not checked.",
         "finalRoundOnly": "This run was recorded before protocol 1.3: each round’s evaluation judged only that round’s objections, and the policy read the final round only.",
         "neverRejudged": "{count, plural, =0 {Earlier-round objections never re-judged: none.} one {Earlier-round objections never re-judged: #.} other {Earlier-round objections never re-judged: #.}}",
         "neverRejudgedUnlisted": "{count, plural, =0 {Each of them was listed as unresolved by the evaluation of its own round.} one {Of them, # was not listed as unresolved even by the evaluation of its own round, which left it out without a stated reason.} other {Of them, # were not listed as unresolved even by the evaluation of their own round, which left them out without a stated reason.}}"
@@ -868,6 +871,7 @@
         "ids": "ids: {ids}",
         "rationale": "The server’s rationale, as recorded:",
         "countsSimulated": "Every proof of this run is SIMULATED: these proof counts, and those in the server’s rationale below, are scripted statuses, and nothing was checked.",
+        "countsMixed": "Some proofs of this run are SIMULATED: these proof counts, and those in the server’s rationale below, include scripted statuses, which were not checked.",
         "protocol": "Protocol: {protocol}"
       },
       "ruleNames": {

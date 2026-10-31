@@ -340,7 +340,15 @@ LIVE and LIVE META share `LIVE_VARIANT`, used by nothing else. Every counter
 of simulated proofs says so on the same line ("4 simulated proofs (not
 checked)", "SIMULATED, scripted “valid”: 4 proofs (not checked)", the plain
 explanation's "all SIMULATED … (scripted, not checked)"), and a server text or
-JSON that says "valid" for a simulated proof gets a caption.
+JSON that says "valid" for a simulated proof gets a caption. In a mixed run
+(some proofs scripted, some checked by a real verifier) the lane and the
+receipt split the counts; the plain explanation's proofs line says "some of
+them SIMULATED … (the simulated ones are scripted, not checked)" with no
+number the trace does not carry, the explanation adds "Some proof statuses of
+this run are SIMULATED", and the rationale and technical-count captions say
+the server's counts include scripted statuses that were not checked. The
+invalid_proof lead and reason say SIMULATED when every invalid status the
+check names is the scripted verifier's.
 
 ## Conventions for the views that follow (lane W2)
 

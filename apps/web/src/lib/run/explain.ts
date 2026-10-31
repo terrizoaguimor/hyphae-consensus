@@ -86,6 +86,20 @@ export type TraceReading = {
    * them checked, so they are never said as "valid" or "invalid" proofs.
    */
   proofsSimulated?: boolean;
+  /**
+   * Some verification records of the run are the scripted verifier's, and
+   * some are a real verifier's (a mixed run): the trace's proof counts mix
+   * SIMULATED statuses with checked ones, so they are never said as bare
+   * "valid" or "invalid" proofs either.
+   */
+  proofsMixed?: boolean;
+  /**
+   * Every record the invalid_proofs check names has an invalid verification,
+   * and every invalid verification of it is the scripted verifier's: that
+   * "invalid" is a SIMULATED status, not a check that came back invalid
+   * (what a mixed run needs; with proofsSimulated it holds by itself).
+   */
+  invalidProofsSimulated?: boolean;
 };
 
 /**
@@ -96,13 +110,23 @@ export type TraceReading = {
  * back invalid. With `reading.proofsSimulated` (and it comes first: a
  * scripted verifier's status is never a generation failure), the same three
  * say the statuses are SIMULATED and not checked, on the same line: never
- * "2 valid" for simulated proofs.
+ * "2 valid" for simulated proofs. In a mixed run (`reading.proofsMixed`) the
+ * proofs count sentence says that some of them are SIMULATED and not
+ * checked, on the same line (no new number: the trace does not say which
+ * counts are the simulated ones), and the invalid_proof lead and the
+ * invalid_proofs sentence say SIMULATED when `reading.invalidProofsSimulated`.
  */
 export function plainExplanation(trace: PolicyTrace, reading?: TraceReading): PlainExplanation {
   const { counts } = trace;
   const simulated = reading?.proofsSimulated === true;
-  const ungenerated = !simulated && reading?.proofsUngenerated === true && invalidProofIds(trace).length > 0;
-  const variant = simulated ? "_simulated" : ungenerated ? "_ungenerated" : "";
+  const mixed = !simulated && reading?.proofsMixed === true;
+  const hasInvalid = invalidProofIds(trace).length > 0;
+  const invalidSimulated = simulated || (mixed && reading?.invalidProofsSimulated === true && hasInvalid);
+  const ungenerated = !invalidSimulated && reading?.proofsUngenerated === true && hasInvalid;
+  // The wording of the invalid_proof lead and the invalid_proofs sentence.
+  const variant = invalidSimulated ? "_simulated" : ungenerated ? "_ungenerated" : "";
+  // The wording of the proofs count sentence.
+  const countsVariant = simulated ? "_simulated" : mixed ? "_mixed" : ungenerated ? "_ungenerated" : "";
   return {
     lead: {
       key: trace.rule === "invalid_proof" ? `plain.rules.invalid_proof${variant}` : `plain.rules.${trace.rule}`,
@@ -116,8 +140,9 @@ export function plainExplanation(trace: PolicyTrace, reading?: TraceReading): Pl
       {
         // The same three trace counts; with no proof generated they are
         // integrity statuses, not proofs that were checked or that failed;
-        // simulated, they are the script's statuses, and nothing was checked.
-        key: `plain.counts.proofs${variant}`,
+        // simulated, they are the script's statuses, and nothing was checked;
+        // mixed, some of them are.
+        key: `plain.counts.proofs${countsVariant}`,
         values: {
           valid: counts.proofs_valid,
           invalid: counts.proofs_invalid,
@@ -176,11 +201,34 @@ export function ungeneratedProofs(trace: PolicyTrace, detail: RunDetailV1): bool
   });
 }
 
+/**
+ * Whether the trace's invalid proofs are all SIMULATED statuses: the
+ * invalid_proofs check names at least one record, and every record it names
+ * has an invalid verification, each of them the scripted verifier's.
+ */
+export function simulatedInvalidProofs(trace: PolicyTrace, detail: RunDetailV1): boolean {
+  const ids = invalidProofIds(trace);
+  if (ids.length === 0) {
+    return false;
+  }
+  const verifications = roundedVerifications(detail.events);
+  return ids.every((id) => {
+    const invalid = verifications.filter(
+      (v) => v.verification.evidence_id === id && v.verification.integrity_status === "invalid",
+    );
+    return invalid.length > 0 && invalid.every((v) => v.verification.simulated);
+  });
+}
+
 /** The trace's reading from the run's records. */
 export function traceReading(trace: PolicyTrace, detail: RunDetailV1): TraceReading {
+  const context = explainContext(detail);
   return {
     proofsUngenerated: ungeneratedProofs(trace, detail),
-    proofsSimulated: explainContext(detail).simulatedProofs,
+    proofsSimulated: context.simulatedProofs,
+    ...(context.mixedProofs === true
+      ? { proofsMixed: true, invalidProofsSimulated: simulatedInvalidProofs(trace, detail) }
+      : {}),
   };
 }
 
@@ -207,6 +255,11 @@ export function reasonIds(reason: TraceReason): string[] {
 export type ExplainContext = {
   /** Every verification record of the run is the scripted verifier's (and there is one). */
   simulatedProofs: boolean;
+  /**
+   * Some verification records of the run are the scripted verifier's and
+   * some are not (a mixed run). Present, and true, only then.
+   */
+  mixedProofs?: true;
   /** The run was recorded before protocol 1.3: each round judged only its own objections, and the policy read the final round. */
   beforeCarryForward: boolean;
   /**
@@ -253,9 +306,10 @@ export function explainContext(detail: RunDetailV1): ExplainContext {
   const neverItems = detail.challenge_items.filter((item) => item.status === "never_rejudged");
   const never = neverItems.length;
   const shown = never > 0 || (beforeCarryForward && detail.rounds.length > 1);
+  const simulatedCount = verifications.filter((v) => v.verification.simulated).length;
   return {
-    simulatedProofs:
-      verifications.length > 0 && verifications.every((v) => v.verification.simulated),
+    simulatedProofs: verifications.length > 0 && simulatedCount === verifications.length,
+    ...(simulatedCount > 0 && simulatedCount < verifications.length ? { mixedProofs: true as const } : {}),
     beforeCarryForward,
     neverRejudged: shown ? never : null,
     ...(shown
@@ -269,6 +323,8 @@ export function contextMessages(context: ExplainContext): ExplainMessage[] {
   const out: ExplainMessage[] = [];
   if (context.simulatedProofs) {
     out.push({ key: "context.simulated" });
+  } else if (context.mixedProofs === true) {
+    out.push({ key: "context.simulatedSome" });
   }
   if (context.beforeCarryForward) {
     out.push({ key: "context.finalRoundOnly" });

@@ -290,6 +290,46 @@ describe.each(routing.locales)("the plain explanation (%s)", (locale) => {
     }
   });
 
+  it("with SOME proofs SIMULATED (a mixed run), the proofs count says so on the same line, never a bare valid (SNG1-02)", () => {
+    for (const trace of traces()) {
+      const plain = plainExplanation(trace, { proofsUngenerated: false, proofsMixed: true });
+      const values = {
+        valid: trace.counts.proofs_valid,
+        invalid: trace.counts.proofs_invalid,
+        unavailable: trace.counts.proofs_unavailable_or_error,
+      };
+      const proofs = plain.counts.filter((c) => c.key.startsWith("plain.counts.proofs"));
+      expect(proofs.map((c) => c.key)).toEqual(["plain.counts.proofs_mixed"]);
+      expect(proofs[0]?.values).toEqual(values);
+      const line = render(locale, proofs[0] as ExplainMessage);
+      expect(line).not.toBe(render(locale, { key: "plain.counts.proofs", values }));
+      expect(line).not.toBe(render(locale, { key: "plain.counts.proofs_simulated", values }));
+      expect(line, line).toMatch(/SIMULATED|SIMULADAS|SIMULÉES/);
+      expect(line, line).toMatch(/not checked|sin comprobar|não verificadas|non vérifiées/);
+      // Still exactly the trace's counts: the mixed wording adds no number.
+      const text = [plain.lead, ...plain.counts, ...plain.reasons].map((entry) => render(locale, entry)).join(" ");
+      const numbers = [...text.matchAll(/\d+/g)].map((match) => Number(match[0]));
+      const counts = Object.values(trace.counts).filter((value) => value > 0);
+      expect(sortedNumbers(numbers), text).toEqual(sortedNumbers(counts));
+      // A real verifier's "invalid" keeps the invalid-check wording; a scripted one says SIMULATED.
+      if (trace.rule === "invalid_proof" && trace.reasons.some((r) => r.reason === "invalid_proofs")) {
+        expect(plain.lead.key).toBe("plain.rules.invalid_proof");
+        const scripted = plainExplanation(trace, {
+          proofsUngenerated: true,
+          proofsMixed: true,
+          invalidProofsSimulated: true,
+        });
+        expect(scripted.lead.key).toBe("plain.rules.invalid_proof_simulated");
+        expect(scripted.reasons.map((r) => r.key)).toContain("plain.reasons.invalid_proofs_simulated");
+        expect(scripted.counts.map((c) => c.key)).toContain("plain.counts.proofs_mixed");
+      }
+      // The all-SIMULATED reading wins over the mixed one.
+      expect(plainExplanation(trace, { proofsUngenerated: false, proofsSimulated: true, proofsMixed: true })).toEqual(
+        plainExplanation(trace, { proofsUngenerated: false, proofsSimulated: true }),
+      );
+    }
+  }, 30_000);
+
   it("has a message for every rule, reason and context key", () => {
     for (const rule of POLICY_RULES) {
       expect(() => message(locale, `Run.explain.plain.rules.${rule}`)).not.toThrow();
@@ -310,6 +350,9 @@ describe.each(routing.locales)("the plain explanation (%s)", (locale) => {
       "plain.reasons.invalid_proofs_simulated",
       "plain.counts.proofs_simulated",
       "technical.countsSimulated",
+      "plain.counts.proofs_mixed",
+      "technical.countsMixed",
+      "context.simulatedSome",
       "context.neverRejudgedUnlisted",
     ]) {
       expect(() => message(locale, `Run.explain.${key}`)).not.toThrow();
@@ -324,6 +367,65 @@ describe("what the records add to the trace", () => {
     const context = explainContext(detail);
     expect(context).toEqual({ simulatedProofs: true, beforeCarryForward: false, neverRejudged: null });
     expect(contextMessages(context).map((m) => m.key)).toEqual(["context.simulated"]);
+  });
+
+  it("a mixed run (one proof checked by a real verifier, the others SIMULATED) reads mixed, never all simulated nor all checked (SNG1-02)", () => {
+    /** The fixture with the evidence_verified records of `realIds` set to a real verifier's. */
+    const mixedDetail = (name: string, realIds: string[]): RunDetailV1 => {
+      const detail = JSON.parse(JSON.stringify(fixture<RunDetailV1>(`run-detail-${name}.json`))) as RunDetailV1;
+      let flipped = 0;
+      for (const event of detail.events) {
+        if (event.payload.type === "evidence_verified" && realIds.includes(event.payload.verification.evidence_id)) {
+          event.payload.verification.simulated = false;
+          flipped += 1;
+        }
+      }
+      expect(flipped, name).toBeGreaterThan(0);
+      return detail;
+    };
+    const traceOf = (detail: RunDetailV1): PolicyTrace => {
+      const trace = detail.recommendation?.trace;
+      if (trace === undefined || trace === null) {
+        throw new Error("no trace");
+      }
+      return trace;
+    };
+
+    // The scripted "invalid" stays SIMULATED; the real "valid" proof makes the run mixed.
+    const scriptedInvalid = mixedDetail("invalid_proof", ["ev-fact"]);
+    const context = explainContext(scriptedInvalid);
+    expect(context.simulatedProofs).toBe(false);
+    expect(context.mixedProofs).toBe(true);
+    expect(contextMessages(context).map((m) => m.key)).toContain("context.simulatedSome");
+    expect(contextMessages(context).map((m) => m.key)).not.toContain("context.simulated");
+    const trace = traceOf(scriptedInvalid);
+    const reading = traceReading(trace, scriptedInvalid);
+    expect(reading).toMatchObject({ proofsSimulated: false, proofsMixed: true, invalidProofsSimulated: true });
+    const plain = plainExplanation(trace, reading);
+    expect(plain.counts.map((c) => c.key)).toContain("plain.counts.proofs_mixed");
+    expect(plain.counts.map((c) => c.key)).not.toContain("plain.counts.proofs");
+    expect(plain.lead.key).toBe("plain.rules.invalid_proof_simulated");
+    expect(plain.reasons.map((r) => r.key)).toContain("plain.reasons.invalid_proofs_simulated");
+
+    // A real verifier recorded the "invalid": that check keeps its invalid-check wording.
+    const realInvalid = mixedDetail("invalid_proof", ["ev-constraint"]);
+    const realReading = traceReading(traceOf(realInvalid), realInvalid);
+    expect(realReading).toMatchObject({ proofsMixed: true, invalidProofsSimulated: false });
+    const realPlain = plainExplanation(traceOf(realInvalid), realReading);
+    expect(realPlain.counts.map((c) => c.key)).toContain("plain.counts.proofs_mixed");
+    expect(realPlain.lead.key).toBe("plain.rules.invalid_proof");
+
+    // Every proof real: neither simulated nor mixed.
+    const allReal = mixedDetail("invalid_proof", ["ev-fact", "ev-constraint"]);
+    expect(explainContext(allReal).simulatedProofs).toBe(false);
+    expect(explainContext(allReal).mixedProofs).toBeUndefined();
+    expect(contextMessages(explainContext(allReal)).map((m) => m.key)).not.toContain("context.simulatedSome");
+    expect(plainExplanation(traceOf(allReal), traceReading(traceOf(allReal), allReal)).counts.map((c) => c.key)).toContain(
+      "plain.counts.proofs",
+    );
+    for (const locale of routing.locales) {
+      expect(() => message(locale, "Run.stage.rationaleMixed")).not.toThrow();
+    }
   });
 
   it("a run before protocol 1.3 with several rounds says how many earlier objections were never re-judged", () => {

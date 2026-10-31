@@ -81,11 +81,14 @@ function TechnicalTrace({
   trace,
   recommendation,
   simulated,
+  mixed,
 }: {
   trace: PolicyTrace;
   recommendation: RecommendationV1;
   /** Every proof of the run is SIMULATED: the counts by field (and the server's text) are scripted statuses. */
   simulated: boolean;
+  /** Some proofs of the run are SIMULATED and some are not: the counts include scripted statuses. */
+  mixed: boolean;
 }) {
   const t = useTranslations("Run.explain");
   const explain = dynamicTranslator(t);
@@ -139,9 +142,9 @@ function TechnicalTrace({
           </div>
         ))}
       </dl>
-      {simulated ? (
-        <p className="hc-supporting" data-counts-simulated>
-          {t("technical.countsSimulated")}
+      {simulated || mixed ? (
+        <p className="hc-supporting" data-counts-simulated={simulated ? "all" : "some"}>
+          {t(simulated ? "technical.countsSimulated" : "technical.countsMixed")}
         </p>
       ) : null}
     </>
@@ -173,12 +176,19 @@ export function Explanation({ recommendation, detail }: ExplanationProps) {
           {trace === null ? (
             <p>{t("technical.noTrace", { protocol: recommendation.protocol })}</p>
           ) : (
-            <TechnicalTrace trace={trace} recommendation={recommendation} simulated={records.simulatedProofs} />
+            <TechnicalTrace
+              trace={trace}
+              recommendation={recommendation}
+              simulated={records.simulatedProofs}
+              mixed={records.mixedProofs === true}
+            />
           )}
           <p>{t("technical.rationale")}</p>
           <UntrustedText text={recommendation.rationale} source="server" />
           {/* Without a trace, the caption under the counts is absent: say it under the server's text. */}
-          {records.simulatedProofs && trace === null ? <SimulatedRationaleNote /> : null}
+          {(records.simulatedProofs || records.mixedProofs === true) && trace === null ? (
+            <SimulatedRationaleNote mixed={records.mixedProofs === true} />
+          ) : null}
           <p className="hc-supporting">{t("technical.protocol", { protocol: recommendation.protocol })}</p>
         </div>
       </TechnicalDetails>

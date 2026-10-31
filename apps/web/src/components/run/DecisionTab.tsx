@@ -127,7 +127,9 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
 
   const recommendation = detail.recommendation ?? null;
   const openItems = detail.challenge_items.filter((item) => item.status === "open");
-  const simulatedProofs = explainContext(detail).simulatedProofs;
+  const proofContext = explainContext(detail);
+  const simulatedProofs = proofContext.simulatedProofs;
+  const mixedProofs = proofContext.mixedProofs === true;
   const original = supersededProposal(detail);
   const current = detail.current_proposal ?? null;
   // The recommendation is for a revision: say which proposal it is for and
@@ -237,7 +239,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
             <h4>{t("rationale")}</h4>
             <p>{recommendation.rationale}</p>
             {/* The server's text counts SIMULATED statuses as "valid": say so on the spot. */}
-            {simulatedProofs ? <SimulatedRationaleNote /> : null}
+            {simulatedProofs || mixedProofs ? <SimulatedRationaleNote mixed={mixedProofs} /> : null}
             <p className="hc-supporting">
               {t("protocol")}
               {": "}

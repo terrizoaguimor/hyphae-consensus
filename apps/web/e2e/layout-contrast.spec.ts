@@ -14,7 +14,8 @@
 // HE #10: control boundaries meet WCAG 1.4.11 (3:1 against the colors next
 // to them): the unselected radio ring, the unchecked checkbox box, the
 // native select, the Settings panels and the dashed not-connected panel in
-// both themes; the off Switch track in the light theme, where it is off.
+// both themes; the theme control's frame and its selected segment (which
+// replaced the off Switch track of the header in round 5) in both themes.
 // Colors are read from the computed styles; a translucent background is
 // composited over what is behind it.
 
@@ -469,42 +470,68 @@ for (const theme of ["light", "dark"] as const) {
   });
 }
 
-test.describe("HE #10: the off Switch track reaches 3:1", () => {
-  test.beforeEach(async ({ page }) => {
-    // The Switch is "Dark theme": off in the light theme.
-    await useTheme(page, "light");
-    await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
-  });
+// The theme control (System / Light / Dark) replaced the "Dark theme"
+// Switch in round 5; its boundaries carry the Switch's 3:1 checks, in both
+// themes: the control's frame against the bar and against its own fill, the
+// dividers between segments (drawn in the frame's colour), the selected
+// segment's ink fill against the bar (as the track against its
+// surroundings), and its icon and check against that fill at 4.5:1 (as the
+// thumb against the track).
+for (const theme of ["light", "dark"] as const) {
+  test.describe(`HE #10: the theme control's boundaries reach 3:1 (${theme})`, () => {
+    test.beforeEach(async ({ page }) => {
+      await useTheme(page, theme);
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+    });
 
-  test("in the top bar", async ({ page }) => {
-    await page.goto(localePath("en", "settings"));
-    await hydrated(page);
-    const track = page.locator(".hc-topbar .astryx-switch, header .astryx-switch").first();
-    await expect(track).not.toHaveAttribute("data-checked", "checked");
-    expectBoundaries("off Switch track", await boundaries(page, "header .astryx-switch:not([data-checked])", true), true);
-    // The thumb stays distinguishable from the track as well.
-    const thumb = await boundaries(page, "header .astryx-switch:not([data-checked]) > .astryx-switch-thumb", true);
-    const [trackColor] = await boundaries(page, "header .astryx-switch:not([data-checked])", true);
-    if (trackColor === undefined) {
-      throw new Error("no off Switch track in the top bar");
-    }
-    expect(thumb.length, "no Switch thumb in the top bar").toBeGreaterThan(0);
-    for (const { mark } of thumb) {
-      expect(contrast(mark, trackColor.mark)).toBeGreaterThanOrEqual(3);
-    }
-  });
+    const check = async (page: Page, scope: string, where: string) => {
+      await expect(page.locator(`${scope} [data-theme-control]`)).toBeVisible();
+      expectBoundaries(`theme control frame (${where})`, await boundaries(page, `${scope} [data-theme-control]`));
+      // The dividers between segments are drawn in the frame's colour.
+      const frameColour = await page
+        .locator(`${scope} [data-theme-control]`)
+        .evaluate((element) => getComputedStyle(element).borderTopColor);
+      const dividers = await page
+        .locator(`${scope} [data-theme-control] .hc-segment + .hc-segment`)
+        .evaluateAll((elements) => elements.map((element) => getComputedStyle(element).borderInlineStartColor));
+      expect(dividers).toEqual([frameColour, frameColour]);
+      const selected = `${scope} [data-theme-control] .hc-segment:has(input:checked)`;
+      await expect(page.locator(selected)).toHaveCount(1);
+      expectBoundaries(`selected segment fill (${where})`, await boundaries(page, selected, true), true);
+      const [fill] = await boundaries(page, selected, true);
+      // The selected segment's icon and check stay distinguishable from its
+      // fill (as the Switch thumb from its track), at text contrast.
+      const marks = await page.locator(`${selected} svg`).evaluateAll((elements) =>
+        elements.map((element) => {
+          const parts = /rgba?\(([^)]+)\)/.exec(getComputedStyle(element).color)?.[1]?.split(/[\s,/]+/).map(Number) ?? [];
+          return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0] as Rgb;
+        }),
+      );
+      if (fill === undefined) {
+        throw new Error(`no selected segment (${where})`);
+      }
+      expect(marks.length, `icon and check of the selected segment (${where})`).toBe(2);
+      for (const mark of marks) {
+        expect(contrast(fill.mark, mark), `selected segment's icon against its fill (${where})`).toBeGreaterThanOrEqual(4.5);
+      }
+    };
 
-  test("in the mobile drawer", async ({ page }) => {
-    await page.setViewportSize({ width: PHONE, height: 844 });
-    await page.goto(localePath("en", ""));
-    await hydrated(page);
-    await page.getByRole("button", { name: t("en", "Shell.menuButton"), exact: true }).click();
-    const drawer = page.getByRole("dialog", { name: t("en", "Shell.menuTitle") });
-    await expect(drawer).toBeVisible();
-    expectBoundaries(
-      "off Switch track in the drawer",
-      await boundaries(page, "dialog[open] .astryx-switch:not([data-checked])", true),
-      true,
-    );
+    test(`in the top bar (${theme})`, async ({ page }) => {
+      await page.goto(localePath("en", "settings"));
+      await hydrated(page);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      await check(page, ".hc-topbar-controls", "top bar");
+    });
+
+    test(`in the mobile drawer (${theme})`, async ({ page }) => {
+      await page.setViewportSize({ width: PHONE, height: 844 });
+      await page.goto(localePath("en", ""));
+      await hydrated(page);
+      await page.getByRole("button", { name: t("en", "Shell.menuButton"), exact: true }).click();
+      const drawer = page.getByRole("dialog", { name: t("en", "Shell.menuTitle") });
+      await expect(drawer).toBeVisible();
+      await expect(drawer).toHaveCSS("opacity", "1");
+      await check(page, "dialog[open]", "drawer");
+    });
   });
-});
+}

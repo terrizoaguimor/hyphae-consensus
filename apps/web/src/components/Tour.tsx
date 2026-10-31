@@ -90,7 +90,7 @@ function TourSteps({ primaryRef, onClose }: TourStepsProps) {
       <p id={BODY_ID} className="hc-tour-body" data-connection-copy={connection}>
         {t(tourBodyKey(step, connection))}
       </p>
-      <ol className="hc-tour-dots" aria-hidden="true">
+      <ol className="hc-tour-bar" aria-hidden="true">
         {tourSteps.map((name, position) => (
           <li
             key={name}

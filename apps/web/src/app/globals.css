@@ -506,8 +506,9 @@
     min-height: 2.5rem;
     padding: var(--spacing-2) var(--spacing-3);
     border-inline-start: 3px solid transparent;
-    border-start-end-radius: var(--radius-element);
-    border-end-end-radius: var(--radius-element);
+    /* Square first (design-direction 3.7): a navigation row is part of the
+       sidebar region, radius 0 on every corner, the bar side included. */
+    border-radius: 0;
     font-weight: 500;
     color: var(--color-text-secondary);
     text-decoration: none;
@@ -612,7 +613,7 @@
     position: relative;
     width: 1rem;
     height: 2px;
-    border-radius: 1px;
+    border-radius: 0;
     background-color: currentColor;
   }
 
@@ -622,7 +623,7 @@
     position: absolute;
     inset-inline: 0;
     height: 2px;
-    border-radius: 1px;
+    border-radius: 0;
     background-color: currentColor;
   }
 
@@ -777,29 +778,40 @@
     line-height: 1.5;
   }
 
-  .hc-tour-dots {
+  /*
+   * The tour's progress (design-direction 4.2 #8): a segmented bar, one 24x4
+   * segment per step, radius 0. Done segments are filled text/secondary, the
+   * current one is 40 wide and filled accent/fg, upcoming ones are empty
+   * with a 1px border/strong outline: told apart by width, fill and frame,
+   * not only by grey value. The step is also said in words ("Step 2 of 6").
+   */
+  .hc-tour-bar {
     display: flex;
-    gap: 6px;
+    align-items: center;
+    gap: 4px;
     margin: var(--spacing-1) 0 0;
     padding: 0;
     list-style: none;
   }
 
-  .hc-tour-dots li {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background-color: var(--color-border-emphasized);
+  .hc-tour-bar li {
+    box-sizing: border-box;
+    width: 24px;
+    height: 4px;
+    border: 1px solid var(--hc-color-border-strong);
+    border-radius: 0;
+    background-color: transparent;
   }
 
-  .hc-tour-dots li[data-state="done"] {
+  .hc-tour-bar li[data-state="done"] {
+    border-color: var(--color-text-secondary);
     background-color: var(--color-text-secondary);
   }
 
-  .hc-tour-dots li[data-state="current"] {
-    width: 20px;
-    border-radius: 4px;
-    background-color: var(--color-accent);
+  .hc-tour-bar li[data-state="current"] {
+    width: 40px;
+    border-color: var(--hc-accent-fg);
+    background-color: var(--hc-accent-fg);
   }
 
   /* Page content */
@@ -988,6 +1000,127 @@
     --color-background-gray: var(--hc-color-border-strong);
   }
 
+  /*
+   * Radio marks are square-cornered (radius 2), the mark and its selected
+   * dot alike; the input stays a native radio (role, keyboard, form value),
+   * so only the drawing changes. Astryx's press overlay around the mark
+   * follows it.
+   */
+  .astryx-radio-indicator,
+  .astryx-radio-indicator > *,
+  input[type="radio"],
+  :has(> input[type="radio"] + span > .astryx-radio-indicator)::after {
+    border-radius: var(--radius-inner);
+  }
+
+  /* Every radio input of the app is an invisible hit target (opacity 0)
+     over the mark that draws it (Astryx's indicator, or a theme-control
+     segment). Chromium keeps a native-appearance radio round whatever its
+     border-radius, so the native drawing is switched off; nothing visible
+     changes and the input stays a native radio. */
+  input[type="radio"] {
+    appearance: none;
+  }
+
+  /* The checkbox's indeterminate dash is a bar, not a pill. */
+  .astryx-checkbox-indicator-dash {
+    border-radius: 0;
+  }
+
+  /*
+   * Theme control (design-direction 4.2 #5): a 3-segment control, System /
+   * Light / Dark, built on native radios (ThemeControl.tsx). Outer radius 4,
+   * inner joins 0, a 1px border/strong frame and dividers. The selected
+   * segment carries the ink material (the button gradient, on-solid text)
+   * and a 12px check, so it differs by fill, polarity and a mark, not only
+   * by grey value. The radio itself is invisible but covers its segment, so
+   * the whole segment is the click target and the browser's own radio-group
+   * keyboard model applies; the ring is drawn on the segment.
+   */
+  .hc-segmented {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--hc-color-border-strong);
+    border-radius: var(--radius-element);
+  }
+
+  .hc-segment {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-1);
+    min-width: 2rem;
+    min-height: 2rem;
+    padding: 0 var(--spacing-2);
+    border-radius: 0;
+    font-size: var(--text-supporting-size);
+    font-weight: 500;
+    color: var(--color-text-primary);
+    cursor: pointer;
+  }
+
+  .hc-segment + .hc-segment {
+    border-inline-start: 1px solid var(--hc-color-border-strong);
+  }
+
+  .hc-segment:first-child {
+    border-start-start-radius: var(--radius-inner);
+    border-end-start-radius: var(--radius-inner);
+  }
+
+  .hc-segment:last-child {
+    border-start-end-radius: var(--radius-inner);
+    border-end-end-radius: var(--radius-inner);
+  }
+
+  .hc-segment:hover {
+    background-color: var(--color-overlay-hover);
+  }
+
+  .hc-segment-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    /* Still a native radio (role, keyboard, form value); its native
+       drawing is off and its corners follow the radio rules above. */
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .hc-segment-icon,
+  .hc-segment-check {
+    flex: none;
+  }
+
+  .hc-segment-check {
+    display: none;
+  }
+
+  .hc-segment:has(.hc-segment-input:checked) {
+    color: var(--hc-btn-text);
+    background-color: var(--hc-btn-bottom);
+    background-image: linear-gradient(var(--hc-btn-top), var(--hc-btn-bottom));
+  }
+
+  .hc-segment:has(.hc-segment-input:checked) .hc-segment-check {
+    display: inline;
+  }
+
+  .hc-segment:has(.hc-segment-input:focus-visible) {
+    z-index: 1;
+    outline: var(--focus-outline-width) var(--focus-outline-style)
+      var(--focus-outline-color);
+    outline-offset: var(--focus-outline-offset);
+  }
+
+  .hc-drawer-section .hc-segment {
+    min-height: 2.75rem;
+    padding: 0 var(--spacing-3);
+  }
+
   .hc-not-connected-message {
     font-weight: 600;
   }
@@ -1030,9 +1163,11 @@
     content: counter(hc-flow);
     display: inline-grid;
     place-items: center;
-    width: 1.75rem;
-    height: 1.75rem;
-    border-radius: 50%;
+    /* A 24px square step marker with a 4px radius (design-direction P5,
+       3.5 and 3.7), not a circle. */
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: var(--radius-element);
     font-size: var(--font-size-sm);
     font-weight: 600;
     color: var(--color-on-accent);

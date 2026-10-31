@@ -452,6 +452,20 @@ Font Name. The copyright lines are the ones the upstream projects state. On
 13 woff2 files of an export: the 6 JetBrains Mono files read exactly the line
 above, and the 7 Inter files read "Copyright 2016 The Inter Project Authors
 (https://github.com/rsms/inter)", the same line without "(c)".
+
+## Icons
+
+The theme control (`apps/web/src/components/ThemeControl.tsx`) draws four
+Lucide icons (monitor, sun, moon, check; https://lucide.dev) as inline SVG,
+redrawn from their published path data, with no icon package added to the
+app. Lucide is under the ISC License, "Copyright (c) 2026 Lucide Icons and
+Contributors"; monitor, moon and check are among the icons Lucide derives
+from Feather, under the MIT License, "Copyright (c) 2013-present Cole Bemis".
+Both licences require their notices to accompany copies, so Lucide's own
+LICENSE file (lucide-react 1.61.0, already in the install closure above, read
+2026-10-31) ships with the static export as
+`apps/web/public/licenses/Lucide-LICENSE.txt`, served as
+`/licenses/Lucide-LICENSE.txt`.
 <!-- hand-written:end -->
 
 ## Hyphae

@@ -12,6 +12,9 @@ import { Button } from "@astryxdesign/core/Button";
 import { useTranslations } from "next-intl";
 import { type RefObject, useRef, useState } from "react";
 
+import type { ConnectionState } from "@/lib/api/useApiHealth";
+
+import { useConnectionState } from "./ConnectionText";
 import { Modal } from "./Modal";
 import { usePreferences } from "./preferences";
 
@@ -23,6 +26,14 @@ export const tourSteps = [
   "labels",
   "decide",
 ] as const;
+
+export type TourStep = (typeof tourSteps)[number];
+
+type TourBodyKey =
+  | `steps.${TourStep}.body`
+  | "steps.welcome.bodyConnected"
+  | "steps.welcome.bodyPending"
+  | "steps.guided.bodyConnected";
 
 const TITLE_ID = "hc-tour-title";
 const BODY_ID = "hc-tour-body";
@@ -52,8 +63,30 @@ type TourStepsProps = {
   onClose: (outcome: "skipped" | "completed") => void;
 };
 
+/**
+ * The catalog key of a step's body. The steps that speak about the
+ * connection have one variant per state of the health probe (HE #8): the
+ * catalog's `body` is the variant for a server that did not answer, a
+ * connected portal reads `bodyConnected`, and before the probe settles the
+ * welcome step reads `bodyPending`, which makes no claim either way (the
+ * guided step keeps its planned wording until then).
+ */
+export function tourBodyKey(step: TourStep, connection: ConnectionState): TourBodyKey {
+  if (step === "welcome") {
+    if (connection === "connected") {
+      return "steps.welcome.bodyConnected";
+    }
+    return connection === "pending" ? "steps.welcome.bodyPending" : "steps.welcome.body";
+  }
+  if (step === "guided" && connection === "connected") {
+    return "steps.guided.bodyConnected";
+  }
+  return `steps.${step}.body`;
+}
+
 function TourSteps({ primaryRef, onClose }: TourStepsProps) {
   const t = useTranslations("Tour");
+  const connection = useConnectionState();
   const [index, setIndex] = useState(0);
   const [announcement, setAnnouncement] = useState("");
 
@@ -72,7 +105,7 @@ function TourSteps({ primaryRef, onClose }: TourStepsProps) {
         current: next + 1,
         total,
         title: t(`steps.${target}.title`),
-        body: t(`steps.${target}.body`),
+        body: t(tourBodyKey(target, connection)),
       }),
     );
     // Back disappears on the first step: keep focus inside the dialog.
@@ -89,8 +122,8 @@ function TourSteps({ primaryRef, onClose }: TourStepsProps) {
       <h2 id={TITLE_ID} className="hc-dialog-title">
         {t(`steps.${step}.title`)}
       </h2>
-      <p id={BODY_ID} className="hc-tour-body">
-        {t(`steps.${step}.body`)}
+      <p id={BODY_ID} className="hc-tour-body" data-connection-copy={connection}>
+        {t(tourBodyKey(step, connection))}
       </p>
       <ol className="hc-tour-dots" aria-hidden="true">
         {tourSteps.map((name, position) => (

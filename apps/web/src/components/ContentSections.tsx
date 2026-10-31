@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { dynamicTranslator, keysOf, sectionsOf } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
 
+import { ConnectionText } from "./ConnectionText";
 import { richTags } from "./rich";
 
 type ContentSectionsProps = {
@@ -24,6 +25,13 @@ type ContentSectionsProps = {
   ordered?: readonly string[];
   /** ICU arguments the texts may reference, e.g. {contact}. */
   values?: Record<string, string | number | Date>;
+  /**
+   * Sections whose body states whether the portal reached its server: the
+   * catalog's body is the variant for a server that did not answer, and
+   * these are the variants for a connected portal and for the moment before
+   * the health probe settles (src/components/ConnectionText.tsx).
+   */
+  connectionBodies?: Readonly<Record<string, { connected: string; pending: string }>>;
 };
 
 export async function ContentSections({
@@ -32,6 +40,7 @@ export async function ContentSections({
   idPrefix,
   ordered = [],
   values = {},
+  connectionBodies = {},
 }: ContentSectionsProps) {
   const t = dynamicTranslator(
     await getTranslations({ locale, namespace: namespace as never }),
@@ -42,11 +51,18 @@ export async function ContentSections({
       {sectionsOf(t, "sections").map(([key, section]) => {
         const headingId = `${idPrefix}-${key}`;
         const base = `sections.${key}`;
+        const variants = connectionBodies[key];
         return (
           <section key={key} className="hc-section">
             <h2 id={headingId}>{t(`${base}.heading`)}</h2>
-            {section.body === undefined ? null : (
+            {section.body === undefined ? null : variants === undefined ? (
               <p>{t.rich(`${base}.body`, rich)}</p>
+            ) : (
+              <ConnectionText
+                connected={variants.connected}
+                unreachable={t.rich(`${base}.body`, rich)}
+                pending={variants.pending}
+              />
             )}
             {section.items === undefined
               ? null

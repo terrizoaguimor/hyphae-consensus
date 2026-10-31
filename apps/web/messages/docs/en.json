@@ -1,7 +1,7 @@
 {
   "Docs": {
     "lead": "Short explanations of how Hyphae Consensus works and what its results mean.",
-    "buildNote": "The portal views that run deliberations are not connected in this build; these pages describe the system as it works today and the public portal as planned.",
+    "buildNote": "The portal’s server did not answer, so the views that run deliberations cannot be used right now; these pages describe the system as it works and the public portal as planned.",
     "articlesHeading": "Articles",
     "tourHeading": "One-minute tour",
     "tourText": "Six short steps through the main ideas. You can skip it at any time.",
@@ -183,8 +183,8 @@
             "body": "Recorded runs, scripted ones and runs of Meta’s model, read from a verbatim archive. Each is labeled RECORDED, keeps the model and evidence labels its records carry, and is never presented as live."
           },
           "build": {
-            "heading": "In this build",
-            "body": "None of the three modes is connected in this build of the portal."
+            "heading": "On this portal",
+            "body": "The portal’s server did not answer, so none of the three modes can start a run from it right now."
           }
         },
         "technical": {
@@ -193,6 +193,10 @@
           "language": "Presets and the model conversation stay in English, so claims match the English evidence records. Translated views mark model text as original English output."
         }
       }
+    },
+    "modesBuild": {
+      "connected": "This portal is connected to its server. Which modes can start a run depends on what the server enables; New deliberation shows them.",
+      "pending": "Which modes can start a run depends on what the portal’s server enables; New deliberation shows them."
     }
   }
 }

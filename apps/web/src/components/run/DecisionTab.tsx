@@ -354,7 +354,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
               : t("notAwaiting")}
           </p>
         )}
-        {error === null ? null : <ApiErrorNotice error={error} />}
+        {error === null ? null : <ApiErrorNotice error={error} context="decision" />}
         <ul className="hc-related" role="list">
           <li>
             <a href={links.receipt} className="hc-link" data-receipt-link>

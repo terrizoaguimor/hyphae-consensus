@@ -8,7 +8,7 @@
     "name": "Hyphae Consensus",
     "tagline": "Raciocínio multiagente verificável e responsabilização nas decisões",
     "intro": "Três papéis de IA (Proponente, Crítico e Avaliador de evidências) trabalham sobre um problema de engenharia de software. O ambiente de execução busca evidências na memória do Hyphae e verifica suas provas, o Avaliador julga cada afirmação com base nessas evidências e uma política fixa transforma o resultado em uma recomendação. Só uma pessoa pode autorizá-la, e autorizar registra uma decisão sem executar nada.",
-    "buildNote": "Esta versão do portal não está conectada à API do Hyphae Consensus. Ela explica o sistema e mostra os rótulos que vai usar; nada nela chama um modelo ou lê a memória."
+    "buildNote": "A API do Hyphae Consensus não respondeu, então este portal só pode explicar o sistema e mostrar os rótulos que usa; agora nada nele chama um modelo ou lê a memória."
   },
   "Shell": {
     "skipToContent": "Pular para o conteúdo principal",
@@ -44,10 +44,10 @@
   },
   "NotConnected": {
     "badge": "Não conectado",
-    "message": "Esta tela se conecta à API do Hyphae Consensus; ela não está conectada nesta versão.",
+    "message": "A API do Hyphae Consensus não respondeu, então esta tela não pode mostrar nada agora.",
     "plannedHeading": "Quando conectada, esta tela vai:",
     "related": "Relacionado",
-    "unreachable": "A API não respondeu: a solicitação a /api/v1/health falhou ({code}).",
+    "unreachable": "A solicitação a /api/v1/health falhou ({code}).",
     "retry": "Tentar de novo"
   },
   "ApiGate": {
@@ -56,7 +56,6 @@
     "contractMismatch": "Esta versão foi feita para o contrato de API {build}, e o servidor informa o contrato {server}: cada resposta continua sendo conferida com o contrato desta versão, mas o que é novo no servidor pode não aparecer."
   },
   "Api": {
-    "errorTitle": "O servidor recusou a solicitação",
     "errorDetail": "Código {code}, HTTP {status}.",
     "retryAfter": "{seconds, plural, =0 {Você já pode tentar de novo.} one {Tente de novo em # segundo.} other {Tente de novo em # segundos.}}",
     "retry": "Tentar de novo",
@@ -76,7 +75,7 @@
       "too_many_streams": "Transmissões abertas demais para esta execução ou esta conexão.",
       "storage_full": "O servidor está no máximo de execuções de visitantes e não conseguiu liberar nenhuma; tente de novo em breve.",
       "live_disabled": "O modo ao vivo não está habilitado neste servidor.",
-      "shutting_down": "O servidor está sendo desligado e não admite novas execuções.",
+      "shutting_down": "O servidor está sendo desligado; tente de novo em um minuto.",
       "run_not_awaiting_decision": "A execução não está aguardando uma decisão humana.",
       "decision_conflict": "A execução mudou desde que você a viu; ela foi relida, confira de novo antes de decidir.",
       "idempotency_key_reused": "Esta chave de solicitação já foi usada com uma solicitação diferente.",
@@ -111,6 +110,30 @@
       "unexpected_status": "O servidor respondeu com um status que este cliente não entende.",
       "bad_response": "A resposta do servidor não corresponde ao contrato da API para o qual esta versão foi feita.",
       "unknown": "O servidor recusou a solicitação com um código que esta versão não conhece."
+    },
+    "createErrors": {
+      "shutting_down": "O servidor está sendo desligado e não admite novas execuções."
+    },
+    "fallback": "Ver uma execução gravada em vez disso",
+    "headlines": {
+      "notAccepted": "Esta solicitação não foi aceita",
+      "rateLimited": "{seconds, plural, =0 {Solicitações demais a partir desta conexão. Você já pode tentar de novo.} one {Solicitações demais a partir desta conexão. Aguarde # segundo.} other {Solicitações demais a partir desta conexão. Aguarde # segundos.}}",
+      "rateLimitedNoWait": "Solicitações demais a partir desta conexão. Aguarde um momento.",
+      "busy": "O servidor está ocupado. Tente de novo em breve.",
+      "liveInProgress": "Outra execução ao vivo está em andamento",
+      "liveLimit": "O limite de execuções ao vivo foi atingido por enquanto",
+      "budgetToday": "O orçamento ao vivo de hoje se esgotou",
+      "budgetSpent": "O orçamento ao vivo se esgotou",
+      "liveClosed": "O modo ao vivo não pode iniciar uma execução agora",
+      "humanCheck": "A verificação humana não foi concluída",
+      "location": "Indisponível a partir da sua localização",
+      "session": "Primeiro é preciso uma sessão",
+      "notAvailable": "Este endereço não está disponível para você",
+      "decision": "Sua decisão não foi registrada",
+      "serverProblem": "O servidor teve um problema",
+      "serverUnavailable": "O servidor está indisponível agora. Tente de novo em um minuto.",
+      "unreachable": "O servidor não respondeu",
+      "unreadable": "Não foi possível ler a resposta do servidor"
     }
   },
   "NotFound": {
@@ -122,7 +145,7 @@
     "primaryAction": "Executar um exemplo guiado",
     "primaryActionNeutral": "Ir para Nova deliberação",
     "primaryActionPlanned": "Como os exemplos guiados vão funcionar",
-    "primaryActionNote": "As execuções guiadas precisam da API do Hyphae Consensus, que não está conectada nesta versão.",
+    "primaryActionNote": "As execuções guiadas precisam da API do Hyphae Consensus, que não respondeu.",
     "secondaryAction": "Como funciona",
     "flowHeading": "Como funciona uma deliberação",
     "flow": {
@@ -194,7 +217,9 @@
       "run": "Executar",
       "runScenario": "Executar {title}",
       "starting": "Iniciando…",
-      "disabled": "Os exemplos guiados não estão habilitados neste servidor."
+      "disabled": "Os exemplos guiados não estão habilitados neste servidor.",
+      "wait": "Tente de novo em {time}",
+      "waitScenario": "Executar {title}: tente de novo em {time}"
     },
     "live": {
       "heading": "Tarefas predefinidas ao vivo",
@@ -242,7 +267,8 @@
         "provider_refused_key": "A Model API da Meta recusou a chave do servidor, então o livro parou sozinho.",
         "inconsistent": "Os registros do livro não batem, então ele parou sozinho.",
         "other": "O livro parou sozinho (código {code})."
-      }
+      },
+      "wait": "Tente de novo em {time}"
     }
   },
   "Runs": {
@@ -1075,8 +1101,9 @@
       },
       "descriptions": {
         "simple": "Explicações em linguagem simples; os detalhes técnicos começam recolhidos.",
-        "technical": "Os detalhes técnicos começam expandidos na documentação, e as explicações das execuções vão usá-los quando a API estiver conectada."
-      }
+        "technical": "Os detalhes técnicos começam expandidos na documentação. As explicações das execuções também os usam, mas a API não respondeu, então agora não há nenhuma execução para explicar."
+      },
+      "technicalConnected": "Os detalhes técnicos começam expandidos na documentação e nas explicações das execuções."
     },
     "reset": {
       "heading": "Configurações salvas",
@@ -1106,11 +1133,14 @@
     "steps": {
       "welcome": {
         "title": "Boas-vindas ao Hyphae Consensus",
-        "body": "Três papéis de IA trabalham sobre um problema de engenharia de software, o ambiente de execução verifica as evidências e uma política fixa recomenda. Só uma pessoa pode autorizar. Nesta versão o portal não está conectado, então suas telas dizem o que vão fazer."
+        "body": "Três papéis de IA trabalham sobre um problema de engenharia de software, o ambiente de execução verifica as evidências e uma política fixa recomenda. Só uma pessoa pode autorizar. O servidor do portal não respondeu, então suas telas dizem o que fariam.",
+        "bodyConnected": "Três papéis de IA trabalham sobre um problema de engenharia de software, o ambiente de execução verifica as evidências e uma política fixa recomenda. Só uma pessoa pode autorizar. O portal está conectado ao seu servidor: Nova deliberação mostra o que este servidor pode executar.",
+        "bodyPending": "Três papéis de IA trabalham sobre um problema de engenharia de software, o ambiente de execução verifica as evidências e uma política fixa recomenda. Só uma pessoa pode autorizar."
       },
       "guided": {
         "title": "Comece com um exemplo guiado",
-        "body": "Quando o portal estiver conectado, um exemplo guiado vai começar na hora. Seus papéis serão roteirizados e suas evidências, simuladas; por isso ele terá o rótulo SIMULADO e não vai chamar nenhum modelo."
+        "body": "Quando o portal estiver conectado, um exemplo guiado vai começar na hora. Seus papéis serão roteirizados e suas evidências, simuladas; por isso ele terá o rótulo SIMULADO e não vai chamar nenhum modelo.",
+        "bodyConnected": "Um exemplo guiado começa na hora. Seus papéis são roteirizados e suas evidências, simuladas; por isso ele tem o rótulo SIMULADO e não chama nenhum modelo."
       },
       "live": {
         "title": "Tarefas predefinidas do modo Meta ao vivo",
@@ -1210,7 +1240,8 @@
       "verification_error": "erro de verificação",
       "not_checked": "não verificada"
     },
-    "note": "Uma prova válida mostra que o Hyphae consegue reproduzir a consulta selada de onde um registro veio, não que o registro seja verdadeiro, relevante ou completo, nem que um modelo o tenha usado."
+    "note": "Uma prova válida mostra que o Hyphae consegue reproduzir a consulta selada de onde um registro veio, não que o registro seja verdadeiro, relevante ou completo, nem que um modelo o tenha usado.",
+    "introConnected": "Cada execução e cada evento são marcados com a sua procedência, em eixos separados: o modelo (roteirizado ou Meta ao vivo), as evidências (simuladas ou um snapshot selado), a origem (este servidor ou o arquivo de pesquisa) e a entrega de cada evento (ao vivo ou reprodução). Os rótulos vêm dos dados registrados, nunca da solicitação. O que eles significam:"
   },
   "Footer": {
     "nonAffiliation": "Projeto independente; não é afiliado à Meta, nem patrocinado ou endossado pela Meta."

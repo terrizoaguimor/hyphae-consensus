@@ -9,7 +9,10 @@
 // shape (closed without a Turnstile site key, tripped or unreadable ledger,
 // the open form's request); failed runs and failed requests shown from their
 // codes; My runs with and without a session; the runtime NotConnected state
-// against the static server; and axe on /new, /runs and /run in every locale
+// against the static server; the connected and not-connected variants of
+// the copy that depends on the connection (round 4, HE #8); error headlines
+// by class and context, the 429 countdown and fallback, and the guided error
+// inside its card (HE #18); and axe on /new, /runs and /run in every locale
 // and theme.
 
 import AxeBuilder from "@axe-core/playwright";
@@ -408,6 +411,8 @@ test("the open live form sends the contract's request and explains a live refusa
       },
     ],
   });
+  // The refusal's 30-second wait is counted down by the page's own clock.
+  await page.clock.install();
   await page.goto("/en/new/");
   await hydrated(page);
   const form = page.locator("[data-live='form']");
@@ -436,12 +441,25 @@ test("the open live form sends the contract's request and explains a live refusa
   await expect(notice).toContainText(t("en", "Api.errors.live_concurrency"));
   await expect(notice).toContainText("Retry in 30 seconds.");
   await expect(notice).toContainText(t("en", "Api.errorDetail", { code: "live_concurrency", status: 429 }));
+  // Round 4 (HE #18): headed by its consequence, Start disabled for the wait
+  // with a countdown, and a recorded run offered instead.
+  await expect(notice.locator(".hc-error-title")).toHaveText(t("en", "Api.headlines.liveInProgress"));
+  // During the wait the button is named by its countdown.
+  const submit = form.locator("button[type='submit']");
+  await expect(submit).toBeDisabled();
+  await expect(submit).toContainText(/^Try again in 0:[0-3]\d$/u);
+  await expect(notice.locator("[data-error-fallback]")).toHaveText(t("en", "Api.fallback"));
+  await expect(notice.locator("[data-error-fallback]")).toHaveAttribute("href", "/en/showcase/");
+  await page.clock.fastForward("00:31");
+  await expect(start).toBeEnabled();
   // A blank code is not sent at all: the run takes the public lane.
   await invite.fill("   ");
   await start.click();
   const liveRuns = () => mock.calls.filter((c) => c.method === "POST" && c.path === "/api/v1/live-runs");
   await expect.poll(() => liveRuns().length).toBe(2);
   await expect(notice).toBeVisible();
+  await expect(submit).toContainText(/^Try again in /u);
+  await page.clock.fastForward("00:31");
   await expect(start).toBeEnabled();
   const sent = liveRuns();
   expect(sent.map((c) => c.body)).toEqual([
@@ -517,6 +535,7 @@ test("the guided Run button keeps the keyboard focus while its request is in fli
     },
   });
   const release = await holdRequests(page, "**/api/v1/runs", "POST");
+  await page.clock.install();
   await page.goto("/en/new/");
   await hydrated(page);
   const button = page.locator("[data-scenario='offline']").getByRole("button");
@@ -528,6 +547,11 @@ test("the guided Run button keeps the keyboard focus while its request is in fli
   await page.keyboard.press("Enter");
   release();
   await expect(page.locator("[data-error-code='rate_limited']")).toBeVisible();
+  // Round 4 (HE #18): the 30-second wait disables the button, so the notice
+  // inside its card holds the focus until the wait is over, then gives it back.
+  await expect(page.locator("[data-scenario='offline'] [data-scenario-error]")).toBeFocused();
+  await expect(button).toBeDisabled();
+  await page.clock.fastForward("00:31");
   await expect(button).toBeFocused();
   await expect(button).not.toHaveAttribute("aria-disabled", "true");
   expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("BUTTON");
@@ -552,6 +576,7 @@ test("the live Start button keeps the keyboard focus while its request is in fli
     ],
   });
   const release = await holdRequests(page, "**/api/v1/live-runs", "POST");
+  await page.clock.install();
   await page.goto("/en/new/");
   await hydrated(page);
   const form = page.locator("[data-live='form']");
@@ -566,6 +591,11 @@ test("the live Start button keeps the keyboard focus while its request is in fli
   release();
   const notice = page.locator("[data-error-code='live_concurrency']");
   await expect(notice).toBeVisible();
+  // Round 4 (HE #18): the wait disables Start; the notice holds the focus
+  // until it is over, then Start takes it back.
+  await expect(form.locator("[data-live-error]")).toBeFocused();
+  await expect(start).toBeDisabled();
+  await page.clock.fastForward("00:31");
   await expect(start).toContainText(t("en", "NewDeliberation.live.start"));
   await expect(start).toBeFocused();
   // Sent from the invite field with Enter: that field is disabled while the
@@ -578,6 +608,9 @@ test("the live Start button keeps the keyboard focus while its request is in fli
   await expect(start).toContainText(t("en", "NewDeliberation.live.starting"));
   await expectBusyAndFocused(start);
   releaseAgain();
+  await expect(start).toContainText(/^Try again in /u);
+  await expect(form.locator("[data-live-error]")).toBeFocused();
+  await page.clock.fastForward("00:31");
   await expect(start).toContainText(t("en", "NewDeliberation.live.start"));
   await expect(start).toBeFocused();
   await expect.poll(() => mock.calls.filter((c) => c.method === "POST" && c.path === "/api/v1/live-runs").length).toBe(2);
@@ -1877,3 +1910,229 @@ for (const theme of themes) {
     expect(blocking(scans)).toEqual([]);
   });
 }
+
+// Round 4 (HE #8): copy that depends on the connection is chosen from the
+// health probe, per state: connected pages never say they are not connected,
+// and a server that did not answer is never "not connected in this build".
+test("connected: the legend intro, the tour, Docs, Modes and Settings say the portal is connected", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/en/");
+  await hydrated(page);
+  await expect(page.locator("[data-api-status='connected']")).toBeVisible();
+  await expect(page.locator("[data-connection-copy='connected']")).toHaveText(
+    t("en", "Provenance.introConnected"),
+  );
+  await expect(page.getByText(t("en", "Provenance.intro"))).toHaveCount(0);
+  await expect(page.getByText(t("en", "App.buildNote"))).toHaveCount(0);
+  // Tour steps 1 and 2.
+  await page.getByRole("button", { name: t("en", "Tour.start") }).click();
+  const dialog = page.getByRole("dialog", { name: t("en", "Tour.steps.welcome.title") });
+  await expect(dialog).toHaveAccessibleDescription(t("en", "Tour.steps.welcome.bodyConnected"));
+  await expect(dialog).not.toContainText("did not answer");
+  await dialog.getByRole("button", { name: t("en", "Tour.next") }).click();
+  await expect(page.getByRole("dialog")).toHaveAccessibleDescription(
+    t("en", "Tour.steps.guided.bodyConnected"),
+  );
+  await page.keyboard.press("Escape");
+
+  // Docs: no build note once connected (the tour proves the probe answered).
+  await page.goto("/en/docs/");
+  await hydrated(page);
+  await page.getByRole("button", { name: t("en", "Tour.launch") }).click();
+  await expect(page.getByRole("dialog")).toHaveAccessibleDescription(
+    t("en", "Tour.steps.welcome.bodyConnected"),
+  );
+  await expect(page.locator(".hc-build-note")).toHaveCount(0);
+  await expect(page.getByText(t("en", "Docs.buildNote"))).toHaveCount(0);
+
+  await page.goto("/en/docs/modes/");
+  await hydrated(page);
+  const build = page.locator("section", { has: page.locator("#modes-build") });
+  await expect(build.locator("[data-connection-copy='connected']")).toHaveText(
+    t("en", "Docs.modesBuild.connected"),
+  );
+  await expect(build).not.toContainText("did not answer");
+
+  await page.goto("/en/settings/");
+  await hydrated(page);
+  await expect(page.locator("[data-connection-copy='connected']")).toHaveText(
+    t("en", "Settings.explanation.technicalConnected"),
+  );
+});
+
+test("unreachable: every connection-dependent sentence says the server did not answer", async ({ page }) => {
+  // No mock: the static server answers 404 (its HTML not-found page) for /api/v1.
+  await page.goto("/en/");
+  await hydrated(page);
+  await expect(page.locator("[data-connection-copy='unreachable']")).toHaveText(t("en", "Provenance.intro"));
+  await expect(page.getByText(t("en", "App.buildNote"))).toBeVisible();
+  await expect(page.getByText(t("en", "Overview.primaryActionNote"))).toContainText("did not answer");
+  await expect(page.locator("main")).not.toContainText("in this build");
+  await page.getByRole("button", { name: t("en", "Tour.start") }).click();
+  const dialog = page.getByRole("dialog", { name: t("en", "Tour.steps.welcome.title") });
+  await expect(dialog).toHaveAccessibleDescription(t("en", "Tour.steps.welcome.body"));
+  await expect(dialog).toContainText("did not answer");
+  await page.keyboard.press("Escape");
+
+  await page.goto("/en/docs/");
+  await hydrated(page);
+  await expect(page.locator(".hc-build-note[data-connection-copy='unreachable']")).toHaveText(
+    t("en", "Docs.buildNote"),
+  );
+
+  await page.goto("/en/docs/modes/");
+  await hydrated(page);
+  const build = page.locator("section", { has: page.locator("#modes-build") });
+  await expect(build.locator("[data-connection-copy='unreachable']")).toContainText("did not answer");
+
+  await page.goto("/en/settings/");
+  await hydrated(page);
+  await expect(page.locator("[data-connection-copy='unreachable']")).toHaveText(
+    t("en", "Settings.explanation.descriptions.technical"),
+  );
+
+  // An outage reads "did not answer", never "not connected in this build".
+  for (const path of ["/en/runs/", "/en/run/?id=run-00000000-0000-4000-8000-000000000001", "/en/showcase/"]) {
+    await page.goto(path);
+    await hydrated(page);
+    const gate = page.locator("[data-api-gate='unreachable']");
+    await expect(gate, path).toContainText(t("en", "NotConnected.message"));
+    await expect(gate, path).toContainText("did not answer");
+    await expect(gate, path).not.toContainText("in this build");
+  }
+});
+
+for (const locale of ["es", "pt-BR", "fr"] as const) {
+  test(`the connection-dependent copy has both variants (${locale})`, async ({ page }) => {
+    await page.goto(`/${locale}/settings/`);
+    await hydrated(page);
+    await expect(page.locator("[data-connection-copy='unreachable']")).toHaveText(
+      t(locale, "Settings.explanation.descriptions.technical"),
+    );
+    await mockApi(page);
+    await page.goto(`/${locale}/`);
+    await hydrated(page);
+    await expect(page.locator("[data-connection-copy='connected']")).toHaveText(
+      t(locale, "Provenance.introConnected"),
+    );
+    await page.goto(`/${locale}/docs/modes/`);
+    await hydrated(page);
+    await expect(page.locator("[data-connection-copy='connected']")).toHaveText(
+      t(locale, "Docs.modesBuild.connected"),
+    );
+  });
+}
+
+// Round 4 (HE #18): a 500, a 503 and a 429 have distinct headlines that say
+// the consequence first; the guided refusal sits inside the card pressed.
+test("a guided 500 is headed as a server problem, inside the card that was pressed", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page, { guidedRun: { status: 500, body: { code: "internal", message: "boom" } } });
+  await page.goto("/en/new/");
+  await hydrated(page);
+  const card = page.locator("[data-scenario='offline']");
+  await card.getByRole("button").click();
+  const notice = card.locator("[data-scenario-error] [data-error-code='internal']");
+  await expect(notice.locator(".hc-error-title")).toHaveText(t("en", "Api.headlines.serverProblem"));
+  await expect(notice).toContainText(t("en", "Api.errors.internal"));
+  await expect(notice.locator("[data-error-fallback]")).toHaveCount(0);
+  // Only inside that card, and no wait: every Run button still works.
+  await expect(page.locator("[data-error-code]")).toHaveCount(1);
+  for (const button of await page.locator("[data-scenario] button").all()) {
+    await expect(button).toBeEnabled();
+  }
+  takeProblem(pageProblems, "HTTP 500: /api/v1/runs");
+});
+
+test("a guided 503 is headed as an unavailable server, with the run-creation sentence", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page, { guidedRun: { status: 503, body: { code: "shutting_down", message: "shutting down" } } });
+  await page.goto("/en/new/");
+  await hydrated(page);
+  const card = page.locator("[data-scenario='abstain']");
+  await card.getByRole("button").click();
+  const notice = card.locator("[data-error-code='shutting_down']");
+  await expect(notice.locator(".hc-error-title")).toHaveText(t("en", "Api.headlines.serverUnavailable"));
+  await expect(notice).toContainText(t("en", "Api.createErrors.shutting_down"));
+  await expect(page.locator("[data-scenario='offline'] [data-scenario-error]")).toHaveCount(0);
+  takeProblem(pageProblems, "HTTP 503: /api/v1/runs");
+});
+
+test("a guided 429 says how long to wait, disables every Run button until then and offers a recorded run", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page, {
+    guidedRun: {
+      status: 429,
+      body: { code: "rate_limited", message: "too many requests from this client", retry_after_secs: 30 },
+      retryAfter: "30",
+    },
+  });
+  await page.clock.install();
+  await page.goto("/en/new/");
+  await hydrated(page);
+  const card = page.locator("[data-scenario='offline']");
+  await card.getByRole("button").click();
+  const notice = card.locator("[data-scenario-error] [data-error-code='rate_limited']");
+  await expect(notice.locator(".hc-error-title")).toHaveText(
+    "Too many requests from this connection. Wait 30 seconds.",
+  );
+  await expect(notice.locator("[data-error-fallback]")).toHaveText(t("en", "Api.fallback"));
+  await expect(notice.locator("[data-error-fallback]")).toHaveAttribute("href", "/en/showcase/");
+  const buttons = page.locator("[data-scenario] button");
+  await expect(buttons).toHaveCount(5);
+  for (const button of await buttons.all()) {
+    await expect(button).toBeDisabled();
+    await expect(button).toContainText(/^Try again in 0:[0-3]\d$/u);
+  }
+  await page.clock.fastForward("00:31");
+  for (const button of await buttons.all()) {
+    await expect(button).toBeEnabled();
+    await expect(button).toHaveText(t("en", "NewDeliberation.guided.run"));
+  }
+  takeProblem(pageProblems, "HTTP 429: /api/v1/runs");
+});
+
+test("a refused decision says it was not recorded, never that the server admits no new run", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page, {
+    detail: awaitingDecisionDetail(),
+    decision: { status: 503, body: { code: "shutting_down", message: "shutting down" } },
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  await page.locator("[data-decision-form]").getByRole("button", { name: t("en", "Run.decision.reject") }).click();
+  const notice = page.locator("[data-error-code='shutting_down']");
+  await expect(notice.locator(".hc-error-title")).toHaveText(t("en", "Api.headlines.decision"));
+  await expect(notice).toContainText(t("en", "Api.errors.shutting_down"));
+  await expect(notice).not.toContainText("admits");
+  dropProblems(pageProblems, /HTTP 503: \/api\/v1\/runs\/.*\/decision/u);
+  expect(pageProblems).toEqual([]);
+});
+
+test("a showcase that cannot be read is headed as an unavailable server, never with the run-creation sentence", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page, {
+    showcaseFailures: { count: 1, answer: { status: 503, body: { code: "shutting_down", message: "shutting down" } } },
+  });
+  await page.goto(localePath("en", "showcase"));
+  await hydrated(page);
+  const notice = page.locator("[data-showcase='error'] [data-error-code='shutting_down']");
+  await expect(notice.locator(".hc-error-title")).toHaveText(t("en", "Api.headlines.serverUnavailable"));
+  await expect(notice).toContainText(t("en", "Api.errors.shutting_down"));
+  await expect(notice).not.toContainText("admits");
+  takeProblem(pageProblems, "HTTP 503: /api/v1/showcase");
+});

@@ -79,6 +79,17 @@ export default async function DocArticlePage({ params }: DocParams) {
         idPrefix={slug}
         // The policy's rules apply in order: an ordered list says so.
         ordered={["rules"]}
+        // "In this build" of Modes says what the portal's server answered (HE #8).
+        connectionBodies={
+          slug === "modes"
+            ? {
+                build: {
+                  connected: t("modesBuild.connected"),
+                  pending: t("modesBuild.pending"),
+                },
+              }
+            : {}
+        }
       />
 
       <TechnicalDetails summary={t("technicalSummary")}>

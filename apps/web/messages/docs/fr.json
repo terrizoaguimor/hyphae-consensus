@@ -1,7 +1,7 @@
 {
   "Docs": {
     "lead": "De courtes explications sur le fonctionnement de Hyphae Consensus et sur ce que signifient ses résultats.",
-    "buildNote": "Les vues du portail qui lancent des délibérations ne sont pas connectées dans cette version ; ces pages décrivent le système tel qu’il fonctionne aujourd’hui et le portail public tel qu’il est prévu.",
+    "buildNote": "Le serveur du portail n’a pas répondu : les vues qui lancent des délibérations ne peuvent pas être utilisées pour l’instant ; ces pages décrivent le système tel qu’il fonctionne et le portail public tel qu’il est prévu.",
     "articlesHeading": "Articles",
     "tourHeading": "Visite guidée d’une minute",
     "tourText": "Six courtes étapes sur les idées principales. Vous pouvez la passer à tout moment.",
@@ -183,8 +183,8 @@
             "body": "Des exécutions enregistrées, scénarisées ou menées avec le modèle de Meta, lues depuis une archive qui les conserve à l’identique. Chacune porte l’étiquette ENREGISTRÉ, garde les étiquettes de modèle et d’éléments probants que portent ses enregistrements, et n’est jamais présentée comme en direct."
           },
           "build": {
-            "heading": "Dans cette version",
-            "body": "Aucun des trois modes n’est connecté dans cette version du portail."
+            "heading": "Sur ce portail",
+            "body": "Le serveur du portail n’a pas répondu : aucun des trois modes ne peut y lancer d’exécution pour l’instant."
           }
         },
         "technical": {
@@ -193,6 +193,10 @@
           "language": "Les tâches prédéfinies et la conversation avec le modèle restent en anglais, afin que les affirmations correspondent aux enregistrements probants en anglais. Les vues traduites signalent le texte du modèle comme sortie originale en anglais."
         }
       }
+    },
+    "modesBuild": {
+      "connected": "Ce portail est connecté à son serveur. Les modes qui peuvent lancer une exécution dépendent de ce que le serveur active ; Nouvelle délibération les montre.",
+      "pending": "Les modes qui peuvent lancer une exécution dépendent de ce que le serveur du portail active ; Nouvelle délibération les montre."
     }
   }
 }

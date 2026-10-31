@@ -6,11 +6,14 @@
  * which comes after Astryx's layers: unlayered rules would beat every Astryx
  * layer regardless of specificity.
  *
- * Colors come from the theme's tokens wherever one fits. The few local values
- * (ambient glow, glass, scrim) are set with light-dark(), which Lightning CSS
- * compiles to the same --lightningcss-light/dark switches as the theme.
- * Hyphae cyan (--hc-color-proof) stays reserved for proof and evidence, so
- * nothing here uses it.
+ * Monochrome (design/palette-mono.md, owner direction 2026-10-31): every
+ * colour is a true grey (R = G = B), from the theme's tokens (the compiled
+ * hyphae-mission theme) or from the token layer hc-mono-tokens.css (the
+ * --hc-* functional, role, body and glass tokens of palette-mono.md, as
+ * light-dark() tuples, which Lightning CSS compiles to the same
+ * --lightningcss-light/dark switches as the theme). No rule here names a
+ * colour of its own: tests/no-hue.test.ts fails on any colour literal whose
+ * R, G and B differ, and e2e/no-hue.spec.ts on any rendered one.
  */
 @layer reset, astryx-base, astryx-theme, app;
 
@@ -20,17 +23,20 @@
     --hc-sidebar-width: 15rem;
     --hc-content-max: 52rem;
 
-    /* Ambient light behind the content sheet: soft blue, low enough that
-       accent text on the body (the footer) keeps 4.5:1 at the glow's peak. */
-    --hc-glow-a: light-dark(rgb(0 100 224 / 0.06), rgb(75 169 254 / 0.16));
-    --hc-glow-b: light-dark(rgb(75 169 254 / 0.08), rgb(0 100 224 / 0.18));
+    /* The two blue glows are gone (palette-mono 5.3): the light behind the
+       content is the grey body gradient (body::before, below). The names
+       stay, pointing at its first two stops. */
+    --hc-glow-a: var(--hc-body-0);
+    --hc-glow-b: var(--hc-body-1);
 
-    /* Frosted glass, used only by the top bar, the sidebar and dialogs. */
-    --hc-glass: light-dark(rgb(255 255 255 / 0.72), rgb(18 26 45 / 0.72));
-    --hc-glass-strong: light-dark(rgb(255 255 255 / 0.9), rgb(20 29 51 / 0.9));
-    --hc-glass-border: light-dark(rgb(0 0 0 / 0.08), rgb(255 255 255 / 0.1));
-    --hc-glass-filter: blur(16px) saturate(160%);
-    --hc-scrim: rgb(10 15 30 / 0.5);
+    /* Frosted glass of the top bar, the sidebar and dialogs, in greys: the
+       glass/1 and glass/3 fills of palette-mono 3.2 and its gradient edge.
+       The backdrop is greyed too, so nothing behind the glass shows a hue.
+       (--hc-scrim comes from hc-mono-tokens.css.) */
+    --hc-glass: var(--hc-glass-1-top);
+    --hc-glass-strong: var(--hc-glass-3-top);
+    --hc-glass-border: var(--hc-glass-edge-bottom);
+    --hc-glass-filter: blur(var(--hc-glass-1-blur)) grayscale(1);
 
     /* Motion. Dialogs fade and shift a little; the drawer slides in. */
     --hc-overlay-duration: 200ms;
@@ -104,15 +110,65 @@
     font-size: var(--text-body-size);
     line-height: var(--text-body-leading);
     color: var(--color-text-primary);
-    background-color: var(--color-background-body);
-    background-image:
-      radial-gradient(
-        60rem 40rem at 0% 0%,
-        var(--hc-glow-a),
-        transparent 70%
-      ),
-      radial-gradient(48rem 36rem at 100% 0%, var(--hc-glow-b), transparent 70%);
-    background-repeat: no-repeat;
+    /* The page colour is on <html>; the body only lets the backdrop show. */
+    background-color: transparent;
+  }
+
+  /*
+   * The body backdrop (palette-mono 3.1): a grey radial gradient, lit from
+   * the top left, on a fixed layer behind everything, so it is painted once
+   * and does not repaint on scroll. Text on it (the footer) passes on every
+   * stop: secondary text 8.29:1 light and 8.71:1 dark at the worst stop.
+   */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image: radial-gradient(
+      120% 90% at 12% 0%,
+      var(--hc-body-0) 0%,
+      var(--hc-body-1) 45%,
+      var(--hc-body-2) 100%
+    );
+  }
+
+  @media (forced-colors: active) {
+    body::before {
+      display: none;
+    }
+  }
+
+  /*
+   * Browser defaults carry no hue either (palette-mono 1.2 rule 4): native
+   * controls, the caret, scrollbars, the text selection and autofilled
+   * fields take the ink and surface tokens.
+   */
+  :root {
+    accent-color: var(--hc-accent-solid);
+    caret-color: var(--hc-text-primary);
+    scrollbar-color: var(--hc-border-strong) transparent;
+  }
+
+  ::selection {
+    color: var(--hc-accent-on-solid);
+    background-color: var(--hc-accent-solid);
+  }
+
+  input:-webkit-autofill,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: var(--hc-text-primary);
+    -webkit-box-shadow: 0 0 0 100vmax var(--hc-bg-surface) inset;
+    box-shadow: 0 0 0 100vmax var(--hc-bg-surface) inset;
+  }
+
+  input:autofill,
+  textarea:autofill,
+  select:autofill {
+    -webkit-text-fill-color: var(--hc-text-primary);
+    box-shadow: 0 0 0 100vmax var(--hc-bg-surface) inset;
   }
 
   /*
@@ -144,7 +200,7 @@
 
   :not(pre) > .hc-code {
     padding: 0.05em 0.35em;
-    border-radius: 4px;
+    border-radius: 2px;
     font-size: 0.92em;
     background-color: var(--color-background-muted);
     overflow-wrap: anywhere;
@@ -188,15 +244,37 @@
     outline: none;
   }
 
-  .hc-link {
+  /*
+   * Links are always underlined (palette-mono 1.2 rule 1): with no hue, the
+   * underline is the only cue that text is a link (WCAG 1.4.1). This reaches
+   * the app's links (.hc-link, the footer, the root and 404 language lists,
+   * the docs pager) and any prose anchor without a class in the page
+   * content; anchors drawn as buttons (an Astryx Button with an href is an
+   * <a class="astryx-button">), navigation (the sidebar, the drawer and the
+   * language list, marked by position, weight and the current-item bar) and
+   * card titles (the card is the hit area) keep their own rules.
+   */
+  main :where(p, li, td, dd, figcaption, blockquote) a:not([class]),
+  a.hc-link,
+  .hc-footer-links a,
+  .hc-root a,
+  a.hc-pager-link {
     color: var(--color-text-accent);
-    text-decoration: underline;
+    text-decoration-line: underline;
     text-decoration-thickness: 1px;
-    text-underline-offset: 0.2em;
+    text-underline-offset: 2px;
   }
 
-  .hc-link:hover {
+  main :where(p, li, td, dd, figcaption, blockquote) a:not([class]):hover,
+  a.hc-link:hover,
+  .hc-footer-links a:hover,
+  .hc-root a:hover,
+  a.hc-pager-link:hover {
     text-decoration-thickness: 2px;
+  }
+
+  a.astryx-button {
+    text-decoration-line: none;
   }
 
   /* Skip link: the first focusable element, visible only while focused. */
@@ -255,7 +333,7 @@
     }
 
     .hc-dialog::backdrop {
-      background-color: rgb(10 15 30 / 0.8);
+      background-color: var(--hc-scrim-opaque);
     }
   }
 
@@ -365,9 +443,6 @@
   .hc-footer-links a {
     display: inline-block;
     padding-block: var(--spacing-1);
-    color: var(--color-text-accent);
-    text-decoration: underline;
-    text-underline-offset: 0.2em;
     border-radius: 2px;
   }
 
@@ -600,8 +675,8 @@
     border-radius: var(--radius-container);
     color: var(--color-text-primary);
     background-color: var(--hc-glass-strong);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(var(--hc-glass-3-blur)) grayscale(1);
+    backdrop-filter: blur(var(--hc-glass-3-blur)) grayscale(1);
     box-shadow: var(--shadow-high);
     opacity: 0;
     transform: var(--hc-dialog-shift);
@@ -773,7 +848,7 @@
     margin: 0;
     padding: var(--spacing-3) var(--spacing-4);
     border-inline-start: 3px solid var(--color-border-emphasized);
-    border-radius: 0 var(--radius-element) var(--radius-element) 0;
+    border-radius: 0 var(--radius-container) var(--radius-container) 0;
     color: var(--color-text-secondary);
     background-color: var(--color-background-muted);
   }
@@ -1107,9 +1182,7 @@
     max-width: 100%;
     padding: var(--spacing-3) var(--spacing-4);
     border: 1px solid var(--color-border-emphasized);
-    border-radius: var(--radius-element);
-    color: var(--color-text-accent);
-    text-decoration: none;
+    border-radius: var(--radius-container);
   }
 
   .hc-pager-link:hover {
@@ -1155,7 +1228,7 @@
     padding: var(--spacing-3) var(--spacing-4);
     border: 1px solid var(--color-border-emphasized);
     border-inline-start: 3px solid var(--color-accent);
-    border-radius: var(--radius-element);
+    border-radius: var(--radius-container);
     background-color: var(--color-background-popover);
     box-shadow: var(--shadow-med);
   }
@@ -1226,12 +1299,6 @@
     list-style: none;
   }
 
-  .hc-root a {
-    color: var(--color-text-accent);
-    text-decoration: underline;
-    text-underline-offset: 0.25em;
-  }
-
   .hc-root .hc-non-affiliation {
     margin: 0;
     font-size: var(--text-supporting-size);
@@ -1298,6 +1365,151 @@
     text-overflow: clip;
   }
 
+  /*
+   * Status without hue (palette-mono 2.1). The views pick a badge variant
+   * from src/lib/provenance.ts; each variant now carries its role's
+   * monochrome encoding, told apart before reading by fill weight, label
+   * polarity, frame style and a marker, then by the word:
+   *   success  verified: solid mid grey (mono/6, mono/5), inverted label, no
+   *            frame. Only a real verifier's accepted proof gets it
+   *            (tests/provenance.test.ts). The two checks run in this
+   *            browser (the chain check, the showcase manifest's digest)
+   *            also use the success variant, but are drawn below as
+   *            "checked": hollow, never the verified solid (integrity is
+   *            not truth).
+   *   error    failed: solid ink, inverted label, inside a 3px double frame
+   *            whose gap shows the surface: the loudest tag.
+   *   purple   simulated / scripted: tint, 1px dashed frame (dashed means
+   *            "not real data" and nothing else): never solid, so a
+   *            simulated proof never looks verified.
+   *   pink     LIVE: the surface, a 2px solid ink frame and an 8px solid
+   *            square before the word; used by LIVE and LIVE META only.
+   *   warning  contested / not enough evidence / a flag: tint, 3px double
+   *            frame in the contested line (double means "a problem").
+   *   neutral  recorded and the neutral states: mid tint, 1px solid frame.
+   *            Deviation from palette-mono 2.1, kept for the tags lane: the
+   *            spec gives the mid tint to RECORDED only and the other
+   *            neutral labels (THIS SERVER, the HYPHAE evidence labels, no
+   *            evidence, undetermined, abstained, not checked) the
+   *            informational tint, but they share the neutral variant with
+   *            RECORDED (src/lib/provenance.ts), so they share its look
+   *            until RECORDED gets a hook of its own. None of them reads LIVE.
+   *   info,    informational (META MODEL, "supported", REPLAY): tint, quieter
+   *   blue     ink, a decorative hairline only. Never solid, never a check.
+   *   checked  (the success variant inside [data-chain-check] and
+   *            [data-manifest-status="matches"]): the opaque surface, a 1px
+   *            solid border/strong frame, normal polarity.
+   * Frames are outlines, so a frame adds no size to Astryx's fixed-height
+   * badge; the failed frame sits outside the fill so its gap is the surface.
+   */
+  .astryx-badge[data-variant] {
+    outline: 0 solid transparent;
+    outline-offset: 0;
+  }
+
+  .astryx-badge[data-variant="success"] {
+    color: var(--hc-role-verified-on-solid);
+    background-color: var(--hc-role-verified-solid);
+  }
+
+  .astryx-badge[data-variant="error"] {
+    color: var(--hc-role-failed-on-solid);
+    background-color: var(--hc-role-failed-solid);
+    outline: 3px double var(--hc-role-failed-border);
+  }
+
+  .astryx-badge[data-variant="purple"] {
+    color: var(--hc-role-simulated-fg);
+    background-color: var(--hc-role-simulated-bg);
+    outline: 1px dashed var(--hc-role-simulated-border);
+    outline-offset: -1px;
+  }
+
+  .astryx-badge[data-variant="pink"] {
+    color: var(--hc-role-live-fg);
+    background-color: var(--hc-role-live-bg);
+    outline: 2px solid var(--hc-role-live-border);
+    outline-offset: -2px;
+  }
+
+  .astryx-badge[data-variant="pink"]::before {
+    content: "";
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-inline-end: var(--spacing-1);
+    background-color: var(--hc-role-live-solid);
+  }
+
+  .astryx-badge[data-variant="warning"] {
+    color: var(--hc-role-contested-fg);
+    background-color: var(--hc-role-contested-bg);
+    outline: 3px double var(--hc-role-contested-border);
+    outline-offset: -3px;
+  }
+
+  .astryx-badge[data-variant="neutral"] {
+    color: var(--hc-role-recorded-fg);
+    background-color: var(--hc-role-recorded-bg);
+    outline: 1px solid var(--hc-role-recorded-border);
+    outline-offset: -1px;
+  }
+
+  .astryx-badge[data-variant="info"],
+  .astryx-badge[data-variant="blue"] {
+    color: var(--hc-role-info-fg);
+    background-color: var(--hc-role-info-bg);
+    outline: 1px solid var(--hc-role-info-border);
+    outline-offset: -1px;
+  }
+
+  /* Checked in this browser, not verified (palette-mono 2.1): verified is
+     solid, checked is hollow, and the two never share a fill weight. */
+  [data-chain-check] .astryx-badge[data-variant="success"],
+  [data-manifest-status="matches"] .astryx-badge[data-variant="success"] {
+    color: var(--hc-role-checked-fg);
+    background-color: var(--hc-role-checked-bg);
+    outline: 1px solid var(--hc-role-checked-border);
+    outline-offset: -1px;
+  }
+
+  /* Forced colours drop fills: the two solid verdicts opt out and stay
+     inverted blocks (failed inside its double frame); the frames are
+     outlines, which survive in the system colour; LIVE keeps its square. */
+  @media (forced-colors: active) {
+    .astryx-badge[data-variant="success"],
+    .astryx-badge[data-variant="error"] {
+      forced-color-adjust: none;
+      color: Canvas;
+      background-color: CanvasText;
+    }
+
+    .astryx-badge[data-variant="error"] {
+      outline-color: CanvasText;
+    }
+
+    .astryx-badge[data-variant="pink"]::before {
+      forced-color-adjust: none;
+      background-color: CanvasText;
+    }
+
+    /* Checked is not an inverted block: the system colours and its frame. */
+    [data-chain-check] .astryx-badge[data-variant="success"],
+    [data-manifest-status="matches"] .astryx-badge[data-variant="success"] {
+      forced-color-adjust: auto;
+      color: CanvasText;
+      background-color: Canvas;
+      outline-color: CanvasText;
+    }
+
+    /* The failed callout's title band stays an inverted block. */
+    .hc-callout[data-callout-tone="failed"] .hc-callout-title {
+      forced-color-adjust: none;
+      color: Canvas;
+      background-color: CanvasText;
+    }
+  }
+
   .hc-provenance-badges {
     display: flex;
     flex-direction: column;
@@ -1317,7 +1529,7 @@
     padding: var(--spacing-3) var(--spacing-4);
     border: 1px solid var(--color-error);
     border-inline-start-width: 3px;
-    border-radius: var(--radius-element);
+    border-radius: 0 var(--radius-container) var(--radius-container) 0;
     background-color: var(--color-error-muted);
     color: var(--color-text-primary);
   }
@@ -1338,9 +1550,9 @@
   }
 
   /* A full-width callout (src/components/Callout.tsx): icon, title in words,
-     body. The role's color is on the bar and the border only; the text keeps
-     the primary color on a surface the contrast test covers (the failed role
-     reuses the error surface of .hc-error, which already passes). */
+     body. The role is on the bar, the frame and the failed title band; the
+     body text keeps the primary color on the role's tint, a pair
+     tests/contrast.test.ts covers (as it covers the failed title band). */
   .hc-callout {
     display: flex;
     gap: var(--spacing-3);
@@ -1348,24 +1560,35 @@
     width: 100%;
     margin: 0;
     padding: var(--spacing-3) var(--spacing-4);
-    border: 1px solid var(--color-border-emphasized);
-    border-inline-start-width: 3px;
-    border-radius: var(--radius-element);
-    background-color: var(--color-background-muted);
+    border: 0 solid transparent;
+    border-inline-start: 3px solid var(--hc-border-default);
+    border-radius: 0 var(--radius-container) var(--radius-container) 0;
+    background-color: var(--hc-role-info-bg);
     color: var(--color-text-primary);
   }
 
+  /* Without hue the tones differ by line style and polarity, never by a
+     shade alone (palette-mono 2.3; tests/provenance.test.ts):
+       failed     a 2px ink frame and an inverted title band, the only
+                  inverted band in the system; body on the tint.
+       contested  a 4px double bar on the inline-start edge, on the tint
+                  (double means "a problem").
+       success,   a 3px solid border/default bar, on the tint (the default
+       info       above). */
   .hc-callout[data-callout-tone="failed"] {
-    border-color: var(--color-error);
-    background-color: var(--color-error-muted);
+    border: 2px solid var(--hc-role-failed-border);
+    background-color: var(--hc-role-failed-bg);
+  }
+
+  .hc-callout[data-callout-tone="failed"] .hc-callout-title {
+    padding: var(--spacing-1) var(--spacing-2);
+    background-color: var(--hc-role-failed-solid);
+    color: var(--hc-role-failed-on-solid);
   }
 
   .hc-callout[data-callout-tone="contested"] {
-    border-color: var(--color-warning);
-  }
-
-  .hc-callout[data-callout-tone="success"] {
-    border-color: var(--color-success);
+    border-inline-start: 4px double var(--hc-role-contested-border);
+    background-color: var(--hc-role-contested-bg);
   }
 
   .hc-callout-icon {
@@ -1392,7 +1615,7 @@
   }
 
   /* As inside .hc-error: supporting lines keep the primary color on the
-     failed surface and differ by size only. */
+     role's tint and differ by size only. */
   .hc-callout .hc-supporting {
     color: var(--color-text-primary);
   }
@@ -1595,8 +1818,8 @@
     padding: var(--spacing-2) var(--spacing-4);
     border: 0;
     border-block-end: 3px solid transparent;
-    border-start-start-radius: var(--radius-element);
-    border-start-end-radius: var(--radius-element);
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
     font: inherit;
     font-weight: 500;
     color: var(--color-text-secondary);
@@ -1674,7 +1897,7 @@
     margin: 0;
     padding: var(--spacing-3) var(--spacing-4);
     border-inline-start: 3px solid var(--color-warning);
-    border-radius: 0 var(--radius-element) var(--radius-element) 0;
+    border-radius: 0 var(--radius-container) var(--radius-container) 0;
     color: var(--color-text-primary);
     background-color: var(--color-background-muted);
   }
@@ -1817,7 +2040,7 @@
     padding: var(--spacing-3);
     overflow: auto;
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-element);
+    border-radius: 0;
     font-size: var(--text-code-size);
     line-height: var(--text-code-leading);
     background-color: var(--color-background-muted);
@@ -1885,7 +2108,7 @@
     gap: var(--spacing-2);
     padding: var(--spacing-4);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-element);
+    border-radius: var(--radius-container);
   }
 
   .hc-preset-item > p {
@@ -1976,7 +2199,7 @@
     margin: 0;
     padding: var(--spacing-3) var(--spacing-4);
     border-inline-start: 3px solid var(--color-border-emphasized);
-    border-radius: var(--radius-element);
+    border-radius: 0 var(--radius-container) var(--radius-container) 0;
     background-color: var(--color-background-muted);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -2170,7 +2393,7 @@
   .hc-table-scroll {
     max-width: 100%;
     overflow-x: auto;
-    border-radius: var(--radius-element);
+    border-radius: 0;
   }
 
   .hc-table-scroll:focus-visible {

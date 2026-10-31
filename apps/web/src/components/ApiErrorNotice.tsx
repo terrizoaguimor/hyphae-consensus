@@ -7,7 +7,9 @@
 // recorded; src/lib/api/errors.ts), the translated sentence of its code
 // (every ErrorCode of the contract has one; an unknown code gets the generic
 // sentence; a run-creation sentence never appears under a decision or a
-// read), the Retry-After wait when the server gave one, the code and HTTP
+// read), the Retry-After wait when the server gave one (counted down while
+// it keeps the buttons disabled, and said once in a rate-limited headline,
+// never twice), the code and HTTP
 // status for support, a retry button when the caller can repeat the request,
 // and, for a run's creation refused with a 429, the way to a recorded run
 // instead. The server's English message is not shown: clients localize from
@@ -18,6 +20,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
+import { backoffSeconds } from "@/lib/api/backoff";
 import type { ApiError } from "@/lib/api/client";
 import { type ErrorContext, errorHeadlineKey, errorSentencePath } from "@/lib/api/errors";
 import { localePath } from "@/lib/site";
@@ -28,15 +31,26 @@ type ApiErrorNoticeProps = {
   context?: ErrorContext;
   /** Repeats the failed request; shown as a "Try again" button when given. */
   onRetry?: () => void;
+  /**
+   * The seconds still left of the wait this error started, counted down by
+   * the caller (src/lib/api/backoff.ts useBackoff), or null once it is over:
+   * the wait then reads as over ("You can retry now."), as the buttons it
+   * disabled are enabled again. Without it the server's number is shown as
+   * it came.
+   */
+  remaining?: number | null;
 };
 
-export function ApiErrorNotice({ error, context = "read", onRetry }: ApiErrorNoticeProps) {
+export function ApiErrorNotice({ error, context = "read", onRetry, remaining }: ApiErrorNoticeProps) {
   // Headline and sentence keys are chosen at run time from the code
   // (src/lib/api/errors.ts); tests/api-errors.test.ts checks every key exists.
   const t = dynamicTranslator(useTranslations("Api"));
   const locale = useLocale();
   const headline = errorHeadlineKey(error.code, context);
-  const wait = error.retryAfterSecs;
+  // Only a wait that disabled the buttons is counted down (a 429 with a
+  // positive wait, backoffSeconds); any other Retry-After is shown as given.
+  const counted = remaining !== undefined && backoffSeconds(error) !== null;
+  const wait = error.retryAfterSecs === null ? null : counted ? (remaining ?? 0) : error.retryAfterSecs;
   const headlineText =
     headline === "rateLimited"
       ? wait === null
@@ -55,7 +69,10 @@ export function ApiErrorNotice({ error, context = "read", onRetry }: ApiErrorNot
     >
       <p className="hc-error-title">{headlineText}</p>
       <p>{t(errorSentencePath(error.code, context))}</p>
-      {wait === null ? null : <p>{t("retryAfter", { seconds: wait })}</p>}
+      {/* A rate-limited headline already says how long to wait: this line would repeat it. */}
+      {wait === null || headline === "rateLimited" ? null : (
+        <p data-error-wait={wait}>{t("retryAfter", { seconds: wait })}</p>
+      )}
       <p className="hc-supporting">
         {t("errorDetail", { code: error.code, status: error.status })}
       </p>

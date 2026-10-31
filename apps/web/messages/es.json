@@ -117,7 +117,7 @@
     "fallback": "Ver una ejecución grabada en su lugar",
     "headlines": {
       "notAccepted": "No se aceptó esta solicitud",
-      "rateLimited": "{seconds, plural, =0 {Demasiadas solicitudes desde esta conexión. Ya puedes volver a intentarlo.} one {Demasiadas solicitudes desde esta conexión. Espera # segundo.} other {Demasiadas solicitudes desde esta conexión. Espera # segundos.}}",
+      "rateLimited": "{seconds, plural, =0 {Demasiadas solicitudes desde esta conexión. Puedes reintentar ahora.} one {Demasiadas solicitudes desde esta conexión. Reintenta en # segundo.} other {Demasiadas solicitudes desde esta conexión. Reintenta en # segundos.}}",
       "rateLimitedNoWait": "Demasiadas solicitudes desde esta conexión. Espera un momento.",
       "busy": "El servidor está ocupado. Vuelve a intentarlo en breve.",
       "liveInProgress": "Hay otra ejecución en vivo en curso",
@@ -130,8 +130,9 @@
       "session": "Primero hace falta una sesión",
       "notAvailable": "Esta dirección no está disponible para ti",
       "decision": "Tu decisión no se registró",
+      "decisionUncertain": "Puede que tu decisión se haya registrado o no. Revisa la ejecución antes de volver a decidir.",
       "serverProblem": "El servidor tuvo un problema",
-      "serverUnavailable": "El servidor no está disponible ahora mismo. Vuelve a intentarlo en un minuto.",
+      "serverUnavailable": "El servidor no está disponible ahora mismo",
       "unreachable": "El servidor no respondió",
       "unreadable": "No se pudo leer la respuesta del servidor"
     }
@@ -1140,7 +1141,8 @@
       "guided": {
         "title": "Empieza con un ejemplo guiado",
         "body": "Cuando el portal esté conectado, un ejemplo guiado empezará al instante. Sus roles seguirán un guion y su evidencia será simulada, por eso llevará la etiqueta SIMULADO y no llamará a ningún modelo.",
-        "bodyConnected": "Un ejemplo guiado empieza al instante. Sus roles siguen un guion y su evidencia es simulada, por eso lleva la etiqueta SIMULADO y no llama a ningún modelo."
+        "bodyConnected": "Cuando este servidor ofrece ejemplos guiados, uno empieza al instante desde Nueva deliberación. Sus roles siguen un guion y su evidencia es simulada, por eso lleva la etiqueta SIMULADO y no llama a ningún modelo.",
+        "bodyPending": "Un ejemplo guiado tiene roles con guion y evidencia simulada, por eso lleva la etiqueta SIMULADO y no llama a ningún modelo."
       },
       "live": {
         "title": "Tareas predefinidas del modo «Meta en vivo»",
@@ -1241,7 +1243,8 @@
       "not_checked": "sin comprobar"
     },
     "note": "Una prueba válida demuestra que Hyphae puede reproducir la consulta sellada de la que proviene un registro, no que el registro sea verdadero, relevante o completo, ni que un modelo lo haya usado.",
-    "introConnected": "Cada ejecución y cada evento llevan la marca de su procedencia, en ejes separados: el modelo (con guion o Meta en vivo), la evidencia (simulada o una instantánea sellada), el origen (este servidor o el archivo de investigación) y la entrega de cada evento (en vivo o reproducción). Las etiquetas provienen de los datos registrados, nunca de la solicitud. Qué significan:"
+    "introConnected": "Cada ejecución y cada evento llevan la marca de su procedencia, en ejes separados: el modelo (con guion o Meta en vivo), la evidencia (simulada o una instantánea sellada), el origen (este servidor o el archivo de investigación) y la entrega de cada evento (en vivo o reproducción). Las etiquetas provienen de los datos registrados, nunca de la solicitud. Qué significan:",
+    "introPending": "Las etiquetas indican la procedencia de una ejecución o de un evento, en ejes separados: el modelo (con guion o Meta en vivo), la evidencia (simulada o una instantánea sellada), el origen (este servidor o el archivo de investigación) y la entrega de cada evento (en vivo o reproducción). Cada etiqueta proviene de los datos registrados, nunca de la solicitud. Qué significan:"
   },
   "Footer": {
     "nonAffiliation": "Proyecto independiente; no está afiliado a Meta, ni patrocinado ni respaldado por Meta."

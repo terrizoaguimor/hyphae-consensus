@@ -117,7 +117,7 @@
     "fallback": "Ver uma execução gravada em vez disso",
     "headlines": {
       "notAccepted": "Esta solicitação não foi aceita",
-      "rateLimited": "{seconds, plural, =0 {Solicitações demais a partir desta conexão. Você já pode tentar de novo.} one {Solicitações demais a partir desta conexão. Aguarde # segundo.} other {Solicitações demais a partir desta conexão. Aguarde # segundos.}}",
+      "rateLimited": "{seconds, plural, =0 {Solicitações demais a partir desta conexão. Você já pode tentar de novo.} one {Solicitações demais a partir desta conexão. Tente de novo em # segundo.} other {Solicitações demais a partir desta conexão. Tente de novo em # segundos.}}",
       "rateLimitedNoWait": "Solicitações demais a partir desta conexão. Aguarde um momento.",
       "busy": "O servidor está ocupado. Tente de novo em breve.",
       "liveInProgress": "Outra execução ao vivo está em andamento",
@@ -130,8 +130,9 @@
       "session": "Primeiro é preciso uma sessão",
       "notAvailable": "Este endereço não está disponível para você",
       "decision": "Sua decisão não foi registrada",
+      "decisionUncertain": "Sua decisão pode ou não ter sido registrada. Confira a execução antes de decidir de novo.",
       "serverProblem": "O servidor teve um problema",
-      "serverUnavailable": "O servidor está indisponível agora. Tente de novo em um minuto.",
+      "serverUnavailable": "O servidor está indisponível agora",
       "unreachable": "O servidor não respondeu",
       "unreadable": "Não foi possível ler a resposta do servidor"
     }
@@ -1140,7 +1141,8 @@
       "guided": {
         "title": "Comece com um exemplo guiado",
         "body": "Quando o portal estiver conectado, um exemplo guiado vai começar na hora. Seus papéis serão roteirizados e suas evidências, simuladas; por isso ele terá o rótulo SIMULADO e não vai chamar nenhum modelo.",
-        "bodyConnected": "Um exemplo guiado começa na hora. Seus papéis são roteirizados e suas evidências, simuladas; por isso ele tem o rótulo SIMULADO e não chama nenhum modelo."
+        "bodyConnected": "Quando este servidor oferece exemplos guiados, um deles começa na hora em Nova deliberação. Seus papéis são roteirizados e suas evidências, simuladas; por isso ele tem o rótulo SIMULADO e não chama nenhum modelo.",
+        "bodyPending": "Um exemplo guiado tem papéis roteirizados e evidências simuladas; por isso ele tem o rótulo SIMULADO e não chama nenhum modelo."
       },
       "live": {
         "title": "Tarefas predefinidas do modo Meta ao vivo",
@@ -1241,7 +1243,8 @@
       "not_checked": "não verificada"
     },
     "note": "Uma prova válida mostra que o Hyphae consegue reproduzir a consulta selada de onde um registro veio, não que o registro seja verdadeiro, relevante ou completo, nem que um modelo o tenha usado.",
-    "introConnected": "Cada execução e cada evento são marcados com a sua procedência, em eixos separados: o modelo (roteirizado ou Meta ao vivo), as evidências (simuladas ou um snapshot selado), a origem (este servidor ou o arquivo de pesquisa) e a entrega de cada evento (ao vivo ou reprodução). Os rótulos vêm dos dados registrados, nunca da solicitação. O que eles significam:"
+    "introConnected": "Cada execução e cada evento são marcados com a sua procedência, em eixos separados: o modelo (roteirizado ou Meta ao vivo), as evidências (simuladas ou um snapshot selado), a origem (este servidor ou o arquivo de pesquisa) e a entrega de cada evento (ao vivo ou reprodução). Os rótulos vêm dos dados registrados, nunca da solicitação. O que eles significam:",
+    "introPending": "Os rótulos indicam a procedência de uma execução ou de um evento, em eixos separados: o modelo (roteirizado ou Meta ao vivo), as evidências (simuladas ou um snapshot selado), a origem (este servidor ou o arquivo de pesquisa) e a entrega de cada evento (ao vivo ou reprodução). Cada rótulo vem dos dados registrados, nunca da solicitação. O que eles significam:"
   },
   "Footer": {
     "nonAffiliation": "Projeto independente; não é afiliado à Meta, nem patrocinado ou endossado pela Meta."

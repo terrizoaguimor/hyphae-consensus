@@ -12,28 +12,13 @@ import { Button } from "@astryxdesign/core/Button";
 import { useTranslations } from "next-intl";
 import { type RefObject, useRef, useState } from "react";
 
-import type { ConnectionState } from "@/lib/api/useApiHealth";
+import { tourBodyKey, tourSteps } from "@/lib/tour";
 
 import { useConnectionState } from "./ConnectionText";
 import { Modal } from "./Modal";
 import { usePreferences } from "./preferences";
 
-export const tourSteps = [
-  "welcome",
-  "guided",
-  "live",
-  "runs",
-  "labels",
-  "decide",
-] as const;
-
-export type TourStep = (typeof tourSteps)[number];
-
-type TourBodyKey =
-  | `steps.${TourStep}.body`
-  | "steps.welcome.bodyConnected"
-  | "steps.welcome.bodyPending"
-  | "steps.guided.bodyConnected";
+export { type TourStep, tourSteps } from "@/lib/tour";
 
 const TITLE_ID = "hc-tour-title";
 const BODY_ID = "hc-tour-body";
@@ -63,27 +48,7 @@ type TourStepsProps = {
   onClose: (outcome: "skipped" | "completed") => void;
 };
 
-/**
- * The catalog key of a step's body. The steps that speak about the
- * connection have one variant per state of the health probe (HE #8): the
- * catalog's `body` is the variant for a server that did not answer, a
- * connected portal reads `bodyConnected`, and before the probe settles the
- * welcome step reads `bodyPending`, which makes no claim either way (the
- * guided step keeps its planned wording until then).
- */
-export function tourBodyKey(step: TourStep, connection: ConnectionState): TourBodyKey {
-  if (step === "welcome") {
-    if (connection === "connected") {
-      return "steps.welcome.bodyConnected";
-    }
-    return connection === "pending" ? "steps.welcome.bodyPending" : "steps.welcome.body";
-  }
-  if (step === "guided" && connection === "connected") {
-    return "steps.guided.bodyConnected";
-  }
-  return `steps.${step}.body`;
-}
-
+// Each step's body has one variant per connection state (src/lib/tour.ts).
 function TourSteps({ primaryRef, onClose }: TourStepsProps) {
   const t = useTranslations("Tour");
   const connection = useConnectionState();

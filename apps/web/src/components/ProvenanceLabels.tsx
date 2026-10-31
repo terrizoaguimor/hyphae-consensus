@@ -2,7 +2,8 @@
 //
 // The provenance legend (Overview): what each label means, aligned with the
 // Modes article (messages/docs); its intro is in the present tense once the
-// API answered and in the planned wording otherwise. Every label is
+// API answered, in the planned wording once it did not, and a definition
+// with no claim about the connection until the probe settles. Every label is
 // text; color only repeats it. The labels sit on separate axes (plan B4), so
 // a model label never stands alone: it is always next to the evidence label
 // (SEALED SNAPSHOT for public live runs, SIMULATED for the archived hybrid
@@ -55,12 +56,12 @@ export async function ProvenanceLabels() {
         {t("heading")}
       </Heading>
       <Text as="p">
-        {/* Present tense once the API answered; the planned wording otherwise (HE #8). */}
+        {/* Present tense once the API answered; planned once it did not; neutral until then (HE #8). */}
         <ConnectionText
           as="span"
           connected={t("introConnected")}
           unreachable={t("intro")}
-          pending={t("intro")}
+          pending={t("introPending")}
         />
       </Text>
       <dl className="hc-provenance-list">

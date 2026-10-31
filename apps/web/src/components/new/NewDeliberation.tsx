@@ -31,7 +31,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
-import { backoffSeconds, formatWait, useBackoff } from "@/lib/api/backoff";
+import { type Backoff, backoffSeconds, formatWait, useBackoff, useEndpointBackoff } from "@/lib/api/backoff";
 import { api, ApiError, isApiError, JUDGE_CODE_MAX_CHARS, newIdempotencyKey } from "@/lib/api/client";
 import type { Capabilities } from "@/lib/api/schemas";
 import type {
@@ -86,8 +86,10 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
   const [startError, setStartError] = useState<{ scenario: GuidedScenario; error: ApiError } | null>(
     null,
   );
-  // A 429 that says how long to wait keeps every Run button disabled until then.
-  const backoff = useBackoff();
+  // A 429 that says how long to wait keeps every Run button disabled until
+  // then; a connection-wide one (rate_limited) keeps live Start disabled too.
+  const connectionBackoff = useBackoff();
+  const backoff = useEndpointBackoff(connectionBackoff);
   const waiting = backoff.remaining;
   const noticeRef = useRef<HTMLDivElement>(null);
   const failedButtonRef = useRef<HTMLButtonElement>(null);
@@ -237,7 +239,7 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
                     {startError?.scenario === scenario.id ? (
                       // Focusable from script only: it takes the focus while the wait disables the button.
                       <div ref={noticeRef} tabIndex={-1} data-scenario-error>
-                        <ApiErrorNotice error={startError.error} context="create" />
+                        <ApiErrorNotice error={startError.error} context="create" remaining={waiting} />
                       </div>
                     ) : null}
                   </li>
@@ -248,7 +250,7 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
         )}
       </section>
 
-      <LiveSection locale={locale} capabilities={capabilities} />
+      <LiveSection locale={locale} capabilities={capabilities} connectionBackoff={connectionBackoff} />
     </div>
   );
 }
@@ -256,9 +258,11 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
 type LiveSectionProps = {
   locale: Locale;
   capabilities: Capabilities;
+  /** The page's connection-wide wait, shared with the guided Run buttons. */
+  connectionBackoff: Backoff;
 };
 
-function LiveSection({ locale, capabilities }: LiveSectionProps) {
+function LiveSection({ locale, capabilities, connectionBackoff }: LiveSectionProps) {
   const t = useTranslations("NewDeliberation.live");
   const live = capabilities.live ?? null;
   return (
@@ -278,13 +282,19 @@ function LiveSection({ locale, capabilities }: LiveSectionProps) {
           </Link>
         </div>
       ) : (
-        <LiveForm locale={locale} live={live} />
+        <LiveForm locale={locale} live={live} connectionBackoff={connectionBackoff} />
       )}
     </section>
   );
 }
 
-function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }) {
+type LiveFormProps = {
+  locale: Locale;
+  live: LiveCapabilitiesV1;
+  connectionBackoff: Backoff;
+};
+
+function LiveForm({ locale, live, connectionBackoff }: LiveFormProps) {
   const t = useTranslations("NewDeliberation.live");
   const router = useRouter();
   const [presetId, setPresetId] = useState<string>("");
@@ -300,8 +310,10 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
   // has been rendered: where the keyboard focus goes then.
   const refused = useRef(false);
   const onToken = useCallback((value: string | null) => setToken(value), []);
-  // A 429 that says how long to wait keeps Start disabled until then (HE #18).
-  const backoff = useBackoff();
+  // A 429 that says how long to wait keeps Start disabled until then (HE #18);
+  // a connection-wide one (rate_limited) keeps the guided Run buttons
+  // disabled too.
+  const backoff = useEndpointBackoff(connectionBackoff);
   const waiting = backoff.remaining;
   const wasWaiting = useRef(false);
 
@@ -498,7 +510,7 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
       {error === null ? null : (
         // Focusable from script only: it takes the focus after a refusal that leaves Start disabled.
         <div ref={errorRef} tabIndex={-1} data-live-error>
-          <ApiErrorNotice error={error} context="create" />
+          <ApiErrorNotice error={error} context="create" remaining={waiting} />
         </div>
       )}
     </form>

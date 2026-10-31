@@ -117,7 +117,7 @@
     "fallback": "Watch a recorded run instead",
     "headlines": {
       "notAccepted": "This request was not accepted",
-      "rateLimited": "{seconds, plural, =0 {Too many requests from this connection. You can try again now.} one {Too many requests from this connection. Wait # second.} other {Too many requests from this connection. Wait # seconds.}}",
+      "rateLimited": "{seconds, plural, =0 {Too many requests from this connection. You can retry now.} one {Too many requests from this connection. Retry in # second.} other {Too many requests from this connection. Retry in # seconds.}}",
       "rateLimitedNoWait": "Too many requests from this connection. Wait a moment.",
       "busy": "The server is busy. Try again shortly.",
       "liveInProgress": "Another live run is in progress",
@@ -130,8 +130,9 @@
       "session": "This needs a session first",
       "notAvailable": "This address is not available to you",
       "decision": "Your decision was not recorded",
+      "decisionUncertain": "Your decision may or may not have been recorded. Check the run before you decide again.",
       "serverProblem": "The server had a problem",
-      "serverUnavailable": "The server is unavailable right now. Try again in a minute.",
+      "serverUnavailable": "The server is unavailable right now",
       "unreachable": "The server did not answer",
       "unreadable": "The server’s answer could not be read"
     }
@@ -1140,7 +1141,8 @@
       "guided": {
         "title": "Start with a guided example",
         "body": "Once the portal is connected, a guided example will start instantly. Its roles will be scripted and its evidence simulated, so it will be labeled SIMULATED and will call no model.",
-        "bodyConnected": "A guided example starts instantly. Its roles are scripted and its evidence is simulated, so it is labeled SIMULATED and calls no model."
+        "bodyConnected": "When this server offers guided examples, one starts instantly from New deliberation. Its roles are scripted and its evidence is simulated, so it is labeled SIMULATED and calls no model.",
+        "bodyPending": "A guided example has scripted roles and simulated evidence, so it is labeled SIMULATED and calls no model."
       },
       "live": {
         "title": "Live Meta presets",
@@ -1241,7 +1243,8 @@
       "not_checked": "not checked"
     },
     "note": "A valid proof shows that Hyphae can reproduce the sealed recall a record came from, not that the record is true, relevant or complete, or that a model used it.",
-    "introConnected": "Every run and event is marked with where it comes from, on separate axes: the model (scripted or live Meta), the evidence (simulated or a sealed snapshot), the source (this server or the research archive) and the delivery of each event (live or replay). Labels come from recorded data, never from the request. What they mean:"
+    "introConnected": "Every run and event is marked with where it comes from, on separate axes: the model (scripted or live Meta), the evidence (simulated or a sealed snapshot), the source (this server or the research archive) and the delivery of each event (live or replay). Labels come from recorded data, never from the request. What they mean:",
+    "introPending": "Labels mark where a run or an event comes from, on separate axes: the model (scripted or live Meta), the evidence (simulated or a sealed snapshot), the source (this server or the research archive) and the delivery of each event (live or replay). A label comes from recorded data, never from the request. What they mean:"
   },
   "Footer": {
     "nonAffiliation": "Independent project; not affiliated with, sponsored by, or endorsed by Meta."

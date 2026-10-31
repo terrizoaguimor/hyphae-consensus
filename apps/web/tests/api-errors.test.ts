@@ -17,6 +17,7 @@ import { IntlMessageFormat } from "intl-messageformat";
 import {
   CLIENT_ERROR_CODES,
   CREATE_SENTENCE_CODES,
+  decisionOutcomeUnknown,
   errorHeadlineKey,
   errorSentenceKey,
   errorSentencePath,
@@ -100,15 +101,36 @@ describe("error headlines", () => {
     return catalog.Api as Catalog;
   }
 
+  // One parsed catalog and one formatter per (locale, key): building them is
+  // the slow part, and these tests format the same headlines many times.
+  const apis = new Map<string, Catalog>();
+  const formatters = new Map<string, IntlMessageFormat>();
+  function cachedApi(locale: string): Catalog {
+    let api = apis.get(locale);
+    if (api === undefined) {
+      api = apiOf(locale);
+      apis.set(locale, api);
+    }
+    return api;
+  }
+
   function headline(locale: string, code: string, context: "create" | "decision" | "read", seconds?: number): string {
-    const headlines = apiOf(locale).headlines as Catalog;
+    const headlines = cachedApi(locale).headlines as Catalog;
     const key = errorHeadlineKey(code, context);
     const source = headlines[key];
     expect(typeof source, `${locale} Api.headlines.${key}`).toBe("string");
-    return String(new IntlMessageFormat(String(source), locale).format({ seconds: seconds ?? 0 }));
+    const id = `${locale}\u0000${key}`;
+    let formatter = formatters.get(id);
+    if (formatter === undefined) {
+      formatter = new IntlMessageFormat(String(source), locale);
+      formatters.set(id, formatter);
+    }
+    return String(formatter.format({ seconds: seconds ?? 0 }));
   }
 
-  it("gives the 500, the 503 and the 429 cases distinct headlines", () => {
+  // Generous timeouts: the first IntlMessageFormat of a locale is slow on a
+  // loaded machine (review R1-1); no assertion depends on the time.
+  it("gives the 500, the 503 and the 429 cases distinct headlines", { timeout: 30_000 }, () => {
     for (const locale of routing.locales) {
       const internal = headline(locale, "internal", "read");
       const shutting = headline(locale, "shutting_down", "read");
@@ -122,24 +144,75 @@ describe("error headlines", () => {
     expect(errorHeadlineKey("rate_limited")).toBe("rateLimited");
   });
 
-  it("says how long a 429 asks to wait, in every locale", () => {
+  it("says how long a 429 asks to wait, in every locale", { timeout: 30_000 }, () => {
     expect(headline("en", "rate_limited", "create", 30)).toBe(
-      "Too many requests from this connection. Wait 30 seconds.",
+      "Too many requests from this connection. Retry in 30 seconds.",
     );
     expect(headline("en", "rate_limited", "create", 1)).toBe(
-      "Too many requests from this connection. Wait 1 second.",
+      "Too many requests from this connection. Retry in 1 second.",
+    );
+    // A wait that is over (the countdown reached zero) reads as over.
+    expect(headline("en", "rate_limited", "create", 0)).toBe(
+      "Too many requests from this connection. You can retry now.",
     );
     for (const locale of routing.locales) {
       expect(headline(locale, "rate_limited", "create", 27), locale).toMatch(/27/u);
+      expect(headline(locale, "rate_limited", "create", 0), locale).not.toMatch(/\d/u);
       expect(typeof (apiOf(locale).headlines as Catalog).rateLimitedNoWait, locale).toBe("string");
     }
   });
 
-  it("heads every refused decision with the decision not being recorded", () => {
-    for (const code of ["internal", "shutting_down", "rate_limited", "decision_conflict", "unreachable"]) {
+  it("never repeats the body's 'try again in a minute' in the 503 headline", () => {
+    for (const locale of routing.locales) {
+      const api = cachedApi(locale);
+      const unavailable = String((api.headlines as Catalog).serverUnavailable);
+      const sentence = String((api.errors as Catalog).shutting_down);
+      // The sentence keeps the advice; the headline only says the consequence.
+      expect(unavailable.length, locale).toBeGreaterThan(0);
+      expect(sentence.toLowerCase(), locale).not.toContain(unavailable.toLowerCase());
+    }
+    expect(String((cachedApi("en").headlines as Catalog).serverUnavailable)).not.toMatch(/minute/u);
+    expect(String((cachedApi("en").errors as Catalog).shutting_down)).toMatch(/try again in a minute/u);
+  });
+
+  it("heads every definite refusal of a decision with the decision not being recorded", () => {
+    for (const code of [
+      "internal",
+      "shutting_down",
+      "rate_limited",
+      "decision_conflict",
+      "override_note_required",
+      "a_code_from_a_newer_server",
+    ]) {
       expect(errorHeadlineKey(code, "decision"), code).toBe("decision");
     }
     expect(headline("en", "shutting_down", "decision")).toBe("Your decision was not recorded");
+  });
+
+  it("never says a decision was not recorded when the client cannot know", () => {
+    // No answer, a server timeout, a status without a contract body, and a
+    // 2xx whose body could not be read: the decision may have been recorded.
+    for (const code of ["unreachable", "request_timeout", "unexpected_status", "bad_response"]) {
+      expect(errorHeadlineKey(code, "decision"), code).toBe("decisionUncertain");
+      expect(decisionOutcomeUnknown(code), code).toBe(true);
+    }
+    expect(decisionOutcomeUnknown("decision_conflict")).toBe(false);
+    expect(decisionOutcomeUnknown("internal")).toBe(false);
+    for (const locale of routing.locales) {
+      const uncertain = headline(locale, "bad_response", "decision");
+      expect(uncertain, locale).not.toBe(headline(locale, "internal", "decision"));
+    }
+    expect(headline("en", "bad_response", "decision")).toBe(
+      "Your decision may or may not have been recorded. Check the run before you decide again.",
+    );
+    // Outside a decision these codes keep their class headline.
+    expect(errorHeadlineKey("unreachable", "read")).toBe("unreachable");
+    expect(errorHeadlineKey("bad_response", "create")).toBe("unreadable");
+  });
+
+  it("heads a refused cancel (read context) by its class, not as a decision", () => {
+    expect(errorHeadlineKey("run_not_cancellable", "read")).toBe("notAccepted");
+    expect(errorHeadlineKey("run_not_cancellable", "read")).not.toBe("decision");
   });
 
   it("an outage says the server did not answer, and an unknown code reads as unreadable", () => {

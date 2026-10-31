@@ -97,7 +97,8 @@ export function errorSentenceKey(code: string): KnownErrorCode | "unknown" {
 /**
  * Where an error happened, which decides what its headline says first:
  * starting a run (`create`), recording a human decision (`decision`), or
- * reading something (`read`, every other request).
+ * any other request (`read`: a read, or a run's cancellation, headed by the
+ * code's class).
  */
 export type ErrorContext = "create" | "decision" | "read";
 
@@ -121,6 +122,7 @@ export type ErrorHeadline =
   | "session"
   | "notAvailable"
   | "decision"
+  | "decisionUncertain"
   | "serverProblem"
   | "serverUnavailable"
   | "unreachable"
@@ -192,14 +194,37 @@ const HEADLINES = {
 } as const satisfies Record<KnownErrorCode, ErrorHeadline>;
 
 /**
- * The headline key of an error: in the decision context every failure says
- * first that the decision was not recorded; elsewhere the code's class
- * decides. A code this build does not know reads as an answer it could not
- * read (class L, as its sentence `unknown` does).
+ * The codes after which the client cannot know whether a decision was
+ * recorded: no answer at all (`unreachable`), a server that ran out of time
+ * while handling it (`request_timeout`), a status without a contract error
+ * body (`unexpected_status`, a proxy's page) and an accepted request whose
+ * answer could not be read (`bad_response`, thrown after a 2xx). Only a
+ * contract error body is a definite refusal.
+ */
+export const DECISION_UNCERTAIN_CODES = [
+  "unreachable",
+  "request_timeout",
+  "unexpected_status",
+  "bad_response",
+] as const;
+
+/** Whether, after this error, the client cannot know if a decision was recorded. */
+export function decisionOutcomeUnknown(code: string): boolean {
+  return (DECISION_UNCERTAIN_CODES as readonly string[]).includes(code);
+}
+
+/**
+ * The headline key of an error: in the decision context a definite refusal
+ * says first that the decision was not recorded, and a failure that leaves
+ * it unknown says so (never "not recorded" for a request the server may
+ * have accepted); elsewhere the code's class decides. A code this build does
+ * not know reads as an answer it could not read (class L, as its sentence
+ * `unknown` does); under a decision it still came in a contract error body,
+ * so it is a refusal.
  */
 export function errorHeadlineKey(code: string, context: ErrorContext = "read"): ErrorHeadline {
   if (context === "decision") {
-    return "decision";
+    return decisionOutcomeUnknown(code) ? "decisionUncertain" : "decision";
   }
   const key = errorSentenceKey(code);
   return key === "unknown" ? "unreadable" : HEADLINES[key];

@@ -133,6 +133,8 @@ const ALLOWED: Record<string, string> = {
   "Api.errors.geo_blocked_live": "live endpoint error",
   // The connected variant of the legend's introduction (round 4, HE #8).
   "Provenance.introConnected": "Overview legend only",
+  // Its variant until the health probe settles (round 4 apply, review R1-2).
+  "Provenance.introPending": "Overview legend only",
   // The headlines of the live endpoints' error classes D, E and F
   // (src/lib/api/errors.ts): chosen only for the codes above.
   "Api.headlines.liveInProgress": "live endpoint error headline",

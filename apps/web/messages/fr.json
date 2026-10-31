@@ -117,7 +117,7 @@
     "fallback": "Voir plutôt une exécution enregistrée",
     "headlines": {
       "notAccepted": "Cette requête n’a pas été acceptée",
-      "rateLimited": "{seconds, plural, =0 {Trop de requêtes depuis cette connexion. Vous pouvez réessayer maintenant.} one {Trop de requêtes depuis cette connexion. Attendez # seconde.} other {Trop de requêtes depuis cette connexion. Attendez # secondes.}}",
+      "rateLimited": "{seconds, plural, =0 {Trop de requêtes depuis cette connexion. Vous pouvez réessayer maintenant.} one {Trop de requêtes depuis cette connexion. Réessayez dans # seconde.} other {Trop de requêtes depuis cette connexion. Réessayez dans # secondes.}}",
       "rateLimitedNoWait": "Trop de requêtes depuis cette connexion. Attendez un instant.",
       "busy": "Le serveur est occupé. Réessayez bientôt.",
       "liveInProgress": "Une autre exécution en direct est en cours",
@@ -130,8 +130,9 @@
       "session": "Une session est d’abord nécessaire",
       "notAvailable": "Cette adresse ne vous est pas accessible",
       "decision": "Votre décision n’a pas été enregistrée",
+      "decisionUncertain": "Votre décision a pu être enregistrée ou non. Vérifiez l’exécution avant de décider à nouveau.",
       "serverProblem": "Le serveur a rencontré un problème",
-      "serverUnavailable": "Le serveur est indisponible pour l’instant. Réessayez dans une minute.",
+      "serverUnavailable": "Le serveur est indisponible pour l’instant",
       "unreachable": "Le serveur n’a pas répondu",
       "unreadable": "La réponse du serveur n’a pas pu être lue"
     }
@@ -1140,7 +1141,8 @@
       "guided": {
         "title": "Commencez par un exemple guidé",
         "body": "Une fois le portail connecté, un exemple guidé démarrera immédiatement. Ses rôles seront scénarisés et ses éléments probants simulés : il sera donc étiqueté SIMULÉ et n’appellera aucun modèle.",
-        "bodyConnected": "Un exemple guidé démarre immédiatement. Ses rôles sont scénarisés et ses éléments probants simulés : il est donc étiqueté SIMULÉ et n’appelle aucun modèle."
+        "bodyConnected": "Quand ce serveur propose des exemples guidés, l’un d’eux démarre immédiatement depuis Nouvelle délibération. Ses rôles sont scénarisés et ses éléments probants simulés : il est donc étiqueté SIMULÉ et n’appelle aucun modèle.",
+        "bodyPending": "Un exemple guidé a des rôles scénarisés et des éléments probants simulés : il est donc étiqueté SIMULÉ et n’appelle aucun modèle."
       },
       "live": {
         "title": "Tâches prédéfinies du mode Meta en direct",
@@ -1241,7 +1243,8 @@
       "not_checked": "non vérifiée"
     },
     "note": "Une preuve valide montre que Hyphae peut reproduire la requête scellée dont provient un enregistrement, pas que cet enregistrement est vrai, pertinent ou complet, ni qu’un modèle l’a utilisé.",
-    "introConnected": "Chaque exécution et chaque événement sont marqués de leur provenance, sur des axes distincts : le modèle (scénarisé ou Meta en direct), les éléments probants (simulés ou un instantané scellé), la source (ce serveur ou l’archive de recherche) et la diffusion de chaque événement (en direct ou rejeu). Les étiquettes proviennent des données enregistrées, jamais de la requête. Ce qu’elles signifient :"
+    "introConnected": "Chaque exécution et chaque événement sont marqués de leur provenance, sur des axes distincts : le modèle (scénarisé ou Meta en direct), les éléments probants (simulés ou un instantané scellé), la source (ce serveur ou l’archive de recherche) et la diffusion de chaque événement (en direct ou rejeu). Les étiquettes proviennent des données enregistrées, jamais de la requête. Ce qu’elles signifient :",
+    "introPending": "Les étiquettes indiquent la provenance d’une exécution ou d’un événement, sur des axes distincts : le modèle (scénarisé ou Meta en direct), les éléments probants (simulés ou un instantané scellé), la source (ce serveur ou l’archive de recherche) et la diffusion de chaque événement (en direct ou rejeu). Chaque étiquette provient des données enregistrées, jamais de la requête. Ce qu’elles signifient :"
   },
   "Footer": {
     "nonAffiliation": "Projet indépendant ; non affilié à Meta, ni parrainé ni approuvé par Meta."

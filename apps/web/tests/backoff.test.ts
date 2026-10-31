@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { backoffSeconds, formatWait, secondsLeft } from "../src/lib/api/backoff";
+import { backoffSeconds, connectionWide, formatWait, longerWait, secondsLeft } from "../src/lib/api/backoff";
 import { ApiError } from "../src/lib/api/client";
 
 function refusal(status: number, retryAfterSecs: number | null): ApiError {
@@ -53,5 +53,26 @@ describe("secondsLeft", () => {
     expect(secondsLeft(30_000, 29_001)).toBe(1);
     expect(secondsLeft(30_000, 30_000)).toBeNull();
     expect(secondsLeft(30_000, 31_000)).toBeNull();
+  });
+});
+
+describe("connection-wide waits", () => {
+  const coded = (code: string) =>
+    new ApiError({ code, message: "refused", status: 429, path: "/runs", retryAfterSecs: 30 });
+
+  it("rate_limited holds for every request of the connection; busy and live capacity per endpoint", () => {
+    expect(connectionWide(coded("rate_limited"))).toBe(true);
+    for (const code of ["too_many_runs", "run_busy", "live_concurrency", "live_hourly_admissions"]) {
+      expect(connectionWide(coded(code)), code).toBe(false);
+    }
+    expect(connectionWide(null)).toBe(false);
+  });
+
+  it("the buttons wait for the longer of the endpoint's and the connection's waits", () => {
+    expect(longerWait(null, null)).toBeNull();
+    expect(longerWait(12, null)).toBe(12);
+    expect(longerWait(null, 7)).toBe(7);
+    expect(longerWait(12, 30)).toBe(30);
+    expect(longerWait(30, 12)).toBe(30);
   });
 });

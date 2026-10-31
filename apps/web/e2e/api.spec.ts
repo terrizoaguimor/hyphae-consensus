@@ -2038,6 +2038,10 @@ test("a guided 500 is headed as a server problem, inside the card that was press
   await card.getByRole("button").click();
   const notice = card.locator("[data-scenario-error] [data-error-code='internal']");
   await expect(notice.locator(".hc-error-title")).toHaveText(t("en", "Api.headlines.serverProblem"));
+  // A refusal without a wait leaves the pressed button usable, with the focus.
+  await expect(card.getByRole("button")).toBeFocused();
+  await expect(card.getByRole("button")).not.toHaveAttribute("aria-disabled", "true");
+  expect(await card.getByRole("button").evaluate((el) => el.hasAttribute("disabled"))).toBe(false);
   await expect(notice).toContainText(t("en", "Api.errors.internal"));
   await expect(notice.locator("[data-error-fallback]")).toHaveCount(0);
   // Only inside that card, and no wait: every Run button still works.
@@ -2081,9 +2085,13 @@ test("a guided 429 says how long to wait, disables every Run button until then a
   const card = page.locator("[data-scenario='offline']");
   await card.getByRole("button").click();
   const notice = card.locator("[data-scenario-error] [data-error-code='rate_limited']");
+  // The headline says the wait once (counted down with the buttons); no
+  // Retry-After line repeats it.
   await expect(notice.locator(".hc-error-title")).toHaveText(
-    "Too many requests from this connection. Wait 30 seconds.",
+    /^Too many requests from this connection\. Retry in (30|29|28) seconds\.$/u,
   );
+  await expect(notice.locator("[data-error-wait]")).toHaveCount(0);
+  await expect(notice.getByText(/Retry in/u)).toHaveCount(1);
   await expect(notice.locator("[data-error-fallback]")).toHaveText(t("en", "Api.fallback"));
   await expect(notice.locator("[data-error-fallback]")).toHaveAttribute("href", "/en/showcase/");
   const buttons = page.locator("[data-scenario] button");
@@ -2097,7 +2105,158 @@ test("a guided 429 says how long to wait, disables every Run button until then a
     await expect(button).toBeEnabled();
     await expect(button).toHaveText(t("en", "NewDeliberation.guided.run"));
   }
+  // The notice follows the buttons: once they are enabled, the wait reads as over.
+  await expect(notice.locator(".hc-error-title")).toHaveText(
+    "Too many requests from this connection. You can retry now.",
+  );
+  await expect(notice).not.toContainText("Retry in");
   takeProblem(pageProblems, "HTTP 429: /api/v1/runs");
+});
+
+test("a connection-wide 429 on a guided Run keeps live Start waiting too", async ({ page, pageProblems }) => {
+  await mockApi(page, {
+    liveEnabled: true,
+    liveRequiresTurnstile: false,
+    guidedRun: {
+      status: 429,
+      body: { code: "rate_limited", message: "too many requests from this client", retry_after_secs: 30 },
+      retryAfter: "30",
+    },
+  });
+  await page.clock.install();
+  await page.goto("/en/new/");
+  await hydrated(page);
+  const submit = page.locator("[data-live='form'] button[type='submit']");
+  await expect(submit).toHaveText(t("en", "NewDeliberation.live.start"));
+  await expect(submit).not.toHaveAttribute("data-wait");
+  await page.locator("[data-scenario='offline']").getByRole("button").click();
+  await expect(page.locator("[data-scenario-error] [data-error-code='rate_limited']")).toBeVisible();
+  // rate_limited counts this connection's requests: Start waits with the Run buttons.
+  await expect(submit).toBeDisabled();
+  await expect(submit).toContainText(/^Try again in 0:[0-3]\d$/u);
+  await expect(submit).toHaveAttribute("data-wait", /^\d+$/u);
+  await page.clock.fastForward("00:31");
+  await expect(submit).toHaveText(t("en", "NewDeliberation.live.start"));
+  await expect(submit).not.toHaveAttribute("data-wait");
+  takeProblem(pageProblems, "HTTP 429: /api/v1/runs");
+});
+
+test("an endpoint's own 429 (a busy server) keeps only that endpoint waiting, with a counted Retry-After line", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page, {
+    liveEnabled: true,
+    liveRequiresTurnstile: false,
+    guidedRun: {
+      status: 429,
+      body: { code: "too_many_runs", message: "too many runs", retry_after_secs: 30 },
+      retryAfter: "30",
+    },
+  });
+  await page.clock.install();
+  await page.goto("/en/new/");
+  await hydrated(page);
+  await page.locator("[data-scenario='offline']").getByRole("button").click();
+  const notice = page.locator("[data-scenario-error] [data-error-code='too_many_runs']");
+  await expect(notice.locator(".hc-error-title")).toHaveText(t("en", "Api.headlines.busy"));
+  // Not rate-limited: the Retry-After line carries the wait, counted down.
+  await expect(notice.locator("[data-error-wait]")).toHaveText(/^Retry in (30|29|28) seconds\.$/u);
+  await expect(page.locator("[data-scenario='offline'] button")).toBeDisabled();
+  const submit = page.locator("[data-live='form'] button[type='submit']");
+  await expect(submit).toHaveText(t("en", "NewDeliberation.live.start"));
+  await expect(submit).not.toHaveAttribute("data-wait");
+  await page.clock.fastForward("00:31");
+  await expect(notice.locator("[data-error-wait]")).toHaveText("You can retry now.");
+  takeProblem(pageProblems, "HTTP 429: /api/v1/runs");
+});
+
+test("pending: before the health probe settles, connection-dependent copy makes no claim either way", async ({
+  page,
+}) => {
+  await mockApi(page);
+  // The probe is held: it does not answer until the end of this test.
+  const release = await holdRequests(page, "**/api/v1/health", "GET");
+  await page.goto("/en/");
+  await hydrated(page);
+  await expect(
+    page.locator("[data-connection-copy='pending']", { hasText: t("en", "Provenance.introPending") }),
+  ).toHaveText(t("en", "Provenance.introPending"));
+  await expect(page.getByText(t("en", "Provenance.intro"))).toHaveCount(0);
+  await expect(page.getByText(t("en", "Provenance.introConnected"))).toHaveCount(0);
+  await page.getByRole("button", { name: t("en", "Tour.start") }).click();
+  const dialog = page.getByRole("dialog", { name: t("en", "Tour.steps.welcome.title") });
+  await expect(dialog).toHaveAccessibleDescription(t("en", "Tour.steps.welcome.bodyPending"));
+  await dialog.getByRole("button", { name: t("en", "Tour.next") }).click();
+  await expect(page.getByRole("dialog")).toHaveAccessibleDescription(t("en", "Tour.steps.guided.bodyPending"));
+  await expect(page.getByRole("dialog")).not.toContainText("Once the portal is connected");
+  await page.keyboard.press("Escape");
+
+  await page.goto("/en/docs/modes/");
+  await hydrated(page);
+  const build = page.locator("section", { has: page.locator("#modes-build") });
+  await expect(build.locator("[data-connection-copy='pending']")).toHaveText(t("en", "Docs.modesBuild.pending"));
+
+  await page.goto("/en/settings/");
+  await hydrated(page);
+  await expect(page.locator("[data-connection-copy='pending']")).toHaveText(
+    t("en", "Settings.explanation.technicalConnected"),
+  );
+  // Once it answers, the same sentence is the connected variant.
+  release();
+  await expect(page.locator("[data-connection-copy='connected']")).toHaveText(
+    t("en", "Settings.explanation.technicalConnected"),
+  );
+});
+
+test("a refused cancel is headed by its code's class, never as a refused decision", async ({
+  page,
+  pageProblems,
+}) => {
+  const run = inProgressLiveRun(5);
+  await mockApi(page, { detail: run.detail, frames: run.frames });
+  await page.route("**/api/v1/runs/*/cancel", (route) =>
+    route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "run_not_cancellable", message: "not cancellable" }),
+    }),
+  );
+  await openRun(page, "en");
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  await page
+    .locator("section", { has: page.locator("#decision-cancel") })
+    .getByRole("button", { name: t("en", "Run.decision.cancel") })
+    .click();
+  const notice = page.locator("[data-cancel-error] [data-error-code='run_not_cancellable']");
+  await expect(notice.locator(".hc-error-title")).toHaveText(t("en", "Api.headlines.notAccepted"));
+  await expect(notice).toContainText(t("en", "Api.errors.run_not_cancellable"));
+  await expect(page.getByText(t("en", "Api.headlines.decision"))).toHaveCount(0);
+  dropProblems(pageProblems, /HTTP 409: \/api\/v1\/runs\/.*\/cancel/u);
+  expect(pageProblems).toEqual([]);
+});
+
+test("a decision answered with an unreadable 200 says it may have been recorded, and re-reads the run", async ({
+  page,
+  pageProblems,
+}) => {
+  const mock = await mockApi(page, {
+    detail: awaitingDecisionDetail(),
+    decision: { status: 200, body: { nope: true } },
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  const detailReads = () =>
+    mock.calls.filter((c) => c.method === "GET" && c.path === `/api/v1/runs/${RUN_ID}`).length;
+  const before = detailReads();
+  await page.locator("[data-decision-form]").getByRole("button", { name: t("en", "Run.decision.reject") }).click();
+  const notice = page.locator("[data-error-code='bad_response']");
+  await expect(notice.locator(".hc-error-title")).toHaveText(t("en", "Api.headlines.decisionUncertain"));
+  await expect(notice).not.toContainText(t("en", "Api.headlines.decision"));
+  await expect.poll(detailReads).toBeGreaterThan(before);
+  dropProblems(pageProblems, /bad_response|does not match the API contract|\/decision/u);
 });
 
 test("a refused decision says it was not recorded, never that the server admits no new run", async ({

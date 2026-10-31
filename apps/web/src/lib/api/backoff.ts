@@ -44,7 +44,27 @@ export function secondsLeft(until: number | null, now: number): number | null {
  * (null when there is no wait), `start(error)` begins the wait the error asks
  * for (and does nothing for an error that asks for none).
  */
-export function useBackoff(): { remaining: number | null; start: (error: ApiError | null) => void } {
+export type Backoff = { remaining: number | null; start: (error: ApiError | null) => void };
+
+/**
+ * Whether a refusal's wait holds for every request of this connection, not
+ * just the endpoint that was refused: `rate_limited` (class B) counts the
+ * client's requests, so a guided Run and a live Start both wait it out. The
+ * busy and live-capacity waits (classes C and D) are the endpoint's own.
+ */
+export function connectionWide(error: ApiError | null): boolean {
+  return error !== null && error.code === "rate_limited";
+}
+
+/** The longer of two waits (seconds left, or null for none). */
+export function longerWait(a: number | null, b: number | null): number | null {
+  if (a === null) {
+    return b;
+  }
+  return b === null ? a : Math.max(a, b);
+}
+
+export function useBackoff(): Backoff {
   const [until, setUntil] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -73,4 +93,20 @@ export function useBackoff(): { remaining: number | null; start: (error: ApiErro
   }, []);
 
   return { remaining: secondsLeft(until, now), start };
+}
+
+/**
+ * An endpoint's own countdown joined with the connection's (`shared`, one
+ * per page): a connection-wide refusal starts the shared wait, any other
+ * starts this endpoint's, and the buttons wait for the longer of the two.
+ */
+export function useEndpointBackoff(shared: Backoff): Backoff {
+  const own = useBackoff();
+  const ownStart = own.start;
+  const sharedStart = shared.start;
+  const start = useCallback(
+    (error: ApiError | null) => (connectionWide(error) ? sharedStart(error) : ownStart(error)),
+    [ownStart, sharedStart],
+  );
+  return { remaining: longerWait(own.remaining, shared.remaining), start };
 }

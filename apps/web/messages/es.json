@@ -300,7 +300,9 @@
       "provenance": "Procedencia",
       "flags": "Avisos",
       "task": "Tarea",
-      "latestDelivery": "Último registro"
+      "latestDelivery": "Último registro",
+      "awaitingDecision": "Esta ejecución espera tu decisión.",
+      "goToDecision": "Ir a tu decisión"
     },
     "outcome": "{kind} — con evidencia {evidence}",
     "kinds": {
@@ -490,6 +492,12 @@
       "note": "Nota",
       "noteDescription": "Opcional, hasta 2000 caracteres. Obligatoria para aprobar una ejecución bloqueada o con abstención (una anulación).",
       "overrideRequired": "Aprobar una ejecución {kind} es una anulación: escribe primero una nota.",
+      "approveOverride": "Aprobar como anulación",
+      "noteRequired": "Nota · Obligatoria para esta ejecución",
+      "noteRequiredDescription": "Hasta 2000 caracteres. Explica por qué apruebas en contra de la recomendación de la política, o por qué rechazas.",
+      "overrideNotice": "La recomendación de la política para esta ejecución es «{kind}»: aprobarla es una anulación de esa recomendación, así que la nota es obligatoria para esta ejecución.",
+      "cardLead": "La política recomienda:",
+      "cardReasons": "El porqué, la justificación del servidor y las objeciones abiertas están más abajo en esta pestaña: léelos antes de decidir.",
       "notAwaiting": "La ejecución no está esperando una decisión.",
       "detailUnavailable": "La decisión necesita la copia de esta ejecución en el servidor, que no se pudo leer; usa Intentar de nuevo arriba.",
       "submitting": "Registrando…",

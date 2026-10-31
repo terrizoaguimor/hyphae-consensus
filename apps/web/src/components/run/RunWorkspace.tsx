@@ -11,13 +11,15 @@
 // - a run of this server (`?id=<run_id>`): useRunData (GET /runs/{id} and
 //   the stream) and the receipt (GET /runs/{id}/receipt); the tabs are Live
 //   (named Playback unless the run deliberates and its latest frame is LIVE
-//   by src/lib/provenance.ts isLive), Explorer, Evidence, Proof inspector,
-//   Audit trail, Meta API and Decision;
+//   by src/lib/provenance.ts isLive), Decision, Explorer, Evidence, Proof
+//   inspector, Audit trail and Meta API (src/lib/run/decision.ts
+//   runTabOrder); while the run awaits a human decision the header says so
+//   and offers "Go to your decision" on every tab;
 // - a recorded run of the research archive (`?id=<run_id>&source=showcase`,
 //   RECORDED mode): useRecordedRun (GET /showcase/{id}, the showcase entry
 //   and the archive manifest's note) and its receipt (GET
 //   /showcase/{id}/receipt); no stream and no stage, nothing runs, the
-//   Decision tab is read-only, and the header says it is a recorded run with
+//   Decision tab comes first and is read-only, and the header says it is a recorded run with
 //   the labels the archive data carries (schema 1.0: pre-1.1, unchained; a
 //   run blocked because no proof could be generated upstream says so, with
 //   the manifest's own note on its log).
@@ -27,7 +29,7 @@ import { Button } from "@astryxdesign/core/Button";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useFormatter, useTranslations } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
@@ -40,6 +42,7 @@ import {
   RECOMMENDATION_VARIANTS,
   sourceLabel,
 } from "@/lib/provenance";
+import { awaitsDecision, runTabOrder, type RunTabKey } from "@/lib/run/decision";
 import { evidenceView, generationFailures } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
 import { supersededProposal } from "@/lib/run/view";
@@ -69,7 +72,7 @@ type RunWorkspaceProps = {
   locale: Locale;
 };
 
-type TabKey = "stage" | "explorer" | "evidence" | "proofs" | "audit" | "meta" | "decision";
+type TabKey = RunTabKey;
 
 /** Tabs that show the receipt. */
 const RECEIPT_TABS: ReadonlySet<TabKey> = new Set<TabKey>(["proofs", "audit"]);
@@ -150,6 +153,26 @@ function Workspace({
       receipt.ensure();
     }
   };
+  // "Go to your decision" opens the Decision tab and moves the keyboard
+  // focus (and the view) to the decision form's heading once it is drawn.
+  const focusDecision = useRef(false);
+  const goToDecision = () => {
+    focusDecision.current = true;
+    selectTab("decision");
+  };
+  useEffect(() => {
+    if (!focusDecision.current || tab !== "decision") {
+      return;
+    }
+    const heading = document.getElementById("decision-form");
+    if (heading !== null) {
+      focusDecision.current = false;
+      heading.focus({ preventScroll: true });
+      // The card's top at the top of the view (under the sticky top bar,
+      // through scroll-padding-top), so its buttons show with it.
+      heading.scrollIntoView({ block: "start" });
+    }
+  });
   // Once read, the receipt is read again whenever the detail moves on (a
   // decision, the end of the stream, a re-read after a gap): the server
   // rebuilds it from the run's current records, so the copy held would be
@@ -208,15 +231,13 @@ function Workspace({
     recorded && summary.state === "awaiting_human_approval"
       ? tShowcase("awaiting")
       : t(`states.${summary.state}`);
-  const items: Array<{ value: TabKey; label: string }> = [
-    ...(recorded ? [] : [{ value: "stage" as const, label: stageLabel }]),
-    { value: "explorer", label: t("tabs.explorer") },
-    { value: "evidence", label: t("tabs.evidence") },
-    { value: "proofs", label: t("tabs.proofs") },
-    { value: "audit", label: t("tabs.audit") },
-    { value: "meta", label: t("tabs.meta") },
-    { value: "decision", label: t("tabs.decision") },
-  ];
+  // Decision comes right after the first tab (first for a recorded run, whose default tab it is).
+  const items: Array<{ value: TabKey; label: string }> = runTabOrder(recorded).map((value) => ({
+    value,
+    label: value === "stage" ? stageLabel : t(`tabs.${value}`),
+  }));
+  // The run awaits a decision that can be recorded here: the header offers it on every tab.
+  const awaiting = !recorded && awaitsDecision(summary, detail?.decision);
   const links: DecisionLinks =
     mode.kind === "recorded"
       ? {
@@ -245,6 +266,17 @@ function Workspace({
         <h2 className="hc-run-title" lang={titleLang}>
           {title}
         </h2>
+        {awaiting ? (
+          <div className="hc-go-to-decision" data-go-to-decision>
+            <p>{t("header.awaitingDecision")}</p>
+            <Button
+              variant="primary"
+              className="hc-decide-button"
+              label={t("header.goToDecision")}
+              onClick={goToDecision}
+            />
+          </div>
+        ) : null}
         <dl className="hc-kv">
           <div>
             <dt>{t("header.state")}</dt>

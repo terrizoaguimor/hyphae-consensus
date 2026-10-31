@@ -14,7 +14,6 @@
 // relevance translated, never a positive tone for "irrelevant"). Failed
 // retrievals are listed with the sentence of their code.
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { useFormatter, useTranslations } from "next-intl";
 import { useMemo } from "react";
 
@@ -34,6 +33,8 @@ import {
   type RetrievedRecord,
   type RoundedVerification,
 } from "@/lib/run/evidence";
+
+import { Tag } from "../Tag";
 
 import { useUnavailableText } from "./FailureSentence";
 import { ProofReadingLine } from "./ProofReading";
@@ -305,11 +306,11 @@ function VerificationLine({
   return (
     <span className="hc-verification">
       <ProofStatus verification={verification} withId={withId} />
-      <Badge
+      <Tag
         variant={FACTUAL_VARIANTS[verification.factual_status]}
         label={t("factual", { status: tExplorer(`factual.${verification.factual_status}`) })}
       />
-      <Badge
+      <Tag
         variant="neutral"
         label={t("relevance", { status: tExplorer(`relevance.${verification.relevance_status}`) })}
       />

@@ -7,11 +7,12 @@
 // checked manifest does not name, a manifest still being checked (a loading
 // line), or no checked manifest to compare with.
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { useTranslations } from "next-intl";
 
 import { digestPrefix } from "@/lib/run/evidence";
 import type { LogPin } from "@/lib/showcase";
+
+import { Tag } from "../Tag";
 
 export function LogPinNote({ pin }: { pin: LogPin }) {
   const t = useTranslations("Showcase.pin");
@@ -23,7 +24,7 @@ export function LogPinNote({ pin }: { pin: LogPin }) {
     >
       {pin.status === "differs" ? (
         <>
-          <Badge variant="error" label={t("differsBadge")} />{" "}
+          <Tag variant="error" icon="file-x" label={t("differsBadge")} />{" "}
           {t("differs", {
             sha256: digestPrefix(pin.sha256) ?? pin.sha256,
             listing: digestPrefix(pin.listing) ?? pin.listing,

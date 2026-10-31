@@ -926,7 +926,8 @@
     height: auto;
     min-height: var(--spacing-5);
     padding-block: calc(var(--spacing-1) / 2);
-    border-radius: var(--radius-element);
+    /* A tag is a rectangle (radius 2, design-direction 3.7), never the 4px of a control. */
+    border-radius: var(--radius-inner);
     white-space: normal;
     text-align: start;
   }
@@ -1364,28 +1365,44 @@
    *   error    failed: solid ink, inverted label, inside a 3px double frame
    *            whose gap shows the surface: the loudest tag.
    *   purple   simulated / scripted: tint, 1px dashed frame (dashed means
-   *            "not real data" and nothing else): never solid, so a
-   *            simulated proof never looks verified.
+   *            "not real data" and nothing else) and a 4px strip of the
+   *            pixel hatch at the inline start (the only role with a
+   *            hatch): never solid, never a check, so a simulated proof
+   *            never looks verified.
    *   pink     LIVE: the surface, a 2px solid ink frame and an 8px solid
-   *            square before the word; used by LIVE and LIVE META only.
+   *            square before the word (it pulses 3 times, then stays; static
+   *            under reduced motion); used by LIVE and LIVE META only.
    *   warning  contested / not enough evidence / a flag: tint, 3px double
    *            frame in the contested line (double means "a problem").
-   *   neutral  recorded and the neutral states: mid tint, 1px solid frame.
-   *            Deviation from palette-mono 2.1, kept for the tags lane: the
-   *            spec gives the mid tint to RECORDED only and the other
-   *            neutral labels (THIS SERVER, the HYPHAE evidence labels, no
-   *            evidence, undetermined, abstained, not checked) the
-   *            informational tint, but they share the neutral variant with
-   *            RECORDED (src/lib/provenance.ts), so they share its look
-   *            until RECORDED gets a hook of its own. None of them reads LIVE.
-   *   info,    informational (META MODEL, "supported", REPLAY): tint, quieter
-   *   blue     ink, a decorative hairline only. Never solid, never a check.
-   *   checked  (the success variant inside [data-chain-check] and
-   *            [data-manifest-status="matches"]): the opaque surface, a 1px
-   *            solid border/strong frame, normal polarity.
-   * Frames are outlines, so a frame adds no size to Astryx's fixed-height
-   * badge; the failed frame sits outside the fill so its gap is the surface.
+   *   neutral, informational (META MODEL, "supported", REPLAY, THIS SERVER,
+   *   info,    the HYPHAE evidence labels, no evidence, undetermined,
+   *   blue     abstained, not checked): tint, quieter ink, a decorative
+   *            hairline only. Never solid, never a check.
+   * Three roles are hooks on the role a tag carries (data-tag-role, set by
+   * src/components/Tag.tsx from src/lib/provenance.ts tagLook), because they
+   * share a variant with a louder or quieter label:
+   *   recorded (RECORDED, the neutral variant): its own mid tint and a 1px
+   *            solid frame, so it no longer looks like THIS SERVER.
+   *   checked  (the success variant of a check run in this browser, also
+   *            inside [data-chain-check] and [data-manifest-status="matches"]):
+   *            the opaque surface, a 1px solid border/strong frame, normal
+   *            polarity.
+   *   pending  (your decision, the blue variant): the strong tint, a 2px
+   *            solid frame and a 3px ink bar at the inline start.
+   * Every tag carries an icon of its role's family before the word (none for
+   * LIVE: the square is its mark). Tags are rectangles (radius 2), never
+   * pills. Frames are outlines, so a frame adds no size to Astryx's
+   * fixed-height badge; the failed frame sits outside the fill so its gap is
+   * the surface, and the pending frame outside its bar.
    */
+  .astryx-badge {
+    border-radius: var(--radius-inner);
+  }
+
+  .astryx-badge .hc-tag-icon {
+    flex: none;
+  }
+
   .astryx-badge[data-variant] {
     outline: 0 solid transparent;
     outline-offset: 0;
@@ -1402,11 +1419,25 @@
     outline: 3px double var(--hc-role-failed-border);
   }
 
+  /* The hatch is a 4 x 4 tile of whole pixels (public/brand/hatch-*.png,
+     palette-mono 3.4), one column of tiles 1px inside the dashed line,
+     drawn without smoothing so no pixel is ever partly covered. The label
+     and the icon start after it: text never sits on the hatch. */
   .astryx-badge[data-variant="purple"] {
     color: var(--hc-role-simulated-fg);
     background-color: var(--hc-role-simulated-bg);
+    background-image: var(--hc-hatch);
+    background-repeat: repeat-y;
+    background-size: 4px 4px;
+    background-position: left 1px top 0;
+    image-rendering: pixelated;
+    padding-inline-start: calc(var(--spacing-2) + 5px);
     outline: 1px dashed var(--hc-role-simulated-border);
     outline-offset: -1px;
+  }
+
+  [dir="rtl"] .astryx-badge[data-variant="purple"] {
+    background-position: right 1px top 0;
   }
 
   .astryx-badge[data-variant="pink"] {
@@ -1425,6 +1456,28 @@
     background-color: var(--hc-role-live-solid);
   }
 
+  /* The LIVE square pulses 3 times (4.8 s, floor opacity 0.6: still 5.2:1)
+     and then stays static (WCAG 2.2.2); never under reduced motion, from
+     the OS or from the in-app setting (design-direction 3.10). */
+  @media (prefers-reduced-motion: no-preference) {
+    .astryx-badge[data-variant="pink"]::before {
+      animation-name: hc-live-pulse;
+      animation-duration: 1.6s;
+      animation-timing-function: ease-in-out;
+      animation-iteration-count: 3;
+    }
+  }
+
+  html[data-motion="reduce"] .astryx-badge[data-variant="pink"]::before {
+    animation-name: none;
+  }
+
+  @keyframes hc-live-pulse {
+    50% {
+      opacity: 0.6;
+    }
+  }
+
   .astryx-badge[data-variant="warning"] {
     color: var(--hc-role-contested-fg);
     background-color: var(--hc-role-contested-bg);
@@ -1432,13 +1485,7 @@
     outline-offset: -3px;
   }
 
-  .astryx-badge[data-variant="neutral"] {
-    color: var(--hc-role-recorded-fg);
-    background-color: var(--hc-role-recorded-bg);
-    outline: 1px solid var(--hc-role-recorded-border);
-    outline-offset: -1px;
-  }
-
+  .astryx-badge[data-variant="neutral"],
   .astryx-badge[data-variant="info"],
   .astryx-badge[data-variant="blue"] {
     color: var(--hc-role-info-fg);
@@ -1447,20 +1494,57 @@
     outline-offset: -1px;
   }
 
+  /* RECORDED: its own mid tint (1.78:1 light, 1.63:1 dark from the
+     surface), so it differs from checked and from the informational
+     labels before reading. */
+  .astryx-badge[data-tag-role="recorded"] {
+    color: var(--hc-role-recorded-fg);
+    background-color: var(--hc-role-recorded-bg);
+    outline: 1px solid var(--hc-role-recorded-border);
+    outline-offset: -1px;
+  }
+
   /* Checked in this browser, not verified (palette-mono 2.1): verified is
      solid, checked is hollow, and the two never share a fill weight. */
   [data-chain-check] .astryx-badge[data-variant="success"],
-  [data-manifest-status="matches"] .astryx-badge[data-variant="success"] {
+  [data-manifest-status="matches"] .astryx-badge[data-variant="success"],
+  .astryx-badge[data-tag-role="checked"] {
     color: var(--hc-role-checked-fg);
     background-color: var(--hc-role-checked-bg);
     outline: 1px solid var(--hc-role-checked-border);
     outline-offset: -1px;
   }
 
+  /* Waiting for your decision: the strong tint, a 2px solid frame (outside,
+     so the bar keeps its full width) and the 3px ink bar of a selected row. */
+  .astryx-badge[data-tag-role="pending"] {
+    color: var(--hc-role-pending-fg);
+    background-color: var(--hc-role-pending-bg);
+    outline: 2px solid var(--hc-role-pending-border);
+    outline-offset: 0;
+    border-inline-start: 3px solid var(--hc-accent-fg);
+  }
+
+  /* Inside a selected row the recorded and pending fills would match the
+     row: they take the surface, and keep their frames (palette-mono 2.3). */
+  [aria-selected="true"] .astryx-badge[data-tag-role="recorded"],
+  [aria-selected="true"] .astryx-badge[data-tag-role="pending"] {
+    background-color: var(--hc-bg-surface);
+  }
+
   /* Forced colours drop fills: the two solid verdicts opt out and stay
      inverted blocks (failed inside its double frame); the frames are
-     outlines, which survive in the system colour; LIVE keeps its square. */
+     outlines, which survive in the system colour; LIVE keeps its square,
+     pending its bar; the hatch goes, the dashed line stays. */
   @media (forced-colors: active) {
+    .astryx-badge[data-variant="purple"] {
+      background-image: none;
+    }
+
+    .astryx-badge[data-tag-role="pending"] {
+      border-inline-start-color: CanvasText;
+    }
+
     .astryx-badge[data-variant="success"],
     .astryx-badge[data-variant="error"] {
       forced-color-adjust: none;
@@ -1479,7 +1563,8 @@
 
     /* Checked is not an inverted block: the system colours and its frame. */
     [data-chain-check] .astryx-badge[data-variant="success"],
-    [data-manifest-status="matches"] .astryx-badge[data-variant="success"] {
+    [data-manifest-status="matches"] .astryx-badge[data-variant="success"],
+    .astryx-badge[data-tag-role="checked"] {
       forced-color-adjust: auto;
       color: CanvasText;
       background-color: Canvas;
@@ -1565,9 +1650,17 @@
   }
 
   .hc-callout[data-callout-tone="failed"] .hc-callout-title {
+    display: flex;
+    gap: var(--spacing-2);
+    align-items: center;
     padding: var(--spacing-1) var(--spacing-2);
     background-color: var(--hc-role-failed-solid);
     color: var(--hc-role-failed-on-solid);
+  }
+
+  /* The failed callout's icon sits inside its inverted band, in the band's ink. */
+  .hc-callout-title-icon {
+    flex: none;
   }
 
   .hc-callout[data-callout-tone="contested"] {

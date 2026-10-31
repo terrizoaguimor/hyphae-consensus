@@ -41,9 +41,11 @@ import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fix
 import {
   CALLOUT_ENCODING,
   calloutEncoding,
+  calloutIcon,
   dropProblems,
   EVIDENCE_BADGE,
   expectEncoding,
+  expectNotVerified,
   expectNoLive,
   expectNoLiveOnPage,
   liveWord,
@@ -51,7 +53,6 @@ import {
   OUTCOME_BADGE,
   tagEncodings,
   takeProblem,
-  VERIFIED_ENCODING,
 } from "./helpers";
 import { archivedProposals, archiveEntry, logSegment, manifestRun, metaRequestIds, researchBytes } from "./research";
 
@@ -150,7 +151,7 @@ test("the showcase lists the archive as RECORDED, by battery, every outcome next
     expect(variant).not.toBe("green");
   }
   for (const encoding of await tagEncodings(page.locator("[data-showcase-outcome] .astryx-badge"))) {
-    expect(encoding).not.toEqual(VERIFIED_ENCODING);
+    expectNotVerified(encoding);
   }
   const metaModels = page.locator(".astryx-badge", {
     hasText: new RegExp(`^${t("en", "Provenance.metaModel.label")}$`),
@@ -234,7 +235,8 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
     "info",
   );
   await expectEncoding(page.locator("[data-decision] [data-recommendation-kind]").locator(OUTCOME_BADGE), "info");
-  // The evidence tag next to each (HYPHAE evidence) is neutral, never verified-looking.
+  // The evidence tag next to each (HYPHAE evidence) is neutral, drawn informational
+  // (a tint and a hairline), never verified-looking.
   await expect(header.locator("[data-run-field='outcome']").locator(EVIDENCE_BADGE)).toHaveAttribute(
     "data-variant",
     "neutral",
@@ -245,6 +247,18 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
     "neutral",
   );
   await expectEncoding(page.locator("[data-decision] [data-recommendation-kind]").locator(EVIDENCE_BADGE), "neutral");
+  // RECORDED has its own look (the mid tint and the archive icon), never the
+  // informational look of the evidence label beside it, and never LIVE.
+  const recordedTags = header.locator(".astryx-badge", {
+    hasText: new RegExp(`^${t("en", "Provenance.recorded.label")}$`),
+  });
+  await expect(recordedTags.first()).toHaveAttribute("data-tag-role", "recorded");
+  await expectEncoding(recordedTags, "recorded");
+  const [recordedLook] = await tagEncodings(recordedTags.first());
+  const [evidenceLook] = await tagEncodings(header.locator("[data-run-field='outcome']").locator(EVIDENCE_BADGE));
+  expect(recordedLook?.fill).toBe("mid");
+  expect(evidenceLook?.fill).toBe("tint");
+  expect(recordedLook?.icon).not.toBe(evidenceLook?.icon);
   await expect(header.locator("[data-provenance-note='liveMeta.recorded']")).toBeVisible();
   await expect(header.locator("[data-recorded-run]")).toContainText(
     t("en", "Showcase.run.banner", { label: "R06", battery: "live-battery-2026-10-27" }),
@@ -2282,7 +2296,7 @@ for (const theme of ["light", "dark"] as const) {
     const tag = page.locator("[data-manifest-status='matches'] .astryx-badge");
     await expectEncoding(tag, "checked");
     for (const encoding of await tagEncodings(tag)) {
-      expect(encoding).not.toEqual(VERIFIED_ENCODING);
+      expectNotVerified(encoding);
     }
   });
 }
@@ -2311,6 +2325,7 @@ test("a manifest that does not match is a failed status and banner, and every ca
   const banner = page.locator("[data-manifest-banner='differs']");
   await expect(banner).toHaveAttribute("data-callout-tone", "failed");
   expect(await calloutEncoding(banner)).toEqual(CALLOUT_ENCODING.failed);
+  expect(await calloutIcon(banner)).toBe("file-x");
   await expect(banner.locator(".hc-callout-title")).toHaveText(t("en", "Showcase.manifest.differsTitle"));
   await expect(banner).toContainText(t("en", "Showcase.manifest.differsBody"));
   await expect(banner.locator("svg[aria-hidden='true']")).toHaveCount(1);

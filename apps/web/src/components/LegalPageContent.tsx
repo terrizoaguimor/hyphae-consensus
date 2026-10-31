@@ -6,7 +6,6 @@
 // catalog's sections (messages/legal/<locale>.json). About appends its
 // source-repository section through `children`.
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { getTranslations } from "next-intl/server";
 import type { ReactNode } from "react";
 
@@ -21,6 +20,7 @@ import {
 
 import { ContentSections } from "./ContentSections";
 import { PageHeader } from "./PageHeader";
+import { Tag } from "./Tag";
 
 type LegalPageContentProps = {
   locale: Locale;
@@ -44,7 +44,7 @@ export async function LegalPageContent({
         lead={t(`${namespace}.lead` as const)}
         eyebrow={
           isDraft ? (
-            <Badge variant="warning" label={t("Legal.draftBadge")} />
+            <Tag variant="warning" label={t("Legal.draftBadge")} />
           ) : undefined
         }
       >

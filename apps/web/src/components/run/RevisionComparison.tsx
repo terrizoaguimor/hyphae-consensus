@@ -18,11 +18,13 @@
 // cell under its column name (data-label, globals.css), so it never makes the
 // page wider than a phone; claim ids never wrap (hc-id).
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { useLocale, useTranslations } from "next-intl";
 
 import type { Claim, Proposal, RunDetailV1 } from "@/lib/api/types";
+import { REVISION_TAGS } from "@/lib/provenance";
 import { claimComparison, revisedByMetaModel, revisionSteps } from "@/lib/run/revision";
+
+import { Tag } from "../Tag";
 
 type RevisionComparisonProps = {
   original: Proposal;
@@ -107,8 +109,9 @@ export function RevisionComparison({ original, revised, detail }: RevisionCompar
                         {statement(after?.statement ?? null)}
                       </td>
                       <td data-label={t("change")}>
-                        <Badge
-                          variant={change.kind === "unchanged" ? "neutral" : "warning"}
+                        <Tag
+                          variant={REVISION_TAGS[change.kind].variant}
+                          icon={REVISION_TAGS[change.kind].icon}
                           label={t(`kinds.${change.kind}`)}
                         />
                         {change.kind === "changed" &&

@@ -8,9 +8,10 @@
 // metrics) and by the client-side ApiGate alike, so it reads its messages
 // with the isomorphic useTranslations.
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { useTranslations } from "next-intl";
+
+import { Tag } from "./Tag";
 
 type NotConnectedProps = {
   /** What the view will do once connected, one translated line each. */
@@ -25,7 +26,7 @@ export function NotConnected({ planned, unreachableCode, onRetry }: NotConnected
   const t = useTranslations("NotConnected");
   return (
     <div className="hc-panel hc-not-connected">
-      <Badge variant="warning" label={t("badge")} />
+      <Tag variant="warning" icon="plug-zap" label={t("badge")} />
       <p className="hc-not-connected-message">{t("message")}</p>
       {unreachableCode === undefined ? null : (
         <p className="hc-supporting">{t("unreachable", { code: unreachableCode })}</p>

@@ -8,9 +8,9 @@
    [data-theme="light"] only, not on :root, so a page whose head script has not run (no JavaScript) keeps the
    theme's `color-scheme: light dark` and follows the OS, as before. The tiles under /brand/ ship with the glass. */
 /* Shipped: the brushed grain tiles (public/brand/brushed-{light,dark}.png, 128 x 128, and their @2x, 256 x 256, from
-   design/palette-mono/brand/), used by hc-mono-glass.css through --hc-glass-grain and --hc-btn-grain. Not shipped yet:
-   the hatch tiles; nothing uses --hc-hatch, so nothing requests them. The lane that first uses it adds its tiles in the
-   same commit (otherwise the page requests a missing file). */
+   design/palette-mono/brand/), used by hc-mono-glass.css through --hc-glass-grain and --hc-btn-grain; and the hatch
+   tiles (public/brand/hatch-light.png and hatch-dark.png, round 5 tags lane); --hc-hatch is used by the simulated tag
+   (globals.css). Every tile a token here names is shipped, so no request goes to a missing file. */
 @layer app {
   :root {
     --hc-mono-0: #FFFFFF;

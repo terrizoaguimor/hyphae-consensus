@@ -24,7 +24,6 @@
 //   run blocked because no proof could be generated upstream says so, with
 //   the manifest's own note on its log).
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -36,9 +35,11 @@ import type { Locale } from "@/i18n/routing";
 import { api, isRunId } from "@/lib/api/client";
 import type { DecisionV1, ProvenanceFlag, RunDetailV1, ShowcaseEntryV1 } from "@/lib/api/types";
 import {
+  DECISION_ICONS,
   isLive,
   isScriptedRun,
   ndjsonPublishable,
+  OUTCOME_ICONS,
   RECOMMENDATION_VARIANTS,
   sourceLabel,
 } from "@/lib/provenance";
@@ -63,6 +64,7 @@ import { ApiErrorNotice } from "../ApiErrorNotice";
 import { Callout } from "../Callout";
 import { OutcomeTags } from "../OutcomeTags";
 import { ProvenanceBadges } from "../ProvenanceBadges";
+import { Tag } from "../Tag";
 import { useManifestDate } from "../showcase/ShowcaseList";
 import { archivePin, checkedManifest } from "../showcase/useArchive";
 import { AuditTab } from "./AuditTab";
@@ -382,6 +384,7 @@ function Workspace({
                   <OutcomeTags
                     outcome={t(`kinds.${outcome}`)}
                     variant={RECOMMENDATION_VARIANTS[outcome]}
+                    icon={OUTCOME_ICONS[outcome]}
                     evidence={shown.provenance.evidence}
                   />
                   {revisedId === null ? null : (
@@ -402,7 +405,7 @@ function Workspace({
                     plain grey word next to the policy's coloured outcome.
                     The no-authority statement is the Decision tab's, once
                     per view, not repeated here. */}
-                <Badge variant="info" label={t(`header.decisions.${decision}`)} />
+                <Tag variant="info" icon={DECISION_ICONS[decision]} label={t(`header.decisions.${decision}`)} />
               </dd>
             </div>
           )}
@@ -642,7 +645,7 @@ function RecordedNotes({
   return (
     <section className="hc-recorded" aria-labelledby="recorded-heading" data-recorded-run>
       <h3 id="recorded-heading">
-        <Badge variant={source.variant} label={tProvenance(source.key)} /> {t("heading")}
+        <Tag variant={source.variant} labelKey={source.key} label={tProvenance(source.key)} /> {t("heading")}
       </h3>
       <p>
         {entry === null
@@ -660,6 +663,7 @@ function RecordedNotes({
         // that could not be read or understood is contested: not confirmed either way.
         <Callout
           tone={problem === "differs" ? "failed" : "contested"}
+          icon="file-x"
           title={t("manifestProblemTitle")}
           data-manifest-problem-callout={problem}
         >
@@ -673,7 +677,7 @@ function RecordedNotes({
       )}
       {unchained ? (
         <p data-archive-label="unchained">
-          <Badge variant="warning" label={tShowcase("unchained")} /> {t("unchainedNote")}
+          <Tag variant="warning" icon="link-2-off" label={tShowcase("unchained")} /> {t("unchainedNote")}
         </p>
       ) : null}
       {summary?.recommendation === "blocked" && failures.length > 0 ? (

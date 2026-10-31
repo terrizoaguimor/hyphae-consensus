@@ -452,6 +452,21 @@ Font Name. The copyright lines are the ones the upstream projects state. On
 13 woff2 files of an export: the 6 JetBrains Mono files read exactly the line
 above, and the 7 Inter files read "Copyright 2016 The Inter Project Authors
 (https://github.com/rsms/inter)", the same line without "(c)".
+
+## Icons
+
+- Lucide: Copyright (c) 2026 Lucide Icons and Contributors
+  (https://lucide.dev), ISC License. The Lucide icons derived from the
+  Feather project (among those used here: circle-minus, database, hash, info, plus, server)
+  are also under the MIT License, Copyright (c) 2013-present Cole Bemis.
+
+No icon package is a dependency of the web app. The status icons of the
+tags and callouts are Lucide 1.61.0 shapes (24-unit grid), redrawn as
+inline SVG geometry in `apps/web/src/components/icons.tsx`, whose header
+carries the ISC notice. Lucide's licence file (the ISC text and the Feather
+MIT notice) ships with the static export as
+`apps/web/public/licenses/Lucide-LICENSE.txt`, served as
+`/licenses/Lucide-LICENSE.txt`.
 <!-- hand-written:end -->
 
 ## Hyphae

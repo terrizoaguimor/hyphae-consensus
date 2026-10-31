@@ -10,7 +10,6 @@
 // The predicates and the label vocabulary live in src/lib/provenance.ts; the
 // legend on the Overview (ProvenanceLabels) uses the same variants.
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { useFormatter, useTranslations } from "next-intl";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
@@ -23,6 +22,8 @@ import {
   modelNoteKey,
   sourceLabel,
 } from "@/lib/provenance";
+
+import { Tag } from "./Tag";
 
 type ProvenanceBadgesProps = {
   provenance: ProvenanceV1;
@@ -60,25 +61,26 @@ export function ProvenanceBadges({
     <div className="hc-provenance-badges">
       <ul className="hc-badges" role="list" aria-label={t("heading")}>
         <li>
-          <Badge variant={model.variant} label={t(model.key)} />
+          <Tag variant={model.variant} labelKey={model.key} label={t(model.key)} />
         </li>
         <li>
-          <Badge variant={evidence.variant} label={t(evidence.key)} />
+          <Tag variant={evidence.variant} labelKey={evidence.key} label={t(evidence.key)} />
         </li>
         <li>
-          <Badge variant={source.variant} label={t(source.key)} />
+          <Tag variant={source.variant} labelKey={source.key} label={t(source.key)} />
         </li>
         {delivery === undefined ? null : (
           <li>
-            <Badge
+            <Tag
               variant={deliveryLabel(delivery, provenance).variant}
+              labelKey={deliveryLabel(delivery, provenance).key}
               label={t(deliveryLabel(delivery, provenance).key)}
             />
           </li>
         )}
         {flags.map((flag) => (
           <li key={flag}>
-            <Badge variant={flagLabel(flag).variant} label={t(flagLabel(flag).key)} />
+            <Tag variant={flagLabel(flag).variant} labelKey={flagLabel(flag).key} label={t(flagLabel(flag).key)} />
           </li>
         ))}
       </ul>

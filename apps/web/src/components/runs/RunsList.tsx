@@ -7,7 +7,6 @@
 // run's "access ends" and "deleted after" dates are derived. Every number and
 // label comes from the run data.
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import Link from "next/link";
 import { useFormatter, useTranslations } from "next-intl";
@@ -17,12 +16,13 @@ import type { Locale } from "@/i18n/routing";
 import { api, ApiError, isApiError } from "@/lib/api/client";
 import type { Capabilities } from "@/lib/api/schemas";
 import type { RunSummaryV1 } from "@/lib/api/types";
-import { RECOMMENDATION_VARIANTS } from "@/lib/provenance";
+import { OUTCOME_ICONS, RECOMMENDATION_VARIANTS } from "@/lib/provenance";
 import { localePath, runPath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { OutcomeTags, StatusTag } from "../OutcomeTags";
 import { ProvenanceBadges } from "../ProvenanceBadges";
+import { Tag } from "../Tag";
 import { useFailureText } from "../run/FailureSentence";
 
 type RunsListProps = {
@@ -187,12 +187,12 @@ export function RunsList({ locale }: RunsListProps) {
                     <dd data-runs-state={run.state}>
                       {/* The state that needs the visitor is a status tag, not plain text. */}
                       {run.state === "awaiting_human_approval" ? (
-                        <StatusTag variant="blue" label={tRun(`states.${run.state}`)} />
+                        <StatusTag variant="blue" role="pending" label={tRun(`states.${run.state}`)} />
                       ) : (
                         tRun(`states.${run.state}`)
                       )}
                       {run.active ? (
-                        <Badge variant="blue" label={t("active")} />
+                        <Tag variant="blue" label={t("active")} />
                       ) : null}
                     </dd>
                   </div>
@@ -209,6 +209,7 @@ export function RunsList({ locale }: RunsListProps) {
                         <OutcomeTags
                           outcome={tRun(`kinds.${run.recommendation}`)}
                           variant={RECOMMENDATION_VARIANTS[run.recommendation]}
+                          icon={OUTCOME_ICONS[run.recommendation]}
                           evidence={run.provenance.evidence}
                         />
                       )}

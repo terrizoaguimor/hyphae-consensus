@@ -154,7 +154,7 @@
       "source": "Contadas en este navegador a partir de {runs, plural, =0 {ninguna ejecución grabada} one {# ejecución grabada} many {# de ejecuciones grabadas} other {# ejecuciones grabadas}} del archivo de investigación ({events, plural, =0 {ningún registro} one {# registro} many {# de registros} other {# registros}}), tal como el servidor las lista; el manifiesto del archivo tiene el SHA-256 {sha256}…",
       "outcomesCaption": "Ejecuciones grabadas por resultado y por la evidencia con la que se juzgó cada una",
       "outcome": "Resultado",
-      "onEvidence": "con evidencia {evidence}",
+      "onEvidence": "Evidencia: {evidence}",
       "total": "Total",
       "failed": "fallida antes de una recomendación",
       "other": "otro",
@@ -302,7 +302,7 @@
       "task": "Tarea",
       "latestDelivery": "Último registro"
     },
-    "outcome": "{kind} — con evidencia {evidence}",
+    "outcomeEvidence": "Evidencia: {evidence}",
     "kinds": {
       "supported": "respaldada",
       "contested": "cuestionada",
@@ -1003,8 +1003,8 @@
     "schema": "Esquema",
     "schemaValue": "{version}",
     "unchained": "anterior a 1.1, sin cadena",
-    "failedAt": "falló en la etapa {stage} — con evidencia {evidence}",
-    "otherOutcome": "{outcome} — con evidencia {evidence}",
+    "failedAt": "falló en la etapa {stage}",
+    "otherOutcome": "{outcome}",
     "manifest": {
       "pinned": "Manifiesto {file}, SHA-256 {sha256}… tal como lo publica el servidor.",
       "download": "Descargar {file}",

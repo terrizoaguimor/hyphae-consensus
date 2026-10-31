@@ -154,7 +154,7 @@
       "source": "Counted in this browser from the {runs, plural, =0 {no recorded run} one {# recorded run} other {# recorded runs}} of the research archive ({events, plural, =0 {no record} one {# record} other {# records}}), as the server lists them; the archive’s manifest has SHA-256 {sha256}…",
       "outcomesCaption": "Recorded runs by outcome, and by the evidence each was judged on",
       "outcome": "Outcome",
-      "onEvidence": "on {evidence} evidence",
+      "onEvidence": "Evidence: {evidence}",
       "total": "Total",
       "failed": "failed before a recommendation",
       "other": "other",
@@ -302,7 +302,7 @@
       "task": "Task",
       "latestDelivery": "Latest record"
     },
-    "outcome": "{kind} — on {evidence} evidence",
+    "outcomeEvidence": "Evidence: {evidence}",
     "kinds": {
       "supported": "supported",
       "contested": "contested",
@@ -1003,8 +1003,8 @@
     "schema": "Schema",
     "schemaValue": "{version}",
     "unchained": "pre-1.1, unchained",
-    "failedAt": "failed at stage {stage} — on {evidence} evidence",
-    "otherOutcome": "{outcome} — on {evidence} evidence",
+    "failedAt": "failed at stage {stage}",
+    "otherOutcome": "{outcome}",
     "manifest": {
       "pinned": "Manifest {file}, SHA-256 {sha256}… as the server publishes it.",
       "download": "Download {file}",

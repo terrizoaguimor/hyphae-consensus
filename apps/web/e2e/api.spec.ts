@@ -94,8 +94,9 @@ test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, p
   await expect(page.locator("[data-lane]")).toContainText("2 records retrieved");
   await expect(page.locator("[data-lane]")).toContainText("4 proofs checked");
   await expect(page.locator("[data-proof-simulated='true']")).toHaveCount(4);
-  await expect(page.locator("[data-recommendation]")).toContainText(
-    "supported — on SIMULATED evidence",
+  await expect(page.locator("[data-recommendation] [data-outcome-tag='outcome']")).toHaveText("supported");
+  await expect(page.locator("[data-recommendation] [data-outcome-tag='evidence']")).toHaveText(
+    "Evidence: SIMULATED",
   );
   await expect(page.locator("[data-frame-delivery='replay']").first()).toBeVisible();
   await expect(liveBadge(page, "en")).toHaveCount(0);
@@ -665,7 +666,8 @@ test("My runs lists the session's runs with their retention dates", async ({ pag
   const first = cards.first();
   await expect(first).toContainText("Fix payment client timeouts");
   await expect(first).toContainText(t("en", "Run.states.approved"));
-  await expect(first).toContainText("supported — on SIMULATED evidence");
+  await expect(first.locator("[data-outcome-tag='outcome']")).toHaveText("supported");
+  await expect(first.locator("[data-outcome-tag='evidence']")).toHaveText("Evidence: SIMULATED");
   await expect(first).toContainText("Access ends");
   await expect(first).toContainText("Deleted after");
   await expect(first.getByRole("link")).toHaveAttribute("href", runPath("en", RUN_ID));

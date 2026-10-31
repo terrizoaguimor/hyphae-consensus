@@ -17,7 +17,10 @@
 //   for a record;
 // - the Limitations page does not promise that every recorded run can be
 //   re-checked: runs before schema 1.1 carry no chain, and for them only the
-//   file's SHA-256 can be compared with the manifest's digest.
+//   file's SHA-256 can be compared with the manifest's digest;
+// - an outcome's evidence is a tag of its own ("Evidence: SIMULATED"), never
+//   a sentence around a translated label (round 4, HE #3 and #24: "on NO
+//   EVIDENCE evidence", es "con evidencia SIMULADO").
 
 import { readFileSync } from "node:fs";
 
@@ -229,6 +232,29 @@ describe("translations of the review's round 2", () => {
     // ... and the recomputation is not narrowed to this run's later records:
     // the check recomputes every hashed record of the downloaded file.
     expect(intro).not.toContain(narrowed);
+  });
+
+  it.each([
+    // [locale, the evidence tag for SIMULATED, for NO EVIDENCE]
+    ["en", "Evidence: SIMULATED", "Evidence: NO EVIDENCE"],
+    ["es", "Evidencia: SIMULADO", "Evidencia: SIN EVIDENCIA"],
+    ["pt-BR", "Evidências: SIMULADO", "Evidências: SEM EVIDÊNCIAS"],
+    ["fr", "Éléments probants : SIMULÉ", "Éléments probants : AUCUN ÉLÉMENT PROBANT"],
+  ] as const)("an outcome's evidence is its own tag, an axis name and the label, never a sentence (%s)", (locale, simulated, none) => {
+    const ui = load(`${locale}.json`);
+    const tag = (key: string) =>
+      format(locale, "Run.outcomeEvidence", { evidence: message(ui, `Provenance.${key}`) });
+    // "Evidence: <label>": no "on NO EVIDENCE evidence", no "con evidencia SIMULADO".
+    expect(tag("simulated.label")).toBe(simulated);
+    expect(tag("noEvidence.label")).toBe(none);
+    expect(format(locale, "Overview.figures.onEvidence", { evidence: message(ui, "Provenance.simulated.label") })).toBe(
+      simulated,
+    );
+    // The one-sentence outcome template is gone, and the showcase's outcome words carry no evidence.
+    expect(() => message(ui, "Run.outcome")).toThrow();
+    for (const key of ["Showcase.failedAt", "Showcase.otherOutcome"]) {
+      expect(message(ui, key)).not.toContain("{evidence}");
+    }
   });
 
   it("the English Limitations page no longer promises every recorded run a re-check", () => {

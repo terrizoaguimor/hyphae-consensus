@@ -18,17 +18,17 @@ import { Badge } from "@astryxdesign/core/Badge";
 import Link from "next/link";
 import { useFormatter, useTranslations } from "next-intl";
 
-import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
 import { api } from "@/lib/api/client";
 import type { ShowcaseEntryV1 } from "@/lib/api/types";
-import { evidenceLabel, RECOMMENDATION_VARIANTS } from "@/lib/provenance";
+import { RECOMMENDATION_VARIANTS } from "@/lib/provenance";
 import { digestPrefix } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
 import { byBattery, isUnchained, manifestNote, parseOutcome, pinDisplay } from "@/lib/showcase";
 import { showcaseRunPath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { OutcomeTags } from "../OutcomeTags";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { UntrustedText } from "../run/UntrustedText";
 import { LogPinNote } from "./LogPinNote";
@@ -40,27 +40,25 @@ type ShowcaseListProps = {
 
 const AUTHORIZATIONS = ["pending", "approved", "rejected"] as const;
 
-/** An entry's outcome in words, next to its evidence axis. */
-export function useOutcomeText(): (entry: Pick<ShowcaseEntryV1, "outcome" | "provenance">) => {
+/** An entry's outcome in words; OutcomeTags shows it next to its evidence axis. */
+export function useOutcomeText(): (entry: Pick<ShowcaseEntryV1, "outcome">) => {
   text: string;
   variant: "success" | "warning" | "neutral" | "error";
 } {
   const tRun = useTranslations("Run");
   const t = useTranslations("Showcase");
-  const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   return (entry) => {
-    const evidence = tProvenance(evidenceLabel(entry.provenance.evidence).key);
     const outcome = parseOutcome(entry.outcome);
     switch (outcome.kind) {
       case "recommendation":
         return {
-          text: tRun("outcome", { kind: tRun(`kinds.${outcome.value}`), evidence }),
+          text: tRun(`kinds.${outcome.value}`),
           variant: RECOMMENDATION_VARIANTS[outcome.value] as "success" | "warning" | "neutral" | "error",
         };
       case "failed":
-        return { text: t("failedAt", { stage: outcome.stage, evidence }), variant: "error" };
+        return { text: t("failedAt", { stage: outcome.stage }), variant: "error" };
       case "other":
-        return { text: t("otherOutcome", { outcome: outcome.value, evidence }), variant: "neutral" };
+        return { text: t("otherOutcome", { outcome: outcome.value }), variant: "neutral" };
     }
   };
 }
@@ -245,7 +243,11 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
                       <div>
                         <dt>{tRun("header.outcome")}</dt>
                         <dd data-showcase-outcome={entry.outcome}>
-                          <Badge variant={outcome.variant} label={outcome.text} />
+                          <OutcomeTags
+                            outcome={outcome.text}
+                            variant={outcome.variant}
+                            evidence={entry.provenance.evidence}
+                          />
                         </dd>
                       </div>
                       <div>

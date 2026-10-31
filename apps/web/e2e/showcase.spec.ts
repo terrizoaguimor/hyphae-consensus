@@ -100,14 +100,20 @@ test("the showcase lists the archive as RECORDED, by battery, every outcome next
   // Every entry is RECORDED, with the model badge of a list: never LIVE META.
   await expect(page.getByText(t("en", "Provenance.recorded.label"), { exact: true })).toHaveCount(4);
   const f03 = page.locator(`[data-showcase-run='${String(F03.run_id)}']`);
-  await expect(f03.locator("[data-showcase-outcome='contested']")).toHaveText(
-    t("en", "Run.outcome", { kind: t("en", "Run.kinds.contested"), evidence: t("en", "Provenance.hyphaeLive.label") }),
+  await expect(f03.locator("[data-showcase-outcome='contested'] [data-outcome-tag='outcome']")).toHaveText(
+    t("en", "Run.kinds.contested"),
+  );
+  await expect(f03.locator("[data-showcase-outcome='contested'] [data-outcome-tag='evidence']")).toHaveText(
+    t("en", "Run.outcomeEvidence", { evidence: t("en", "Provenance.hyphaeLive.label") }),
   );
   await expect(f03.getByText(t("en", "Provenance.metaModel.label"), { exact: true })).toBeVisible();
   const scripted = page.locator(`[data-showcase-run='${String(c01.run_id)}']`);
   await expect(scripted).toContainText(t("en", "Showcase.unchained"));
-  await expect(scripted.locator("[data-showcase-outcome='supported']")).toHaveText(
-    "supported — on SIMULATED evidence",
+  await expect(scripted.locator("[data-showcase-outcome='supported'] [data-outcome-tag='outcome']")).toHaveText(
+    "supported",
+  );
+  await expect(scripted.locator("[data-showcase-outcome='supported'] [data-outcome-tag='evidence']")).toHaveText(
+    "Evidence: SIMULATED",
   );
   await expect(page.locator(`[data-showcase-run='${String(l01.run_id)}'] [data-showcase-outcome='blocked']`)).toBeVisible();
   // The card opens the run in the workspace, in RECORDED mode.

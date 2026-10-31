@@ -225,6 +225,11 @@ test.describe("the shapes of this change", () => {
     const segments = dialog.locator(".hc-tour-bar li");
     await expect(segments).toHaveCount(6);
     await expect(dialog.locator(".hc-tour-bar")).toHaveAttribute("aria-hidden", "true");
+    // Let the step change settle before the one-shot read below (a loaded
+    // machine once read the first segment still 40 wide right after Next).
+    await expect(segments.nth(1)).toHaveAttribute("data-state", "current");
+    await expect(segments.nth(0)).toHaveCSS("width", "24px");
+    await expect(segments.nth(1)).toHaveCSS("width", "40px");
     const drawn = await segments.evaluateAll((items) =>
       items.map((item) => {
         const style = getComputedStyle(item);
@@ -380,7 +385,7 @@ test.describe("the theme control is a keyboard radio group", () => {
   });
 
   test("names come from the catalogs, in every locale's words", async ({ page }) => {
-    for (const locale of ["fr", "pt-BR"] as const) {
+    for (const locale of ["en", "es", "pt-BR", "fr"] as const) {
       await page.goto(localePath(locale, ""));
       await hydrated(page);
       const group = page.locator(".hc-topbar-controls").getByRole("radiogroup", { name: t(locale, "Theme.label") });
@@ -416,6 +421,56 @@ test.describe("the theme control is a keyboard radio group", () => {
     // The segments are touch-sized in the drawer.
     const height = await group.locator(".hc-segment").first().evaluate((element) => element.getBoundingClientRect().height);
     expect(height).toBeGreaterThanOrEqual(44);
+  });
+
+  test("in the mobile drawer: the trap holds from every segment, whichever is checked", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(localePath("en", "docs"));
+    await hydrated(page);
+    await page.getByRole("button", { name: t("en", "Shell.menuButton"), exact: true }).click();
+    const drawer = page.getByRole("dialog", { name: t("en", "Shell.menuTitle") });
+    const group = drawer.getByRole("radiogroup", { name: t("en", "Theme.label") });
+    await expect(group).toBeVisible();
+    const options = ["system", "light", "dark"] as const;
+    for (const checked of options) {
+      await themeRadio(group, "en", checked).focus();
+      await page.keyboard.press("Space");
+      await expect(themeRadio(group, "en", checked)).toBeChecked();
+      // Tab from the checked segment (not always the last input in the DOM)
+      // wraps inside the dialog and leaves the group.
+      await page.keyboard.press("Tab");
+      expect(await focusInOpenDialog(page), `Tab from checked ${checked}`).toBe(true);
+      expect(await page.evaluate(() => document.activeElement?.closest("[data-theme-control]") === null)).toBe(true);
+      // Focus on an unchecked segment (a screen reader's virtual cursor can
+      // put it there): Tab still stays in the dialog.
+      for (const focused of options.filter((option) => option !== checked)) {
+        await themeRadio(group, "en", focused).focus();
+        await page.keyboard.press("Tab");
+        expect(await focusInOpenDialog(page), `Tab from ${focused} with ${checked} checked`).toBe(true);
+        await themeRadio(group, "en", focused).focus();
+        await page.keyboard.press("Shift+Tab");
+        expect(await focusInOpenDialog(page), `Shift+Tab from ${focused} with ${checked} checked`).toBe(true);
+      }
+      await expect(themeRadio(group, "en", checked)).toBeChecked();
+    }
+  });
+
+  test("the icons draw a 1.5px stroke (design-direction 3.9)", async ({ page }) => {
+    await page.goto(localePath("en", ""));
+    await hydrated(page);
+    const strokes = await page.locator(".hc-topbar-controls [data-theme-control] svg").evaluateAll((icons) =>
+      icons.map((icon) => {
+        const box = (icon as SVGSVGElement).viewBox.baseVal;
+        const width = Number(icon.getAttribute("width"));
+        return (Number(icon.getAttribute("stroke-width")) * width) / box.width;
+      }),
+    );
+    // Three option icons and three checks.
+    expect(strokes).toHaveLength(6);
+    for (const stroke of strokes) {
+      expect(stroke).toBeCloseTo(1.5, 5);
+    }
   });
 
   for (const theme of ["light", "dark"] as const) {

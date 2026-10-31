@@ -50,6 +50,23 @@ function focusableIn(root: HTMLElement): HTMLElement[] {
   });
 }
 
+/**
+ * Whether `a` and `b` are the same Tab stop: the same element, or two radios
+ * of one named group. Focus can sit on an unchecked radio of the group (a
+ * screen reader's virtual cursor or focus() puts it there), and Tab from it
+ * leaves the group just as from the checked one.
+ */
+function sameStop(a: Element | null, b: Element): boolean {
+  return (
+    a === b ||
+    (a !== null &&
+      isRadio(a) &&
+      isRadio(b) &&
+      a.name !== "" &&
+      a.name === b.name)
+  );
+}
+
 /** The page's main heading, the fallback focus target. */
 export function focusPageHeading(): void {
   const heading = document.querySelector<HTMLElement>("main h1");
@@ -142,11 +159,15 @@ export function Modal({
     }
     const active = document.activeElement;
     if (event.shiftKey) {
-      if (active === first || !dialog.contains(active) || active === dialog) {
+      if (
+        sameStop(active, first) ||
+        !dialog.contains(active) ||
+        active === dialog
+      ) {
         event.preventDefault();
         last.focus();
       }
-    } else if (active === last || !dialog.contains(active)) {
+    } else if (sameStop(active, last) || !dialog.contains(active)) {
       event.preventDefault();
       first.focus();
     }

@@ -70,7 +70,8 @@ const ICON_PROPS = {
   height: 16,
   fill: "none",
   stroke: "currentColor",
-  strokeWidth: 2,
+  // 1.5px drawn at 16px on the 24-unit grid (design-direction 3.9).
+  strokeWidth: 2.25,
   strokeLinecap: "round",
   strokeLinejoin: "round",
   "aria-hidden": true,
@@ -106,10 +107,19 @@ function ThemeIcon({ option }: { option: ThemePreference }) {
   );
 }
 
-/** Lucide's check (from Feather, MIT), 12px: shown on the selected segment only (CSS). */
+/**
+ * Lucide's check (from Feather, MIT), 12px with a 1.5px drawn stroke: shown
+ * on the selected segment only (CSS).
+ */
 function CheckIcon() {
   return (
-    <svg {...ICON_PROPS} width={12} height={12} className="hc-segment-check">
+    <svg
+      {...ICON_PROPS}
+      width={12}
+      height={12}
+      strokeWidth={3}
+      className="hc-segment-check"
+    >
       <path d="M20 6 9 17l-5-5" />
     </svg>
   );

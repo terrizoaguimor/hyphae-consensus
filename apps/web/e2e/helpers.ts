@@ -12,6 +12,14 @@ import { runPath } from "../src/lib/site";
 import { RUN_ID } from "./api-mock";
 import { expect, hydrated, type Locale, t } from "./fixtures";
 
+/**
+ * The outcome tag and the evidence tag of an OutcomeTags pair, as Astryx
+ * badges (the element that carries data-variant), whether the data
+ * attribute sits on the badge itself or on a wrapper around it.
+ */
+export const OUTCOME_BADGE = ".astryx-badge[data-outcome-tag='outcome'], [data-outcome-tag='outcome'] .astryx-badge";
+export const EVIDENCE_BADGE = ".astryx-badge[data-outcome-tag='evidence'], [data-outcome-tag='evidence'] .astryx-badge";
+
 /** Removes an expected API error response from the page's problem list, asserting it happened. */
 export function takeProblem(problems: string[], text: string): void {
   const index = problems.indexOf(text);

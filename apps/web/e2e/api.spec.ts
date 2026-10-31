@@ -42,7 +42,15 @@ import {
 } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, locales, t, test, useTheme } from "./fixtures";
-import { dropProblems, expectNoLive, liveBadge, openRun, takeProblem } from "./helpers";
+import {
+  dropProblems,
+  EVIDENCE_BADGE,
+  expectNoLive,
+  liveBadge,
+  openRun,
+  OUTCOME_BADGE,
+  takeProblem,
+} from "./helpers";
 
 type Json = Record<string, unknown>;
 
@@ -127,8 +135,12 @@ test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, p
   );
   // "supported" on SIMULATED evidence is never green: the info role (HE #1),
   // in the stage and in the header; "corroborated" likewise.
-  await expectNotGreen(page.locator("[data-recommendation] [data-recommendation-kind] .astryx-badge"), "info");
-  await expectNotGreen(page.locator("[data-run-field='outcome'] .astryx-badge"), "info");
+  // The outcome is its own tag (OutcomeTags): the outcome tag is info, the
+  // evidence tag next to it is SIMULATED's purple, and neither is green.
+  await expectNotGreen(page.locator("[data-recommendation] [data-recommendation-kind]").locator(OUTCOME_BADGE), "info");
+  await expectNotGreen(page.locator("[data-run-field='outcome']").locator(OUTCOME_BADGE), "info");
+  await expectNotGreen(page.locator("[data-recommendation] [data-recommendation-kind]").locator(EVIDENCE_BADGE), "purple");
+  await expectNotGreen(page.locator("[data-run-field='outcome']").locator(EVIDENCE_BADGE), "purple");
   await expectNotGreen(
     page.locator("[data-role-card='Evidence Evaluator'] .astryx-badge", {
       hasText: new RegExp(`^${t("en", "Run.stage.corroborated")}$`),
@@ -1675,7 +1687,8 @@ test("the Decision tab explains the recommendation from its policy trace @smoke"
   ]);
   await expect(explanation.locator("[data-explain-counts]")).not.toContainText("2 valid");
   // The recommendation opening the tab is never green on simulated evidence (HE #1).
-  await expectNotGreen(page.locator("[data-decision] [data-recommendation-kind] .astryx-badge"), "info");
+  await expectNotGreen(page.locator("[data-decision] [data-recommendation-kind]").locator(OUTCOME_BADGE), "info");
+  await expectNotGreen(page.locator("[data-decision] [data-recommendation-kind]").locator(EVIDENCE_BADGE), "purple");
   // The server's own rationale says "2 valid": a caption says those are scripted statuses.
   await expect(page.locator("[data-decision] > section [data-rationale-simulated]")).toHaveText(
     t("en", "Run.stage.rationaleSimulated"),

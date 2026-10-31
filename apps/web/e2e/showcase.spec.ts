@@ -38,7 +38,16 @@ import { AXE_TAGS, blocking, type ScanSummary, summarize, writeScans } from "./a
 import { mockApi, recordedRun } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
-import { dropProblems, expectNoLive, expectNoLiveOnPage, liveWord, liveWordHits, takeProblem } from "./helpers";
+import {
+  dropProblems,
+  EVIDENCE_BADGE,
+  expectNoLive,
+  expectNoLiveOnPage,
+  liveWord,
+  liveWordHits,
+  OUTCOME_BADGE,
+  takeProblem,
+} from "./helpers";
 import { archivedProposals, archiveEntry, logSegment, manifestRun, metaRequestIds, researchBytes } from "./research";
 
 type Json = Record<string, unknown>;
@@ -118,9 +127,14 @@ test("the showcase lists the archive as RECORDED, by battery, every outcome next
   // "supported" on SIMULATED evidence reads in the info colour, never green
   // (HE #1); no outcome of the list is green; META MODEL keeps its one
   // (info) colour (HE #16).
-  await expect(scripted.locator("[data-showcase-outcome='supported'] .astryx-badge")).toHaveAttribute(
+  await expect(scripted.locator("[data-showcase-outcome='supported']").locator(OUTCOME_BADGE)).toHaveAttribute(
     "data-variant",
     "info",
+  );
+  // Its evidence tag is SIMULATED's purple, never green either.
+  await expect(scripted.locator("[data-showcase-outcome='supported']").locator(EVIDENCE_BADGE)).toHaveAttribute(
+    "data-variant",
+    "purple",
   );
   for (const variant of await page
     .locator("[data-showcase-outcome] .astryx-badge")
@@ -198,10 +212,19 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
   await expect(
     header.locator(".astryx-badge", { hasText: new RegExp(`^${t("en", "Provenance.metaModel.label")}$`) }),
   ).toHaveAttribute("data-variant", "info");
-  await expect(header.locator("[data-run-field='outcome'] .astryx-badge")).toHaveAttribute("data-variant", "info");
-  await expect(page.locator("[data-decision] [data-recommendation-kind] .astryx-badge")).toHaveAttribute(
+  await expect(header.locator("[data-run-field='outcome']").locator(OUTCOME_BADGE)).toHaveAttribute("data-variant", "info");
+  await expect(page.locator("[data-decision] [data-recommendation-kind]").locator(OUTCOME_BADGE)).toHaveAttribute(
     "data-variant",
     "info",
+  );
+  // The evidence tag next to each (HYPHAE evidence) is neutral, never green.
+  await expect(header.locator("[data-run-field='outcome']").locator(EVIDENCE_BADGE)).toHaveAttribute(
+    "data-variant",
+    "neutral",
+  );
+  await expect(page.locator("[data-decision] [data-recommendation-kind]").locator(EVIDENCE_BADGE)).toHaveAttribute(
+    "data-variant",
+    "neutral",
   );
   await expect(header.locator("[data-provenance-note='liveMeta.recorded']")).toBeVisible();
   await expect(header.locator("[data-recorded-run]")).toContainText(

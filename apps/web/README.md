@@ -358,9 +358,13 @@ outcome and a "corroborated" assessment are the info role (`INFO_VARIANT`),
 never green, on any evidence; META MODEL is the info colour in every state;
 LIVE and LIVE META share `LIVE_VARIANT`, used by nothing else. Round 5 has
 no hue: "green" is now the verified encoding (a solid mid grey under an
-inverted label, no frame), and the same rules hold on the monochrome
-encodings (globals.css "Status without hue"; checked on the rendered tags by
-`e2e/api.spec.ts` and `e2e/showcase.spec.ts`). Every counter
+inverted label, no frame), given only to a real verifier's accepted proof;
+the in-browser chain check and the showcase manifest's digest keep the
+success variant in the view but are drawn "checked" (hollow: the surface
+and a 1px border/strong frame), because integrity is not truth. The same
+rules hold on the monochrome encodings (globals.css "Status without hue";
+checked on the rendered tags by `e2e/api.spec.ts` and
+`e2e/showcase.spec.ts`). Every counter
 of simulated proofs says so on the same line ("4 simulated proofs (not
 checked)", "SIMULATED, scripted “valid”: 4 proofs (not checked)", the plain
 explanation's "all SIMULATED … (scripted, not checked)"), and a server text or
@@ -753,11 +757,29 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
   style and a marker, not by colour (globals.css "Status without hue":
   verified solid mid grey, failed solid ink in a double frame, simulated
   dashed, LIVE a 2px ink frame with a square, contested double, recorded a
-  mid tint, info a tint). `tests/no-hue.test.ts` fails on any colour literal
+  mid tint, info a tint, checked hollow). Callouts likewise (palette-mono
+  2.3): failed a 2px ink frame with an inverted title band, contested a 4px
+  double bar, success and info a 3px solid bar, each on its tint.
+  `tests/no-hue.test.ts` fails on any colour literal
   with a hue in the theme output or the app's stylesheets, and on any colour
   Astryx's base stylesheet sets with a hue that the theme does not
   redeclare; `e2e/no-hue.spec.ts` checks the built CSS and every colour the
   browser renders, in both themes.
+- **Left for the later round 5 lanes** (known deviations of this
+  foundation from palette-mono and design-direction):
+  - The neutral variant carries RECORDED's mid tint, so every other neutral
+    label (THIS SERVER, the HYPHAE evidence labels, no evidence,
+    undetermined, abstained, not checked) shares it; palette-mono 2.1 gives
+    them the informational tint. RECORDED needs a variant or hook of its own
+    first (tags lane).
+  - Two selectors follow the shrunken `--radius-element` (now 4 px) rather
+    than the spec: `[data-recommendation-kind] .astryx-badge` (tags should
+    be 2 px) and the end corners of `.hc-nav-link` (navigation items should
+    be 0). The shapes lane sets both on purpose.
+  - `hc-mono-tokens.css` declares `--hc-btn-grain`, `--hc-glass-grain` and
+    `--hc-hatch` as `url("/brand/*.png")`, but no tile is shipped under
+    `public/brand/` yet and nothing uses these tokens. The lane that first
+    uses one adds the tiles in the same commit.
 - **Theme**: `src/theme/hyphaeMissionTheme.ts` extends the neutral theme with
   `defineTheme`. `pnpm theme:build` writes the committed
   `hyphae-mission.{css,js,d.ts,css.d.ts,variants.d.ts}`; rebuild after any

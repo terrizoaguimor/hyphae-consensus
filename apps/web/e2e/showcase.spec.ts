@@ -39,6 +39,8 @@ import { mockApi, recordedRun } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
 import {
+  CALLOUT_ENCODING,
+  calloutEncoding,
   dropProblems,
   EVIDENCE_BADGE,
   expectEncoding,
@@ -2266,7 +2268,24 @@ test("a manifest that matches is an explicit success status, and no card reads u
   await expect(status.locator("[data-manifest-check='matches']")).toHaveText(t("en", "Showcase.manifest.matches"));
   await expect(page.locator("[data-manifest-banner]")).toHaveCount(0);
   await expect(page.locator("[data-archive-unconfirmed]")).toHaveCount(0);
+  // A digest compared in this browser is checked, not verified: hollow, never the verified solid.
+  await expectEncoding(status.locator(".astryx-badge"), "checked");
 });
+
+for (const theme of ["light", "dark"] as const) {
+  test(`a matching manifest's tag is hollow, never the verified solid (${theme})`, async ({ page }) => {
+    const { list } = entries();
+    await mockApi(page, { showcase: list });
+    await useTheme(page, theme);
+    await openShowcase(page, "en");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    const tag = page.locator("[data-manifest-status='matches'] .astryx-badge");
+    await expectEncoding(tag, "checked");
+    for (const encoding of await tagEncodings(tag)) {
+      expect(encoding).not.toEqual(VERIFIED_ENCODING);
+    }
+  });
+}
 
 test("a manifest that does not match is a failed status and banner, and every card reads 'Archive not confirmed'", async ({
   page,
@@ -2291,6 +2310,7 @@ test("a manifest that does not match is a failed status and banner, and every ca
   // The banner at the top of the list, before the manifest line and the batteries.
   const banner = page.locator("[data-manifest-banner='differs']");
   await expect(banner).toHaveAttribute("data-callout-tone", "failed");
+  expect(await calloutEncoding(banner)).toEqual(CALLOUT_ENCODING.failed);
   await expect(banner.locator(".hc-callout-title")).toHaveText(t("en", "Showcase.manifest.differsTitle"));
   await expect(banner).toContainText(t("en", "Showcase.manifest.differsBody"));
   await expect(banner.locator("svg[aria-hidden='true']")).toHaveCount(1);
@@ -2344,6 +2364,7 @@ test("a manifest that matches its digest but does not parse is no success, and a
   await expect(page.locator("[data-manifest-announcement]")).toHaveText(t("en", "Showcase.manifest.unparsed"));
   const banner = page.locator("[data-manifest-banner='unparsed']");
   await expect(banner).toHaveAttribute("data-callout-tone", "contested");
+  expect(await calloutEncoding(banner)).toEqual(CALLOUT_ENCODING.contested);
   await expect(banner.locator(".hc-callout-title")).toHaveText(t("en", "Showcase.manifest.unparsedTitle"));
   await expect(banner).toContainText(t("en", "Showcase.manifest.differsBody"));
   await expect(page.locator("[data-manifest-banner='differs']")).toHaveCount(0);

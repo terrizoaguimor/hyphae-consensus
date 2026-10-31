@@ -1371,8 +1371,12 @@
    * monochrome encoding, told apart before reading by fill weight, label
    * polarity, frame style and a marker, then by the word:
    *   success  verified: solid mid grey (mono/6, mono/5), inverted label, no
-   *            frame. Only a real verifier's accepted proof and a real check
-   *            run here get it (tests/provenance.test.ts).
+   *            frame. Only a real verifier's accepted proof gets it
+   *            (tests/provenance.test.ts). The two checks run in this
+   *            browser (the chain check, the showcase manifest's digest)
+   *            also use the success variant, but are drawn below as
+   *            "checked": hollow, never the verified solid (integrity is
+   *            not truth).
    *   error    failed: solid ink, inverted label, inside a 3px double frame
    *            whose gap shows the surface: the loudest tag.
    *   purple   simulated / scripted: tint, 1px dashed frame (dashed means
@@ -1383,8 +1387,18 @@
    *   warning  contested / not enough evidence / a flag: tint, 3px double
    *            frame in the contested line (double means "a problem").
    *   neutral  recorded and the neutral states: mid tint, 1px solid frame.
+   *            Deviation from palette-mono 2.1, kept for the tags lane: the
+   *            spec gives the mid tint to RECORDED only and the other
+   *            neutral labels (THIS SERVER, the HYPHAE evidence labels, no
+   *            evidence, undetermined, abstained, not checked) the
+   *            informational tint, but they share the neutral variant with
+   *            RECORDED (src/lib/provenance.ts), so they share its look
+   *            until RECORDED gets a hook of its own. None of them reads LIVE.
    *   info,    informational (META MODEL, "supported", REPLAY): tint, quieter
    *   blue     ink, a decorative hairline only. Never solid, never a check.
+   *   checked  (the success variant inside [data-chain-check] and
+   *            [data-manifest-status="matches"]): the opaque surface, a 1px
+   *            solid border/strong frame, normal polarity.
    * Frames are outlines, so a frame adds no size to Astryx's fixed-height
    * badge; the failed frame sits outside the fill so its gap is the surface.
    */
@@ -1449,6 +1463,16 @@
     outline-offset: -1px;
   }
 
+  /* Checked in this browser, not verified (palette-mono 2.1): verified is
+     solid, checked is hollow, and the two never share a fill weight. */
+  [data-chain-check] .astryx-badge[data-variant="success"],
+  [data-manifest-status="matches"] .astryx-badge[data-variant="success"] {
+    color: var(--hc-role-checked-fg);
+    background-color: var(--hc-role-checked-bg);
+    outline: 1px solid var(--hc-role-checked-border);
+    outline-offset: -1px;
+  }
+
   /* Forced colours drop fills: the two solid verdicts opt out and stay
      inverted blocks (failed inside its double frame); the frames are
      outlines, which survive in the system colour; LIVE keeps its square. */
@@ -1466,6 +1490,22 @@
 
     .astryx-badge[data-variant="pink"]::before {
       forced-color-adjust: none;
+      background-color: CanvasText;
+    }
+
+    /* Checked is not an inverted block: the system colours and its frame. */
+    [data-chain-check] .astryx-badge[data-variant="success"],
+    [data-manifest-status="matches"] .astryx-badge[data-variant="success"] {
+      forced-color-adjust: auto;
+      color: CanvasText;
+      background-color: Canvas;
+      outline-color: CanvasText;
+    }
+
+    /* The failed callout's title band stays an inverted block. */
+    .hc-callout[data-callout-tone="failed"] .hc-callout-title {
+      forced-color-adjust: none;
+      color: Canvas;
       background-color: CanvasText;
     }
   }
@@ -1510,9 +1550,9 @@
   }
 
   /* A full-width callout (src/components/Callout.tsx): icon, title in words,
-     body. The role's color is on the bar and the border only; the text keeps
-     the primary color on a surface the contrast test covers (the failed role
-     reuses the error surface of .hc-error, which already passes). */
+     body. The role is on the bar, the frame and the failed title band; the
+     body text keeps the primary color on the role's tint, a pair
+     tests/contrast.test.ts covers (as it covers the failed title band). */
   .hc-callout {
     display: flex;
     gap: var(--spacing-3);
@@ -1520,24 +1560,35 @@
     width: 100%;
     margin: 0;
     padding: var(--spacing-3) var(--spacing-4);
-    border: 1px solid var(--color-border-emphasized);
-    border-inline-start-width: 3px;
+    border: 0 solid transparent;
+    border-inline-start: 3px solid var(--hc-border-default);
     border-radius: 0 var(--radius-container) var(--radius-container) 0;
-    background-color: var(--color-background-muted);
+    background-color: var(--hc-role-info-bg);
     color: var(--color-text-primary);
   }
 
+  /* Without hue the tones differ by line style and polarity, never by a
+     shade alone (palette-mono 2.3; tests/provenance.test.ts):
+       failed     a 2px ink frame and an inverted title band, the only
+                  inverted band in the system; body on the tint.
+       contested  a 4px double bar on the inline-start edge, on the tint
+                  (double means "a problem").
+       success,   a 3px solid border/default bar, on the tint (the default
+       info       above). */
   .hc-callout[data-callout-tone="failed"] {
-    border-color: var(--color-error);
-    background-color: var(--color-error-muted);
+    border: 2px solid var(--hc-role-failed-border);
+    background-color: var(--hc-role-failed-bg);
+  }
+
+  .hc-callout[data-callout-tone="failed"] .hc-callout-title {
+    padding: var(--spacing-1) var(--spacing-2);
+    background-color: var(--hc-role-failed-solid);
+    color: var(--hc-role-failed-on-solid);
   }
 
   .hc-callout[data-callout-tone="contested"] {
-    border-color: var(--color-warning);
-  }
-
-  .hc-callout[data-callout-tone="success"] {
-    border-color: var(--color-success);
+    border-inline-start: 4px double var(--hc-role-contested-border);
+    background-color: var(--hc-role-contested-bg);
   }
 
   .hc-callout-icon {
@@ -1564,7 +1615,7 @@
   }
 
   /* As inside .hc-error: supporting lines keep the primary color on the
-     failed surface and differ by size only. */
+     role's tint and differ by size only. */
   .hc-callout .hc-supporting {
     color: var(--color-text-primary);
   }

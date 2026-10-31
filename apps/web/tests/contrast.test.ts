@@ -15,11 +15,17 @@ const css = readFileSync(
   "utf8",
 );
 
-/** First definition of a token as light-dark(#light, #dark). */
-function token(name: string): { light: string; dark: string } {
+// The app's token layer (palette-mono's role tokens), for the callouts.
+const tokens = readFileSync(
+  new URL("../src/app/hc-mono-tokens.css", import.meta.url),
+  "utf8",
+);
+
+/** First definition of a token as light-dark(#light, #dark), in the compiled theme unless `source` is given. */
+function token(name: string, source: string = css): { light: string; dark: string } {
   const match = new RegExp(
     `${name}:\\s*light-dark\\((#[0-9a-fA-F]{6}),\\s*(#[0-9a-fA-F]{6})\\)`,
-  ).exec(css);
+  ).exec(source);
   if (match === null || match[1] === undefined || match[2] === undefined) {
     throw new Error(`${name} is not a light-dark() pair of hex colors`);
   }
@@ -82,6 +88,29 @@ describe.each(["light", "dark"] as const)("%s mode", (mode) => {
     expect(onAccent).not.toBeNull();
     const text = mode === "light" ? onAccent?.[1] : onAccent?.[2];
     expect(contrast(text ?? "#000000", accent)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // A status fill and the label Astryx draws on it: its atomic classes pair
+  // background-color: var(--color-<status>) with color: var(--color-on-<status>).
+  it.each(["success", "error", "warning"] as const)("--color-on-%s meets 4.5:1 on its fill", (status) => {
+    const ratio = contrast(token(`--color-on-${status}`)[mode], token(`--color-${status}`)[mode]);
+    expect(ratio, `--color-on-${status} on --color-${status}: ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // The full-width callouts (globals.css, palette-mono 2.3): body text in the
+  // primary colour on the role's tint, and the failed callout's inverted
+  // title band (on-solid on the failed solid).
+  it.each(["failed", "contested", "info"] as const)("--color-text-primary meets 4.5:1 on the %s callout tint", (role) => {
+    const ratio = contrast(token("--color-text-primary")[mode], token(`--hc-role-${role}-bg`, tokens)[mode]);
+    expect(ratio, `${role} tint: ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("the failed callout's inverted title band meets 4.5:1", () => {
+    const ratio = contrast(
+      token("--hc-role-failed-on-solid", tokens)[mode],
+      token("--hc-role-failed-solid", tokens)[mode],
+    );
+    expect(ratio, `failed title band: ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
   });
 });
 

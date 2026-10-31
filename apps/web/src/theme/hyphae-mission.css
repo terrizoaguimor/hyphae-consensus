@@ -191,7 +191,7 @@
     --color-on-accent: light-dark(#FFFFFF, #0B0B0B);
     --color-on-success: light-dark(#FFFFFF, #0B0B0B);
     --color-on-error: light-dark(#FFFFFF, #0B0B0B);
-    --color-on-warning: light-dark(#131313, #F4F4F4);
+    --color-on-warning: light-dark(#FFFFFF, #0B0B0B);
     --color-icon-accent: light-dark(#0B0B0B, #FFFFFF);
     --color-icon-primary: light-dark(#131313, #F4F4F4);
     --color-icon-secondary: light-dark(#3A3A3A, #C2C2C2);

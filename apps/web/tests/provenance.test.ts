@@ -573,4 +573,57 @@ describe("status encodings without hue", () => {
     expect(solid("warning")).toBe(false);
     expect(frame("warning")).toBe("double 3px");
   });
+
+  /** The declarations (outside @media) of the rules whose selector list includes `own`. */
+  function rulesOf(own: string): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const { selector, property, value, context } of globals) {
+      if (context.some((entry) => entry.startsWith("@media"))) {
+        continue;
+      }
+      if (selector.split(",").map((part) => part.trim().replace(/\s+/g, " ")).includes(own)) {
+        result[property] = value;
+      }
+    }
+    return result;
+  }
+
+  // The two checks run in this browser keep the success variant in the view
+  // (the literal the test above allows), but integrity is not truth: they are
+  // drawn "checked", hollow, never the verified solid (palette-mono 2.1).
+  it.each([
+    '[data-chain-check] .astryx-badge[data-variant="success"]',
+    '[data-manifest-status="matches"] .astryx-badge[data-variant="success"]',
+  ])("a check run in this browser is hollow, never the verified solid: %s", (selector) => {
+    const checked = rulesOf(selector);
+    expect(checked).toEqual({
+      color: "var(--hc-role-checked-fg)",
+      "background-color": "var(--hc-role-checked-bg)",
+      outline: "1px solid var(--hc-role-checked-border)",
+      "outline-offset": "-1px",
+    });
+    expect(checked["background-color"]).not.toBe(rule("success")["background-color"]);
+    expect(checked["background-color"]).not.toMatch(/-solid\)$/);
+    expect(checked.color).not.toBe(rule("success").color);
+  });
+
+  // The full-width callouts (palette-mono 2.3): failed and contested differ
+  // by line style and polarity, not only by a shade of grey.
+  it("a failed callout and a contested one differ by line style, and only failed has an inverted title band", () => {
+    const failed = rulesOf('.hc-callout[data-callout-tone="failed"]');
+    const contested = rulesOf('.hc-callout[data-callout-tone="contested"]');
+    const base = rulesOf(".hc-callout");
+    expect(failed.border).toBe("2px solid var(--hc-role-failed-border)");
+    expect(contested["border-inline-start"]).toBe("4px double var(--hc-role-contested-border)");
+    expect(base["border-inline-start"]).toBe("3px solid var(--hc-border-default)");
+    const style = (value: string | undefined) => (value ?? "").split(/\s+/).slice(0, 2).join(" ");
+    expect(style(failed.border)).not.toBe(style(contested["border-inline-start"]));
+    expect(style(contested["border-inline-start"])).not.toBe(style(base["border-inline-start"]));
+    const band = rulesOf('.hc-callout[data-callout-tone="failed"] .hc-callout-title');
+    expect(band["background-color"]).toBe("var(--hc-role-failed-solid)");
+    expect(band.color).toBe("var(--hc-role-failed-on-solid)");
+    for (const tone of ["contested", "success", "info"]) {
+      expect(rulesOf(`.hc-callout[data-callout-tone="${tone}"] .hc-callout-title`), tone).toEqual({});
+    }
+  });
 });

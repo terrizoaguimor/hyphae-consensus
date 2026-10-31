@@ -43,6 +43,8 @@ import {
 import { fixture } from "./contract";
 import { expect, hydrated, locales, t, test, useTheme } from "./fixtures";
 import {
+  CALLOUT_ENCODING,
+  calloutEncoding,
   dropProblems,
   EVIDENCE_BADGE,
   expectEncoding,
@@ -1601,6 +1603,8 @@ test("the chain check keeps the focus on its button and announces only the short
   await expect(focused).toHaveAttribute("aria-disabled", "true");
   release();
   await expect(page.locator("[data-chain-verdict='pass']")).toBeVisible();
+  // Checked in this browser, not verified: every pass tag is hollow, never the verified solid.
+  await expectEncoding(section.locator("[data-chain-verdict='pass'] .astryx-badge[data-variant='success']"), "checked");
   await expect(section.getByRole("button", { name: t("en", "Run.chain.again") })).toBeFocused();
   expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("BUTTON");
   // The same region holds the short verdict; the detailed results are outside any live region.
@@ -2280,6 +2284,9 @@ test("a chain check that fails in this browser travels to the header and to the 
   const broken = header.locator("[data-chain-broken='header']");
   await expect(broken).toBeVisible();
   await expect(broken).toHaveAttribute("data-callout-tone", "failed");
+  // Without hue: the 2px ink frame and the inverted title band, never a contested callout's look.
+  expect(await calloutEncoding(broken)).toEqual(CALLOUT_ENCODING.failed);
+  expect(await calloutEncoding(broken)).not.toEqual(CALLOUT_ENCODING.contested);
   await expect(broken).toHaveAttribute("data-chain-broken-sequence", "4");
   await expect(broken.locator(".hc-callout-title")).toHaveText(t("en", "Run.chainBroken.title"));
   await expect(broken.locator("svg[aria-hidden='true']")).toHaveCount(1);
@@ -2371,6 +2378,9 @@ test("PROVENANCE INCONSISTENT is a full-width callout, and labels that disagree 
   const flag = header.locator("[data-provenance-flag-callout='provenance_inconsistent']");
   await expect(flag).toBeVisible();
   await expect(flag).toHaveAttribute("data-callout-tone", "contested");
+  // Without hue: the 4px double bar on the tint, never a failed callout's frame or band.
+  expect(await calloutEncoding(flag)).toEqual(CALLOUT_ENCODING.contested);
+  expect(await calloutEncoding(flag)).not.toEqual(CALLOUT_ENCODING.failed);
   await expect(flag.locator(".hc-callout-title")).toHaveText(t("en", "Run.consistency.flagTitle"));
   await expect(flag).toContainText(t("en", "Provenance.flagNotes.provenance_inconsistent"));
   await expect(page.getByText(t("en", "Provenance.flagNotes.provenance_inconsistent"))).toHaveCount(1);

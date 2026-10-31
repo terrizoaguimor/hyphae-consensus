@@ -25,20 +25,27 @@ export const EVIDENCE_BADGE = ".astryx-badge[data-outcome-tag='evidence'], [data
  * variant rules in globals.css), read from the rendered badge: its frame
  * (outline style and width, "none" when there is none), whether its label is
  * inverted (lighter than its fill in the light theme, darker in the dark
- * one: the two solid verdicts), and whether it carries the LIVE square.
+ * one: the two solid verdicts), whether it carries the LIVE square, and its
+ * fill weight: "solid" under an inverted label, otherwise the fill's
+ * contrast against the theme's surface (--color-background-surface):
+ * "surface" under 1.1:1 (an outline), "tint" under 1.4:1, "mid" above (the
+ * RECORDED mid tint, 1.59:1 light and 1.63:1 dark).
  */
-export type TagEncoding = { frame: string; inverted: boolean; marker: boolean };
+export type TagEncoding = { frame: string; inverted: boolean; marker: boolean; fill: string };
 
-/** The monochrome encoding of each badge variant the views use. */
+/** The monochrome encoding of each badge variant the views use, and of the "checked" look. */
 export const VARIANT_ENCODING: Record<string, TagEncoding> = {
-  success: { frame: "none", inverted: true, marker: false },
-  error: { frame: "double 3px", inverted: true, marker: false },
-  purple: { frame: "dashed 1px", inverted: false, marker: false },
-  pink: { frame: "solid 2px", inverted: false, marker: true },
-  warning: { frame: "double 3px", inverted: false, marker: false },
-  neutral: { frame: "solid 1px", inverted: false, marker: false },
-  info: { frame: "solid 1px", inverted: false, marker: false },
-  blue: { frame: "solid 1px", inverted: false, marker: false },
+  success: { frame: "none", inverted: true, marker: false, fill: "solid" },
+  error: { frame: "double 3px", inverted: true, marker: false, fill: "solid" },
+  purple: { frame: "dashed 1px", inverted: false, marker: false, fill: "tint" },
+  pink: { frame: "solid 2px", inverted: false, marker: true, fill: "surface" },
+  warning: { frame: "double 3px", inverted: false, marker: false, fill: "tint" },
+  neutral: { frame: "solid 1px", inverted: false, marker: false, fill: "mid" },
+  info: { frame: "solid 1px", inverted: false, marker: false, fill: "tint" },
+  blue: { frame: "solid 1px", inverted: false, marker: false, fill: "tint" },
+  // The success variant of a check run in this browser (the chain check, the
+  // showcase manifest): hollow, never the verified solid.
+  checked: { frame: "solid 1px", inverted: false, marker: false, fill: "surface" },
 };
 
 /** The verified look: a solid fill under an inverted label, no frame. Nothing simulated may have it. */
@@ -59,16 +66,26 @@ export async function tagEncodings(badges: Locator): Promise<TagEncoding[]> {
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     };
     const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    // The theme's surface, resolved by the browser (light-dark() included).
+    const probe = document.createElement("div");
+    probe.className = "hc-visually-hidden";
+    probe.style.backgroundColor = "var(--color-background-surface)";
+    document.body.append(probe);
+    const surface = luminance(getComputedStyle(probe).backgroundColor);
+    probe.remove();
     return nodes.map((node) => {
       const style = getComputedStyle(node);
       const width = Number.parseFloat(style.outlineWidth);
       const label = luminance(style.color);
       const fill = luminance(style.backgroundColor);
       const before = getComputedStyle(node, "::before");
+      const inverted = dark ? label < fill : label > fill;
+      const step = (Math.max(fill, surface) + 0.05) / (Math.min(fill, surface) + 0.05);
       return {
         frame: style.outlineStyle === "none" || width === 0 ? "none" : `${style.outlineStyle} ${style.outlineWidth}`,
-        inverted: dark ? label < fill : label > fill,
+        inverted,
         marker: before.content !== "none" && before.width === "8px" && before.height === "8px",
+        fill: inverted ? "solid" : step < 1.1 ? "surface" : step < 1.4 ? "tint" : "mid",
       };
     });
   });
@@ -90,6 +107,53 @@ export async function expectEncoding(badges: Locator, variant: string) {
       expect(encoding).not.toEqual(VERIFIED_ENCODING);
     }
   }
+}
+
+/**
+ * How a full-width callout looks without hue (palette-mono 2.3, the
+ * .hc-callout rules in globals.css): the style and width of its
+ * inline-start edge, the style and width of its other edges ("none" when
+ * there is none), and whether its title is an inverted band.
+ */
+export type CalloutEncoding = { start: string; frame: string; band: boolean };
+
+export const CALLOUT_ENCODING: Record<"failed" | "contested", CalloutEncoding> = {
+  failed: { start: "solid 2px", frame: "solid 2px", band: true },
+  contested: { start: "double 4px", frame: "none", band: false },
+};
+
+/** The rendered encoding of a callout, read from its computed style. */
+export async function calloutEncoding(callout: Locator): Promise<CalloutEncoding> {
+  return callout.evaluate((node) => {
+    const luminance = (value: string): number => {
+      const [r = 0, g = 0, b = 0] = (/rgba?\(([^)]+)\)/.exec(value)?.[1] ?? "")
+        .split(/[\s,/]+/)
+        .filter(Boolean)
+        .map(Number)
+        .map((channel) => {
+          const c = channel / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const style = getComputedStyle(node);
+    const rtl = style.direction === "rtl";
+    const edge = (side: "left" | "right" | "top") => {
+      const width = style.getPropertyValue(`border-${side}-width`);
+      const kind = style.getPropertyValue(`border-${side}-style`);
+      return kind === "none" || Number.parseFloat(width) === 0 ? "none" : `${kind} ${width}`;
+    };
+    const title = node.querySelector(".hc-callout-title");
+    const titleStyle = title === null ? null : getComputedStyle(title);
+    const dark = document.documentElement.getAttribute("data-theme") === "dark";
+    const band =
+      titleStyle !== null &&
+      !/rgba\([^)]*,\s*0\)|transparent/.test(titleStyle.backgroundColor) &&
+      (dark
+        ? luminance(titleStyle.color) < luminance(titleStyle.backgroundColor)
+        : luminance(titleStyle.color) > luminance(titleStyle.backgroundColor));
+    return { start: edge(rtl ? "right" : "left"), frame: edge("top"), band };
+  });
 }
 
 /** Removes an expected API error response from the page's problem list, asserting it happened. */

@@ -159,7 +159,9 @@ export const hyphaeMissionTheme = defineTheme({
     "--color-warning-muted": bgHover,
     "--color-on-success": onAccent,
     "--color-on-error": onAccent,
-    "--color-on-warning": textPrimary,
+    // A label on the contested fill: white on mono/8 (11.37:1), ink on mono/4
+    // (11.05:1), as on the other two status fills (tests/contrast.test.ts).
+    "--color-on-warning": onAccent,
 
     // Inset rings (hover, selected and status states of Astryx controls).
     "--shadow-inset-hover": `inset 0px 0px 0px 1px light-dark(${MONO[6]}, ${MONO[5]})`,

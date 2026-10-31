@@ -885,9 +885,19 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
     palette-mono's worst-case contrast recomputed on the shipped tokens and
     tiles) and `e2e/glass.spec.ts`. palette-mono's own checker,
     `palette_mono_check.py`, passes every contrast pair and glass row on the
-    shipped tokens (byte-equal values) and tiles; its only failures are the
-    six tag lints (forced-colour inversion, the LIVE pulse, the hatch, the
-    pending bar, tags in a selected row), which belong to the tags lane.
+    shipped tokens (byte-equal values) and tiles. On the glass sheet alone
+    its only failures were the six tag lints (forced-colour inversion, the
+    LIVE pulse, the hatch, the pending bar, tags in a selected row), which
+    belong to the tags lane. Integrated, with `globals.css` (where the tags
+    live) staged after the glass sheet and the hatch tiles next to the
+    grain: the LIVE pulse count and the pixel hatch pass as they are; the
+    other four (A2, A3's keyframe floor, A5, A9) match the design file's
+    names (`.hc-tag--verified`, `.hc-tag--pending`, `.hc-row--selected`,
+    `@keyframes hc-live`), which the app spells as its role hooks
+    (`.astryx-badge[data-variant]`, `[data-tag-role]`,
+    `[aria-selected="true"]`, `hc-live-pulse`). With only those four names
+    mapped, and no declaration changed, every pair (740, 184 of them
+    worst-case glass) and every one of the 39 lints passes.
 - **Theme**: `src/theme/hyphaeMissionTheme.ts` extends the neutral theme with
   `defineTheme`. `pnpm theme:build` writes the committed
   `hyphae-mission.{css,js,d.ts,css.d.ts,variants.d.ts}`; rebuild after any

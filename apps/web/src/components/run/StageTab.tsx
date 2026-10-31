@@ -35,7 +35,14 @@ import {
   proofToken,
   RECOMMENDATION_VARIANTS,
 } from "@/lib/provenance";
-import { type Carried, type ShownRecord, stageOf, stageRecords } from "@/lib/run/view";
+import {
+  type Carried,
+  endReasonOf,
+  type ShownRecord,
+  stageOf,
+  stageRecords,
+  streamSettled,
+} from "@/lib/run/view";
 
 import type { RunData } from "./useRunData";
 
@@ -47,12 +54,17 @@ export function StageTab({ data }: StageTabProps) {
   const t = useTranslations("Run");
   const { detail, frames, stream, end, notices, pending, pacing, pacedFrames, skipPacing, summary } =
     data;
-  const settled = stream === "ended" || stream === "error" || stream === "closed";
+  const settled = streamSettled(stream);
   const records = stageRecords(detail, frames, { settled, pending });
   const stage = stageOf(records);
+  // Why the stream ended comes from the run's state (the newest summary),
+  // not from the end frame alone: a run decided since says it reached its
+  // final state, never that it awaits a human decision.
   const streamText =
     stream === "ended" && end !== null
-      ? t("stream.ended", { reason: t(`stream.endReasons.${end.reason}`) })
+      ? t("stream.ended", {
+          reason: t(`stream.endReasons.${endReasonOf(summary?.state ?? end.state, end.reason)}`),
+        })
       : t(`stream.${stream}`);
   // Pacing exists only for scripted runs (the guided examples); a live or
   // mixed model run is never paced and never labelled simulated.

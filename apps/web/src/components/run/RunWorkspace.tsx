@@ -36,13 +36,21 @@ import type { RunDetailV1, ShowcaseEntryV1 } from "@/lib/api/types";
 import {
   evidenceLabel,
   isLive,
+  isScriptedRun,
   ndjsonPublishable,
   RECOMMENDATION_VARIANTS,
   sourceLabel,
 } from "@/lib/provenance";
 import { evidenceView, generationFailures } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
-import { supersededProposal } from "@/lib/run/view";
+import {
+  decisionOf,
+  followsPlayback,
+  headerSummary,
+  type PlaybackPosition,
+  streamSettled,
+  supersededProposal,
+} from "@/lib/run/view";
 import { manifestNote } from "@/lib/showcase";
 import { localePath, SHOWCASE_SOURCE } from "@/lib/site";
 
@@ -162,8 +170,32 @@ function Workspace({
     }
   }, [detailSequence, refreshReceipt]);
 
-  if (summary === null) {
-    if (detailError !== null) {
+  // One clock: during a paced playback the header shows the run as of the
+  // newest record on the stage, so no outcome (and no decision) appears
+  // before the playback reaches it (view.ts headerSummary).
+  const position: PlaybackPosition | null =
+    mode.kind === "own"
+      ? {
+          pacedFrames: mode.data.pacedFrames,
+          pending: mode.data.pending,
+          settled: streamSettled(mode.data.stream),
+        }
+      : null;
+  const following = position !== null && followsPlayback(position);
+  // A scripted run about to be paced whose first frame has not arrived yet:
+  // its stored summary is the ending, so the header waits for the stream
+  // (a failed or closed stream settles it, and the stored summary shows).
+  const awaitingPlayback =
+    mode.kind === "own" &&
+    mode.data.pacing === "on" &&
+    frames.length === 0 &&
+    !streamSettled(mode.data.stream) &&
+    summary !== null &&
+    isScriptedRun(summary.provenance);
+  const shown = position === null ? summary : headerSummary(detail, frames, position);
+
+  if (summary === null || shown === null || awaitingPlayback) {
+    if (detailError !== null && summary === null) {
       return (
         <div className="hc-section" data-run="error">
           <ApiErrorNotice error={detailError} onRetry={reloadDetail} />
@@ -205,9 +237,11 @@ function Workspace({
       : null;
   // A recorded run is at rest, and nobody can decide it here.
   const stateText =
-    recorded && summary.state === "awaiting_human_approval"
+    recorded && shown.state === "awaiting_human_approval"
       ? tShowcase("awaiting")
-      : t(`states.${summary.state}`);
+      : t(`states.${shown.state}`);
+  // The person's decision, as its own tag next to the policy's outcome.
+  const decision = decisionOf(shown);
   const items: Array<{ value: TabKey; label: string }> = [
     ...(recorded ? [] : [{ value: "stage" as const, label: stageLabel }]),
     { value: "explorer", label: t("tabs.explorer") },
@@ -241,10 +275,22 @@ function Workspace({
       data-run-state={summary.state}
       data-run-mode={recorded ? "recorded" : "own"}
     >
-      <header className="hc-run-header hc-panel">
+      <header
+        className="hc-run-header hc-panel"
+        data-header-clock={following ? "playback" : "run"}
+        data-header-state={shown.state}
+      >
         <h2 className="hc-run-title" lang={titleLang}>
           {title}
         </h2>
+        {following ? (
+          <p className="hc-supporting hc-tabular-nums" data-header-playback>
+            {t("header.playback", {
+              shown: shown.event_count,
+              total: summary.event_count,
+            })}
+          </p>
+        ) : null}
         <dl className="hc-kv">
           <div>
             <dt>{t("header.state")}</dt>
@@ -253,8 +299,8 @@ function Workspace({
           <div>
             <dt>{t("header.outcome")}</dt>
             <dd data-run-field="outcome">
-              {summary.recommendation === undefined || summary.recommendation === null ? (
-                summary.state === "failed" ? (
+              {shown.recommendation === undefined || shown.recommendation === null ? (
+                shown.state === "failed" ? (
                   t("header.noOutcomeFailed")
                 ) : (
                   t("header.noOutcome")
@@ -262,10 +308,10 @@ function Workspace({
               ) : (
                 <>
                   <Badge
-                    variant={RECOMMENDATION_VARIANTS[summary.recommendation]}
+                    variant={RECOMMENDATION_VARIANTS[shown.recommendation]}
                     label={t("outcome", {
-                      kind: t(`kinds.${summary.recommendation}`),
-                      evidence: tProvenance(evidenceLabel(summary.provenance.evidence).key),
+                      kind: t(`kinds.${shown.recommendation}`),
+                      evidence: tProvenance(evidenceLabel(shown.provenance.evidence).key),
                     })}
                   />
                   {revisedId === null ? null : (
@@ -277,34 +323,50 @@ function Workspace({
               )}
             </dd>
           </div>
+          {decision === null ? null : (
+            <div>
+              <dt>{recorded ? t("header.decisionRecorded") : t("header.decision")}</dt>
+              <dd data-run-field="decision" data-decision={decision}>
+                {/* The person's decision, its own tag: the same info role for
+                    an approval and a rejection, never green and never a
+                    plain grey word next to the policy's coloured outcome. */}
+                <Badge variant="info" label={t(`header.decisions.${decision}`)} />
+                {recorded ? null : (
+                  <span className="hc-supporting" data-decision-executes-nothing>
+                    {t("header.decisionNote")}
+                  </span>
+                )}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>{t("header.recordsLabel")}</dt>
             <dd className="hc-tabular-nums" data-run-field="records">
-              {t("header.records", { count: summary.event_count })}
+              {t("header.records", { count: shown.event_count })}
             </dd>
           </div>
           <div>
             <dt>{t("header.revision")}</dt>
             <dd className="hc-tabular-nums" data-run-field="revision">
-              {format.number(summary.revision_round)}
+              {format.number(shown.revision_round)}
             </dd>
           </div>
           <div>
             <dt>{t("header.runId")}</dt>
             <dd>
-              <code className="hc-code">{summary.run_id}</code>
+              <code className="hc-code">{shown.run_id}</code>
             </dd>
           </div>
         </dl>
-        {summary.failure === undefined || summary.failure === null ? null : (
-          <FailureSentence failure={summary.failure} />
+        {shown.failure === undefined || shown.failure === null ? null : (
+          <FailureSentence failure={shown.failure} />
         )}
         <div>
           <p className="hc-supporting">{t("header.provenance")}</p>
           <ProvenanceBadges
-            provenance={summary.provenance}
+            provenance={shown.provenance}
             delivery={latest?.delivery}
-            recordedAt={latest?.event.occurred_at ?? summary.updated_at}
+            recordedAt={latest?.event.occurred_at ?? shown.updated_at}
             withNote
           />
         </div>

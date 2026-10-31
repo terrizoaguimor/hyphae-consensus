@@ -188,7 +188,6 @@
       "heading": "Guided examples",
       "intro": "The roles are scripted doubles and the evidence is simulated: no model is called and no proof is real. Each scenario reaches its documented outcome in milliseconds; the run page then plays it back.",
       "count": "{count, plural, =0 {The server lists no guided scenario.} one {The server lists # guided scenario.} other {The server lists # guided scenarios.}}",
-      "modelBadge": "SIMULATED model",
       "evidenceBadge": "SIMULATED evidence",
       "expected": "Expected outcome",
       "run": "Run",
@@ -300,7 +299,16 @@
       "provenance": "Provenance",
       "flags": "Flags",
       "task": "Task",
-      "latestDelivery": "Latest record"
+      "latestDelivery": "Latest record",
+      "playback": "Playing back: the header shows the run as of record {shown, number} of {total, number}. The final outcome appears when the playback reaches it.",
+      "decision": "Your decision",
+      "decisionRecorded": "Human decision",
+      "decisions": {
+        "approved": "Approved",
+        "approvedOverride": "Approved as an override",
+        "rejected": "Rejected"
+      },
+      "decisionNote": "Your choice is recorded; nothing was executed."
     },
     "outcome": "{kind} — on {evidence} evidence",
     "kinds": {

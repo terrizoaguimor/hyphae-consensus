@@ -188,7 +188,6 @@
       "heading": "Ejemplos guiados",
       "intro": "Los roles son dobles que siguen un guion y la evidencia es simulada: no se llama a ningún modelo y ninguna prueba es real. Cada escenario alcanza su resultado documentado en milisegundos; la página de la ejecución lo reproduce después.",
       "count": "{count, plural, =0 {El servidor no lista ningún escenario guiado.} one {El servidor lista # escenario guiado.} many {El servidor lista # de escenarios guiados.} other {El servidor lista # escenarios guiados.}}",
-      "modelBadge": "Modelo SIMULADO",
       "evidenceBadge": "Evidencia SIMULADA",
       "expected": "Resultado esperado",
       "run": "Ejecutar",
@@ -300,7 +299,16 @@
       "provenance": "Procedencia",
       "flags": "Avisos",
       "task": "Tarea",
-      "latestDelivery": "Último registro"
+      "latestDelivery": "Último registro",
+      "playback": "Reproducción: la cabecera muestra la ejecución tal como estaba en el registro {shown, number} de {total, number}. El resultado final aparece cuando la reproducción llega a él.",
+      "decision": "Tu decisión",
+      "decisionRecorded": "Decisión humana",
+      "decisions": {
+        "approved": "Aprobada",
+        "approvedOverride": "Aprobada como anulación",
+        "rejected": "Rechazada"
+      },
+      "decisionNote": "Tu elección queda registrada; no se ejecutó nada."
     },
     "outcome": "{kind} — con evidencia {evidence}",
     "kinds": {

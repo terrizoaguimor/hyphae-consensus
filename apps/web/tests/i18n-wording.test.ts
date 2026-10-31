@@ -71,6 +71,8 @@ describe.each(routing.locales)("numbers in sentences (%s)", (locale) => {
     ["Tour.progress", { current: 2, total: 12345 }, 12345],
     ["Tour.announcement", { current: 12345, total: 2, title: "x", body: "y" }, 12345],
     ["Tour.announcement", { current: 2, total: 12345, title: "x", body: "y" }, 12345],
+    ["Run.header.playback", { shown: 12345, total: 2 }, 12345],
+    ["Run.header.playback", { shown: 2, total: 12345 }, 12345],
   ] as const)("%s groups its number as the locale does", (key, values, value) => {
     const text = format(locale, key, values);
     expect(text).toContain(grouped(value));
@@ -235,5 +237,24 @@ describe("translations of the review's round 2", () => {
     const body = message(load("legal/en.json"), "Legal.limitations.sections.showcase.body");
     expect(body).not.toMatch(/^For each recorded run you can re-check/u);
     expect(body).toMatch(/before schema 1\.1 carry no hash chain/u);
+  });
+});
+
+// The guided scenario cards name the model axis with the run pages' label
+// (owner decision 2026-10-31): SCRIPTED (es CON GUION, pt-BR ROTEIRIZADO, fr
+// SCÉNARISÉ), never a card-only "SIMULATED model" wording; the label words
+// stay translated. The cards read Provenance.scripted.label through
+// provenance.ts modelLabel, so the card-only key is gone.
+describe("the guided cards' model label is the SCRIPTED label of the run pages", () => {
+  it.each([
+    ["en", "SCRIPTED"],
+    ["es", "CON GUION"],
+    ["pt-BR", "ROTEIRIZADO"],
+    ["fr", "SCÉNARISÉ"],
+  ] as const)("%s", (locale, label) => {
+    const ui = load(`${locale}.json`);
+    expect(message(ui, "Provenance.scripted.label")).toBe(label);
+    expect(() => message(ui, "NewDeliberation.guided.modelBadge")).toThrow();
+    expect(JSON.stringify(ui.NewDeliberation)).not.toMatch(/SIMULATED model|Modelo SIMULADO|Modèle SIMULÉ/u);
   });
 });

@@ -843,6 +843,36 @@
     margin: 0;
   }
 
+  /* Children are aligned to the start, so each one is sized to its content;
+     none may grow past the panel (a long outcome tag in Spanish made the
+     decision page 424 px wide on a 390 px phone, HE #9). No specificity, so
+     a child's own max-width (.hc-list, .hc-lead) still applies. */
+  :where(.hc-panel) > * {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  /* The outcome tag carries the evidence label at its end ("... on
+     SIMULATED evidence"), so it wraps instead of being cut with an ellipsis
+     when the panel is narrower than the tag (a phone, a long locale):
+     simulated evidence stays visible next to the outcome (G7). Astryx's
+     Badge is one fixed-height line that clips its label. */
+  [data-recommendation-kind] > .astryx-badge {
+    height: auto;
+    min-height: var(--spacing-5);
+    padding-block: calc(var(--spacing-1) / 2);
+    border-radius: var(--radius-element);
+    white-space: normal;
+    text-align: start;
+  }
+
+  [data-recommendation-kind] > .astryx-badge > span {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   .hc-panel-title {
     margin: 0;
     font-size: var(--text-heading-3-size);
@@ -853,8 +883,33 @@
     color: var(--color-text-secondary);
   }
 
+  /* A dashed boundary is the only mark of this panel, so it takes the strong
+     border token (3:1, WCAG 1.4.11) instead of the panel's light one. */
   .hc-not-connected {
     border-style: dashed;
+    border-color: var(--hc-color-border-strong);
+  }
+
+  /* Settings: each panel bounds a group of controls (3:1, WCAG 1.4.11). */
+  .hc-settings .hc-panel {
+    border-color: var(--hc-color-border-strong);
+  }
+
+  /*
+   * Control boundaries (WCAG 1.4.11): Astryx draws the unselected radio ring,
+   * the unchecked checkbox box and the off Switch track with
+   * --color-border-emphasized (the Switch through --color-background-gray,
+   * set by the theme), 1.48:1 light and 2.22:1 dark. Redefined on the
+   * control's own element, so its checked, hover and disabled colors stay
+   * Astryx's.
+   */
+  .astryx-radio-indicator,
+  .astryx-checkbox-indicator {
+    --color-border-emphasized: var(--hc-color-border-strong);
+  }
+
+  .astryx-switch {
+    --color-background-gray: var(--hc-color-border-strong);
   }
 
   .hc-not-connected-message {
@@ -1412,10 +1467,12 @@
     width: 100%;
   }
 
+  /* The border is the control's only boundary: the strong token (3:1, WCAG
+     1.4.11, HE #10). */
   .hc-select {
     min-height: 2.5rem;
     padding: var(--spacing-1) var(--spacing-3);
-    border: 1px solid var(--color-border-emphasized);
+    border: 1px solid var(--hc-color-border-strong);
     border-radius: var(--radius-element);
     font: inherit;
     color: var(--color-text-primary);
@@ -1790,6 +1847,11 @@
   .hc-scope-change {
     display: flex;
     flex-direction: column;
+    /* The panel aligns its children to the start, which would size this
+       block to its content's minimum width; it takes the panel's width
+       instead, and its content shrinks into it (HE #9). */
+    align-self: stretch;
+    min-width: 0;
     gap: var(--spacing-3);
     padding-inline-start: var(--spacing-3);
     border-inline-start: 3px solid var(--color-warning);
@@ -1973,11 +2035,109 @@
   .hc-revision {
     display: flex;
     flex-direction: column;
+    min-width: 0;
     gap: var(--spacing-2);
+  }
+
+  .hc-revision > * {
+    min-width: 0;
   }
 
   .hc-revision > p {
     margin: 0;
+  }
+
+  /*
+   * The claim comparison is a 4-column table from 42rem (672 px). Below, each
+   * row is a block (claim id, then each cell under its column name, from the
+   * cell's data-label), so the table's minimum width never widens a phone
+   * page (HE #9). The header row stays for screen readers only.
+   */
+  .hc-revision-table,
+  .hc-revision-table tbody,
+  .hc-revision-table tr,
+  .hc-revision-table th,
+  .hc-revision-table td {
+    display: block;
+  }
+
+  .hc-revision-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .hc-revision-table tbody > tr {
+    padding-block: var(--spacing-2);
+    border-block-end: 1px solid var(--color-border);
+  }
+
+  .hc-revision-table tbody th,
+  .hc-revision-table tbody td {
+    padding: var(--spacing-1) 0;
+    border: 0;
+  }
+
+  /* Visual only (empty alternative text): screen readers already get the
+     column name from the kept header row, so it is not announced twice. */
+  .hc-revision-table td::before {
+    content: attr(data-label) / "";
+    display: block;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+  }
+
+  @media (min-width: 42rem) {
+    .hc-revision-table {
+      display: table;
+    }
+
+    .hc-revision-table thead {
+      position: static;
+      display: table-header-group;
+      width: auto;
+      height: auto;
+      margin: 0;
+      overflow: visible;
+      clip-path: none;
+      white-space: normal;
+    }
+
+    .hc-revision-table tbody {
+      display: table-row-group;
+    }
+
+    .hc-revision-table tr {
+      display: table-row;
+    }
+
+    .hc-revision-table tbody > tr {
+      padding-block: 0;
+      border-block-end: 0;
+    }
+
+    .hc-revision-table th,
+    .hc-revision-table td,
+    .hc-revision-table tbody th,
+    .hc-revision-table tbody td {
+      display: table-cell;
+      padding: var(--spacing-2) var(--spacing-3);
+      border-block-end: 1px solid var(--color-border);
+    }
+
+    .hc-revision-table td::before {
+      content: none;
+    }
+  }
+
+  /* Claim ids (claim-1, item-2): short, and never broken across lines. */
+  .hc-code.hc-id {
+    white-space: nowrap;
+    overflow-wrap: normal;
   }
 
   /* Claims the records do not pair: each proposal's list, headed by its id. */

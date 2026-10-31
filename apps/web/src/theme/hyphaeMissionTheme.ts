@@ -66,6 +66,21 @@ export const hyphaeMissionTheme = defineTheme({
     // instead of --color-accent; point it at the same accent.
     "--astryx-theme-neutral-color-status-fill-accent": accent,
 
+    // Boundaries of controls and of panels that bound a control (WCAG 1.4.11
+    // non-text contrast, 3:1): radio rings, checkbox boxes, the off Switch
+    // track, the Settings panels, the dashed not-connected panel and native
+    // selects. The values are the slate v2 border-strong (design/palette,
+    // slate-light/7 and slate-dark/7), kept because they match this theme's
+    // blue-tinted surfaces; design-direction.md's mono border/strong belongs
+    // to the redesign. On this theme's surface tokens, light #7A8496 measures
+    // 3.77:1 on surface, card and popover, 3.51:1 on the body and 3.38:1 on
+    // muted (the lowest); dark #677388 measures 3.62:1 on the surface,
+    // 3.99:1 on the body, 3.76:1 on card and muted and 3.50:1 on the popover
+    // (the lowest). Neutral's --color-border-emphasized (#d4d4d4 / #525252)
+    // measures 1.33 to 1.48:1 light and 2.14 to 2.44:1 dark on the same
+    // surfaces. tests/contrast.test.ts requires 3:1 on every one of them.
+    "--hc-color-border-strong": ["#7A8496", "#677388"],
+
     // Hyphae cyan, reserved for proof and evidence. Use it as a fill under
     // --hc-color-on-proof text (11.9:1), or as text on dark surfaces only:
     // on white it measures 1.58:1, too low for text or a lone indicator.

@@ -206,6 +206,7 @@ export const hyphaeMissionTheme = {
     "--astryx-theme-neutral-color-on-tint-overlay-pressed": "light-dark(#fafafa33, #0a0a0a33)",
     "--astryx-theme-neutral-color-destructive-overlay-hover": "light-dark(#ff7f770D, #ee736c0D)",
     "--astryx-theme-neutral-color-destructive-overlay-pressed": "light-dark(#ff7f771A, #ee736c1A)",
+    "--hc-color-border-strong": "light-dark(#7A8496, #677388)",
     "--hc-color-proof": "#45E4D0",
     "--hc-color-on-proof": "#111112"
   },
@@ -220,6 +221,7 @@ export const hyphaeMissionTheme = {
     "--astryx-theme-neutral-color-on-tint-overlay-pressed": "neutral",
     "--astryx-theme-neutral-color-destructive-overlay-hover": "neutral",
     "--astryx-theme-neutral-color-destructive-overlay-pressed": "neutral",
+    "--hc-color-border-strong": "hyphae-mission",
     "--hc-color-proof": "hyphae-mission",
     "--hc-color-on-proof": "hyphae-mission"
   },

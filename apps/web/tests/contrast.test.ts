@@ -65,6 +65,15 @@ describe.each(["light", "dark"] as const)("%s mode", (mode) => {
     },
   );
 
+  // WCAG 1.4.11: control boundaries (radio rings, checkbox boxes, the off
+  // Switch track, the Settings and not-connected panels) need 3:1 against
+  // every surface they sit on (HE #10). e2e/layout-contrast.spec.ts checks
+  // that the rendered controls use this token.
+  it.each(surfaces)("--hc-color-border-strong on %s meets 3:1", (surface) => {
+    const ratio = contrast(token("--hc-color-border-strong")[mode], token(surface)[mode]);
+    expect(ratio, `--hc-color-border-strong on ${surface}: ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(3);
+  });
+
   it("keeps on-accent text readable on the accent fill", () => {
     const accent = token("--color-accent")[mode];
     const onAccent = /--color-on-accent:\s*light-dark\((#[0-9a-fA-F]{6}),\s*(#[0-9a-fA-F]{6})\)/i.exec(

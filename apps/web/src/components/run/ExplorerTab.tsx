@@ -185,51 +185,55 @@ export function ExplorerTab({ detail, frames, detailError = null }: ExplorerTabP
       {shown.length === 0 ? (
         <p className="hc-supporting">{t("empty")}</p>
       ) : (
-        <table className="hc-timeline">
-          <caption className="hc-visually-hidden">{t("heading")}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{t("sequence")}</th>
-              <th scope="col">{t("type")}</th>
-              <th scope="col">{t("actor")}</th>
-              <th scope="col">{t("time")}</th>
-              <th scope="col">{t("summary")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((event) => (
-              <tr key={event.sequence} data-sequence={event.sequence} data-event-type={event.payload.type}>
-                <td className="hc-tabular-nums">{event.sequence}</td>
-                <td>{t(`types.${event.payload.type}`)}</td>
-                <td>{actorText(event)}</td>
-                <td className="hc-tabular-nums">
-                  <time dateTime={event.occurred_at}>
-                    {format.dateTime(new Date(event.occurred_at), {
-                      dateStyle: "short",
-                      timeStyle: "medium",
-                    })}
-                  </time>
-                </td>
-                <td>
-                  <span>{summaryText(event)}</span>
-                  <details className="hc-json-details">
-                    <summary>{t("json")}</summary>
-                    <p className="hc-supporting" data-display-copy>
-                      {tAudit("displayCopy")}
-                    </p>
-                    {/* The JSON says "valid" for a simulated proof: read it here. */}
-                    {event.payload.type === "evidence_verified" && event.payload.verification.simulated ? (
-                      <p className="hc-supporting" data-json-simulated>
-                        {t("jsonSimulated")}
-                      </p>
-                    ) : null}
-                    <pre className="hc-json hc-code">{JSON.stringify(event, null, 2)}</pre>
-                  </details>
-                </td>
+        // Five columns do not fit a phone: the table scrolls inside its own
+        // region instead of widening the page (HE #9).
+        <div className="hc-table-scroll" role="region" aria-labelledby="explorer-heading" tabIndex={0}>
+          <table className="hc-timeline">
+            <caption className="hc-visually-hidden">{t("heading")}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t("sequence")}</th>
+                <th scope="col">{t("type")}</th>
+                <th scope="col">{t("actor")}</th>
+                <th scope="col">{t("time")}</th>
+                <th scope="col">{t("summary")}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {shown.map((event) => (
+                <tr key={event.sequence} data-sequence={event.sequence} data-event-type={event.payload.type}>
+                  <td className="hc-tabular-nums">{event.sequence}</td>
+                  <td>{t(`types.${event.payload.type}`)}</td>
+                  <td>{actorText(event)}</td>
+                  <td className="hc-tabular-nums">
+                    <time dateTime={event.occurred_at}>
+                      {format.dateTime(new Date(event.occurred_at), {
+                        dateStyle: "short",
+                        timeStyle: "medium",
+                      })}
+                    </time>
+                  </td>
+                  <td>
+                    <span>{summaryText(event)}</span>
+                    <details className="hc-json-details">
+                      <summary>{t("json")}</summary>
+                      <p className="hc-supporting" data-display-copy>
+                        {tAudit("displayCopy")}
+                      </p>
+                      {/* The JSON says "valid" for a simulated proof: read it here. */}
+                      {event.payload.type === "evidence_verified" && event.payload.verification.simulated ? (
+                        <p className="hc-supporting" data-json-simulated>
+                          {t("jsonSimulated")}
+                        </p>
+                      ) : null}
+                      <pre className="hc-json hc-code">{JSON.stringify(event, null, 2)}</pre>
+                    </details>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

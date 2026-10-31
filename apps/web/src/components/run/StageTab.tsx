@@ -326,7 +326,7 @@ function ProposalBody({ proposal, supersedes }: { proposal: Proposal; supersedes
       <ul className="hc-list">
         {proposal.claims.map((claim) => (
           <li key={claim.id}>
-            <code className="hc-code">{claim.id}</code> {claim.statement}
+            <code className="hc-code hc-id">{claim.id}</code> {claim.statement}
           </li>
         ))}
       </ul>
@@ -409,7 +409,7 @@ function EvaluationBody({ evaluation }: { evaluation: Evaluation }) {
       <ul className="hc-list">
         {evaluation.assessments.map((assessment) => (
           <li key={assessment.claim_id}>
-            <code className="hc-code">{assessment.claim_id}</code>{" "}
+            <code className="hc-code hc-id">{assessment.claim_id}</code>{" "}
             <Badge
               variant={assessmentVariant(assessment.corroborated)}
               label={assessment.corroborated ? t("corroborated") : t("notCorroborated")}

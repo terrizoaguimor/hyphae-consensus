@@ -14,6 +14,9 @@
 // went through it, and no claim marked added, changed or dropped. Then
 // each revision with the items it says it addresses (its own claim, not a
 // verdict). The statements are model output, shown as recorded, in English.
+// Below 42rem (672 px) the claim table is drawn as one block per claim, each
+// cell under its column name (data-label, globals.css), so it never makes the
+// page wider than a phone; claim ids never wrap (hc-id).
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { useLocale, useTranslations } from "next-intl";
@@ -46,7 +49,7 @@ export function RevisionComparison({ original, revised, detail }: RevisionCompar
         <ul className="hc-list">
           {claims.map((claim) => (
             <li key={claim.id} data-claim-id={claim.id}>
-              <code className="hc-code">{claim.id}</code> {statement(claim.statement)}
+              <code className="hc-code hc-id">{claim.id}</code> {statement(claim.statement)}
             </li>
           ))}
         </ul>
@@ -76,7 +79,7 @@ export function RevisionComparison({ original, revised, detail }: RevisionCompar
             {english}
           </p>
           <div className="hc-table-scroll" role="region" aria-labelledby="revision-heading" tabIndex={0}>
-            <table className="hc-timeline">
+            <table className="hc-timeline hc-revision-table">
               <caption className="hc-visually-hidden">{t("caption")}</caption>
               <thead>
                 <tr>
@@ -95,11 +98,15 @@ export function RevisionComparison({ original, revised, detail }: RevisionCompar
                   return (
                     <tr key={`${change.kind}-${change.id}`} data-claim-change={change.kind} data-claim-id={change.id}>
                       <th scope="row">
-                        <code className="hc-code">{change.id}</code>
+                        <code className="hc-code hc-id">{change.id}</code>
                       </th>
-                      <td>{statement(before?.statement ?? null)}</td>
-                      <td>{statement(after?.statement ?? null)}</td>
-                      <td>
+                      <td data-label={t("originalColumn", { id: original.id })}>
+                        {statement(before?.statement ?? null)}
+                      </td>
+                      <td data-label={t("revisedColumn", { id: revised.id })}>
+                        {statement(after?.statement ?? null)}
+                      </td>
+                      <td data-label={t("change")}>
                         <Badge
                           variant={change.kind === "unchanged" ? "neutral" : "warning"}
                           label={t(`kinds.${change.kind}`)}

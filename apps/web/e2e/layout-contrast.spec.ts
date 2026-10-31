@@ -4,24 +4,27 @@
 //
 // HE #9: no main screen is wider than a 390 px phone. The decision page and
 // the recorded decision page measured 437 px: the revision comparison's
-// 4-column claim table set the minimum width of the panel around it. Every
-// screen is opened at 390 px (with touch, as the evaluation's shots were) and
-// document.scrollingElement.scrollWidth must stay at 390 or less; claim ids
-// stay on one line.
+// 4-column claim table set the minimum width of the panel around it, and the
+// run page's Explorer tab measured 621 px. Every screen (each run tab, on a
+// guided and on a recorded run) is opened at 390 px (with touch, as the
+// evaluation's shots were) and document.scrollingElement.scrollWidth must
+// stay at 390 or less; claim ids stay on one line; the decision's outcome tag
+// wraps instead of cutting its evidence label.
 //
 // HE #10: control boundaries meet WCAG 1.4.11 (3:1 against the colors next
-// to them): the unselected radio ring, the unchecked checkbox box, the off
-// Switch track, the Settings panels and the dashed not-connected panel, in
-// both themes. Colors are read from the computed styles; a translucent
-// background is composited over what is behind it.
+// to them): the unselected radio ring, the unchecked checkbox box, the
+// native select, the Settings panels and the dashed not-connected panel in
+// both themes; the off Switch track in the light theme, where it is off.
+// Colors are read from the computed styles; a translucent background is
+// composited over what is behind it.
 
 import type { Page } from "@playwright/test";
 
 import { docSlugs, localePath, runPath, showcaseRunPath } from "../src/lib/site";
 
-import { awaitingDecisionDetail, mockApi, recordedRun, RUN_ID } from "./api-mock";
+import { awaitingDecisionDetail, liveModelDetail, mockApi, recordedRun, RUN_ID } from "./api-mock";
 import { fixture } from "./contract";
-import { expect, hydrated, type Locale, t, test, useTheme } from "./fixtures";
+import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
 import { archiveEntry, manifestRun, metaRequestIds } from "./research";
 
 type Json = Record<string, unknown>;
@@ -72,8 +75,8 @@ async function expectFitsPhone(page: Page) {
   expect(width, `scrollWidth ${width}; wider elements: ${wide.join("; ")}`).toBeLessThanOrEqual(PHONE);
 }
 
-async function openDecision(page: Page, locale: Locale) {
-  await mockApi(page, { detail: awaitingDecisionDetail() });
+async function openDecision(page: Page, locale: Locale, detail: Json = awaitingDecisionDetail()) {
+  await mockApi(page, { detail });
   await page.goto(runPath(locale, RUN_ID));
   await hydrated(page);
   await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
@@ -94,7 +97,30 @@ async function openRecordedDecision(page: Page, locale: Locale) {
 test.describe("HE #9: every main screen fits a 390 px phone", () => {
   test.use({ viewport: { width: PHONE, height: 844 }, hasTouch: true });
 
-  const screens: { name: string; open: (page: Page, locale: Locale) => Promise<void> }[] = [
+  type Screen = {
+    name: string;
+    open: (page: Page, locale: Locale) => Promise<void>;
+    /** Measured in all four locales, not only English and Spanish. */
+    everyLocale?: true;
+  };
+
+  /** A run tab other than Playback and Decision, ready once `marker` is visible. */
+  const runTabs = [
+    { tab: "explorer", marker: "[data-explorer] [data-sequence]" },
+    { tab: "evidence", marker: "[data-evidence-id]" },
+    { tab: "proofs", marker: "[data-proof-sequence]" },
+    { tab: "audit", marker: "[data-audit-chain]" },
+    { tab: "meta", marker: "[data-invocation-sequence]" },
+  ] as const;
+
+  async function openTab(page: Page, locale: Locale, tab: (typeof runTabs)[number]) {
+    const control = page.getByRole("tab", { name: t(locale, `Run.tabs.${tab.tab}`), exact: true });
+    await control.click();
+    await expect(control).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(tab.marker).first()).toBeVisible();
+  }
+
+  const screens: Screen[] = [
     {
       name: "overview",
       open: async (page, locale) => {
@@ -140,7 +166,12 @@ test.describe("HE #9: every main screen fits a 390 px phone", () => {
         await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
       },
     },
-    { name: "run decision, awaiting, with a revision", open: openDecision },
+    { name: "run decision, awaiting, with a revision", open: openDecision, everyLocale: true },
+    {
+      name: "run decision, live model on sealed-snapshot evidence",
+      open: (page, locale) => openDecision(page, locale, liveModelDetail()),
+      everyLocale: true,
+    },
     {
       name: "showcase",
       open: async (page, locale) => {
@@ -150,7 +181,29 @@ test.describe("HE #9: every main screen fits a 390 px phone", () => {
         await expect(page.locator("[data-manifest-check='matches']")).toBeVisible();
       },
     },
-    { name: "recorded run R06, decision", open: openRecordedDecision },
+    { name: "recorded run R06, decision", open: openRecordedDecision, everyLocale: true },
+    // The run page's other tabs, on a guided run and on a recorded one (the
+    // Explorer's 5-column table measured 600 to 621 px before it scrolled
+    // inside its own region).
+    ...runTabs.flatMap((tab): Screen[] => [
+      {
+        name: `run ${tab.tab}, awaiting a decision`,
+        open: async (page, locale) => {
+          await mockApi(page, { detail: awaitingDecisionDetail() });
+          await page.goto(runPath(locale, RUN_ID));
+          await hydrated(page);
+          await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+          await openTab(page, locale, tab);
+        },
+      },
+      {
+        name: `recorded run R06, ${tab.tab}`,
+        open: async (page, locale) => {
+          await openRecordedDecision(page, locale);
+          await openTab(page, locale, tab);
+        },
+      },
+    ]),
     ...["docs", `docs/${docSlugs[0] ?? ""}`, "settings", "terms", "privacy", "limitations", "about"].map(
       (path) => ({
         name: path,
@@ -162,9 +215,13 @@ test.describe("HE #9: every main screen fits a 390 px phone", () => {
     ),
   ];
 
-  // English, and Spanish for its longer words.
-  for (const locale of ["en", "es"] as const) {
+  // English, and Spanish for its longer words; the decision screens in all
+  // four locales.
+  for (const locale of locales) {
     for (const screen of screens) {
+      if (locale !== "en" && locale !== "es" && screen.everyLocale !== true) {
+        continue;
+      }
       test(`${screen.name} (${locale}) is no wider than ${PHONE} px`, async ({ page }) => {
         await useTheme(page, "light");
         await screen.open(page, locale);
@@ -186,7 +243,9 @@ test.describe("HE #9: every main screen fits a 390 px phone", () => {
       t("en", "Run.revision.originalColumn", { id: "prop-1" }),
     );
     const before = await first.locator("td").nth(0).evaluate((cell) => getComputedStyle(cell, "::before").content);
-    expect(before).toBe(`"${t("en", "Run.revision.originalColumn", { id: "prop-1" })}"`);
+    // The label is visual only: empty alternative text, so a screen reader
+    // hears the column name once, from the kept header row.
+    expect(before).toBe(`"${t("en", "Run.revision.originalColumn", { id: "prop-1" })}" / ""`);
     // Every claim id is one line high.
     for (const id of await table.locator(".hc-id").all()) {
       const lines = await id.evaluate((element) => element.getClientRects().length);
@@ -209,6 +268,53 @@ test.describe("HE #9: every main screen fits a 390 px phone", () => {
       .evaluate((cell) => getComputedStyle(cell, "::before").content);
     expect(before).toBe("none");
   });
+
+  // Capping the decision panel's children at its width must not cut the
+  // outcome tag: its evidence label (SIMULATED, sealed snapshot) is at the
+  // end, and it stays visible next to the outcome (G7) by wrapping.
+  const decisions: { name: string; evidence: string; open: (page: Page, locale: Locale) => Promise<void> }[] = [
+    { name: "simulated evidence", evidence: "Provenance.simulated.label", open: (page, locale) => openDecision(page, locale) },
+    {
+      name: "sealed-snapshot evidence",
+      evidence: "Provenance.liveMeta.evidence",
+      open: (page, locale) => openDecision(page, locale, liveModelDetail()),
+    },
+    { name: "recorded R06", evidence: "Provenance.hyphaeLive.label", open: openRecordedDecision },
+  ];
+  for (const locale of locales) {
+    for (const decision of decisions) {
+      test(`the outcome tag is never cut, ${decision.name} (${locale})`, async ({ page }) => {
+        await useTheme(page, "light");
+        await decision.open(page, locale);
+        if (decision.name === "recorded R06") {
+          await page.getByRole("tab", { name: t(locale, "Run.tabs.decision"), exact: true }).click();
+        }
+        const line = page.locator("[data-recommendation-kind]:visible").first();
+        await expect(line).toBeVisible();
+        const kind = await line.getAttribute("data-recommendation-kind");
+        const label = t(locale, "Run.outcome", {
+          kind: t(locale, `Run.kinds.${kind ?? ""}`),
+          evidence: t(locale, decision.evidence),
+        });
+        const tag = line.locator(".astryx-badge");
+        await expect(tag).toHaveText(label);
+        await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        const box = await tag.evaluate((element) => {
+          const text = element.lastElementChild as HTMLElement;
+          const panel = element.closest(".hc-panel")?.getBoundingClientRect();
+          const own = element.getBoundingClientRect();
+          return {
+            clipped: text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight,
+            overflow: getComputedStyle(text).textOverflow,
+            inside: panel === undefined || own.right <= panel.right + 0.5,
+          };
+        });
+        expect(box.clipped, `"${label}" is cut (text-overflow ${box.overflow})`).toBe(false);
+        expect(box.inside, `"${label}" reaches past its panel`).toBe(true);
+        await expectFitsPhone(page);
+      });
+    }
+  }
 });
 
 // ---- non-text contrast -------------------------------------------------------
@@ -342,6 +448,16 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.locator(".hc-not-connected").first()).toBeVisible();
       expectBoundaries("not-connected panel border", await boundaries(page, ".hc-not-connected"));
     });
+
+    test(`the Explorer's native select (${theme})`, async ({ page }) => {
+      await mockApi(page, { detail: awaitingDecisionDetail() });
+      await page.goto(runPath("en", RUN_ID));
+      await hydrated(page);
+      await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+      await page.getByRole("tab", { name: t("en", "Run.tabs.explorer"), exact: true }).click();
+      await expect(page.locator("[data-explorer] select.hc-select")).toBeVisible();
+      expectBoundaries("select border", await boundaries(page, "[data-explorer] select.hc-select"));
+    });
   });
 }
 
@@ -361,9 +477,12 @@ test.describe("HE #10: the off Switch track reaches 3:1", () => {
     // The thumb stays distinguishable from the track as well.
     const thumb = await boundaries(page, "header .astryx-switch:not([data-checked]) > .astryx-switch-thumb", true);
     const [trackColor] = await boundaries(page, "header .astryx-switch:not([data-checked])", true);
-    expect(trackColor).toBeDefined();
+    if (trackColor === undefined) {
+      throw new Error("no off Switch track in the top bar");
+    }
+    expect(thumb.length, "no Switch thumb in the top bar").toBeGreaterThan(0);
     for (const { mark } of thumb) {
-      expect(contrast(mark, trackColor?.mark ?? mark)).toBeGreaterThanOrEqual(3);
+      expect(contrast(mark, trackColor.mark)).toBeGreaterThanOrEqual(3);
     }
   });
 

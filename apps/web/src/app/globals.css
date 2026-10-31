@@ -852,6 +852,27 @@
     min-width: 0;
   }
 
+  /* The outcome tag carries the evidence label at its end ("... on
+     SIMULATED evidence"), so it wraps instead of being cut with an ellipsis
+     when the panel is narrower than the tag (a phone, a long locale):
+     simulated evidence stays visible next to the outcome (G7). Astryx's
+     Badge is one fixed-height line that clips its label. */
+  [data-recommendation-kind] > .astryx-badge {
+    height: auto;
+    min-height: var(--spacing-5);
+    padding-block: calc(var(--spacing-1) / 2);
+    border-radius: var(--radius-element);
+    white-space: normal;
+    text-align: start;
+  }
+
+  [data-recommendation-kind] > .astryx-badge > span {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   .hc-panel-title {
     margin: 0;
     font-size: var(--text-heading-3-size);
@@ -1355,10 +1376,12 @@
     width: 100%;
   }
 
+  /* The border is the control's only boundary: the strong token (3:1, WCAG
+     1.4.11, HE #10). */
   .hc-select {
     min-height: 2.5rem;
     padding: var(--spacing-1) var(--spacing-3);
-    border: 1px solid var(--color-border-emphasized);
+    border: 1px solid var(--hc-color-border-strong);
     border-radius: var(--radius-element);
     font: inherit;
     color: var(--color-text-primary);
@@ -1916,8 +1939,10 @@
     border: 0;
   }
 
+  /* Visual only (empty alternative text): screen readers already get the
+     column name from the kept header row, so it is not announced twice. */
   .hc-revision-table td::before {
-    content: attr(data-label);
+    content: attr(data-label) / "";
     display: block;
     font-weight: 600;
     color: var(--color-text-secondary);

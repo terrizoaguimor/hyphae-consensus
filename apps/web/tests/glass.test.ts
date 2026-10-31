@@ -119,6 +119,36 @@ describe("the glass stylesheet", () => {
     }
   });
 
+  it("the tertiary remap reaches the name the components read (Astryx's --color-text-disabled), on live glass and static glass/3", () => {
+    // Astryx's disabled Text and Heading colour is a literal, not a var() of --hc-text-tertiary, so remapping the
+    // token alone would change nothing on screen.
+    expect(themeCss).toMatch(/--color-text-disabled:\s*light-dark\(#575757, #9E9E9E\)/);
+    expect(themeCss).toMatch(/\[data-color="disabled"\]\s*\{\s*color:\s*var\(--color-text-disabled\)/);
+    for (const selector of [".hc-glass:not(.hc-glass--static)", ".hc-glass--static:where(.hc-glass--3)"]) {
+      expect(ruleOf(selector)["--hc-text-tertiary"], selector).toBe("var(--hc-text-secondary)");
+      expect(ruleOf(selector)["--color-text-disabled"], selector).toBe("var(--hc-text-secondary)");
+    }
+  });
+
+  it("the root class .hc-transparency-reduced has no setter yet: a future one is reviewed with these rules", { timeout: IO_BOUND_TEST_TIMEOUT_MS }, () => {
+    // palette-mono 3.6 plans a Settings toggle; until it lands, only the OS setting applies. When a component or
+    // script starts setting the class, this test fails and the toggle (i18n in four locales, the theme script's
+    // CSP hash) gets reviewed with the CSS it switches on.
+    const files = readdirSync(path.join(appDir, "src"), { recursive: true, encoding: "utf8" })
+      .filter((file) => /\.(tsx?|mjs|js)$/.test(file))
+      .map((file) => file.split(path.sep).join("/"));
+    const setters = files.filter((file) => readFileSync(path.join(appDir, "src", file), "utf8").includes("hc-transparency-reduced"));
+    expect(setters).toEqual([]);
+    expect(glassCss).toContain(":where(.hc-transparency-reduced) .hc-glass {");
+  });
+
+  it("the live glass radius is the container radius token (6px), not a literal", () => {
+    expect(ruleOf(".hc-glass")["border-radius"]).toBe("var(--radius-container)");
+    expect(themeCss).toMatch(/--radius-container:\s*6px;/);
+    // regions stay square
+    expect(ruleOf(".hc-glass--region")["border-radius"]).toBe("0");
+  });
+
   it("static glass and the floating card's static form: opaque stops, no blur, a border-box edge, no pseudo-element", () => {
     for (const [selector, at, level] of [
       [".hc-glass--static", [], 1],
@@ -237,6 +267,28 @@ describe("glass only where palette-mono 3.5 allows it", () => {
       .map(({ selector, property, value, context }) => `${[...context.slice(1), selector].join(" ")} { ${property}: ${value} }`);
     expect(touching).toEqual([
       "@media screen and (forced-colors: none) .hc-panel:where(.hc-glass--static) { border-color: transparent }",
+    ]);
+  });
+
+  it("globals.css never clears the border of a glass element where the glass draws a real one (forced colours, print)", () => {
+    // On screen the glass edge is its ring or a border-box layer, so a component may reset its border there; in forced
+    // colours and print the ring is hidden and .hc-glass's 1px border is the boundary (palette-mono 3.6, WCAG 1.4.11).
+    const GLASS_ELEMENTS = [
+      ".hc-topbar", ".hc-sidebar", ".hc-dialog", ".hc-panel", ".hc-flow-step", ".hc-card", ".hc-run-card",
+      ".hc-scenario-card", ".hc-run-header", ".hc-decision-card",
+    ];
+    const BORDER = /^border(-(block|inline|top|right|bottom|left))?(-(start|end))?(-(style|width))?$/;
+    const clears = (value: string) => /^(0|0px|none|hidden)(\s|$)/.test(value);
+    const resets = (appSheets["src/app/globals.css"] ?? [])
+      .filter(({ selector, property, value }) =>
+        BORDER.test(property) && clears(value) && selectorsOf(selector).some((part) => GLASS_ELEMENTS.includes(part)),
+      )
+      .map(({ selector, property, value, context }) => `${[...context.slice(1), selector].join(" ")} { ${property}: ${value} }`);
+    expect(resets).toEqual([
+      // the top bar keeps the bottom line it draws on screen, in CanvasText
+      "@media (forced-colors: active) .hc-topbar { border-width: 0 0 1px }",
+      // the dialogs' screen-only reset
+      "@media screen and (forced-colors: none) .hc-dialog { border: 0 }",
     ]);
   });
 

@@ -325,6 +325,15 @@
     border-block-end: 1px solid var(--hc-glass-border);
   }
 
+  /* Forced colours: the glass's real CanvasText border (hc-mono-glass.css)
+     stays on the bottom edge only, the line the top bar draws on screen; a
+     frame round a full-width sticky bar would read as a box. */
+  @media (forced-colors: active) {
+    .hc-topbar {
+      border-width: 0 0 1px;
+    }
+  }
+
   .hc-wordmark {
     font-family: var(--font-family-heading);
     font-size: var(--font-size-lg);
@@ -621,9 +630,13 @@
      shadow and fallbacks), with entry and exit transitions that the
      reduced-motion rules above tone down. position: fixed is the user
      agent's for a modal dialog, restated because .hc-glass sets relative
-     (for its edge pseudo-element). The edge is the glass's ring, so the
-     dialog has no border of its own (the user agent's would be medium
-     solid). */
+     (for its edge pseudo-element). On screen the edge is the glass's ring,
+     so the dialog has no border of its own (the user agent's would be
+     medium solid); in forced colours and print the ring is hidden and the
+     glass's real 1px border is the dialog's boundary, so the reset is
+     guarded like .hc-panel:where(.hc-glass--static) below (in forced
+     colours the drawer keeps its inline-end edge: the border-block and
+     border-inline-start resets of .hc-dialog--drawer). */
 
   .hc-dialog {
     position: fixed;
@@ -631,7 +644,6 @@
     max-height: calc(100dvh - 2rem);
     padding: 0;
     overflow: auto;
-    border: 0;
     border-radius: var(--radius-container);
     color: var(--color-text-primary);
     opacity: 0;
@@ -640,6 +652,12 @@
     transition-duration: var(--hc-overlay-duration);
     transition-timing-function: var(--hc-ease);
     transition-behavior: allow-discrete;
+  }
+
+  @media screen and (forced-colors: none) {
+    .hc-dialog {
+      border: 0;
+    }
   }
 
   .hc-dialog[open] {
@@ -1036,12 +1054,9 @@
     gap: var(--spacing-2);
     padding: var(--spacing-5);
     border-radius: var(--radius-container);
-    /* Static glass, clickable (hc-mono-glass.css): fill, edge, highlight. */
-    transition: border-color var(--duration-fast) ease;
-  }
-
-  .hc-card:hover {
-    border-color: var(--color-accent);
+    /* Static glass, clickable (hc-mono-glass.css): fill, edge, highlight,
+       and its hover (bg/hover with the edge at border/strong, no border
+       colour of its own: palette-mono 2.3). */
   }
 
   .hc-card > p {
@@ -1715,10 +1730,6 @@
   /* The whole run card is its title link's hit area (.hc-card-link::after). */
   .hc-run-card {
     position: relative;
-  }
-
-  .hc-run-card:hover {
-    border-color: var(--color-accent);
   }
 
   .hc-scenario-card > p,

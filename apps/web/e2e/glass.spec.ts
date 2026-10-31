@@ -15,7 +15,11 @@
 // - the primary button: ink gradient with the grain and a highlight; pressed,
 //   flat btn/hover-bottom without shadow;
 // - the fallbacks: more contrast, forced colours and print drop the backdrop
-//   filter (reduced transparency: motion.spec.ts);
+//   filter (reduced transparency: motion.spec.ts); in forced colours the
+//   overlays keep a real 1px border (the tour a frame, the drawer its
+//   inline-end edge) and the top bar only its bottom line;
+// - a clickable card hovers with its edge at border/strong; disabled-colour
+//   text on live glass is the secondary ink;
 // - axe finds no violation on the decision tab, at both widths, in both themes.
 
 import AxeBuilder from "@axe-core/playwright";
@@ -339,6 +343,76 @@ for (const theme of THEMES) {
       expect((await surfaceOf(page.locator(".hc-topbar"))).shadow).toBe("none");
       await page.emulateMedia({ media: "screen" });
       await expect.poll(() => liveGlass(page)).toEqual(both);
+    });
+
+    test(`forced colours: the overlays keep a real 1px border; the top bar only its bottom line (${theme})`, async ({ page }) => {
+      await page.emulateMedia({ forcedColors: "active" });
+      const edges = (locator: Locator) =>
+        locator.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return [style.borderTop, style.borderRight, style.borderBottom, style.borderLeft].map((edge) =>
+            edge.split(" ").slice(0, 2).join(" "),
+          );
+        });
+
+      // The drawer, on a phone: its inline-end edge (the one over the page), as before the glass.
+      await page.setViewportSize(NARROW);
+      await page.goto("/en/");
+      await hydrated(page);
+      expect(await edges(page.locator(".hc-topbar"))).toEqual(["0px solid", "0px solid", "1px solid", "0px solid"]);
+      await page.getByRole("button", { name: t("en", "Shell.menuButton") }).click();
+      const drawer = page.locator("dialog[open]");
+      await expect(drawer).toHaveCSS("opacity", "1");
+      expect(await edges(drawer)).toEqual(["0px none", "1px solid", "0px none", "0px none"]);
+      expect((await surfaceOf(drawer)).shadow).toBe("none");
+      await page.keyboard.press("Escape");
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
+
+      // The tour, on a wide screen: a full 1px frame.
+      await page.setViewportSize(WIDE);
+      await page.goto("/en/docs/");
+      await hydrated(page);
+      await page.getByRole("button", { name: t("en", "Tour.launch") }).click();
+      const tour = page.locator("dialog[open]");
+      await expect(tour).toHaveCSS("opacity", "1");
+      expect(await edges(tour)).toEqual(["1px solid", "1px solid", "1px solid", "1px solid"]);
+      expect((await surfaceOf(tour)).shadow).toBe("none");
+      expect(await edges(page.locator(".hc-topbar"))).toEqual(["0px solid", "0px solid", "1px solid", "0px solid"]);
+    });
+
+    test(`a clickable card hovers to bg/hover with its edge at border/strong (${theme})`, async ({ page }) => {
+      await page.setViewportSize(WIDE);
+      await page.goto("/en/docs/");
+      await hydrated(page);
+      const card = page.locator(".hc-card").first();
+      await card.hover();
+      const strong = theme === "light" ? "rgb(110, 110, 110)" : "rgb(158, 158, 158)";
+      await expect
+        .poll(async () => (await surfaceOf(card)).image)
+        .toContain(`linear-gradient(${strong}, ${strong})`);
+      // No border colour of its own over the border-box edge (the ink accent would hide border/strong).
+      expect(await card.evaluate((element) => getComputedStyle(element).borderTopColor)).toBe("rgba(0, 0, 0, 0)");
+      await expect(card).toHaveCSS("border-top-width", "1px");
+    });
+
+    test(`muted (disabled-colour) text on live glass is the secondary ink (${theme})`, async ({ page }) => {
+      await page.setViewportSize(NARROW);
+      await openDecision(page);
+      const secondary = theme === "light" ? "rgb(58, 58, 58)" : "rgb(194, 194, 194)";
+      for (const host of [".hc-topbar", ".hc-decision-card"]) {
+        // A test-only probe: Astryx's disabled Text, as a component inside the glass would render it.
+        const colour = await page.locator(host).evaluate((element) => {
+          const probe = document.createElement("span");
+          probe.className = "astryx-text";
+          probe.dataset.color = "disabled";
+          probe.textContent = "probe";
+          element.append(probe);
+          const value = getComputedStyle(probe).color;
+          probe.remove();
+          return value;
+        });
+        expect(colour, host).toBe(secondary);
+      }
     });
 
     test(`axe: no violation on the decision tab, on a phone and a wide screen (${theme})`, async ({ page }) => {

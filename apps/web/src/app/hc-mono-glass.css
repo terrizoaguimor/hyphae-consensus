@@ -30,7 +30,7 @@
     --hc-g-shadow: var(--hc-glass-shadow-1);
     position: relative;
     isolation: isolate;
-    border-radius: 6px;
+    border-radius: var(--radius-container);
     color: var(--hc-text-primary);
     background-color: transparent;
     /* grain (one token per theme), sheen on a fixed 720px layer so the light source sits at the same offset on every
@@ -51,8 +51,10 @@
   }
 
   /* text/tertiary fails on dark live glass (3.4:1 worst case) and on dark static glass/3 (4.45:1), so there the token is
-     the secondary ink; on static glass 1 and 2 it passes and stays. */
-  .hc-glass:not(.hc-glass--static) { --hc-text-tertiary: var(--hc-text-secondary); }
+     the secondary ink; on static glass 1 and 2 it passes and stays. Astryx reads that ink as --color-text-disabled
+     (its "disabled" Text and Heading colour, a literal of the same value in hyphae-mission.css, not a var() of the
+     token), so both names are remapped. */
+  .hc-glass:not(.hc-glass--static) { --hc-text-tertiary: var(--hc-text-secondary); --color-text-disabled: var(--hc-text-secondary); }
 
   /* gradient border of live glass: a 1px ring drawn by a masked pseudo-element (a border-box layer would show through
      the translucent fill). Static glass uses a border-box layer instead (no mask), and never touches ::before (here or
@@ -116,7 +118,7 @@
     box-shadow: inset 0 -1px 0 var(--hc-glass-lowlight), var(--hc-g-shadow);
   }
   .hc-glass--static:where(.hc-glass--2) { --hc-g-top: var(--hc-glass-2-top-opaque); --hc-g-bottom: var(--hc-glass-2-bottom-opaque); }
-  .hc-glass--static:where(.hc-glass--3) { --hc-g-top: var(--hc-glass-3-top-opaque); --hc-g-bottom: var(--hc-glass-3-bottom-opaque); --hc-text-tertiary: var(--hc-text-secondary); }
+  .hc-glass--static:where(.hc-glass--3) { --hc-g-top: var(--hc-glass-3-top-opaque); --hc-g-bottom: var(--hc-glass-3-bottom-opaque); --hc-text-tertiary: var(--hc-text-secondary); --color-text-disabled: var(--hc-text-secondary); }
 
   /* The floating card (the decision card, .hc-glass--float): live glass/2 only on narrow viewports, where it is the
      one card that may sit over the scrolling evidence (3.3, 3.7: at most one floating card is live); static glass/2

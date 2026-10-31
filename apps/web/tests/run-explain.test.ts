@@ -233,6 +233,63 @@ describe.each(routing.locales)("the plain explanation (%s)", (locale) => {
     }
   }, 30_000);
 
+  it("with SIMULATED proofs, every proof count says simulated and not checked, never a bare valid (HE #2)", () => {
+    const all = traces();
+    for (const trace of all) {
+      const plain = plainExplanation(trace, { proofsUngenerated: false, proofsSimulated: true });
+      const values = {
+        valid: trace.counts.proofs_valid,
+        invalid: trace.counts.proofs_invalid,
+        unavailable: trace.counts.proofs_unavailable_or_error,
+      };
+      const proofs = plain.counts.filter((c) => c.key.startsWith("plain.counts.proofs"));
+      expect(proofs.map((c) => c.key)).toEqual(["plain.counts.proofs_simulated"]);
+      expect(proofs[0]?.values).toEqual(values);
+      const line = render(locale, proofs[0] as ExplainMessage);
+      // On the same line: the generic "2 valid" sentence never appears, and
+      // the simulated word and the "not checked" words do.
+      expect(line).not.toBe(render(locale, { key: "plain.counts.proofs", values }));
+      expect(line, line).toMatch(/SIMULATED|SIMULADAS|SIMULÉES/);
+      expect(line, line).toMatch(/not checked|sin comprobar|não verificadas|non vérifiées/);
+      // The same counts, zeros in words, and only the trace's kind.
+      const text = [plain.lead, ...plain.counts, ...plain.reasons].map((entry) => render(locale, entry)).join(" ");
+      const numbers = [...text.matchAll(/\d+/g)].map((match) => Number(match[0]));
+      const counts = Object.values(trace.counts).filter((value) => value > 0);
+      expect(sortedNumbers(numbers), text).toEqual(sortedNumbers(counts));
+      const lower = text.toLocaleLowerCase(locale);
+      for (const kind of KINDS.filter((k) => k !== trace.kind)) {
+        expect(lower, `mentions ${kind}: ${text}`).not.toContain(
+          message(locale, `Run.kinds.${kind}`).toLocaleLowerCase(locale),
+        );
+      }
+      expect(lower).toContain(message(locale, `Run.kinds.${trace.kind}`).toLocaleLowerCase(locale));
+      // A blocking scripted "invalid" is never said as a check that came back invalid.
+      if (trace.rule === "invalid_proof") {
+        expect(plain.lead.key).toBe("plain.rules.invalid_proof_simulated");
+        expect(text).not.toContain(render(locale, { key: "plain.rules.invalid_proof", kind: "blocked" }));
+      }
+      if (trace.reasons.some((r) => r.reason === "invalid_proofs")) {
+        expect(plain.reasons.map((r) => r.key)).toContain("plain.reasons.invalid_proofs_simulated");
+        expect(text).not.toContain(render(locale, { key: "plain.reasons.invalid_proofs" }));
+      }
+      // The simulated reading wins over the ungenerated one (a scripted status is no generation failure).
+      expect(plainExplanation(trace, { proofsUngenerated: true, proofsSimulated: true })).toEqual(plain);
+    }
+  }, 30_000);
+
+  it("a guided run's trace reads SIMULATED proofs from its records", () => {
+    for (const name of ["retry", "invalid_proof"]) {
+      const detail = fixture<RunDetailV1>(`run-detail-${name}.json`);
+      const trace = detail.recommendation?.trace;
+      if (trace === undefined || trace === null) {
+        throw new Error(`no trace in run-detail-${name}.json`);
+      }
+      const plain = plainExplanation(trace, traceReading(trace, detail));
+      expect(plain.counts.map((c) => c.key)).toContain("plain.counts.proofs_simulated");
+      expect(plain.counts.map((c) => c.key)).not.toContain("plain.counts.proofs");
+    }
+  });
+
   it("has a message for every rule, reason and context key", () => {
     for (const rule of POLICY_RULES) {
       expect(() => message(locale, `Run.explain.plain.rules.${rule}`)).not.toThrow();
@@ -249,6 +306,10 @@ describe.each(routing.locales)("the plain explanation (%s)", (locale) => {
       "plain.rules.invalid_proof_ungenerated",
       "plain.reasons.invalid_proofs_ungenerated",
       "plain.counts.proofs_ungenerated",
+      "plain.rules.invalid_proof_simulated",
+      "plain.reasons.invalid_proofs_simulated",
+      "plain.counts.proofs_simulated",
+      "technical.countsSimulated",
       "context.neverRejudgedUnlisted",
     ]) {
       expect(() => message(locale, `Run.explain.${key}`)).not.toThrow();
@@ -517,7 +578,15 @@ describe("over the research archive's own records", () => {
       throw new Error("no trace in run-detail-invalid_proof.json");
     }
     expect(ungeneratedProofs(trace, simulated)).toBe(false);
-    expect(plainExplanation(trace, traceReading(trace, simulated)).lead.key).toBe("plain.rules.invalid_proof");
+    // Never the generation-failure wording; and since every proof of this
+    // run is the scripted verifier's, its "invalid" is said as SIMULATED
+    // and not checked (HE #2), never as a check that came back invalid.
+    const reading = traceReading(trace, simulated);
+    expect(reading.proofsSimulated).toBe(true);
+    expect(plainExplanation(trace, reading).lead.key).not.toBe("plain.rules.invalid_proof_ungenerated");
+    expect(plainExplanation(trace, reading).lead.key).toBe("plain.rules.invalid_proof_simulated");
+    // Without the simulated reading the invalid-check wording stays.
+    expect(plainExplanation(trace, { proofsUngenerated: false }).lead.key).toBe("plain.rules.invalid_proof");
 
     // L01 with one record that reports no proof error: a real verifier rejected that proof.
     const { run, detail } = archivedRun("L01");

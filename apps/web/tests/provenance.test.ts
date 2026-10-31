@@ -4,7 +4,7 @@
 // replayed live-model records and scripted doubles read, what a simulated
 // proof renders as, and that every label key exists in every catalog.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -13,16 +13,19 @@ import { contractDir } from "../scripts/gen-api-types.mjs";
 import { routing } from "../src/i18n/routing";
 import type { ProvenanceV1, RunDetailV1 } from "../src/lib/api/types";
 import {
+  assessmentVariant,
   BLOCKING_FLAGS,
   deliveryLabel,
   evidenceLabel,
   flagLabel,
   hasBlockingFlag,
+  INFO_VARIANT,
   isAtRest,
   isLive,
   isPaceable,
   isScriptedRun,
   isTerminal,
+  LIVE_VARIANT,
   MODEL_PROVENANCES,
   modelLabel,
   modelNoteKey,
@@ -69,7 +72,9 @@ describe("isLive", () => {
 
 describe("delivery and model labels", () => {
   it("LIVE for a live frame of a live-model run; REPLAY for stored records", () => {
-    expect(deliveryLabel("live", liveMeta)).toEqual({ key: "live.label", variant: "success" });
+    // LIVE has its own colour (LIVE_VARIANT), never the green of a verified proof.
+    expect(deliveryLabel("live", liveMeta)).toEqual({ key: "live.label", variant: "pink" });
+    expect(LIVE_VARIANT).toBe("pink");
     expect(deliveryLabel("replay", liveMeta)).toEqual({ key: "replay.label", variant: "blue" });
   });
 
@@ -92,7 +97,8 @@ describe("delivery and model labels", () => {
   });
 
   it("LIVE META only for a live frame of a live-model run (isLive), META MODEL otherwise", () => {
-    expect(modelLabel(liveMeta, "live")).toEqual({ key: "liveMeta.label", variant: "info" });
+    // LIVE META in the LIVE colour; META MODEL in the info colour, never the same.
+    expect(modelLabel(liveMeta, "live")).toEqual({ key: "liveMeta.label", variant: "pink" });
     // A replayed frame, a list entry (no delivery) and a preset read META MODEL.
     expect(modelLabel(liveMeta, "replay")).toEqual({ key: "metaModel.label", variant: "info" });
     expect(modelLabel(liveMeta)).toEqual({ key: "metaModel.label", variant: "info" });
@@ -101,10 +107,60 @@ describe("delivery and model labels", () => {
     expect(modelNoteKey(undefined, liveMeta)).toBe("liveMeta.recorded");
   });
 
-  it.each(BLOCKING_FLAGS)("a %s run's model badge is a warning, never LIVE META", (flag) => {
-    const flagged = { ...liveMeta, flags: [flag] };
-    for (const delivery of ["live", "replay", undefined] as const) {
-      expect(modelLabel(flagged, delivery)).toEqual({ key: "metaModel.label", variant: "warning" });
+  it.each(BLOCKING_FLAGS)(
+    "a %s run's model badge is META MODEL in the info colour, never LIVE META; the flag is its own warning badge",
+    (flag) => {
+      const flagged = { ...liveMeta, flags: [flag] };
+      for (const delivery of ["live", "replay", undefined] as const) {
+        expect(modelLabel(flagged, delivery)).toEqual({ key: "metaModel.label", variant: "info" });
+      }
+      expect(flagLabel(flag).variant).toBe("warning");
+    },
+  );
+
+  it("META MODEL has one colour, the info one, in every state (HE #16)", () => {
+    const flagSets: ProvenanceV1["flags"][] = [undefined, [], ...BLOCKING_FLAGS.map((flag) => [flag])];
+    let seen = 0;
+    for (const flags of flagSets) {
+      for (const delivery of ["live", "replay", undefined] as const) {
+        const label = modelLabel({ model: "live_meta", flags }, delivery);
+        if (label.key === "metaModel.label") {
+          expect(label.variant, `${JSON.stringify(flags)} ${String(delivery)}`).toBe(INFO_VARIANT);
+          seen += 1;
+        }
+      }
+    }
+    expect(seen).toBeGreaterThan(10);
+    expect(INFO_VARIANT).toBe("info");
+  });
+
+  it("the LIVE colour is used by the LIVE labels and by nothing else (HE #16)", () => {
+    const flagSets: ProvenanceV1["flags"][] = [[], ...BLOCKING_FLAGS.map((flag) => [flag])];
+    const evidences = ["simulated", "hyphae_snapshot", "hyphae_live", "none", "mixed"] as const;
+    const statuses = ["valid", "invalid", "unavailable", "verification_error", "not_checked"] as const;
+    const labels: Array<{ key: string; variant: string }> = [
+      ...MODEL_PROVENANCES.flatMap((model) =>
+        flagSets.flatMap((flags) =>
+          (["live", "replay", undefined] as const).flatMap((delivery) => [
+            modelLabel({ model, flags }, delivery),
+            ...(delivery === undefined ? [] : [deliveryLabel(delivery, { model, flags })]),
+          ]),
+        ),
+      ),
+      ...evidences.map(evidenceLabel),
+      sourceLabel("this_server"),
+      sourceLabel("research_archive"),
+      ...BLOCKING_FLAGS.map(flagLabel),
+      ...statuses.flatMap((s) => [proofToken(s, true), proofToken(s, false)]),
+      ...Object.entries(RECOMMENDATION_VARIANTS).map(([kind, variant]) => ({ key: `kinds.${kind}`, variant })),
+      { key: "corroborated", variant: assessmentVariant(true) },
+      { key: "notCorroborated", variant: assessmentVariant(false) },
+    ];
+    const live = labels.filter((label) => label.variant === LIVE_VARIANT);
+    expect(live.length).toBeGreaterThan(0);
+    expect(new Set(live.map((label) => label.key))).toEqual(new Set(["live.label", "liveMeta.label"]));
+    for (const label of labels.filter((l) => l.key === "live.label" || l.key === "liveMeta.label")) {
+      expect(label.variant).toBe(LIVE_VARIANT);
     }
   });
 
@@ -151,7 +207,65 @@ describe("proofs and outcomes", () => {
       "supported",
     ]);
     expect(RECOMMENDATION_VARIANTS.blocked).toBe("error");
-    expect(RECOMMENDATION_VARIANTS.supported).toBe("success");
+    // "supported" is the info role: never green, whatever the evidence (HE #1).
+    expect(RECOMMENDATION_VARIANTS.supported).toBe("info");
+  });
+
+  it("no outcome on SIMULATED (or any) evidence maps to the success tone (HE #1)", () => {
+    for (const [kind, variant] of Object.entries(RECOMMENDATION_VARIANTS)) {
+      expect(variant, kind).not.toBe("success");
+      expect(variant, kind).not.toBe("green");
+    }
+    expect(RECOMMENDATION_VARIANTS.supported).toBe(INFO_VARIANT);
+  });
+
+  it("a corroborated assessment is the info role, never green (HE #1)", () => {
+    expect(assessmentVariant(true)).toBe("info");
+    expect(assessmentVariant(false)).toBe("neutral");
+    for (const corroborated of [true, false]) {
+      expect(assessmentVariant(corroborated)).not.toBe("success");
+      expect(assessmentVariant(corroborated)).not.toBe("green");
+    }
+  });
+
+  it("the success tone belongs to a real verifier's accepted proof alone", () => {
+    const statuses = ["valid", "invalid", "unavailable", "verification_error", "not_checked"] as const;
+    const green = statuses.flatMap((status) =>
+      [true, false]
+        .map((simulated) => ({ status, simulated, token: proofToken(status, simulated) }))
+        .filter(({ token }) => token.variant === "success"),
+    );
+    expect(green.map(({ status, simulated }) => ({ status, simulated }))).toEqual([
+      { status: "valid", simulated: false },
+    ]);
+  });
+
+  it("no view hands a literal success or green variant to an outcome or an assessment", () => {
+    // The views take these colours from src/lib/provenance.ts; a literal
+    // "success" may appear only where a real check is shown (the in-browser
+    // chain check) or in non-badge code (API results).
+    const dir = new URL("../src/components/", import.meta.url);
+    const offenders: string[] = [];
+    const walk = (url: URL) => {
+      for (const entry of readdirSync(url, { withFileTypes: true })) {
+        const child = new URL(entry.isDirectory() ? `${entry.name}/` : entry.name, url);
+        if (entry.isDirectory()) {
+          walk(child);
+        } else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) {
+          const text = readFileSync(child, "utf8");
+          // variant="success", a conditional `? "success"`, a map value `kind: "success",`.
+          const literal = [
+            /variant[=:]\s*\{?\s*["'](success|green)["']/,
+            /[?:]\s*["'](success|green)["']\s*[,}:)]/,
+          ];
+          if (literal.some((pattern) => pattern.test(text))) {
+            offenders.push(path.basename(child.pathname));
+          }
+        }
+      }
+    };
+    walk(dir);
+    expect(offenders.sort()).toEqual(["ChainCheck.tsx"]);
   });
 
   it("knows which states are terminal and when a run is at rest", () => {

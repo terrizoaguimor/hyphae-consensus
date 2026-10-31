@@ -45,6 +45,23 @@ type Json = Record<string, unknown>;
 
 const LIVE_RUN_ID = "run-00000000-0000-4000-8000-000000000006";
 
+/**
+ * Every badge the locator finds (at least one) is in the `variant` colour
+ * token (Astryx reflects it as data-variant), and none is the success or
+ * green one: an outcome or a claim tag on simulated evidence is never green
+ * (HE #1); one label keeps one colour (HE #16).
+ */
+async function expectNotGreen(badges: Locator, variant: string) {
+  await expect(badges.first()).toBeVisible();
+  const variants = await badges.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-variant")));
+  expect(variants.length).toBeGreaterThan(0);
+  for (const value of variants) {
+    expect(value).not.toBe("success");
+    expect(value).not.toBe("green");
+    expect(value).toBe(variant);
+  }
+}
+
 test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, pageProblems }) => {
   const mock = await mockApi(page, { detail: awaitingDecisionDetail() });
   await page.goto("/en/new/");
@@ -92,11 +109,25 @@ test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, p
   await expect(page.locator("[data-role-card='Critic']")).toContainText(t("en", "Run.stage.noObjections"));
   await expect(page.locator("[data-role-card='Evidence Evaluator']")).toContainText("claim-2");
   await expect(page.locator("[data-lane]")).toContainText("2 records retrieved");
-  await expect(page.locator("[data-lane]")).toContainText("4 proofs checked");
+  // Simulated proofs checked nothing: counted as such, never "proofs checked" (HE #2).
+  await expect(page.locator("[data-lane-proofs='simulated']")).toHaveText("4 simulated proofs (not checked)");
+  await expect(page.locator("[data-lane]")).not.toContainText("proofs checked");
+  await expect(page.locator("[data-lane-proofs='checked']")).toHaveCount(0);
   await expect(page.locator("[data-proof-simulated='true']")).toHaveCount(4);
   await expect(page.locator("[data-recommendation]")).toContainText(
     "supported — on SIMULATED evidence",
   );
+  // "supported" on SIMULATED evidence is never green: the info role (HE #1),
+  // in the stage and in the header; "corroborated" likewise.
+  await expectNotGreen(page.locator("[data-recommendation] [data-recommendation-kind] .astryx-badge"), "info");
+  await expectNotGreen(page.locator("[data-run-field='outcome'] .astryx-badge"), "info");
+  await expectNotGreen(
+    page.locator("[data-role-card='Evidence Evaluator'] .astryx-badge", {
+      hasText: new RegExp(`^${t("en", "Run.stage.corroborated")}$`),
+    }),
+    "info",
+  );
+  await expect(page.locator("[data-rationale-simulated]")).toHaveText(t("en", "Run.stage.rationaleSimulated"));
   await expect(page.locator("[data-frame-delivery='replay']").first()).toBeVisible();
   await expect(liveBadge(page, "en")).toHaveCount(0);
   await expect(page.locator("[data-model-note='scripted']").first()).toHaveText(
@@ -204,6 +235,11 @@ for (const locale of locales) {
     await expect(page.locator("[data-provenance-note='liveMeta.recorded']")).toBeVisible();
     await expect(page.getByRole("tab", { name: t(locale, "Run.tabs.playback") })).toBeVisible();
     await expectNoLive(page, locale);
+    // META MODEL in the info colour here too: one colour per label (HE #16).
+    await expectNotGreen(
+      page.locator(".astryx-badge", { hasText: new RegExp(`^${t(locale, "Provenance.metaModel.label")}$`) }),
+      "info",
+    );
     const header = page.locator("header.hc-run-header");
     await expect(header.locator("dl dt")).toHaveText([
       t(locale, "Run.header.state"),
@@ -215,13 +251,22 @@ for (const locale of locales) {
     expect(await header.innerText()).not.toContain("{");
     await page.unrouteAll({ behavior: "ignoreErrors" });
 
-    // A flagged run with live-delivered frames: the flag, a warning model badge, no LIVE.
+    // A flagged run with live-delivered frames: the flag in its own warning
+    // badge, the model badge META MODEL in its one (info) colour, no LIVE.
     await mockApi(page, { detail: flagged, frames: framesWith(flaggedProvenance, "live") });
     await openRun(page, locale);
     await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
     await expect(
       page.getByText(t(locale, "Provenance.flags.mode_undeclared"), { exact: true }).first(),
     ).toBeVisible();
+    await expectNotGreen(
+      page.locator(".astryx-badge", { hasText: new RegExp(`^${t(locale, "Provenance.metaModel.label")}$`) }),
+      "info",
+    );
+    await expectNotGreen(
+      page.locator(".astryx-badge", { hasText: new RegExp(`^${t(locale, "Provenance.flags.mode_undeclared")}$`) }),
+      "warning",
+    );
     await expect(page.locator("[data-frame-delivery='live']").first()).toBeVisible();
     await expectNoLive(page, locale);
     await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -249,6 +294,17 @@ test("a live-model run in progress with live frames reads LIVE and is named Live
   await expect(header.getByText(t("en", "Provenance.liveMeta.label"), { exact: true })).toBeVisible();
   await expect(header.getByText(t("en", "Provenance.live.label"), { exact: true })).toBeVisible();
   await expect(header.getByText(t("en", "Provenance.liveMeta.evidence"), { exact: true })).toBeVisible();
+  // LIVE and LIVE META keep the LIVE colour, which nothing else uses: never
+  // the green of a verified proof, never the info colour of META MODEL (HE #16).
+  const liveLabels = [t("en", "Provenance.live.label"), t("en", "Provenance.liveMeta.label")];
+  for (const label of liveLabels) {
+    await expectNotGreen(header.locator(".astryx-badge", { hasText: new RegExp(`^${label}$`) }), "pink");
+  }
+  const pink = await page.locator(".astryx-badge[data-variant='pink']").allInnerTexts();
+  expect(pink.length).toBeGreaterThan(1);
+  for (const text of pink) {
+    expect(liveLabels, `a non-LIVE label in the LIVE colour: ${text}`).toContain(text.trim());
+  }
   await expect(page.locator("[data-provenance-note='liveMeta.live']")).toHaveText(
     t("en", "Provenance.liveMeta.live"),
   );
@@ -265,8 +321,9 @@ for (const delivery of ["live", "replay"] as const) {
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await openRun(page, "en");
     await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
-    // Every frame shows at once: nothing was held back.
-    await expect(page.locator("[data-lane]")).toContainText("4 proofs checked");
+    // Every frame shows at once: nothing was held back. (This fixture's
+    // proofs are the scripted verifier's, so they count as simulated.)
+    await expect(page.locator("[data-lane-proofs='simulated']")).toHaveText("4 simulated proofs (not checked)");
     await expect(page.locator("[data-pacing]")).toHaveCount(0);
     await expect(page.getByText(t("en", "Run.pacing.label"), { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: t("en", "Run.pacing.skip") })).toHaveCount(0);
@@ -705,6 +762,8 @@ test("the Explorer tab lists every record and filters by type", async ({ page })
   await expect(page.locator("[data-explorer]")).not.toContainText("integrity valid");
   await rows.first().getByText(t("en", "Run.explorer.json")).click();
   await expect(rows.first().locator("pre")).toContainText('"type": "evidence_verified"');
+  // The JSON says "valid" for a simulated proof: a caption reads it on the spot (HE #2).
+  await expect(rows.first().locator("[data-json-simulated]")).toHaveText(t("en", "Run.explorer.jsonSimulated"));
   // Zero matches read the =0 sentence, never "0 record".
   await page.getByLabel(t("en", "Run.explorer.filter")).selectOption("run_failed");
   await expect(page.locator("[data-explorer] .hc-list-head p")).toHaveText("0 records of 15");
@@ -980,6 +1039,12 @@ test("the Audit trail shows the chain, the receipt, the verbatim log and the rea
     "Earlier-round objections never re-judged: none",
   );
   await expect(receipt.locator("[data-receipt-simulated='4']")).toBeVisible();
+  // Simulated proofs are never counted as "integrity valid": their line says
+  // SIMULATED and not checked, on the same line (HE #2).
+  await expect(receipt.locator("[data-receipt-by-status] li")).toHaveText([
+    "SIMULATED, scripted “valid”: 4 proofs (not checked)",
+  ]);
+  await expect(receipt.locator("[data-receipt-by-status]")).not.toContainText("integrity valid");
   const limitations = fixture<{ proof_limitations: string }>("receipt-v2-retry.json").proof_limitations;
   await expect(receipt.locator("[data-receipt-limitations]")).toHaveText(limitations);
   await receipt.locator("details > summary").click();
@@ -1348,12 +1413,21 @@ test("the Decision tab explains the recommendation from its policy trace @smoke"
   await expect(explanation.locator("[data-explain-lead]")).toHaveText(
     t("en", "Run.explain.plain.rules.all_checks_passed", { kind: t("en", "Run.kinds.supported") }),
   );
-  // The trace's counts, zeros in words (ICU plurals, rendered by the app).
+  // The trace's counts, zeros in words (ICU plurals, rendered by the app);
+  // this run's proofs are SIMULATED, so its proof count says so on the same
+  // line, never "2 valid" (HE #2).
   await expect(explanation.locator("[data-explain-counts] li")).toHaveText([
     "The final evaluation assessed 2 claims; 2 were corroborated.",
-    "Proofs of the final round: 2 valid, none invalid, none unavailable or failed.",
+    "Proofs of the final round, all SIMULATED: 2 simulated “valid”, none simulated “invalid”, none unavailable or failed (scripted, not checked).",
     "The final evaluation listed no objection as unresolved.",
   ]);
+  await expect(explanation.locator("[data-explain-counts]")).not.toContainText("2 valid");
+  // The recommendation opening the tab is never green on simulated evidence (HE #1).
+  await expectNotGreen(page.locator("[data-decision] [data-recommendation-kind] .astryx-badge"), "info");
+  // The server's own rationale says "2 valid": a caption says those are scripted statuses.
+  await expect(page.locator("[data-decision] > section [data-rationale-simulated]")).toHaveText(
+    t("en", "Run.stage.rationaleSimulated"),
+  );
   await expect(explanation.locator("[data-explain-reasons]")).toHaveCount(0);
   // What the records add: these proof statuses are SIMULATED.
   await expect(explanation.locator("[data-context='context.simulated']")).toHaveText(
@@ -1367,6 +1441,8 @@ test("the Decision tab explains the recommendation from its policy trace @smoke"
     t("en", "Run.explain.technical.rule", { rule: "all checks passed", id: "all_checks_passed", version: "1.2" }),
   );
   await expect(explanation.locator("[data-count-field='proofs_valid']")).toHaveText("2");
+  // The raw counts keep their field names; a caption says they are SIMULATED.
+  await expect(explanation.locator("[data-counts-simulated]")).toHaveText(t("en", "Run.explain.technical.countsSimulated"));
   await expect(explanation.locator("figure[data-untrusted='server'] blockquote")).toHaveText(
     "Supported: 2/2 claims corroborated; proofs: 2 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.",
   );
@@ -1382,11 +1458,17 @@ test("at the technical level the trace starts expanded, every failed check with 
   await openRun(page, "en", runId);
   await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
   const explanation = page.locator("[data-explanation]");
+  // A guided run: its "invalid" proof is the scripted verifier's, said as
+  // SIMULATED and not checked, never as a check that came back invalid (HE #2).
   await expect(explanation.locator("[data-explain-lead]")).toHaveText(
+    t("en", "Run.explain.plain.rules.invalid_proof_simulated", { kind: t("en", "Run.kinds.blocked") }),
+  );
+  await expect(explanation).not.toContainText(
     t("en", "Run.explain.plain.rules.invalid_proof", { kind: t("en", "Run.kinds.blocked") }),
   );
+  await expect(explanation.locator("[data-explain-counts] li").nth(1)).toContainText("simulated “invalid”");
   await expect(explanation.locator("[data-explain-reasons] li")).toHaveText([
-    t("en", "Run.explain.plain.reasons.invalid_proofs"),
+    t("en", "Run.explain.plain.reasons.invalid_proofs_simulated"),
     t("en", "Run.explain.plain.reasons.contradicted_evidence"),
     t("en", "Run.explain.plain.reasons.open_items"),
     t("en", "Run.explain.plain.reasons.uncorroborated_claims"),
@@ -1622,7 +1704,8 @@ test("a failed stream: the stage shows the stored records and offers a reconnect
   await expect(page.locator("[data-stage-source='stored']")).toHaveText(t("en", "Run.stream.storedRecords"));
   // The stage counts the run's own records, as the header does.
   await expect(page.locator("[data-lane]")).toContainText("2 records retrieved");
-  await expect(page.locator("[data-lane]")).toContainText("4 proofs checked");
+  await expect(page.locator("[data-lane-proofs='simulated']")).toHaveText("4 simulated proofs (not checked)");
+  await expect(page.locator("[data-lane]")).not.toContainText("proofs checked");
   await expect(page.locator("[data-role-card='Proposer']")).toContainText(
     "Cap retries at 3 attempts with jitter per the documented constraint",
   );

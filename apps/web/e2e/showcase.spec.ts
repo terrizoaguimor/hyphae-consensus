@@ -109,6 +109,26 @@ test("the showcase lists the archive as RECORDED, by battery, every outcome next
   await expect(scripted.locator("[data-showcase-outcome='supported']")).toHaveText(
     "supported — on SIMULATED evidence",
   );
+  // "supported" on SIMULATED evidence reads in the info colour, never green
+  // (HE #1); no outcome of the list is green; META MODEL keeps its one
+  // (info) colour (HE #16).
+  await expect(scripted.locator("[data-showcase-outcome='supported'] .astryx-badge")).toHaveAttribute(
+    "data-variant",
+    "info",
+  );
+  for (const variant of await page
+    .locator("[data-showcase-outcome] .astryx-badge")
+    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-variant")))) {
+    expect(variant).not.toBe("success");
+    expect(variant).not.toBe("green");
+  }
+  const metaModels = page.locator(".astryx-badge", {
+    hasText: new RegExp(`^${t("en", "Provenance.metaModel.label")}$`),
+  });
+  await expect(metaModels.first()).toBeVisible();
+  for (const variant of await metaModels.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-variant")))) {
+    expect(variant).toBe("info");
+  }
   await expect(page.locator(`[data-showcase-run='${String(l01.run_id)}'] [data-showcase-outcome='blocked']`)).toBeVisible();
   // The card opens the run in the workspace, in RECORDED mode.
   await expect(page.locator(`[data-showcase-run='${String(r06.run_id)}'] a`)).toHaveAttribute(
@@ -168,6 +188,15 @@ test("a recorded run opens read-only in RECORDED mode, never as running @smoke",
   const header = page.locator("header.hc-run-header");
   await expect(header.getByText(t("en", "Provenance.recorded.label"), { exact: true }).first()).toBeVisible();
   await expect(header.getByText(t("en", "Provenance.metaModel.label"), { exact: true })).toBeVisible();
+  // One colour per label (HE #16), and an outcome is never green (HE #1).
+  await expect(
+    header.locator(".astryx-badge", { hasText: new RegExp(`^${t("en", "Provenance.metaModel.label")}$`) }),
+  ).toHaveAttribute("data-variant", "info");
+  await expect(header.locator("[data-run-field='outcome'] .astryx-badge")).toHaveAttribute("data-variant", "info");
+  await expect(page.locator("[data-decision] [data-recommendation-kind] .astryx-badge")).toHaveAttribute(
+    "data-variant",
+    "info",
+  );
   await expect(header.locator("[data-provenance-note='liveMeta.recorded']")).toBeVisible();
   await expect(header.locator("[data-recorded-run]")).toContainText(
     t("en", "Showcase.run.banner", { label: "R06", battery: "live-battery-2026-10-27" }),

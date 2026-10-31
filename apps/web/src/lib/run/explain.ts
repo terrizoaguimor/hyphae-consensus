@@ -80,6 +80,12 @@ export type TraceReading = {
    * that failure, and nothing was checked.
    */
   proofsUngenerated: boolean;
+  /**
+   * Every verification record of the run is the scripted verifier's (and
+   * there is one): the trace's proof counts are SIMULATED statuses, none of
+   * them checked, so they are never said as "valid" or "invalid" proofs.
+   */
+  proofsSimulated?: boolean;
 };
 
 /**
@@ -87,14 +93,19 @@ export type TraceReading = {
  * counts. With `reading.proofsUngenerated`, the invalid_proof lead, the
  * proofs count sentence and the invalid_proofs sentence say that no proof
  * could be generated (so nothing was checked), instead of a check that came
- * back invalid.
+ * back invalid. With `reading.proofsSimulated` (and it comes first: a
+ * scripted verifier's status is never a generation failure), the same three
+ * say the statuses are SIMULATED and not checked, on the same line: never
+ * "2 valid" for simulated proofs.
  */
 export function plainExplanation(trace: PolicyTrace, reading?: TraceReading): PlainExplanation {
   const { counts } = trace;
-  const ungenerated = reading?.proofsUngenerated === true && invalidProofIds(trace).length > 0;
+  const simulated = reading?.proofsSimulated === true;
+  const ungenerated = !simulated && reading?.proofsUngenerated === true && invalidProofIds(trace).length > 0;
+  const variant = simulated ? "_simulated" : ungenerated ? "_ungenerated" : "";
   return {
     lead: {
-      key: ungenerated && trace.rule === "invalid_proof" ? "plain.rules.invalid_proof_ungenerated" : `plain.rules.${trace.rule}`,
+      key: trace.rule === "invalid_proof" ? `plain.rules.invalid_proof${variant}` : `plain.rules.${trace.rule}`,
       kind: trace.kind,
     },
     counts: [
@@ -104,8 +115,9 @@ export function plainExplanation(trace: PolicyTrace, reading?: TraceReading): Pl
       },
       {
         // The same three trace counts; with no proof generated they are
-        // integrity statuses, not proofs that were checked or that failed.
-        key: ungenerated ? "plain.counts.proofs_ungenerated" : "plain.counts.proofs",
+        // integrity statuses, not proofs that were checked or that failed;
+        // simulated, they are the script's statuses, and nothing was checked.
+        key: `plain.counts.proofs${variant}`,
         values: {
           valid: counts.proofs_valid,
           invalid: counts.proofs_invalid,
@@ -116,8 +128,8 @@ export function plainExplanation(trace: PolicyTrace, reading?: TraceReading): Pl
     ],
     reasons: trace.reasons.map((reason) => ({
       key:
-        ungenerated && reason.reason === "invalid_proofs"
-          ? "plain.reasons.invalid_proofs_ungenerated"
+        reason.reason === "invalid_proofs"
+          ? `plain.reasons.invalid_proofs${variant}`
           : `plain.reasons.${reason.reason}`,
     })),
   };
@@ -166,7 +178,10 @@ export function ungeneratedProofs(trace: PolicyTrace, detail: RunDetailV1): bool
 
 /** The trace's reading from the run's records. */
 export function traceReading(trace: PolicyTrace, detail: RunDetailV1): TraceReading {
-  return { proofsUngenerated: ungeneratedProofs(trace, detail) };
+  return {
+    proofsUngenerated: ungeneratedProofs(trace, detail),
+    proofsSimulated: explainContext(detail).simulatedProofs,
+  };
 }
 
 /** The ids a failed check names (evidence, claim or item ids), empty for the checks without ids. */

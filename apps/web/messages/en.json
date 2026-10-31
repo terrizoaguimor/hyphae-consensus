@@ -390,10 +390,12 @@
       "lane": "Runtime lane",
       "retrieved": "{count, plural, =0 {No evidence retrieved} one {# record retrieved} other {# records retrieved}}",
       "verified": "{count, plural, =0 {No proof checked} one {# proof checked} other {# proofs checked}}",
+      "verifiedSimulated": "{count, plural, =0 {No simulated proof} one {# simulated proof (not checked)} other {# simulated proofs (not checked)}}",
       "proven": "{count, plural, =0 {No recall proven} one {# recall proven} other {# recalls proven}}",
       "unavailable": "{count, plural, =0 {No retrieval failed} one {# retrieval failed} other {# retrievals failed}}",
       "simulatedProof": "SIMULATED proof: scripted outcome “{status}”, no cryptography checked",
       "simulatedProofShort": "SIMULATED proof (scripted outcome “{status}”)",
+      "rationaleSimulated": "Every proof of this run is SIMULATED: where the server’s rationale above counts proofs as “valid” or “invalid”, those are scripted statuses, and nothing was checked.",
       "proofStatus": "proof {status}",
       "recommendation": "Recommendation",
       "noRecommendation": "No recommendation issued yet.",
@@ -410,6 +412,7 @@
       "time": "Time",
       "summary": "Summary",
       "json": "Public event (JSON)",
+      "jsonSimulated": "This record is a SIMULATED proof: its integrity_status is the scripted verifier’s outcome, and nothing was checked.",
       "empty": "No records match this filter.",
       "count": "{shown, plural, =0 {0 records} one {# record} other {# records}} of {total, number}",
       "partial": "The server’s copy of this run could not be read: the timeline shows only the records the stream delivered.",
@@ -770,6 +773,7 @@
       "verificationsHeading": "Verifications",
       "verifications": "{count, plural, =0 {No verification record.} one {# verification record, in round {rounds}.} other {# verification records, in rounds {rounds}.}}",
       "verificationsByStatus": "integrity {status}: {count, number}",
+      "verificationsByStatusSimulated": "SIMULATED, scripted “{status}”: {count, plural, =0 {no proof} one {# proof (not checked)} other {# proofs (not checked)}}",
       "verificationsSimulated": "{count, plural, =0 {No SIMULATED proof among them.} one {# of them is a SIMULATED proof: scripted, nothing checked.} other {# of them are SIMULATED proofs: scripted, nothing checked.}}",
       "limitationsHeading": "Proof limitations, as the receipt states them (English)",
       "receiptJson": "The receipt as JSON",
@@ -821,6 +825,7 @@
         "rules": {
           "invalid_proof": "A record’s integrity check came back invalid, and that check comes before every other one: the policy recommends {kind}.",
           "invalid_proof_ungenerated": "None of the records whose integrity reads invalid got a proof: it could not be generated upstream, so nothing was checked. The policy still treats that status as invalid, and that rule comes before every other one: the policy recommends {kind}.",
+          "invalid_proof_simulated": "A record’s SIMULATED proof was scripted “invalid” (nothing was checked), and that rule comes before every other one: the policy recommends {kind}.",
           "recorded_contradiction": "The Evaluator recorded evidence that contradicts a claim: the policy recommends {kind}.",
           "abstention": "The Evaluator declined to judge the claims: the policy recommends {kind}.",
           "unresolved_items": "Objections are still open after the final evaluation: the policy recommends {kind}.",
@@ -831,11 +836,13 @@
           "claims": "{claims, plural, =0 {The final evaluation assessed no claim} one {The final evaluation assessed # claim} other {The final evaluation assessed # claims}}; {corroborated, plural, =0 {none was corroborated} one {# was corroborated} other {# were corroborated}}.",
           "proofs": "Proofs of the final round: {valid, plural, =0 {none valid} one {# valid} other {# valid}}, {invalid, plural, =0 {none invalid} one {# invalid} other {# invalid}}, {unavailable, plural, =0 {none unavailable or failed} one {# unavailable or failed} other {# unavailable or failed}}.",
           "proofs_ungenerated": "Integrity statuses of the final round: {valid, plural, =0 {none valid} one {# valid} other {# valid}}, {invalid, plural, =0 {none invalid} one {# invalid, with no proof generated} other {# invalid, with no proof generated}}, {unavailable, plural, =0 {none unavailable or with a verification error} one {# unavailable or with a verification error} other {# unavailable or with a verification error}}.",
+          "proofs_simulated": "Proofs of the final round, all SIMULATED: {valid, plural, =0 {none simulated “valid”} one {# simulated “valid”} other {# simulated “valid”}}, {invalid, plural, =0 {none simulated “invalid”} one {# simulated “invalid”} other {# simulated “invalid”}}, {unavailable, plural, =0 {none unavailable or failed} one {# unavailable or failed} other {# unavailable or failed}} (scripted, not checked).",
           "open": "{unresolved, plural, =0 {The final evaluation listed no objection as unresolved.} one {The final evaluation listed # objection as unresolved.} other {The final evaluation listed # objections as unresolved.}}"
         },
         "reasons": {
           "invalid_proofs": "A record’s proof was found invalid.",
           "invalid_proofs_ungenerated": "Each record whose integrity reads invalid reports that no proof could be generated upstream for it; this does not show that a record was altered.",
+          "invalid_proofs_simulated": "A record’s SIMULATED proof was scripted “invalid”: nothing was checked.",
           "contradicted_evidence": "Evidence was judged to contradict a claim.",
           "evaluator_abstained": "The Evaluator declined to judge.",
           "open_items": "Objections of the Critic are still open.",
@@ -860,6 +867,7 @@
         "reasonsHeading": "{count, plural, =0 {No check failed: the trace lists no reason.} one {# check failed, in the order of the rules:} other {# checks failed, in the order of the rules:}}",
         "ids": "ids: {ids}",
         "rationale": "The server’s rationale, as recorded:",
+        "countsSimulated": "Every proof of this run is SIMULATED: these proof counts, and those in the server’s rationale below, are scripted statuses, and nothing was checked.",
         "protocol": "Protocol: {protocol}"
       },
       "ruleNames": {

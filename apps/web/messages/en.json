@@ -300,7 +300,9 @@
       "provenance": "Provenance",
       "flags": "Flags",
       "task": "Task",
-      "latestDelivery": "Latest record"
+      "latestDelivery": "Latest record",
+      "awaitingDecision": "This run is waiting for your decision.",
+      "goToDecision": "Go to your decision"
     },
     "outcomeEvidence": "Evidence: {evidence}",
     "kinds": {
@@ -494,6 +496,12 @@
       "note": "Note",
       "noteDescription": "Optional, up to 2000 characters. Required to approve a blocked or abstained run (an override).",
       "overrideRequired": "Approving a {kind} run is an override: write a note first.",
+      "approveOverride": "Approve as an override",
+      "noteRequired": "Note · Required for this run",
+      "noteRequiredDescription": "Up to 2000 characters. Approving needs a note that says why you go against the policy’s recommendation; rejecting does not.",
+      "overrideNotice": "The policy recommends “{kind}” for this run. Approving this run goes against that recommendation (an override), so a note is required to approve.",
+      "cardLead": "The policy recommends:",
+      "cardReasons": "Why the policy recommends this, the server’s rationale and the objections section are further down this tab: read them before deciding.",
       "notAwaiting": "The run is not awaiting a decision.",
       "detailUnavailable": "The decision needs the server’s copy of this run, which could not be read; use Try again above.",
       "submitting": "Recording…",

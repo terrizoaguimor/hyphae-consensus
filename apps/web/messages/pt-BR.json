@@ -300,7 +300,9 @@
       "provenance": "Procedência",
       "flags": "Avisos",
       "task": "Tarefa",
-      "latestDelivery": "Último registro"
+      "latestDelivery": "Último registro",
+      "awaitingDecision": "Esta execução aguarda a sua decisão.",
+      "goToDecision": "Ir para a sua decisão"
     },
     "outcomeEvidence": "Evidências: {evidence}",
     "kinds": {
@@ -494,6 +496,12 @@
       "note": "Nota",
       "noteDescription": "Opcional, até 2000 caracteres. Obrigatória para aprovar uma execução bloqueada ou com abstenção (uma anulação).",
       "overrideRequired": "Aprovar uma execução {kind} é uma anulação: escreva uma nota primeiro.",
+      "approveOverride": "Aprovar como anulação",
+      "noteRequired": "Nota · Obrigatória para esta execução",
+      "noteRequiredDescription": "Até 2000 caracteres. Para aprovar, é preciso uma nota que explique por que você vai contra a recomendação da política; para rejeitar, não.",
+      "overrideNotice": "A política recomenda “{kind}” para esta execução. Aprovar esta execução vai contra essa recomendação (uma anulação), então é preciso uma nota para aprovar.",
+      "cardLead": "A política recomenda:",
+      "cardReasons": "O porquê desta recomendação, a justificativa do servidor e a seção de objeções estão mais abaixo nesta aba: leia-os antes de decidir.",
       "notAwaiting": "A execução não está aguardando uma decisão.",
       "detailUnavailable": "A decisão precisa da cópia desta execução no servidor, que não pôde ser lida; use Tentar de novo acima.",
       "submitting": "Registrando…",

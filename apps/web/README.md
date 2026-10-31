@@ -29,7 +29,7 @@ the language-neutral root page `/` and the 404 page:
 | Overview | `/` | What the system does, the main call to action (until the health probe answers, and when the API is unreachable: "How guided examples will work", linking to the Modes article; once the API answered it opens New deliberation and reads "Run a guided example" only when `capabilities.guided_enabled` says so, with the server's schema, policy and contract versions from the health answer, and a note when the server's contract is not the one this build was generated from), the tour invitation, how a deliberation works, the provenance legend; the impact figures, counted in the browser from `GET /showcase` (runs and records, runs by outcome in columns of their evidence axis, by battery with schema and policy rules, by model axis and authorization, the recorded Meta request ids, the runs before the hash chain), the not-connected placeholder without the API |
 | New deliberation | `new/` | Guided examples from `GET /scenarios` (the count the server lists, title, description, expected outcome as a neutral chip, SIMULATED model and evidence badges, a Run button: `ensureSession`, `POST /runs` with a fresh `Idempotency-Key`, then the run page) and the live presets from `capabilities.live` (`LiveCapabilitiesV1`: each preset with the badges of its own recorded model and evidence axes, the public budget in US dollars, the 18+ and territory attestation linking to the Terms, an optional invite code under a disclosure, the Turnstile widget, `POST /live-runs`; see "Live form" below), or the fixed "Live mode is not enabled on this server" state linking to the showcase; every API error shows its code's sentence and the Retry-After wait |
 | My runs | `runs/` | The session's runs from `GET /runs` (title, state, outcome with its evidence axis, the failure sentence of a failed run, provenance badges, never a LIVE label: a live-model run reads META MODEL with its recorded date, created and updated, "access ends" and "deleted after" from the capabilities limits), the empty state, no list and no count without a session |
-| Run workspace | `run/?id=<run_id>` | Client-rendered from the query string: header (title, state, outcome with evidence axis and, for a revision, which proposal it is for, records, revision round, run id, the failure sentence of a failed run, provenance axes with the latest frame's delivery, flags), the error of a failed detail request with a retry, tabs Live (only while the run deliberates and its latest frame is LIVE; Playback otherwise), Explorer, Evidence, Proof inspector, Audit trail, Meta API and Decision; `run/?id=<run_id>&source=showcase` opens a recorded run of the archive in RECORDED mode; see "Run workspace" below |
+| Run workspace | `run/?id=<run_id>` | Client-rendered from the query string: header (title, state, outcome with evidence axis and, for a revision, which proposal it is for, records, revision round, run id, the failure sentence of a failed run, provenance axes with the latest frame's delivery, flags, and "Go to your decision" on every tab while the run awaits a decision that can be recorded here), the error of a failed detail request with a retry, tabs Live (only while the run deliberates and its latest frame is LIVE; Playback otherwise), Decision, Explorer, Evidence, Proof inspector, Audit trail and Meta API (`src/lib/run/decision.ts`: Decision right after the first tab, first for a recorded run); the Decision tab opens with the decision card while a decision can be recorded or once one is (two full-size buttons of the same variant; on a blocked or abstained run "Approve as an override" and a note marked "Required for this run" before any click); `run/?id=<run_id>&source=showcase` opens a recorded run of the archive in RECORDED mode; see "Run workspace" below |
 | Research showcase | `showcase/` | The archive from `GET /showcase`, by battery: each run RECORDED with its outcome next to its evidence axis, its schema (1.0: pre-1.1, unchained), authorization and records, opening in the run workspace in RECORDED mode; each battery's log with the SHA-256 the manifest pins, for download; `MANIFEST.json` hashed in the browser, its notes (the archive's own, English) shown only when it matches the published digest; the not-connected placeholder without the API |
 | Docs | `docs/` | Index of 7 articles, tour launcher, explanation level |
 | Docs articles | `docs/<slug>/` | `what-is`, `three-roles`, `not-voting`, `verified-evidence`, `abstain-contested`, `human-authorization`, `modes`: summary, sections, technical details, previous/next |
@@ -142,19 +142,30 @@ turns the pacing off. Server timestamps are shown untouched.
   (scripted outcome …)", factual and relevance statuses and a decision's
   authority have their own words, a failure or an unavailable retrieval
   reads the sentence of its code.
-- **Decision** (`DecisionTab`): the recommendation kind with its evidence
-  axis and, right under it, the scope line when the recommendation is for a
-  revision (which proposal it is for, which one it replaced, the task, both
-  summaries side by side: K03/K04), rationale, protocol, unresolved
-  assumptions and uncertainties, the open objections, the public decision
-  form (approve or reject with an optional note; an override of a blocked or
-  abstained run needs the note) with the fixed public_demo notice, enabled
-  only while the run awaits a decision and belongs to this session; the
-  recorded decision with the server's notice; the receipt link, and the
-  verbatim log link only when the public surface publishes it
-  (`ndjsonPublishable`, the server's rule: a live-declared run answers `404
-  ndjson_unavailable`, said in a sentence instead); cancel for a run still
-  deliberating.
+- **Decision** (`DecisionTab`, the tab right after the stage; first for a
+  recorded run): while a decision can be recorded here, and once one is,
+  the decision card comes first in the tab, before the long content
+  (`src/lib/run/decision.ts`). It holds the recommendation line with its
+  evidence axis (while awaiting), the fixed public_demo no-authority notice,
+  then the public decision form, enabled only while the run awaits a
+  decision and belongs to this session: a note and two full-size buttons
+  that share one variant (`DECIDE_BUTTON_VARIANT`), so Approve is never
+  promoted over Reject. On a blocked or abstained run Approve reads "Approve
+  as an override", the note is labelled "Required for this run" and the
+  override notice says, before any click, that approving needs the note (the
+  server's rule: a rejection needs none); elsewhere the note is optional.
+  Once decided, the card shows the recorded decision with the server's
+  notice (the workspace holds the decision this session sent, so the
+  header's "Go to your decision" goes away even if the detail cannot be read
+  again). Otherwise the card stays after the objections. Then the
+  recommendation kind and, right under it, the scope line when the
+  recommendation is for a revision (which proposal it is for, which one it
+  replaced, the task, both summaries side by side: K03/K04), rationale,
+  protocol, unresolved assumptions and uncertainties, the open objections.
+  The card also links the receipt, and the verbatim log only when the
+  public surface publishes it (`ndjsonPublishable`, the server's rule: a
+  live-declared run answers `404 ndjson_unavailable`, said in a sentence
+  instead); cancel for a run still deliberating.
 - **Evidence** (`EvidenceTab`, lane W2): every record the run retrieved
   (`src/lib/run/evidence.ts`, from `mergeEvents`): kind, project, retrieval
   mode, snapshot id and capture time when present, what its proof covers

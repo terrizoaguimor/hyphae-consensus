@@ -17,6 +17,14 @@
 // recorded run is read-only: its source is the archive, so the form never
 // opens. A run still deliberating can be cancelled. A failed detail request
 // is said as such, never shown as loading.
+//
+// While a decision can be recorded, and once one is, the decision card comes
+// first in the tab, before the long explanation (src/lib/run/decision.ts):
+// it names the recommendation it is about, then the notice, the note and
+// two full-size buttons of equal weight. On a blocked or abstained run the
+// Approve button reads "Approve as an override" and the note is marked
+// required for this run, with the override said in body text before any
+// click; neither button is promoted over the other.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
@@ -26,6 +34,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import type { DecisionResponseV1, DecisionV1, RunDetailV1 } from "@/lib/api/types";
+import { awaitsDecision, DECIDE_BUTTON_VARIANT, decisionFormCopy, isOverride } from "@/lib/run/decision";
 import { explainContext } from "@/lib/run/explain";
 import { supersededProposal } from "@/lib/run/view";
 
@@ -66,9 +75,14 @@ type DecisionTabProps = {
   links: DecisionLinks;
   /** Replaces the workspace's detail after a decision (a run of this server only). */
   onDetail?: (detail: RunDetailV1) => void;
+  /**
+   * The decision this session recorded, held by the workspace so its header
+   * and this tab agree even when the detail could not be read again after it.
+   */
+  decided?: DecisionV1 | null;
+  /** Called with the decision the server recorded, before the detail is read again. */
+  onDecided?: (decision: DecisionV1) => void;
 };
-
-const OVERRIDE_KINDS = new Set(["blocked", "abstained"]);
 
 function toApiError(error: unknown, path: string): ApiError {
   return isApiError(error)
@@ -81,7 +95,7 @@ function toApiError(error: unknown, path: string): ApiError {
       });
 }
 
-export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) {
+export function DecisionTab({ runId, data, links, onDetail, decided, onDecided }: DecisionTabProps) {
   const t = useTranslations("Run.decision");
   const tRun = useTranslations("Run");
   const format = useFormatter();
@@ -138,13 +152,16 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
     original !== null && current !== null
       ? { id: current.id, summary: current.summary, original }
       : null;
-  const recorded: DecisionV1 | null = result?.decision ?? detail.decision ?? null;
-  const awaiting =
-    detail.summary.state === "awaiting_human_approval" &&
-    detail.summary.provenance.source === "this_server" &&
-    recorded === null;
+  const recorded: DecisionV1 | null = result?.decision ?? detail.decision ?? decided ?? null;
+  const awaiting = awaitsDecision(detail.summary, recorded);
   const kind = recommendation?.kind ?? detail.summary.recommendation ?? null;
-  const overrideNeeded = approvedChoice === true && kind !== null && OVERRIDE_KINDS.has(kind) && note.trim() === "";
+  const overrideNeeded = approvedChoice === true && isOverride(kind) && note.trim() === "";
+  // On a blocked or abstained run the form says the override before any click.
+  const copy = decisionFormCopy(kind);
+  // While a decision can be recorded, and once one is, the decision card
+  // comes first in the tab (before the long explanation); otherwise it keeps
+  // its place after the recommendation and the open objections.
+  const cardFirst = awaiting || recorded !== null;
 
   const submit = async (approved: boolean) => {
     // The pressed button is busy (aria-disabled, still focusable) rather than
@@ -153,7 +170,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
       return;
     }
     setApprovedChoice(approved);
-    if (approved && OVERRIDE_KINDS.has(kind) && note.trim() === "") {
+    if (approved && isOverride(kind) && note.trim() === "") {
       return;
     }
     refocus.current = true;
@@ -170,6 +187,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
         newIdempotencyKey(),
       );
       setResult(response);
+      onDecided?.(response.decision);
       const refreshed = await api.getRun(runId).catch(() => null);
       if (refreshed !== null) {
         onDetail?.(refreshed);
@@ -201,8 +219,148 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
   const dateTime = (iso: string) =>
     format.dateTime(new Date(iso), { dateStyle: "medium", timeStyle: "short" });
 
+  // The decision card: the recommendation it is about (with its evidence
+  // axis) while a decision can be recorded, the no-authority notice, then
+  // the recorded decision, the form, or why there is none; the receipt and
+  // the log.
+  const card = (
+    <section
+      className="hc-section hc-decision-card"
+      aria-labelledby="decision-form"
+      data-decision-card={cardFirst ? "first" : "after"}
+    >
+      <h3 id="decision-form" ref={formHeadingRef} tabIndex={-1}>
+        {t("formHeading")}
+      </h3>
+      {awaiting && recommendation !== null ? (
+        <div data-decision-card-lead>
+          <p>{t("cardLead")}</p>
+          <RecommendationLine kind={recommendation.kind} evidence={detail.summary.provenance.evidence} />
+          <p className="hc-supporting">{t("cardReasons")}</p>
+        </div>
+      ) : null}
+      <p className="hc-build-note" data-public-demo-notice>
+        {t("publicDemo")}
+      </p>
+      {recorded !== null ? (
+        <div
+          className="hc-panel"
+          data-decision-recorded={recorded.approved ? "approved" : "rejected"}
+          ref={recordedRef}
+          tabIndex={-1}
+        >
+          <p>
+            {t("recorded", {
+              decision: recorded.approved ? t("approved") : t("rejected"),
+              by: recorded.authorized_by,
+              date: dateTime(recorded.decided_at),
+            })}
+          </p>
+          {recorded.note === undefined || recorded.note === null ? null : (
+            <p>{t("withNote", { note: recorded.note })}</p>
+          )}
+          {recorded.notice === undefined || recorded.notice === null ? null : (
+            <p className="hc-supporting" data-decision-notice>
+              {recorded.notice}
+            </p>
+          )}
+        </div>
+      ) : awaiting ? (
+        <form
+          className="hc-form"
+          data-decision-form
+          data-override={copy.overrideNotice === null ? "no" : "yes"}
+          onSubmit={(event) => event.preventDefault()}
+        >
+          {/* An override is said before any click, in body text, not in helper text. */}
+          {copy.overrideNotice === null || kind === null ? null : (
+            <p className="hc-override-notice" data-override-notice>
+              {t(copy.overrideNotice, { kind: tRun(`kinds.${kind}`) })}
+            </p>
+          )}
+          <TextArea
+            label={t(copy.noteLabel)}
+            description={t(copy.noteDescription)}
+            value={note}
+            onChange={(value) => setNote(value)}
+            isOptional={copy.noteOptional}
+          />
+          {overrideNeeded && kind !== null ? (
+            <p className="hc-supporting" role="alert">
+              {t("overrideRequired", { kind: tRun(`kinds.${kind}`) })}
+            </p>
+          ) : null}
+          {/* Approve and Reject have equal weight on every run: the buttons never take the policy's side. */}
+          <div className="hc-actions hc-decide-actions">
+            {/* The pressed button is busy, never disabled: a disabled button would drop the keyboard focus. */}
+            <Button
+              variant={DECIDE_BUTTON_VARIANT}
+              className="hc-decide-button"
+              data-decide="approve"
+              label={submitting && approvedChoice === true ? t("submitting") : t(copy.approve)}
+              isDisabled={kind === null || (submitting && approvedChoice !== true)}
+              isLoading={submitting && approvedChoice === true}
+              onClick={() => void submit(true)}
+            />
+            <Button
+              variant={DECIDE_BUTTON_VARIANT}
+              className="hc-decide-button"
+              data-decide="reject"
+              label={submitting && approvedChoice === false ? t("submitting") : t("reject")}
+              isDisabled={kind === null || (submitting && approvedChoice !== false)}
+              isLoading={submitting && approvedChoice === false}
+              onClick={() => void submit(false)}
+            />
+          </div>
+        </form>
+      ) : (
+        <p className="hc-supporting" data-decision-unavailable>
+          {detail.summary.provenance.source === "research_archive"
+            ? t("recordedReadOnly")
+            : t("notAwaiting")}
+        </p>
+      )}
+      {error === null ? null : <ApiErrorNotice error={error} />}
+      <ul className="hc-related" role="list">
+        <li>
+          <a href={links.receipt} className="hc-link" data-receipt-link>
+            {t("receipt")}
+          </a>
+          {detail.summary.provenance.source === "research_archive" ? (
+            <p className="hc-supporting" data-receipt-rebuilt>
+              {t("receiptRebuilt")}
+            </p>
+          ) : null}
+        </li>
+        <li>
+          {links.log !== null ? (
+            <a
+              href={links.log.href}
+              download={links.log.name ?? undefined}
+              className="hc-link"
+              data-ndjson-link
+            >
+              {links.log.archive ? t("archiveLog", { name: links.log.name ?? "" }) : t("ndjson")}
+            </a>
+          ) : (
+            <span
+              className="hc-supporting"
+              data-ndjson-unavailable={links.logMissing ?? "unpublished"}
+              role={links.logMissing === "loading" ? "status" : undefined}
+            >
+              {links.logMissing === undefined || links.logMissing === null
+                ? t("ndjsonUnavailable")
+                : t(MISSING_LOG[links.logMissing])}
+            </span>
+          )}
+        </li>
+      </ul>
+    </section>
+  );
+
   return (
     <div className="hc-decision" data-decision>
+      {cardFirst ? card : null}
       <section className="hc-section" aria-labelledby="decision-recommendation">
         <h3 id="decision-recommendation">{t("recommendation")}</h3>
         {recommendation === null ? (
@@ -287,115 +445,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
         )}
       </section>
 
-      <section className="hc-section" aria-labelledby="decision-form">
-        <h3 id="decision-form" ref={formHeadingRef} tabIndex={-1}>
-          {t("formHeading")}
-        </h3>
-        <p className="hc-build-note" data-public-demo-notice>
-          {t("publicDemo")}
-        </p>
-        {recorded !== null ? (
-          <div
-            className="hc-panel"
-            data-decision-recorded={recorded.approved ? "approved" : "rejected"}
-            ref={recordedRef}
-            tabIndex={-1}
-          >
-            <p>
-              {t("recorded", {
-                decision: recorded.approved ? t("approved") : t("rejected"),
-                by: recorded.authorized_by,
-                date: dateTime(recorded.decided_at),
-              })}
-            </p>
-            {recorded.note === undefined || recorded.note === null ? null : (
-              <p>{t("withNote", { note: recorded.note })}</p>
-            )}
-            {recorded.notice === undefined || recorded.notice === null ? null : (
-              <p className="hc-supporting" data-decision-notice>
-                {recorded.notice}
-              </p>
-            )}
-          </div>
-        ) : awaiting ? (
-          <form
-            className="hc-form"
-            data-decision-form
-            onSubmit={(event) => event.preventDefault()}
-          >
-            <TextArea
-              label={t("note")}
-              description={t("noteDescription")}
-              value={note}
-              onChange={(value) => setNote(value)}
-              isOptional
-            />
-            {overrideNeeded && kind !== null ? (
-              <p className="hc-supporting" role="alert">
-                {t("overrideRequired", { kind: tRun(`kinds.${kind}`) })}
-              </p>
-            ) : null}
-            <div className="hc-actions">
-              {/* The pressed button is busy, never disabled: a disabled button would drop the keyboard focus. */}
-              <Button
-                variant="primary"
-                label={submitting && approvedChoice === true ? t("submitting") : t("approve")}
-                isDisabled={kind === null || (submitting && approvedChoice !== true)}
-                isLoading={submitting && approvedChoice === true}
-                onClick={() => void submit(true)}
-              />
-              <Button
-                variant="destructive"
-                label={submitting && approvedChoice === false ? t("submitting") : t("reject")}
-                isDisabled={kind === null || (submitting && approvedChoice !== false)}
-                isLoading={submitting && approvedChoice === false}
-                onClick={() => void submit(false)}
-              />
-            </div>
-          </form>
-        ) : (
-          <p className="hc-supporting" data-decision-unavailable>
-            {detail.summary.provenance.source === "research_archive"
-              ? t("recordedReadOnly")
-              : t("notAwaiting")}
-          </p>
-        )}
-        {error === null ? null : <ApiErrorNotice error={error} />}
-        <ul className="hc-related" role="list">
-          <li>
-            <a href={links.receipt} className="hc-link" data-receipt-link>
-              {t("receipt")}
-            </a>
-            {detail.summary.provenance.source === "research_archive" ? (
-              <p className="hc-supporting" data-receipt-rebuilt>
-                {t("receiptRebuilt")}
-              </p>
-            ) : null}
-          </li>
-          <li>
-            {links.log !== null ? (
-              <a
-                href={links.log.href}
-                download={links.log.name ?? undefined}
-                className="hc-link"
-                data-ndjson-link
-              >
-                {links.log.archive ? t("archiveLog", { name: links.log.name ?? "" }) : t("ndjson")}
-              </a>
-            ) : (
-              <span
-                className="hc-supporting"
-                data-ndjson-unavailable={links.logMissing ?? "unpublished"}
-                role={links.logMissing === "loading" ? "status" : undefined}
-              >
-                {links.logMissing === undefined || links.logMissing === null
-                  ? t("ndjsonUnavailable")
-                  : t(MISSING_LOG[links.logMissing])}
-              </span>
-            )}
-          </li>
-        </ul>
-      </section>
+      {cardFirst ? null : card}
 
       {summary.active ? (
         <section className="hc-section" aria-labelledby="decision-cancel">

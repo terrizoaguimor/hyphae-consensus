@@ -1514,6 +1514,58 @@
     gap: var(--spacing-5);
   }
 
+  /* The human decision (src/lib/run/decision.ts): "Go to your decision" in
+     the run header while a decision can be recorded, and the decision card,
+     marked by a 2px accent border (its own emphasis), with two full-size
+     buttons of equal weight that share the row and stack when it is narrow. */
+  .hc-go-to-decision {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-3);
+  }
+
+  .hc-go-to-decision > p {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .hc-decision-card {
+    min-width: 0;
+    padding: var(--spacing-5);
+    border: 2px solid var(--color-accent);
+    border-radius: var(--radius-container);
+    background-color: var(--color-background-card);
+  }
+
+  [data-decision-card-lead] {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  [data-decision-card-lead] > p {
+    margin: 0;
+  }
+
+  .hc-override-notice {
+    margin: 0;
+    padding: var(--spacing-3) var(--spacing-4);
+    border-inline-start: 3px solid var(--color-warning);
+    border-radius: 0 var(--radius-element) var(--radius-element) 0;
+    color: var(--color-text-primary);
+    background-color: var(--color-background-muted);
+  }
+
+  .hc-decide-actions > * {
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+
+  .hc-decide-button {
+    min-height: 3rem;
+  }
+
   .hc-status-line {
     display: flex;
     flex-direction: column;

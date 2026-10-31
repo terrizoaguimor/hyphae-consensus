@@ -300,7 +300,9 @@
       "provenance": "Provenance",
       "flags": "Signalements",
       "task": "Tâche",
-      "latestDelivery": "Dernier enregistrement"
+      "latestDelivery": "Dernier enregistrement",
+      "awaitingDecision": "Cette exécution attend votre décision.",
+      "goToDecision": "Aller à votre décision"
     },
     "outcomeEvidence": "Éléments probants : {evidence}",
     "kinds": {
@@ -494,6 +496,12 @@
       "note": "Note",
       "noteDescription": "Facultative, 2000 caractères au plus. Obligatoire pour approuver une exécution bloquée ou en abstention (un passage outre).",
       "overrideRequired": "Approuver une exécution {kind} est un passage outre : écrivez d’abord une note.",
+      "approveOverride": "Approuver en passant outre",
+      "noteRequired": "Note · Obligatoire pour cette exécution",
+      "noteRequiredDescription": "2000 caractères au plus. Pour approuver, une note doit dire pourquoi vous passez outre la recommandation de la politique ; pour rejeter, elle n’est pas exigée.",
+      "overrideNotice": "La politique recommande « {kind} » pour cette exécution. Approuver cette exécution passe outre cette recommandation, une note est donc obligatoire pour approuver.",
+      "cardLead": "La politique recommande :",
+      "cardReasons": "Le pourquoi de cette recommandation, la justification du serveur et la section des objections figurent plus bas dans cet onglet : lisez-les avant de décider.",
       "notAwaiting": "L’exécution n’attend pas de décision.",
       "detailUnavailable": "La décision a besoin de la copie de cette exécution sur le serveur, qui n’a pas pu être lue ; utilisez Réessayer ci-dessus.",
       "submitting": "Enregistrement…",

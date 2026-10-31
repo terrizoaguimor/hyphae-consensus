@@ -2134,8 +2134,11 @@ test("a recorded run's tabs follow the keyboard: arrows, Home and End move focus
   await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })] });
   await openRecorded(page, "en", String(r06.run_id));
   const tab = (name: string) => page.getByRole("tab", { name: t("en", `Run.tabs.${name}`) });
-  const order = ["explorer", "evidence", "proofs", "audit", "meta", "decision"] as const;
+  // Decision, the default tab of a recorded run, comes first (round 4, problem 4).
+  const order = ["decision", "explorer", "evidence", "proofs", "audit", "meta"] as const;
   await expect(page.getByRole("tab")).toHaveText(order.map((name) => t("en", `Run.tabs.${name}`)));
+  // A recorded run is read-only: the header never offers a decision.
+  await expect(page.locator("[data-go-to-decision]")).toHaveCount(0);
   /** The focused tab is the selected one, the only one in the tab order, and the panel shows it. */
   const expectOn = async (name: (typeof order)[number]) => {
     await expect(tab(name)).toBeFocused();
@@ -2149,7 +2152,7 @@ test("a recorded run's tabs follow the keyboard: arrows, Home and End move focus
   // Decision is selected first.
   await tab("decision").focus();
   await expectOn("decision");
-  // Right from the last tab wraps to the first; Left from the first wraps to the last.
+  // Left from the first tab wraps to the last; Right from the last wraps to the first.
   await page.keyboard.press("ArrowRight");
   await expectOn("explorer");
   await page.keyboard.press("ArrowRight");
@@ -2158,12 +2161,15 @@ test("a recorded run's tabs follow the keyboard: arrows, Home and End move focus
   await expectOn("explorer");
   await page.keyboard.press("ArrowLeft");
   await expectOn("decision");
-  await page.keyboard.press("Home");
-  await expectOn("explorer");
-  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowLeft");
+  await expectOn("meta");
+  await page.keyboard.press("ArrowRight");
   await expectOn("decision");
+  await page.keyboard.press("End");
+  await expectOn("meta");
   await page.keyboard.press("Home");
-  for (const next of ["evidence", "proofs", "audit"] as const) {
+  await expectOn("decision");
+  for (const next of ["explorer", "evidence", "proofs", "audit"] as const) {
     await page.keyboard.press("ArrowRight");
     await expectOn(next);
   }

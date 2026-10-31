@@ -124,6 +124,53 @@ export function endReasonOf(state: RunState | null, reason: StreamEndReason): St
   }
 }
 
+/**
+ * Whether a scripted run's playback has not shown its first record yet: the
+ * pacing is on, no frame is on the stage and the stream may still send one.
+ * The stored summary is the run's ending, so the header shows nothing of it
+ * (no state, outcome or decision) until the playback starts; a stream that
+ * failed or was closed settles it, and the stored run shows.
+ */
+export function awaitsFirstFrame(options: {
+  scripted: boolean;
+  pacing: "on" | "reduced" | "skipped";
+  framesShown: number;
+  settled: boolean;
+}): boolean {
+  return options.scripted && options.pacing === "on" && options.framesShown === 0 && !options.settled;
+}
+
+/** What the stream status line says. */
+export type StreamLine =
+  /** The stream's own state (connecting, open, reconnecting, failed, closed). */
+  | { kind: "state"; stream: StreamState }
+  /** The stream ended, but the paced playback has not reached its end yet. */
+  | { kind: "playing" }
+  /** The stream ended and the views show the run's newest state. */
+  | { kind: "ended"; reason: StreamEndReason };
+
+/**
+ * The status line, on the same clock as the header: while a paced playback
+ * is followed, an ended stream says the playback continues (never the run's
+ * final state, which the header and the stage have not reached); once the
+ * playback reached its end, the reason comes from the run's newest state
+ * (endReasonOf).
+ */
+export function streamLine(
+  stream: StreamState,
+  end: { reason: StreamEndReason; state: RunState } | null,
+  position: PlaybackPosition,
+  newestState: RunState | null,
+): StreamLine {
+  if (stream !== "ended" || end === null) {
+    return { kind: "state", stream };
+  }
+  if (followsPlayback(position)) {
+    return { kind: "playing" };
+  }
+  return { kind: "ended", reason: endReasonOf(newestState ?? end.state, end.reason) };
+}
+
 /** The person's decision on a run, from its summary: null while none is recorded. */
 export function decisionOf(
   summary: Pick<RunSummaryV1, "authorization" | "override">,

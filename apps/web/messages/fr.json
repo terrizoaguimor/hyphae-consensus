@@ -308,7 +308,7 @@
         "approvedOverride": "Approuvée en passant outre",
         "rejected": "Rejetée"
       },
-      "decisionNote": "Votre choix est enregistré ; rien n’a été exécuté."
+      "notShown": "pas encore affiché"
     },
     "outcome": "{kind} — sur des éléments probants {evidence}",
     "kinds": {
@@ -340,6 +340,7 @@
       "ended": "Flux terminé : {reason}.",
       "error": "Le flux n’a pas pu être ouvert.",
       "closed": "Flux fermé.",
+      "endedPlaying": "Le flux est terminé ; la relecture continue.",
       "endReasons": {
         "awaiting_human_approval": "l’exécution attend une décision humaine",
         "terminal": "l’exécution a atteint son état final"

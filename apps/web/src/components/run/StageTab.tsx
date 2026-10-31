@@ -37,10 +37,10 @@ import {
 } from "@/lib/provenance";
 import {
   type Carried,
-  endReasonOf,
   type ShownRecord,
   stageOf,
   stageRecords,
+  streamLine,
   streamSettled,
 } from "@/lib/run/view";
 
@@ -57,15 +57,18 @@ export function StageTab({ data }: StageTabProps) {
   const settled = streamSettled(stream);
   const records = stageRecords(detail, frames, { settled, pending });
   const stage = stageOf(records);
-  // Why the stream ended comes from the run's state (the newest summary),
-  // not from the end frame alone: a run decided since says it reached its
-  // final state, never that it awaits a human decision.
+  // The status line runs on the header's clock (view.ts streamLine): while a
+  // paced playback is followed, an ended stream says the playback continues;
+  // afterwards why it ended comes from the run's state (the newest summary),
+  // so a run decided since says it reached its final state, never that it
+  // awaits a human decision.
+  const line = streamLine(stream, end, { pacedFrames, pending, settled }, summary?.state ?? null);
   const streamText =
-    stream === "ended" && end !== null
-      ? t("stream.ended", {
-          reason: t(`stream.endReasons.${endReasonOf(summary?.state ?? end.state, end.reason)}`),
-        })
-      : t(`stream.${stream}`);
+    line.kind === "ended"
+      ? t("stream.ended", { reason: t(`stream.endReasons.${line.reason}`) })
+      : line.kind === "playing"
+        ? t("stream.endedPlaying")
+        : t(`stream.${line.stream}`);
   // Pacing exists only for scripted runs (the guided examples); a live or
   // mixed model run is never paced and never labelled simulated.
   const scripted = summary !== null && isScriptedRun(summary.provenance);
@@ -73,7 +76,7 @@ export function StageTab({ data }: StageTabProps) {
 
   return (
     <div className="hc-stage-tab">
-      <div className="hc-status-line" data-stream-state={stream}>
+      <div className="hc-status-line" data-stream-state={stream} data-stream-line={line.kind}>
         <p role="status">{streamText}</p>
         {notices.gaps > 0 ? <p className="hc-supporting">{t("stream.gap")}</p> : null}
         {notices.resyncs > 0 ? <p className="hc-supporting">{t("stream.resync")}</p> : null}

@@ -17,6 +17,7 @@ import { contractDir } from "../scripts/gen-api-types.mjs";
 import type { StreamState } from "../src/lib/api/sse";
 import type { ConsensusFrameV1, RunDetailV1, SseFrameV1 } from "../src/lib/api/types";
 import {
+  awaitsFirstFrame,
   decisionOf,
   endReasonOf,
   followsPlayback,
@@ -26,6 +27,7 @@ import {
   newestSummary,
   stageOf,
   stageRecords,
+  streamLine,
   streamSettled,
   supersededProposal,
 } from "../src/lib/run/view";
@@ -185,7 +187,8 @@ describe("the header follows the playback", () => {
       headerSummary(detail, frames.slice(0, 2), { pacedFrames: 0, pending: 0, settled: false })?.state,
     ).toBe("approved");
     // Paced, but no frame shown yet: the newest known summary (the workspace
-    // waits for the first frame of a scripted run before showing a header).
+    // shows none of it while a scripted run awaits its first frame:
+    // awaitsFirstFrame).
     expect(headerSummary(detail, [], paced)?.state).toBe("approved");
   });
 
@@ -214,6 +217,59 @@ describe("the status line's end reason comes from the run state", () => {
   it("any other state keeps the end frame's own reason", () => {
     expect(endReasonOf("evaluated", "terminal")).toBe("terminal");
     expect(endReasonOf(null, "awaiting_human_approval")).toBe("awaiting_human_approval");
+  });
+});
+
+describe("the status line runs on the header's clock", () => {
+  const end = { reason: "awaiting_human_approval" as const, state: "awaiting_human_approval" as const };
+
+  it("while the playback is followed, an ended stream says the playback continues", () => {
+    // The stream ended long before the pacer showed its frames.
+    const playing = { pacedFrames: 2, pending: 12, settled: true };
+    expect(followsPlayback(playing)).toBe(true);
+    expect(streamLine("ended", end, playing, "approved")).toEqual({ kind: "playing" });
+  });
+
+  it("once the playback reached its end, the reason comes from the run's newest state", () => {
+    const done = { pacedFrames: 14, pending: 0, settled: true };
+    expect(streamLine("ended", end, done, "approved")).toEqual({ kind: "ended", reason: "terminal" });
+    expect(streamLine("ended", end, done, "awaiting_human_approval")).toEqual({
+      kind: "ended",
+      reason: "awaiting_human_approval",
+    });
+    // Nothing paced (reduced motion): the run's own state at once.
+    const unpaced = { pacedFrames: 0, pending: 0, settled: true };
+    expect(streamLine("ended", end, unpaced, "rejected")).toEqual({ kind: "ended", reason: "terminal" });
+    expect(streamLine("ended", end, unpaced, null)).toEqual({
+      kind: "ended",
+      reason: "awaiting_human_approval",
+    });
+  });
+
+  it("a stream that has not ended shows its own state", () => {
+    const position = { pacedFrames: 2, pending: 12, settled: false };
+    for (const stream of ["connecting", "open", "replaying", "reconnecting", "error", "closed"] as const) {
+      expect(streamLine(stream, null, position, "approved")).toEqual({ kind: "state", stream });
+    }
+    // An ended state without its end frame keeps the stream's own state.
+    expect(streamLine("ended", null, position, "approved")).toEqual({ kind: "state", stream: "ended" });
+  });
+});
+
+describe("awaitsFirstFrame", () => {
+  const base = { scripted: true, pacing: "on" as const, framesShown: 0, settled: false };
+
+  it("holds a scripted run's header back until its playback shows a record", () => {
+    expect(awaitsFirstFrame(base)).toBe(true);
+    expect(awaitsFirstFrame({ ...base, framesShown: 1 })).toBe(false);
+  });
+
+  it("never holds back a settled stream, an unpaced view, or a model run", () => {
+    // A failed or closed stream: the stored run shows.
+    expect(awaitsFirstFrame({ ...base, settled: true })).toBe(false);
+    expect(awaitsFirstFrame({ ...base, pacing: "reduced" })).toBe(false);
+    expect(awaitsFirstFrame({ ...base, pacing: "skipped" })).toBe(false);
+    expect(awaitsFirstFrame({ ...base, scripted: false })).toBe(false);
   });
 });
 

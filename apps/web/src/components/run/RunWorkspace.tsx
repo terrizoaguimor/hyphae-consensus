@@ -44,6 +44,7 @@ import {
 import { evidenceView, generationFailures } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
 import {
+  awaitsFirstFrame,
   decisionOf,
   followsPlayback,
   headerSummary,
@@ -181,20 +182,24 @@ function Workspace({
           settled: streamSettled(mode.data.stream),
         }
       : null;
-  const following = position !== null && followsPlayback(position);
   // A scripted run about to be paced whose first frame has not arrived yet:
-  // its stored summary is the ending, so the header waits for the stream
-  // (a failed or closed stream settles it, and the stored summary shows).
-  const awaitingPlayback =
+  // its stored summary is the ending, so the header shows none of it (no
+  // state, outcome or decision) until the playback starts. The workspace,
+  // its tabs and the stream's status line (with its reconnect control) stay
+  // visible; a failed or closed stream settles it, and the stored run shows.
+  const beforePlayback =
     mode.kind === "own" &&
-    mode.data.pacing === "on" &&
-    frames.length === 0 &&
-    !streamSettled(mode.data.stream) &&
     summary !== null &&
-    isScriptedRun(summary.provenance);
+    awaitsFirstFrame({
+      scripted: isScriptedRun(summary.provenance),
+      pacing: mode.data.pacing,
+      framesShown: frames.length,
+      settled: streamSettled(mode.data.stream),
+    });
+  const following = beforePlayback || (position !== null && followsPlayback(position));
   const shown = position === null ? summary : headerSummary(detail, frames, position);
 
-  if (summary === null || shown === null || awaitingPlayback) {
+  if (summary === null || shown === null) {
     if (detailError !== null && summary === null) {
       return (
         <div className="hc-section" data-run="error">
@@ -236,12 +241,16 @@ function Workspace({
       ? (detail.current_proposal?.id ?? null)
       : null;
   // A recorded run is at rest, and nobody can decide it here.
-  const stateText =
-    recorded && shown.state === "awaiting_human_approval"
+  const stateText = beforePlayback
+    ? t("header.notShown")
+    : recorded && shown.state === "awaiting_human_approval"
       ? tShowcase("awaiting")
       : t(`states.${shown.state}`);
   // The person's decision, as its own tag next to the policy's outcome.
-  const decision = decisionOf(shown);
+  const decision = beforePlayback ? null : decisionOf(shown);
+  // Before the playback starts the header shows no outcome of the ending.
+  const outcome = beforePlayback ? null : (shown.recommendation ?? null);
+  const failure = beforePlayback ? null : (shown.failure ?? null);
   const items: Array<{ value: TabKey; label: string }> = [
     ...(recorded ? [] : [{ value: "stage" as const, label: stageLabel }]),
     { value: "explorer", label: t("tabs.explorer") },
@@ -278,7 +287,7 @@ function Workspace({
       <header
         className="hc-run-header hc-panel"
         data-header-clock={following ? "playback" : "run"}
-        data-header-state={shown.state}
+        data-header-state={beforePlayback ? "not_shown" : shown.state}
       >
         <h2 className="hc-run-title" lang={titleLang}>
           {title}
@@ -286,7 +295,7 @@ function Workspace({
         {following ? (
           <p className="hc-supporting hc-tabular-nums" data-header-playback>
             {t("header.playback", {
-              shown: shown.event_count,
+              shown: beforePlayback ? 0 : shown.event_count,
               total: summary.event_count,
             })}
           </p>
@@ -299,8 +308,8 @@ function Workspace({
           <div>
             <dt>{t("header.outcome")}</dt>
             <dd data-run-field="outcome">
-              {shown.recommendation === undefined || shown.recommendation === null ? (
-                shown.state === "failed" ? (
+              {outcome === null ? (
+                !beforePlayback && shown.state === "failed" ? (
                   t("header.noOutcomeFailed")
                 ) : (
                   t("header.noOutcome")
@@ -308,9 +317,9 @@ function Workspace({
               ) : (
                 <>
                   <Badge
-                    variant={RECOMMENDATION_VARIANTS[shown.recommendation]}
+                    variant={RECOMMENDATION_VARIANTS[outcome]}
                     label={t("outcome", {
-                      kind: t(`kinds.${shown.recommendation}`),
+                      kind: t(`kinds.${outcome}`),
                       evidence: tProvenance(evidenceLabel(shown.provenance.evidence).key),
                     })}
                   />
@@ -329,26 +338,23 @@ function Workspace({
               <dd data-run-field="decision" data-decision={decision}>
                 {/* The person's decision, its own tag: the same info role for
                     an approval and a rejection, never green and never a
-                    plain grey word next to the policy's coloured outcome. */}
+                    plain grey word next to the policy's coloured outcome.
+                    The no-authority statement is the Decision tab's, once
+                    per view, not repeated here. */}
                 <Badge variant="info" label={t(`header.decisions.${decision}`)} />
-                {recorded ? null : (
-                  <span className="hc-supporting" data-decision-executes-nothing>
-                    {t("header.decisionNote")}
-                  </span>
-                )}
               </dd>
             </div>
           )}
           <div>
             <dt>{t("header.recordsLabel")}</dt>
             <dd className="hc-tabular-nums" data-run-field="records">
-              {t("header.records", { count: shown.event_count })}
+              {t("header.records", { count: beforePlayback ? 0 : shown.event_count })}
             </dd>
           </div>
           <div>
             <dt>{t("header.revision")}</dt>
             <dd className="hc-tabular-nums" data-run-field="revision">
-              {format.number(shown.revision_round)}
+              {beforePlayback ? t("header.notShown") : format.number(shown.revision_round)}
             </dd>
           </div>
           <div>
@@ -358,15 +364,15 @@ function Workspace({
             </dd>
           </div>
         </dl>
-        {shown.failure === undefined || shown.failure === null ? null : (
-          <FailureSentence failure={shown.failure} />
-        )}
+        {failure === null ? null : <FailureSentence failure={failure} />}
         <div>
           <p className="hc-supporting">{t("header.provenance")}</p>
           <ProvenanceBadges
             provenance={shown.provenance}
             delivery={latest?.delivery}
-            recordedAt={latest?.event.occurred_at ?? shown.updated_at}
+            recordedAt={
+              latest?.event.occurred_at ?? (beforePlayback ? shown.created_at : shown.updated_at)
+            }
             withNote
           />
         </div>

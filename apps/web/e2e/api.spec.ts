@@ -682,9 +682,23 @@ test("during a paced playback the header follows the stage, never the stored end
   await expect(header).not.toHaveAttribute("data-header-state", "approved");
   // The run's own state stays on the workspace for anything that needs it.
   await expect(page.locator("[data-run-state]")).toHaveAttribute("data-run-state", "approved");
+  // The stream ends long before the pacer has shown its frames; the status
+  // line runs on the header's clock: the playback continues, and it names
+  // neither the final state nor a pending decision.
+  const status = page.locator("[data-stream-state] > [role=status]");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await expect(header).toHaveAttribute("data-header-clock", "playback");
+  await expect(page.locator("[data-stream-line]")).toHaveAttribute("data-stream-line", "playing");
+  await expect(status).toHaveText(t("en", "Run.stream.endedPlaying"));
+  await expect(status).not.toContainText(t("en", "Run.stream.endReasons.terminal"));
+  await expect(status).not.toContainText(t("en", "Run.stream.endReasons.awaiting_human_approval"));
 
   await page.getByRole("button", { name: t("en", "Run.pacing.skip") }).click();
   await expect(header).toHaveAttribute("data-header-clock", "run");
+  await expect(page.locator("[data-stream-line]")).toHaveAttribute("data-stream-line", "ended");
+  await expect(status).toHaveText(
+    t("en", "Run.stream.ended", { reason: t("en", "Run.stream.endReasons.terminal") }),
+  );
   await expect(page.locator("[data-header-playback]")).toHaveCount(0);
   await expect(page.locator("[data-run-field='state']")).toHaveText(t("en", "Run.states.approved"));
   await expect(page.locator("[data-run-field='outcome']")).toContainText(t("en", "Run.kinds.supported"));
@@ -708,7 +722,43 @@ test("a decided run's status line says it reached its final state, and its heade
   const decision = page.locator("[data-run-field='decision']");
   await expect(decision).toHaveAttribute("data-decision", "approved");
   await expect(decision.getByText(t("en", "Run.header.decisions.approved"), { exact: true })).toBeVisible();
-  await expect(decision.locator("[data-decision-executes-nothing]")).toHaveText(t("en", "Run.header.decisionNote"));
+  // The tag alone: the no-authority statement is the Decision tab's, not
+  // repeated in the header.
+  await expect(decision).toHaveText(t("en", "Run.header.decisions.approved"));
+});
+
+test("a scripted run whose stream sends no frame shows its workspace and stream status, not a loading line", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page);
+  // The stream answers nothing: the request is held, so no frame ever
+  // arrives and the stream is never settled.
+  await page.route(/\/api\/v1\/runs\/[^/]+\/events(\?.*)?$/u, () => undefined);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-run='loading']")).toHaveCount(0);
+  await expect(page.locator("[data-run-state]")).toHaveAttribute("data-run-state", "approved");
+  // The header shows nothing of the stored ending until the playback starts.
+  const header = page.locator("header.hc-run-header");
+  await expect(header).toHaveAttribute("data-header-clock", "playback");
+  await expect(header).toHaveAttribute("data-header-state", "not_shown");
+  const total = (fixture<{ summary: { event_count: number } }>("run-detail-retry.json")).summary.event_count;
+  await expect(page.locator("[data-header-playback]")).toHaveText(
+    String(new IntlMessageFormat(t("en", "Run.header.playback"), "en").format({ shown: 0, total })),
+  );
+  await expect(page.locator("[data-run-field='state']")).toHaveText(t("en", "Run.header.notShown"));
+  await expect(page.locator("[data-run-field='outcome']")).toHaveText(t("en", "Run.header.noOutcome"));
+  await expect(page.locator("[data-run-field='decision']")).toHaveCount(0);
+  await expect(page.locator("[data-run-field='revision']")).toHaveText(t("en", "Run.header.notShown"));
+  await expect(page.locator("[data-run-field='records']")).toHaveText(tCountEn("Run.header.records", 0));
+  // The stream's own status stays visible, and so do the run's tabs.
+  await expect(page.locator("[data-stream-state='connecting'] > [role=status]")).toHaveText(
+    t("en", "Run.stream.connecting"),
+  );
+  await expect(page.getByRole("tab", { name: t("en", "Run.tabs.evidence") })).toBeVisible();
+  await expect(page.locator("[data-recommendation]")).toContainText(t("en", "Run.stage.noRecommendation"));
+  expect(pageProblems).toEqual([]);
 });
 
 test("after a rejection the header shows it as its own tag, never a grey word, and the status line agrees", async ({

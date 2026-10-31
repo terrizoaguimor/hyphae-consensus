@@ -308,7 +308,7 @@
         "approvedOverride": "Approved as an override",
         "rejected": "Rejected"
       },
-      "decisionNote": "Your choice is recorded; nothing was executed."
+      "notShown": "not shown yet"
     },
     "outcome": "{kind} — on {evidence} evidence",
     "kinds": {
@@ -340,6 +340,7 @@
       "ended": "Stream ended: {reason}.",
       "error": "The stream could not be opened.",
       "closed": "Stream closed.",
+      "endedPlaying": "The stream ended; the playback continues.",
       "endReasons": {
         "awaiting_human_approval": "the run awaits a human decision",
         "terminal": "the run reached its final state"

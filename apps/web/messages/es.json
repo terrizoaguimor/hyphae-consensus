@@ -308,7 +308,7 @@
         "approvedOverride": "Aprobada como anulación",
         "rejected": "Rechazada"
       },
-      "decisionNote": "Tu elección queda registrada; no se ejecutó nada."
+      "notShown": "aún no se muestra"
     },
     "outcome": "{kind} — con evidencia {evidence}",
     "kinds": {
@@ -340,6 +340,7 @@
       "ended": "Transmisión terminada: {reason}.",
       "error": "No se pudo abrir la transmisión.",
       "closed": "Transmisión cerrada.",
+      "endedPlaying": "La transmisión terminó; la reproducción continúa.",
       "endReasons": {
         "awaiting_human_approval": "la ejecución espera una decisión humana",
         "terminal": "la ejecución llegó a su estado final"

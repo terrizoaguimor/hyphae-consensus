@@ -41,6 +41,7 @@ const SHIPPED = [
   "node_modules/@astryxdesign/core/dist/astryx.css",
   "src/theme/hyphae-mission.css",
   "src/app/hc-mono-tokens.css",
+  "src/app/hc-mono-glass.css",
   "src/app/globals.css",
 ] as const;
 
@@ -126,7 +127,7 @@ describe("the stylesheets the build bundles", () => {
   const css = SHIPPED.map(read).join("\n");
   const tokens = pageTokens(css);
 
-  it.each(["src/app/globals.css", "src/app/hc-mono-tokens.css"])(
+  it.each(["src/app/globals.css", "src/app/hc-mono-tokens.css", "src/app/hc-mono-glass.css"])(
     "%s keeps every corner on the scale, with no exception",
     (sheet) => {
       const { scanned, offenders } = describeFindings(read(sheet), tokens, () => false);
@@ -141,7 +142,7 @@ describe("the stylesheets the build bundles", () => {
     const { offenders, findings } = describeFindings(read("src/theme/hyphae-mission.css"), tokens, allowedFinding);
     expect(offenders).toEqual([]);
     expect(findings.map(({ declaration }) => declaration.property)).toEqual(Object.keys(THEME_TOKEN_ALLOW));
-    for (const sheet of ["src/app/globals.css", "src/app/hc-mono-tokens.css"]) {
+    for (const sheet of ["src/app/globals.css", "src/app/hc-mono-tokens.css", "src/app/hc-mono-glass.css"]) {
       expect(read(sheet).includes("--radius-full"), sheet).toBe(false);
     }
   });

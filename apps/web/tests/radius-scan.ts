@@ -380,7 +380,7 @@ export const VENDOR_ALLOW_LIST: Readonly<Record<string, string>> = {
     "Astryx's :root defaults (element 8, container 12, page and chat 28, full 9999): the theme layer redeclares inner/element/container/page as 2/4/6/6 on every page; --radius-chat and --radius-full are used only as listed below",
   // --radius-full (9999px) and 50%.
   xjspbzw:
-    "radius-full, an atomic class shared by Badge, the radio, checkbox and input-status indicators, Switch, Tab, Token, Slider, Skeleton, Calendar, Chat and others: rendered by the app only on Badge (tags, RENDERED_EXCEPTIONS) and the radio mark (globals.css draws it at radius 2); e2e/shapes.spec.ts checks every rendered corner",
+    "radius-full, an atomic class shared by Badge, the radio, checkbox and input-status indicators, Switch, Tab, Token, Slider, Skeleton, Calendar, Chat and others: rendered by the app only on Badge (tags: globals.css draws every tag at radius 2, tags lane) and the radio mark (globals.css draws it at radius 2); e2e/shapes.spec.ts checks every rendered corner",
   xq94oqs: "RadioListItem's press overlay (::after, full): globals.css draws it at radius 2 on every radio of the app",
   xeincmr: "Avatar (--_avatar-radius: full): not used by the app",
   x1rjw8qi: "Carousel (--_button-radius: full): not used by the app",
@@ -431,9 +431,8 @@ export function allowedFinding(declaration: Declaration): boolean {
 
 /**
  * Elements the browser may draw with a corner off the scale, by selector,
- * with the reason. Tags (Astryx Badge) belong to the tags lane of round 5,
- * which squares them on its own branch.
+ * with the reason. None: tags (Astryx Badge), the one exception while the
+ * shapes and tags lanes were apart, are 2px rectangles since the tags lane
+ * (globals.css), so the rendered scan checks them like every element.
  */
-export const RENDERED_EXCEPTIONS: Readonly<Record<string, string>> = {
-  ".astryx-badge, .astryx-badge *": "tags: squared by the tags lane (round 5), not by this change",
-};
+export const RENDERED_EXCEPTIONS: Readonly<Record<string, string>> = {};

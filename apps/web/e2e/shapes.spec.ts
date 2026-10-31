@@ -3,7 +3,7 @@
 // Square-first shapes (design-direction.md 3.7 and 4.2, owner direction
 // 2026-10-31): every corner the app ships or the browser draws is 0, 2, 4
 // or 6 px; no pill, oval or circle outside the reasoned allow-lists of
-// tests/radius-scan.ts (tags belong to the tags lane).
+// tests/radius-scan.ts (tags included: the tags lane draws them at 2 px).
 //
 // - the built CSS: off the scale only in allow-listed Astryx classes.
 // - the rendered pages: every element and its ::before / ::after computes

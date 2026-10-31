@@ -325,14 +325,30 @@ LIVE word (the LIVE delivery badge, the LIVE META model badge, "Meta model ·
 live", the Live tab) goes through `isLive`, and no evidence or source label
 carries the LIVE word (the evidence of a live Hyphae recall reads HYPHAE
 RECALL), so a replayed frame, a list entry, a preset, a recorded run or a
-flagged run reads META MODEL (a warning with a blocking
-flag) with "Meta model · recorded <date>" next to REPLAY, in every locale
+flagged run reads META MODEL (always in the info colour; a blocking flag is
+its own warning badge) with "Meta model · recorded <date>" next to REPLAY, in every locale
 (`tests/provenance.test.ts` checks each locale's LIVE word); a scripted
 provider reads "scripted double, no model call"; simulated evidence is named
 next to every outcome ("supported — on SIMULATED evidence"); a simulated
 proof is the neutral SIMULATED token with its scripted outcome as text,
 never a green "valid"; every count comes from the run data; nothing
-pretends to load.
+pretends to load. Colours (round 4, HE #1, #2, #16): only a real verifier's
+accepted proof (and the in-browser chain check) is green; a "supported"
+outcome and a "corroborated" assessment are the info role (`INFO_VARIANT`),
+never green, on any evidence; META MODEL is the info colour in every state;
+LIVE and LIVE META share `LIVE_VARIANT`, used by nothing else. Every counter
+of simulated proofs says so on the same line ("4 simulated proofs (not
+checked)", "SIMULATED, scripted “valid”: 4 proofs (not checked)", the plain
+explanation's "all SIMULATED … (scripted, not checked)"), and a server text or
+JSON that says "valid" for a simulated proof gets a caption. In a mixed run
+(some proofs scripted, some checked by a real verifier) the lane and the
+receipt split the counts; the plain explanation's proofs line says "some of
+them SIMULATED … (the simulated ones are scripted, not checked)" with no
+number the trace does not carry, the explanation adds "Some proof statuses of
+this run are SIMULATED", and the rationale and technical-count captions say
+the server's counts include scripted statuses that were not checked. The
+invalid_proof lead and reason say SIMULATED when every invalid status the
+check names is the scripted verifier's.
 
 ## Conventions for the views that follow (lane W2)
 

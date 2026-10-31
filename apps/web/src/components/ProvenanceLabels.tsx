@@ -16,6 +16,8 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { getTranslations } from "next-intl/server";
 
+import { INFO_VARIANT, LIVE_VARIANT } from "@/lib/provenance";
+
 type LabelKey =
   | "simulated.label"
   | "liveMeta.label"
@@ -30,8 +32,10 @@ type Sample = {
   badges: ReadonlyArray<{ label: LabelKey; variant: BadgeVariant }>;
 };
 
-const liveMeta = { label: "liveMeta.label", variant: "info" } as const;
-const metaModel = { label: "metaModel.label", variant: "info" } as const;
+// The same variants as the run views (src/lib/provenance.ts): LIVE META in
+// the LIVE role's own colour, META MODEL in the info colour, never the same.
+const liveMeta = { label: "liveMeta.label", variant: LIVE_VARIANT } as const;
+const metaModel = { label: "metaModel.label", variant: INFO_VARIANT } as const;
 const sealed = { label: "liveMeta.evidence", variant: "neutral" } as const;
 const simulated = { label: "simulated.label", variant: "purple" } as const;
 

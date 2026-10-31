@@ -20,6 +20,14 @@
 // - Simulated evidence is always named next to the outcome ("supported, on
 //   SIMULATED evidence"), and a simulated proof is never a green "valid": it
 //   gets the neutral SIMULATED token with its scripted outcome as text.
+// - Nothing that is not verified real evidence uses the success (green)
+//   variant: a "supported" outcome and a "corroborated" assessment are the
+//   info role whatever their evidence (a simulated run's are never green),
+//   and only a real verifier's accepted proof is green.
+// - One colour per label: META MODEL is the info variant in every state (a
+//   flag keeps its own warning badge next to it); the LIVE role (the LIVE
+//   delivery badge and LIVE META) has its own variant, LIVE_VARIANT, which
+//   no other label uses.
 // - Hyphae cyan stays reserved for proof and evidence: no badge here uses the
 //   cyan or teal variants.
 
@@ -42,6 +50,19 @@ export type ProvenanceLabel = {
   key: string;
   variant: BadgeVariant;
 };
+
+/**
+ * The LIVE role's variant: the LIVE delivery badge and the LIVE META model
+ * badge, and nothing else (tests/provenance.test.ts).
+ */
+export const LIVE_VARIANT = "pink" satisfies BadgeVariant;
+
+/**
+ * The info role: META MODEL in every state, a "supported" outcome, a
+ * "corroborated" assessment. Never the success (green) variant, which only
+ * a real verifier's accepted proof uses.
+ */
+export const INFO_VARIANT = "info" satisfies BadgeVariant;
 
 /** Flags that must be shown and that forbid the LIVE label. */
 export const BLOCKING_FLAGS: readonly ProvenanceFlag[] = [
@@ -74,7 +95,8 @@ export function isLive(
  * The model axis as a label. The LIVE-worded LIVE META only when `isLive`
  * holds for the delivery given (the latest frame of a run being watched);
  * without a delivery (a list entry, a preset) or for a replayed frame it is
- * META MODEL, and with a blocking flag META MODEL in the warning variant. No
+ * META MODEL, in the info variant in every state (a blocking flag is its own
+ * warning badge next to it, never a second colour of this label). No
  * other label of the model axis carries a LIVE word in any locale
  * (tests/provenance.test.ts). Callers always place the evidence label next
  * to it.
@@ -86,12 +108,9 @@ export function modelLabel(
   switch (provenance.model) {
     case "live_meta":
       if (delivery !== undefined && isLive(delivery, provenance)) {
-        return { key: "liveMeta.label", variant: "info" };
+        return { key: "liveMeta.label", variant: LIVE_VARIANT };
       }
-      return {
-        key: "metaModel.label",
-        variant: hasBlockingFlag(provenance) ? "warning" : "info",
-      };
+      return { key: "metaModel.label", variant: INFO_VARIANT };
     case "scripted":
       return { key: "scripted.label", variant: "purple" };
     case "mixed":
@@ -154,7 +173,7 @@ export function deliveryLabel(
     return { key: "replay.label", variant: "blue" };
   }
   return isLive(delivery, provenance)
-    ? { key: "live.label", variant: "success" }
+    ? { key: "live.label", variant: LIVE_VARIANT }
     : { key: "streaming.label", variant: "blue" };
 }
 
@@ -229,14 +248,28 @@ export function ndjsonPublishable(
   );
 }
 
-/** Outcome as text: the kind, always with its evidence axis next to it. */
+/**
+ * Outcome as text: the kind, always with its evidence axis next to it. No
+ * outcome is green: "supported" is the info role (on SIMULATED evidence
+ * nothing was checked, and even on real evidence an outcome is the policy's
+ * reading, not a verification).
+ */
 export const RECOMMENDATION_VARIANTS: Record<RecommendationKind, BadgeVariant> = {
-  supported: "success",
+  supported: INFO_VARIANT,
   contested: "warning",
   insufficient_evidence: "warning",
   abstained: "neutral",
   blocked: "error",
 };
+
+/**
+ * An Evaluator assessment: "corroborated" is the info role, never green (an
+ * assessment is not a verification, and on simulated evidence nothing was
+ * checked); "not corroborated" is neutral.
+ */
+export function assessmentVariant(corroborated: boolean): BadgeVariant {
+  return corroborated ? INFO_VARIANT : "neutral";
+}
 
 /**
  * A proof's status token. A simulated verification (the scripted verifier)

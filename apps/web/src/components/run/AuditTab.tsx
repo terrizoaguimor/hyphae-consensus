@@ -327,9 +327,14 @@ function ReceiptSummary({
         : tExplorer("authority.other", { authority });
   const dateTime = (iso: string) =>
     format.dateTime(new Date(iso), { dateStyle: "medium", timeStyle: "medium" });
+  // Counted apart: a SIMULATED proof (the scripted verifier's) checked
+  // nothing, so its status is never counted with the real ones ("integrity
+  // valid: 4"); its line says SIMULATED and not checked, on the same line.
   const byStatus = new Map<string, number>();
+  const bySimulatedStatus = new Map<string, number>();
   for (const { verification } of receipt.verifications) {
-    byStatus.set(verification.integrity_status, (byStatus.get(verification.integrity_status) ?? 0) + 1);
+    const counts = verification.verifier === "fake-verifier" ? bySimulatedStatus : byStatus;
+    counts.set(verification.integrity_status, (counts.get(verification.integrity_status) ?? 0) + 1);
   }
   const simulated = receipt.verifications.filter(
     ({ verification }) => verification.verifier === "fake-verifier",
@@ -443,10 +448,15 @@ function ReceiptSummary({
       <p data-receipt-verifications={receipt.verifications.length}>
         {t("verifications", { count: receipt.verifications.length, rounds: rounds.join(", ") })}
       </p>
-      {byStatus.size === 0 ? null : (
-        <ul className="hc-list">
+      {byStatus.size === 0 && bySimulatedStatus.size === 0 ? null : (
+        <ul className="hc-list" data-receipt-by-status>
+          {[...bySimulatedStatus.entries()].map(([status, count]) => (
+            <li key={`simulated-${status}`} data-receipt-status={status} data-receipt-status-simulated="true">
+              {t("verificationsByStatusSimulated", { status: tProvenance(`proof.${status}`), count })}
+            </li>
+          ))}
           {[...byStatus.entries()].map(([status, count]) => (
-            <li key={status}>
+            <li key={status} data-receipt-status={status} data-receipt-status-simulated="false">
               {t("verificationsByStatus", { status: tProvenance(`proof.${status}`), count })}
             </li>
           ))}

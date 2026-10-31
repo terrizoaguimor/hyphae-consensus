@@ -26,12 +26,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import type { DecisionResponseV1, DecisionV1, RunDetailV1 } from "@/lib/api/types";
+import { explainContext } from "@/lib/run/explain";
 import { supersededProposal } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { Explanation } from "./Explanation";
 import { RevisionComparison } from "./RevisionComparison";
-import { RecommendationLine } from "./StageTab";
+import { RecommendationLine, SimulatedRationaleNote } from "./StageTab";
 import type { MissingEntry } from "./useRecordedRun";
 import type { RunData } from "./useRunData";
 
@@ -126,6 +127,9 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
 
   const recommendation = detail.recommendation ?? null;
   const openItems = detail.challenge_items.filter((item) => item.status === "open");
+  const proofContext = explainContext(detail);
+  const simulatedProofs = proofContext.simulatedProofs;
+  const mixedProofs = proofContext.mixedProofs === true;
   const original = supersededProposal(detail);
   const current = detail.current_proposal ?? null;
   // The recommendation is for a revision: say which proposal it is for and
@@ -234,6 +238,8 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
             <Explanation recommendation={recommendation} detail={detail} />
             <h4>{t("rationale")}</h4>
             <p>{recommendation.rationale}</p>
+            {/* The server's text counts SIMULATED statuses as "valid": say so on the spot. */}
+            {simulatedProofs || mixedProofs ? <SimulatedRationaleNote mixed={mixedProofs} /> : null}
             <p className="hc-supporting">
               {t("protocol")}
               {": "}

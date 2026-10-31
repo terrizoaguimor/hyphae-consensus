@@ -217,6 +217,12 @@ export function ExplorerTab({ detail, frames, detailError = null }: ExplorerTabP
                     <p className="hc-supporting" data-display-copy>
                       {tAudit("displayCopy")}
                     </p>
+                    {/* The JSON says "valid" for a simulated proof: read it here. */}
+                    {event.payload.type === "evidence_verified" && event.payload.verification.simulated ? (
+                      <p className="hc-supporting" data-json-simulated>
+                        {t("jsonSimulated")}
+                      </p>
+                    ) : null}
                     <pre className="hc-json hc-code">{JSON.stringify(event, null, 2)}</pre>
                   </details>
                 </td>

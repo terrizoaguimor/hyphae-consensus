@@ -8,7 +8,9 @@
 // where each card shows the latest document of its role (proposal claims,
 // challenge items by kind, evaluation assessments and verdicts) with the
 // delivery badge of the record that carried it, the runtime lane (evidence
-// retrieved, proofs checked, recalls proven) and the recommendation. The
+// retrieved, proofs checked, simulated proofs counted apart as not checked,
+// recalls proven) and the recommendation (never green, src/lib/provenance.ts;
+// a server rationale over SIMULATED proofs gets a caption saying so). The
 // records are the frames shown so far plus what the detail holds and the
 // stream did not deliver (src/lib/run/view.ts stageRecords), so every count
 // matches the run.
@@ -29,6 +31,7 @@ import type {
   VerificationV1,
 } from "@/lib/api/types";
 import {
+  assessmentVariant,
   deliveryLabel,
   evidenceLabel,
   isScriptedRun,
@@ -58,6 +61,8 @@ export function StageTab({ data }: StageTabProps) {
   // mixed model run is never paced and never labelled simulated.
   const scripted = summary !== null && isScriptedRun(summary.provenance);
   const queued = pacing === "on" && pending > 0;
+  const simulatedProofs = stage.verifications.filter(({ document }) => document.simulated).length;
+  const checkedProofs = stage.verifications.length - simulatedProofs;
 
   return (
     <div className="hc-stage-tab">
@@ -153,12 +158,21 @@ export function StageTab({ data }: StageTabProps) {
           <li>
             <Badge variant="neutral" label={t("stage.retrieved", { count: stage.retrieved })} />
           </li>
-          <li>
-            <Badge
-              variant="neutral"
-              label={t("stage.verified", { count: stage.verifications.length })}
-            />
-          </li>
+          {/* A simulated proof checks nothing: it is counted as such, on its
+              own line, never under "proofs checked". */}
+          {simulatedProofs === 0 || checkedProofs > 0 ? (
+            <li data-lane-proofs="checked">
+              <Badge variant="neutral" label={t("stage.verified", { count: checkedProofs })} />
+            </li>
+          ) : null}
+          {simulatedProofs === 0 ? null : (
+            <li data-lane-proofs="simulated">
+              <Badge
+                variant="purple"
+                label={t("stage.verifiedSimulated", { count: simulatedProofs })}
+              />
+            </li>
+          )}
           <li>
             <Badge variant="neutral" label={t("stage.proven", { count: stage.proven })} />
           </li>
@@ -195,6 +209,7 @@ export function StageTab({ data }: StageTabProps) {
             />
             <FrameBadge record={stage.recommendation.record} summary={summary} />
             <p>{stage.recommendation.document.rationale}</p>
+            {simulatedProofs > 0 ? <SimulatedRationaleNote mixed={checkedProofs > 0} /> : null}
           </div>
         )}
       </section>
@@ -220,6 +235,22 @@ export function RecommendationLine({
           evidence: tProvenance(evidenceLabel(evidence).key),
         })}
       />
+    </p>
+  );
+}
+
+/**
+ * The caption under a server rationale of a run whose proofs are all
+ * SIMULATED: the server's text counts their scripted statuses ("2 valid"),
+ * and nothing was checked. With `mixed` (some proofs SIMULATED, some
+ * checked by a real verifier), it says that the server's counts include
+ * scripted statuses, which were not checked.
+ */
+export function SimulatedRationaleNote({ mixed = false }: { mixed?: boolean }) {
+  const t = useTranslations("Run.stage");
+  return (
+    <p className="hc-supporting" data-rationale-simulated={mixed ? "some" : "all"}>
+      {t(mixed ? "rationaleMixed" : "rationaleSimulated")}
     </p>
   );
 }
@@ -387,7 +418,7 @@ function EvaluationBody({ evaluation }: { evaluation: Evaluation }) {
           <li key={assessment.claim_id}>
             <code className="hc-code">{assessment.claim_id}</code>{" "}
             <Badge
-              variant={assessment.corroborated ? "success" : "neutral"}
+              variant={assessmentVariant(assessment.corroborated)}
               label={assessment.corroborated ? t("corroborated") : t("notCorroborated")}
             />
             {(assessment.contradicting_evidence ?? []).length === 0 ? null : (

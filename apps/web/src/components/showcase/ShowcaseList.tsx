@@ -14,7 +14,7 @@
 // and its own pin of each log, compared here with the listed one (a
 // manifest that could not be read says so, with its own retry).
 
-import { Badge } from "@astryxdesign/core/Badge";
+import { Badge, type BadgeVariant } from "@astryxdesign/core/Badge";
 import Link from "next/link";
 import { useFormatter, useTranslations } from "next-intl";
 
@@ -43,7 +43,7 @@ const AUTHORIZATIONS = ["pending", "approved", "rejected"] as const;
 /** An entry's outcome in words, next to its evidence axis. */
 export function useOutcomeText(): (entry: Pick<ShowcaseEntryV1, "outcome" | "provenance">) => {
   text: string;
-  variant: "success" | "warning" | "neutral" | "error";
+  variant: BadgeVariant;
 } {
   const tRun = useTranslations("Run");
   const t = useTranslations("Showcase");
@@ -55,7 +55,8 @@ export function useOutcomeText(): (entry: Pick<ShowcaseEntryV1, "outcome" | "pro
       case "recommendation":
         return {
           text: tRun("outcome", { kind: tRun(`kinds.${outcome.value}`), evidence }),
-          variant: RECOMMENDATION_VARIANTS[outcome.value] as "success" | "warning" | "neutral" | "error",
+          // Never green: "supported" is the info role (src/lib/provenance.ts).
+          variant: RECOMMENDATION_VARIANTS[outcome.value],
         };
       case "failed":
         return { text: t("failedAt", { stage: outcome.stage, evidence }), variant: "error" };

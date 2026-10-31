@@ -32,6 +32,7 @@ import {
 } from "@/lib/run/explain";
 
 import { TechnicalDetails } from "../TechnicalDetails";
+import { SimulatedRationaleNote } from "./StageTab";
 import { UntrustedText } from "./UntrustedText";
 
 type ExplanationProps = {
@@ -76,7 +77,19 @@ function PlainTrace({ trace, detail }: { trace: PolicyTrace; detail: RunDetailV1
   );
 }
 
-function TechnicalTrace({ trace, recommendation }: { trace: PolicyTrace; recommendation: RecommendationV1 }) {
+function TechnicalTrace({
+  trace,
+  recommendation,
+  simulated,
+  mixed,
+}: {
+  trace: PolicyTrace;
+  recommendation: RecommendationV1;
+  /** Every proof of the run is SIMULATED: the counts by field (and the server's text) are scripted statuses. */
+  simulated: boolean;
+  /** Some proofs of the run are SIMULATED and some are not: the counts include scripted statuses. */
+  mixed: boolean;
+}) {
   const t = useTranslations("Run.explain");
   const explain = dynamicTranslator(t);
   return (
@@ -129,6 +142,11 @@ function TechnicalTrace({ trace, recommendation }: { trace: PolicyTrace; recomme
           </div>
         ))}
       </dl>
+      {simulated || mixed ? (
+        <p className="hc-supporting" data-counts-simulated={simulated ? "all" : "some"}>
+          {t(simulated ? "technical.countsSimulated" : "technical.countsMixed")}
+        </p>
+      ) : null}
     </>
   );
 }
@@ -137,7 +155,8 @@ export function Explanation({ recommendation, detail }: ExplanationProps) {
   const t = useTranslations("Run.explain");
   const text = useExplainText();
   const trace = recommendation.trace ?? null;
-  const context = contextMessages(explainContext(detail));
+  const records = explainContext(detail);
+  const context = contextMessages(records);
 
   return (
     <section className="hc-explanation" aria-labelledby="explanation-heading" data-explanation>
@@ -157,10 +176,19 @@ export function Explanation({ recommendation, detail }: ExplanationProps) {
           {trace === null ? (
             <p>{t("technical.noTrace", { protocol: recommendation.protocol })}</p>
           ) : (
-            <TechnicalTrace trace={trace} recommendation={recommendation} />
+            <TechnicalTrace
+              trace={trace}
+              recommendation={recommendation}
+              simulated={records.simulatedProofs}
+              mixed={records.mixedProofs === true}
+            />
           )}
           <p>{t("technical.rationale")}</p>
           <UntrustedText text={recommendation.rationale} source="server" />
+          {/* Without a trace, the caption under the counts is absent: say it under the server's text. */}
+          {(records.simulatedProofs || records.mixedProofs === true) && trace === null ? (
+            <SimulatedRationaleNote mixed={records.mixedProofs === true} />
+          ) : null}
           <p className="hc-supporting">{t("technical.protocol", { protocol: recommendation.protocol })}</p>
         </div>
       </TechnicalDetails>

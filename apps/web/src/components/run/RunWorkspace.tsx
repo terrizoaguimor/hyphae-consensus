@@ -37,6 +37,7 @@ import { api, isRunId } from "@/lib/api/client";
 import type { DecisionV1, ProvenanceFlag, RunDetailV1, ShowcaseEntryV1 } from "@/lib/api/types";
 import {
   isLive,
+  isScriptedRun,
   ndjsonPublishable,
   RECOMMENDATION_VARIANTS,
   sourceLabel,
@@ -45,7 +46,16 @@ import { labelDisagreements } from "@/lib/run/consistency";
 import { awaitsDecision, runTabOrder, type RunTabKey } from "@/lib/run/decision";
 import { evidenceView, generationFailures } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
-import { mergeEvents, supersededProposal } from "@/lib/run/view";
+import {
+  awaitsFirstFrame,
+  decisionOf,
+  followsPlayback,
+  headerSummary,
+  mergeEvents,
+  type PlaybackPosition,
+  streamSettled,
+  supersededProposal,
+} from "@/lib/run/view";
 import { manifestNote } from "@/lib/showcase";
 import { localePath, SHOWCASE_SOURCE } from "@/lib/site";
 
@@ -206,8 +216,36 @@ function Workspace({
     [provenance, detail, frames],
   );
 
-  if (summary === null) {
-    if (detailError !== null) {
+  // One clock: during a paced playback the header shows the run as of the
+  // newest record on the stage, so no outcome (and no decision) appears
+  // before the playback reaches it (view.ts headerSummary).
+  const position: PlaybackPosition | null =
+    mode.kind === "own"
+      ? {
+          pacedFrames: mode.data.pacedFrames,
+          pending: mode.data.pending,
+          settled: streamSettled(mode.data.stream),
+        }
+      : null;
+  // A scripted run about to be paced whose first frame has not arrived yet:
+  // its stored summary is the ending, so the header shows none of it (no
+  // state, outcome or decision) until the playback starts. The workspace,
+  // its tabs and the stream's status line (with its reconnect control) stay
+  // visible; a failed or closed stream settles it, and the stored run shows.
+  const beforePlayback =
+    mode.kind === "own" &&
+    summary !== null &&
+    awaitsFirstFrame({
+      scripted: isScriptedRun(summary.provenance),
+      pacing: mode.data.pacing,
+      framesShown: frames.length,
+      settled: streamSettled(mode.data.stream),
+    });
+  const following = beforePlayback || (position !== null && followsPlayback(position));
+  const shown = position === null ? summary : headerSummary(detail, frames, position);
+
+  if (summary === null || shown === null) {
+    if (detailError !== null && summary === null) {
       return (
         <div className="hc-section" data-run="error">
           <ApiErrorNotice error={detailError} onRetry={reloadDetail} />
@@ -248,23 +286,30 @@ function Workspace({
       ? (detail.current_proposal?.id ?? null)
       : null;
   // A recorded run is at rest, and nobody can decide it here.
-  const stateText =
-    recorded && summary.state === "awaiting_human_approval"
+  const stateText = beforePlayback
+    ? t("header.notShown")
+    : recorded && shown.state === "awaiting_human_approval"
       ? tShowcase("awaiting")
-      : t(`states.${summary.state}`);
+      : t(`states.${shown.state}`);
+  // The person's decision, as its own tag next to the policy's outcome.
+  const decision = beforePlayback ? null : decisionOf(shown);
+  // Before the playback starts the header shows no outcome of the ending.
+  const outcome = beforePlayback ? null : (shown.recommendation ?? null);
+  const failure = beforePlayback ? null : (shown.failure ?? null);
   // Decision comes right after the first tab (first for a recorded run, whose default tab it is).
   const items: Array<{ value: TabKey; label: string }> = runTabOrder(recorded).map((value) => ({
     value,
     label: value === "stage" ? stageLabel : t(`tabs.${value}`),
   }));
-  // The run awaits a decision that can be recorded here: the header offers it on every tab.
-  // A decision sent from the Decision tab counts at once, even when the
-  // detail could not be read again after it (the tab shows it as recorded).
-  const awaiting = !recorded && awaitsDecision(summary, detail?.decision ?? decided);
   // A decision can still be recorded on this run here (the chain-broken
-  // callouts then say "before you decide"): the same rule as the header's
-  // "Go to your decision" (src/lib/run/decision.ts awaitsDecision).
-  const deciding = awaiting;
+  // callouts then say "before you decide"). A decision sent from the
+  // Decision tab counts at once, even when the detail could not be read
+  // again after it (the tab shows it as recorded).
+  const deciding = !recorded && awaitsDecision(summary, detail?.decision ?? decided);
+  // The header offers "Go to your decision" on every tab, on the header's
+  // one clock: only once the playback shows the run at its decision point
+  // (never before the stage reaches the recommendation, HE #6).
+  const awaiting = deciding && !beforePlayback && shown.state === "awaiting_human_approval";
   const inconsistent = (summary.provenance.flags ?? []).includes("provenance_inconsistent");
   const openAudit = () => selectTab("audit");
   const links: DecisionLinks =
@@ -291,10 +336,22 @@ function Workspace({
       data-run-state={summary.state}
       data-run-mode={recorded ? "recorded" : "own"}
     >
-      <header className="hc-run-header hc-panel">
+      <header
+        className="hc-run-header hc-panel"
+        data-header-clock={following ? "playback" : "run"}
+        data-header-state={beforePlayback ? "not_shown" : shown.state}
+      >
         <h2 className="hc-run-title" lang={titleLang}>
           {title}
         </h2>
+        {following ? (
+          <p className="hc-supporting hc-tabular-nums" data-header-playback>
+            {t("header.playback", {
+              shown: beforePlayback ? 0 : shown.event_count,
+              total: summary.event_count,
+            })}
+          </p>
+        ) : null}
         {awaiting ? (
           <div className="hc-go-to-decision" data-go-to-decision>
             <p>{t("header.awaitingDecision")}</p>
@@ -314,8 +371,8 @@ function Workspace({
           <div>
             <dt>{t("header.outcome")}</dt>
             <dd data-run-field="outcome">
-              {summary.recommendation === undefined || summary.recommendation === null ? (
-                summary.state === "failed" ? (
+              {outcome === null ? (
+                !beforePlayback && shown.state === "failed" ? (
                   t("header.noOutcomeFailed")
                 ) : (
                   t("header.noOutcome")
@@ -323,9 +380,9 @@ function Workspace({
               ) : (
                 <>
                   <OutcomeTags
-                    outcome={t(`kinds.${summary.recommendation}`)}
-                    variant={RECOMMENDATION_VARIANTS[summary.recommendation]}
-                    evidence={summary.provenance.evidence}
+                    outcome={t(`kinds.${outcome}`)}
+                    variant={RECOMMENDATION_VARIANTS[outcome]}
+                    evidence={shown.provenance.evidence}
                   />
                   {revisedId === null ? null : (
                     <span className="hc-supporting" data-outcome-revision>
@@ -336,34 +393,47 @@ function Workspace({
               )}
             </dd>
           </div>
+          {decision === null ? null : (
+            <div>
+              <dt>{recorded ? t("header.decisionRecorded") : t("header.decision")}</dt>
+              <dd data-run-field="decision" data-decision={decision}>
+                {/* The person's decision, its own tag: the same info role for
+                    an approval and a rejection, never green and never a
+                    plain grey word next to the policy's coloured outcome.
+                    The no-authority statement is the Decision tab's, once
+                    per view, not repeated here. */}
+                <Badge variant="info" label={t(`header.decisions.${decision}`)} />
+              </dd>
+            </div>
+          )}
           <div>
             <dt>{t("header.recordsLabel")}</dt>
             <dd className="hc-tabular-nums" data-run-field="records">
-              {t("header.records", { count: summary.event_count })}
+              {t("header.records", { count: beforePlayback ? 0 : shown.event_count })}
             </dd>
           </div>
           <div>
             <dt>{t("header.revision")}</dt>
             <dd className="hc-tabular-nums" data-run-field="revision">
-              {format.number(summary.revision_round)}
+              {beforePlayback ? t("header.notShown") : format.number(shown.revision_round)}
             </dd>
           </div>
           <div>
             <dt>{t("header.runId")}</dt>
             <dd>
-              <code className="hc-code">{summary.run_id}</code>
+              <code className="hc-code">{shown.run_id}</code>
             </dd>
           </div>
         </dl>
-        {summary.failure === undefined || summary.failure === null ? null : (
-          <FailureSentence failure={summary.failure} />
-        )}
+        {failure === null ? null : <FailureSentence failure={failure} />}
         <div>
           <p className="hc-supporting">{t("header.provenance")}</p>
           <ProvenanceBadges
-            provenance={summary.provenance}
+            provenance={shown.provenance}
             delivery={latest?.delivery}
-            recordedAt={latest?.event.occurred_at ?? summary.updated_at}
+            recordedAt={
+              latest?.event.occurred_at ?? (beforePlayback ? shown.created_at : shown.updated_at)
+            }
             withNote
             notesElsewhere={inconsistent ? INCONSISTENT : undefined}
           />

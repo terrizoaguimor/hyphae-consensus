@@ -71,7 +71,7 @@ Fallback cut:
 
 | # | Route · tab | State | Must be visible | Must not appear |
 |---|---|---|---|---|
-| 3a′ | `/en/new/` · Guided examples | guided enabled | the intro ("The roles are scripted doubles and the evidence is simulated: no model is called and no proof is real. …"), the SIMULATED model and SIMULATED evidence badges, "Reference: retry budget" with its expected outcome | — |
+| 3a′ | `/en/new/` · Guided examples | guided enabled | the intro ("The roles are scripted doubles and the evidence is simulated: no model is called and no proof is real. …"), the SCRIPTED model and SIMULATED evidence badges, "Reference: retry budget" with its expected outcome | — |
 | 3b′ | `/en/run/?id=<guided run_id>` · Playback | pacing on | Playback tab label; SCRIPTED · SIMULATED badges; "simulated · paced for readability" | the word LIVE anywhere |
 | 3c′ | F03 recorded · Explorer | loaded | first proposal → challenge (with `constraint_conflict`) → evaluation; burned-in caption "REPLAY · recorded run F03, 27 Oct 2026 · not live" | — |
 | 3d′ | F03 recorded · Evidence, then Proof inspector | — | claim 2 contradicted; the constraint record's proof: valid, verified at run time; the sentence "… the artifacts are held privately by the operator …, so the public can re-verify the event chain, not these proofs." in full | that sentence cropped or cut short |

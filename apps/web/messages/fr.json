@@ -212,7 +212,6 @@
       "heading": "Exemples guidés",
       "intro": "Les rôles sont des doublures scénarisées et les éléments probants sont simulés : aucun modèle n’est appelé et aucune preuve n’est réelle. Chaque scénario atteint son résultat documenté en quelques millisecondes ; la page de l’exécution le rejoue ensuite.",
       "count": "{count, plural, =0 {Le serveur ne liste aucun scénario guidé.} one {Le serveur liste # scénario guidé.} many {Le serveur liste # de scénarios guidés.} other {Le serveur liste # scénarios guidés.}}",
-      "modelBadge": "Modèle SIMULÉ",
       "evidenceBadge": "Éléments probants SIMULÉS",
       "expected": "Résultat attendu",
       "run": "Lancer",
@@ -329,7 +328,16 @@
       "task": "Tâche",
       "latestDelivery": "Dernier enregistrement",
       "awaitingDecision": "Cette exécution attend votre décision.",
-      "goToDecision": "Aller à votre décision"
+      "goToDecision": "Aller à votre décision",
+      "playback": "Relecture : l’en-tête montre l’exécution telle qu’elle était à l’enregistrement {shown, number} sur {total, number}. Le résultat final apparaît quand la relecture l’atteint.",
+      "decision": "Votre décision",
+      "decisionRecorded": "Décision humaine",
+      "decisions": {
+        "approved": "Approuvée",
+        "approvedOverride": "Approuvée en passant outre",
+        "rejected": "Rejetée"
+      },
+      "notShown": "pas encore affiché"
     },
     "outcomeEvidence": "Éléments probants : {evidence}",
     "kinds": {
@@ -361,6 +369,7 @@
       "ended": "Flux terminé : {reason}.",
       "error": "Le flux n’a pas pu être ouvert.",
       "closed": "Flux fermé.",
+      "endedPlaying": "Le flux est terminé ; la relecture continue.",
       "endReasons": {
         "awaiting_human_approval": "l’exécution attend une décision humaine",
         "terminal": "l’exécution a atteint son état final"

@@ -25,9 +25,12 @@ import type {
   Proposal,
   Recommendation,
   RunDetailV1,
+  RunState,
   RunSummaryV1,
+  StreamEndReason,
   VerificationV1,
 } from "../api/types";
+import type { StreamState } from "../api/sse";
 
 /** The detail to keep: a response never replaces a detail that is further along. */
 export function newerDetail(next: RunDetailV1, current: RunDetailV1 | null): RunDetailV1 {
@@ -54,6 +57,132 @@ export function newestSummary(
     return fromDetail;
   }
   return fromFrame.last_sequence > fromDetail.last_sequence ? fromFrame : fromDetail;
+}
+
+/** The stream ended, failed or was closed: no frame will follow. */
+export function streamSettled(stream: StreamState): boolean {
+  return stream === "ended" || stream === "error" || stream === "closed";
+}
+
+/** Where a paced playback stands, as the run data knows it. */
+export type PlaybackPosition = {
+  /** Frames that went through the pacer (0: nothing was paced). */
+  pacedFrames: number;
+  /** Replayed frames the pacer still holds back. */
+  pending: number;
+  /** The stream ended, failed or was closed: no frame will follow. */
+  settled: boolean;
+};
+
+/**
+ * Whether the run's views follow a paced playback rather than the run's
+ * final state: frames went through the pacer and the playback has not
+ * reached its end yet (frames still queued, or the stream may still send
+ * some). The same condition keeps the stage from showing the detail's tail
+ * (stageRecords), so the header and the stage share one clock.
+ */
+export function followsPlayback(position: PlaybackPosition): boolean {
+  return position.pacedFrames > 0 && !(position.settled && position.pending === 0);
+}
+
+/**
+ * The summary the run header shows. During a paced playback it is the
+ * summary carried by the newest frame shown: the header follows the
+ * playback position, so no outcome (and no decision) appears before the
+ * stage reaches it. Otherwise it is the newest known summary.
+ */
+export function headerSummary(
+  detail: RunDetailV1 | null,
+  frames: ConsensusFrameV1[],
+  position: PlaybackPosition,
+): RunSummaryV1 | null {
+  const shown = frames.at(-1)?.summary ?? null;
+  if (followsPlayback(position) && shown !== null) {
+    return shown;
+  }
+  return newestSummary(detail, frames);
+}
+
+/**
+ * Why the stream ended, as the status line says it: derived from the run's
+ * state, not from the stream's end frame alone. A run decided after its
+ * stream ended (a decision on the Decision tab, or a stream that stopped at
+ * the decision point before a newer read) is terminal, never "awaits a human
+ * decision"; a run still at its decision point awaits it. Any other state
+ * (none is expected once a stream ended) keeps the frame's own reason.
+ */
+export function endReasonOf(state: RunState | null, reason: StreamEndReason): StreamEndReason {
+  switch (state) {
+    case "awaiting_human_approval":
+      return "awaiting_human_approval";
+    case "approved":
+    case "rejected":
+    case "failed":
+      return "terminal";
+    default:
+      return reason;
+  }
+}
+
+/**
+ * Whether a scripted run's playback has not shown its first record yet: the
+ * pacing is on, no frame is on the stage and the stream may still send one.
+ * The stored summary is the run's ending, so the header shows nothing of it
+ * (no state, outcome or decision) until the playback starts; a stream that
+ * failed or was closed settles it, and the stored run shows.
+ */
+export function awaitsFirstFrame(options: {
+  scripted: boolean;
+  pacing: "on" | "reduced" | "skipped";
+  framesShown: number;
+  settled: boolean;
+}): boolean {
+  return options.scripted && options.pacing === "on" && options.framesShown === 0 && !options.settled;
+}
+
+/** What the stream status line says. */
+export type StreamLine =
+  /** The stream's own state (connecting, open, reconnecting, failed, closed). */
+  | { kind: "state"; stream: StreamState }
+  /** The stream ended, but the paced playback has not reached its end yet. */
+  | { kind: "playing" }
+  /** The stream ended and the views show the run's newest state. */
+  | { kind: "ended"; reason: StreamEndReason };
+
+/**
+ * The status line, on the same clock as the header: while a paced playback
+ * is followed, an ended stream says the playback continues (never the run's
+ * final state, which the header and the stage have not reached); once the
+ * playback reached its end, the reason comes from the run's newest state
+ * (endReasonOf).
+ */
+export function streamLine(
+  stream: StreamState,
+  end: { reason: StreamEndReason; state: RunState } | null,
+  position: PlaybackPosition,
+  newestState: RunState | null,
+): StreamLine {
+  if (stream !== "ended" || end === null) {
+    return { kind: "state", stream };
+  }
+  if (followsPlayback(position)) {
+    return { kind: "playing" };
+  }
+  return { kind: "ended", reason: endReasonOf(newestState ?? end.state, end.reason) };
+}
+
+/** The person's decision on a run, from its summary: null while none is recorded. */
+export function decisionOf(
+  summary: Pick<RunSummaryV1, "authorization" | "override">,
+): "approved" | "approvedOverride" | "rejected" | null {
+  switch (summary.authorization) {
+    case "approved":
+      return summary.override ? "approvedOverride" : "approved";
+    case "rejected":
+      return "rejected";
+    case "pending":
+      return null;
+  }
 }
 
 /** One record as a view shows it: the event and how it reached this client. */

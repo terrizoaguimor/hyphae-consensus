@@ -212,7 +212,6 @@
       "heading": "Guided examples",
       "intro": "The roles are scripted doubles and the evidence is simulated: no model is called and no proof is real. Each scenario reaches its documented outcome in milliseconds; the run page then plays it back.",
       "count": "{count, plural, =0 {The server lists no guided scenario.} one {The server lists # guided scenario.} other {The server lists # guided scenarios.}}",
-      "modelBadge": "SIMULATED model",
       "evidenceBadge": "SIMULATED evidence",
       "expected": "Expected outcome",
       "run": "Run",
@@ -329,7 +328,16 @@
       "task": "Task",
       "latestDelivery": "Latest record",
       "awaitingDecision": "This run is waiting for your decision.",
-      "goToDecision": "Go to your decision"
+      "goToDecision": "Go to your decision",
+      "playback": "Playing back: the header shows the run as of record {shown, number} of {total, number}. The final outcome appears when the playback reaches it.",
+      "decision": "Your decision",
+      "decisionRecorded": "Human decision",
+      "decisions": {
+        "approved": "Approved",
+        "approvedOverride": "Approved as an override",
+        "rejected": "Rejected"
+      },
+      "notShown": "not shown yet"
     },
     "outcomeEvidence": "Evidence: {evidence}",
     "kinds": {
@@ -361,6 +369,7 @@
       "ended": "Stream ended: {reason}.",
       "error": "The stream could not be opened.",
       "closed": "Stream closed.",
+      "endedPlaying": "The stream ended; the playback continues.",
       "endReasons": {
         "awaiting_human_approval": "the run awaits a human decision",
         "terminal": "the run reached its final state"

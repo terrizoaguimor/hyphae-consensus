@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // New deliberation, connected: the guided scenarios from GET /scenarios, each
-// with its expected outcome as a neutral chip and its SIMULATED model and
-// evidence badges, and a Run button (ensureSession, POST /runs, then the run
-// page); the live presets from capabilities.live (LiveCapabilitiesV1), each
+// with its expected outcome as a neutral chip, its SCRIPTED model badge (the
+// run pages' label) and SIMULATED evidence badge, and a Run button
+// (ensureSession, POST /runs, then the run page); the live presets from capabilities.live (LiveCapabilitiesV1), each
 // with the model and evidence badges of its own recorded axes, the public
 // budget in US dollars, the 18+ and territory attestation, the optional
 // invite code under a disclosure, the Turnstile widget and a Start button
@@ -195,7 +195,10 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
                       <h3 className="hc-card-title">{scenario.title}</h3>
                       <ul className="hc-badges" role="list">
                         <li>
-                          <Badge variant="purple" label={t("guided.modelBadge")} />
+                          {/* The model axis as every run page labels it
+                              (src/lib/provenance.ts modelLabel): SCRIPTED for
+                              a guided scenario, never a card-only wording. */}
+                          <ScenarioModelBadge model={scenario.model} />
                         </li>
                         <li>
                           <Badge variant="purple" label={t("guided.evidenceBadge")} />
@@ -528,6 +531,17 @@ function blockerKey(
     case "turnstile":
       return "needsTurnstile";
   }
+}
+
+/** A guided scenario's model axis, labelled by provenance.ts like a run's (no delivery: never LIVE). */
+function ScenarioModelBadge({ model }: { model: ScenarioV1["model"] }) {
+  const tProvenance = dynamicTranslator(useTranslations("Provenance"));
+  const label = modelLabel({ model });
+  return (
+    <span data-scenario-model={model}>
+      <Badge variant={label.variant} label={tProvenance(label.key)} />
+    </span>
+  );
 }
 
 /** A preset's text and the badges of its own recorded axes (never assumed for the section). */

@@ -212,7 +212,6 @@
       "heading": "Exemplos guiados",
       "intro": "Os papéis são dublês roteirizados e as evidências são simuladas: nenhum modelo é chamado e nenhuma prova é real. Cada cenário chega ao seu resultado documentado em milissegundos; a página da execução então o reproduz.",
       "count": "{count, plural, =0 {O servidor não lista nenhum cenário guiado.} one {O servidor lista # cenário guiado.} many {O servidor lista # de cenários guiados.} other {O servidor lista # cenários guiados.}}",
-      "modelBadge": "Modelo SIMULADO",
       "evidenceBadge": "Evidências SIMULADAS",
       "expected": "Resultado esperado",
       "run": "Executar",
@@ -329,7 +328,16 @@
       "task": "Tarefa",
       "latestDelivery": "Último registro",
       "awaitingDecision": "Esta execução aguarda a sua decisão.",
-      "goToDecision": "Ir para a sua decisão"
+      "goToDecision": "Ir para a sua decisão",
+      "playback": "Reprodução: o cabeçalho mostra a execução como estava no registro {shown, number} de {total, number}. O resultado final aparece quando a reprodução chega a ele.",
+      "decision": "Sua decisão",
+      "decisionRecorded": "Decisão humana",
+      "decisions": {
+        "approved": "Aprovada",
+        "approvedOverride": "Aprovada como anulação",
+        "rejected": "Rejeitada"
+      },
+      "notShown": "ainda não exibido"
     },
     "outcomeEvidence": "Evidências: {evidence}",
     "kinds": {
@@ -361,6 +369,7 @@
       "ended": "Transmissão encerrada: {reason}.",
       "error": "Não foi possível abrir a transmissão.",
       "closed": "Transmissão fechada.",
+      "endedPlaying": "A transmissão terminou; a reprodução continua.",
       "endReasons": {
         "awaiting_human_approval": "a execução aguarda uma decisão humana",
         "terminal": "a execução chegou ao seu estado final"

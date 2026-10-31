@@ -16,7 +16,7 @@
 // and theme.
 
 import AxeBuilder from "@axe-core/playwright";
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 import { IntlMessageFormat } from "intl-messageformat";
 
 import { CONTRACT_SHA256 } from "../src/lib/api/types";
@@ -75,9 +75,13 @@ test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, p
   ).toBeVisible();
   const cards = page.locator("[data-scenario]");
   await expect(cards).toHaveCount(5);
+  // The cards' model label is the run pages' SCRIPTED label (owner decision
+  // 2026-10-31), never a card-only "SIMULATED model".
   await expect(
-    page.getByText(t("en", "NewDeliberation.guided.modelBadge"), { exact: true }),
+    cards.getByText(t("en", "Provenance.scripted.label"), { exact: true }),
   ).toHaveCount(5);
+  await expect(cards.locator("[data-scenario-model='scripted']")).toHaveCount(5);
+  await expect(page.getByText("SIMULATED model")).toHaveCount(0);
   await expect(cards.first().getByText("supported", { exact: true })).toBeVisible();
 
   const runButton = page.locator("[data-scenario='retry']").getByRole("button");
@@ -758,6 +762,192 @@ test("Reject keeps the keyboard focus while the decision is sent and after a ref
   await expect(reject).not.toHaveAttribute("aria-disabled", "true");
   dropProblems(pageProblems, /HTTP 503: \/api\/v1\/runs\/.*\/decision/u);
   expect(pageProblems).toEqual([]);
+});
+
+/** The painted background of a tag: its text's element or the nearest ancestor with a fill. */
+async function tagBackground(locator: Locator): Promise<string> {
+  return locator.evaluate((element) => {
+    let node: Element | null = element;
+    for (let depth = 0; node !== null && depth < 4; depth += 1) {
+      const color = getComputedStyle(node).backgroundColor;
+      if (color !== "rgba(0, 0, 0, 0)" && color !== "transparent") {
+        return color;
+      }
+      node = node.parentElement;
+    }
+    return "transparent";
+  });
+}
+
+test("during a paced playback the header follows the stage, never the stored ending", async ({
+  page,
+  pageProblems,
+}) => {
+  // The retry run is approved and supported; its frames replay paced.
+  await mockApi(page);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-pacing='on']")).toBeVisible();
+  const header = page.locator("header.hc-run-header");
+  await expect(header).toHaveAttribute("data-header-clock", "playback");
+  await expect(page.locator("[data-header-playback]")).toBeVisible();
+  // While the stage has no recommendation, neither has the header: no
+  // outcome, no decision, and not the final state.
+  await expect(page.locator("[data-recommendation]")).toContainText(t("en", "Run.stage.noRecommendation"));
+  await expect(page.locator("[data-run-field='outcome']")).toHaveText(t("en", "Run.header.noOutcome"));
+  await expect(page.locator("[data-run-field='decision']")).toHaveCount(0);
+  await expect(page.locator("[data-run-field='state']")).not.toHaveText(t("en", "Run.states.approved"));
+  await expect(header).not.toHaveAttribute("data-header-state", "approved");
+  // The run's own state stays on the workspace for anything that needs it.
+  await expect(page.locator("[data-run-state]")).toHaveAttribute("data-run-state", "approved");
+  // The stream ends long before the pacer has shown its frames; the status
+  // line runs on the header's clock: the playback continues, and it names
+  // neither the final state nor a pending decision.
+  const status = page.locator("[data-stream-state] > [role=status]");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await expect(header).toHaveAttribute("data-header-clock", "playback");
+  await expect(page.locator("[data-stream-line]")).toHaveAttribute("data-stream-line", "playing");
+  await expect(status).toHaveText(t("en", "Run.stream.endedPlaying"));
+  await expect(status).not.toContainText(t("en", "Run.stream.endReasons.terminal"));
+  await expect(status).not.toContainText(t("en", "Run.stream.endReasons.awaiting_human_approval"));
+
+  await page.getByRole("button", { name: t("en", "Run.pacing.skip") }).click();
+  await expect(header).toHaveAttribute("data-header-clock", "run");
+  await expect(page.locator("[data-stream-line]")).toHaveAttribute("data-stream-line", "ended");
+  await expect(status).toHaveText(
+    t("en", "Run.stream.ended", { reason: t("en", "Run.stream.endReasons.terminal") }),
+  );
+  await expect(page.locator("[data-header-playback]")).toHaveCount(0);
+  await expect(page.locator("[data-run-field='state']")).toHaveText(t("en", "Run.states.approved"));
+  await expect(page.locator("[data-run-field='outcome']")).toContainText(t("en", "Run.kinds.supported"));
+  await expect(page.locator("[data-run-field='decision']")).toHaveAttribute("data-decision", "approved");
+  expect(pageProblems).toEqual([]);
+});
+
+test("a decided run's status line says it reached its final state, and its header names the decision", async ({
+  page,
+}) => {
+  // The stored stream of the retry run ended at the decision point
+  // (stream_end awaiting_human_approval); the run has been approved since.
+  await mockApi(page);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  const status = page.locator("[data-stream-state='ended'] [role=status]");
+  await expect(status).toHaveText(
+    t("en", "Run.stream.ended", { reason: t("en", "Run.stream.endReasons.terminal") }),
+  );
+  await expect(status).not.toContainText(t("en", "Run.stream.endReasons.awaiting_human_approval"));
+  const decision = page.locator("[data-run-field='decision']");
+  await expect(decision).toHaveAttribute("data-decision", "approved");
+  await expect(decision.getByText(t("en", "Run.header.decisions.approved"), { exact: true })).toBeVisible();
+  // The tag alone: the no-authority statement is the Decision tab's, not
+  // repeated in the header.
+  await expect(decision).toHaveText(t("en", "Run.header.decisions.approved"));
+});
+
+test("a scripted run whose stream sends no frame shows its workspace and stream status, not a loading line", async ({
+  page,
+  pageProblems,
+}) => {
+  await mockApi(page);
+  // The stream answers nothing: the request is held, so no frame arrives
+  // and the stream is not settled, until the test lets it through.
+  const held: Route[] = [];
+  await page.route(/\/api\/v1\/runs\/[^/]+\/events(\?.*)?$/u, (route) => {
+    held.push(route);
+  });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-run='loading']")).toHaveCount(0);
+  await expect(page.locator("[data-run-state]")).toHaveAttribute("data-run-state", "approved");
+  // The header shows nothing of the stored ending until the playback starts.
+  const header = page.locator("header.hc-run-header");
+  await expect(header).toHaveAttribute("data-header-clock", "playback");
+  await expect(header).toHaveAttribute("data-header-state", "not_shown");
+  const total = (fixture<{ summary: { event_count: number } }>("run-detail-retry.json")).summary.event_count;
+  await expect(page.locator("[data-header-playback]")).toHaveText(
+    String(new IntlMessageFormat(t("en", "Run.header.playback"), "en").format({ shown: 0, total })),
+  );
+  await expect(page.locator("[data-run-field='state']")).toHaveText(t("en", "Run.header.notShown"));
+  await expect(page.locator("[data-run-field='outcome']")).toHaveText(t("en", "Run.header.noOutcome"));
+  await expect(page.locator("[data-run-field='decision']")).toHaveCount(0);
+  await expect(page.locator("[data-run-field='revision']")).toHaveText(t("en", "Run.header.notShown"));
+  await expect(page.locator("[data-run-field='records']")).toHaveText(tCountEn("Run.header.records", 0));
+  // The stream's own status stays visible, and so do the run's tabs.
+  await expect(page.locator("[data-stream-state='connecting'] > [role=status]")).toHaveText(
+    t("en", "Run.stream.connecting"),
+  );
+  await expect(page.getByRole("tab", { name: t("en", "Run.tabs.evidence") })).toBeVisible();
+  await expect(page.locator("[data-recommendation]")).toContainText(t("en", "Run.stage.noRecommendation"));
+  // Once the stream answers, the playback starts and the header follows it;
+  // the mocked stream (the earlier route) serves the run's frames.
+  await page.unroute(/\/api\/v1\/runs\/[^/]+\/events(\?.*)?$/u);
+  expect(held.length).toBeGreaterThan(0);
+  for (const route of held.splice(0)) {
+    await route.fallback();
+  }
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await expect(header).not.toHaveAttribute("data-header-state", "not_shown");
+  await page.getByRole("button", { name: t("en", "Run.pacing.skip") }).click();
+  await expect(header).toHaveAttribute("data-header-state", "approved");
+  expect(pageProblems).toEqual([]);
+});
+
+test("after a rejection the header shows it as its own tag, never a grey word, and the status line agrees", async ({
+  page,
+  pageProblems,
+}) => {
+  const rejected = fixture<Record<string, unknown>>("run-detail-retry.json");
+  const summary = rejected.summary as Record<string, unknown>;
+  summary.state = "rejected";
+  summary.authorization = "rejected";
+  const recorded = rejected.decision as Record<string, unknown> | undefined;
+  if (recorded !== undefined && recorded !== null) {
+    recorded.approved = false;
+  }
+  await mockApi(page, { detail: awaitingDecisionDetail(), decidedDetail: rejected });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  const status = page.locator("[data-stream-state='ended'] [role=status]");
+  await expect(status).toHaveText(
+    t("en", "Run.stream.ended", { reason: t("en", "Run.stream.endReasons.awaiting_human_approval") }),
+  );
+  await expect(page.locator("[data-run-field='decision']")).toHaveCount(0);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  await page.locator("[data-decision-form]").getByRole("button", { name: t("en", "Run.decision.reject") }).click();
+  await expect(page.locator("[data-decision-recorded='rejected']")).toBeVisible();
+  await expect(page.locator("[data-run-field='state']")).toHaveText(t("en", "Run.states.rejected"));
+  const decision = page.locator("[data-run-field='decision']");
+  await expect(decision).toHaveAttribute("data-decision", "rejected");
+  const tag = decision.getByText(t("en", "Run.header.decisions.rejected"), { exact: true });
+  await expect(tag).toBeVisible();
+  // A tag with a fill of its own, not the grey of a neutral label.
+  const neutral = page
+    .locator("header.hc-run-header")
+    .getByText(t("en", "Provenance.thisServer.label"), { exact: true })
+    .first();
+  const rejectedFill = await tagBackground(tag);
+  expect(rejectedFill).not.toBe("transparent");
+  expect(rejectedFill).not.toBe(await tagBackground(neutral));
+  // The Playback tab's status line follows the run: the decision is recorded.
+  await page.getByRole("tab", { name: t("en", "Run.tabs.playback") }).click();
+  await expect(status).toHaveText(
+    t("en", "Run.stream.ended", { reason: t("en", "Run.stream.endReasons.terminal") }),
+  );
+  expect(pageProblems).toEqual([]);
+});
+
+test("the guided cards label the model SCRIPTED in every locale, as the run pages do", async ({ page }) => {
+  await mockApi(page);
+  for (const locale of locales) {
+    await page.goto(localePath(locale, "new"));
+    await hydrated(page);
+    const cards = page.locator("[data-scenario]");
+    await expect(cards).toHaveCount(5);
+    await expect(
+      cards.getByText(t(locale, "Provenance.scripted.label"), { exact: true }),
+    ).toHaveCount(5);
+  }
 });
 
 test("the guided list is counted from what the server lists", async ({ page }) => {

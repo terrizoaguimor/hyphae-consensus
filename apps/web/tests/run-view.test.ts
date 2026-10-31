@@ -14,13 +14,21 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { contractDir } from "../scripts/gen-api-types.mjs";
+import type { StreamState } from "../src/lib/api/sse";
 import type { ConsensusFrameV1, RunDetailV1, SseFrameV1 } from "../src/lib/api/types";
 import {
+  awaitsFirstFrame,
+  decisionOf,
+  endReasonOf,
+  followsPlayback,
+  headerSummary,
   mergeEvents,
   newerDetail,
   newestSummary,
   stageOf,
   stageRecords,
+  streamLine,
+  streamSettled,
   supersededProposal,
 } from "../src/lib/run/view";
 
@@ -127,5 +135,151 @@ describe("supersededProposal", () => {
     expect(supersededProposal(offline) === null).toBe(firstOnly);
     const created = fixture<RunDetailV1>("run-detail-live-R01-reference.json");
     expect(supersededProposal(created)).toBeNull();
+  });
+});
+
+// HE #6 (round 4): one clock for the header and the stage, a status line
+// derived from the run state, and the person's decision as its own value.
+describe("the header follows the playback", () => {
+  const paced = { pacedFrames: 3, pending: 11, settled: false };
+
+  it("follows a paced playback until it reaches its end", () => {
+    expect(followsPlayback(paced)).toBe(true);
+    // The stream ended but the pacer still holds frames back.
+    expect(followsPlayback({ pacedFrames: 14, pending: 3, settled: true })).toBe(true);
+    // Every frame shown, but the stream may still send some.
+    expect(followsPlayback({ pacedFrames: 14, pending: 0, settled: false })).toBe(true);
+    // The end: settled and nothing queued; the stage shows the detail's tail too.
+    expect(followsPlayback({ pacedFrames: 14, pending: 0, settled: true })).toBe(false);
+    // Nothing was paced (reduced motion, a live run): the run's own state.
+    expect(followsPlayback({ pacedFrames: 0, pending: 0, settled: false })).toBe(false);
+  });
+
+  it("shows the summary of the newest frame on the stage, never the stored ending", () => {
+    const shown = frames.slice(0, 3);
+    const summary = headerSummary(detail, shown, paced);
+    expect(summary?.last_sequence).toBe(3);
+    expect(summary?.state).toBe("evidence_review");
+    expect(summary?.recommendation ?? null).toBeNull();
+    expect(summary?.authorization).toBe("pending");
+    // The ending (approved, supported) is what the detail holds.
+    expect(detail.summary.state).toBe("approved");
+    expect(newestSummary(detail, shown)?.state).toBe("approved");
+  });
+
+  it("matches the stage's own records at every step of the playback", () => {
+    for (let n = 1; n <= frames.length; n += 1) {
+      const shown = frames.slice(0, n);
+      const position = { pacedFrames: n, pending: frames.length - n, settled: false };
+      const stage = stageOf(stageRecords(detail, shown, position));
+      const summary = headerSummary(detail, shown, position);
+      // No outcome in the header before the stage shows the recommendation.
+      expect(summary?.recommendation ?? null).toBe(stage.recommendation?.document.kind ?? null);
+      expect(summary?.last_sequence).toBe(n);
+    }
+  });
+
+  it("shows the newest summary once the playback ended, or when nothing was paced", () => {
+    expect(headerSummary(detail, frames, { pacedFrames: 14, pending: 0, settled: true })?.state).toBe(
+      "approved",
+    );
+    expect(
+      headerSummary(detail, frames.slice(0, 2), { pacedFrames: 0, pending: 0, settled: false })?.state,
+    ).toBe("approved");
+    // Paced, but no frame shown yet: the newest known summary (the workspace
+    // shows none of it while a scripted run awaits its first frame:
+    // awaitsFirstFrame).
+    expect(headerSummary(detail, [], paced)?.state).toBe("approved");
+  });
+
+  it("a stream is settled once it ended, failed or was closed", () => {
+    const settled: StreamState[] = ["ended", "error", "closed"];
+    const open: StreamState[] = ["connecting", "open", "replaying", "live", "reconnecting"];
+    expect(settled.every(streamSettled)).toBe(true);
+    expect(open.some(streamSettled)).toBe(false);
+  });
+});
+
+describe("the status line's end reason comes from the run state", () => {
+  it("a decided run reached its final state, even when its stream ended at the decision point", () => {
+    expect(endReasonOf("approved", "awaiting_human_approval")).toBe("terminal");
+    expect(endReasonOf("rejected", "awaiting_human_approval")).toBe("terminal");
+    expect(endReasonOf("failed", "awaiting_human_approval")).toBe("terminal");
+  });
+
+  it("a run at its decision point awaits the decision", () => {
+    expect(endReasonOf("awaiting_human_approval", "terminal")).toBe("awaiting_human_approval");
+    expect(endReasonOf("awaiting_human_approval", "awaiting_human_approval")).toBe(
+      "awaiting_human_approval",
+    );
+  });
+
+  it("any other state keeps the end frame's own reason", () => {
+    expect(endReasonOf("evaluated", "terminal")).toBe("terminal");
+    expect(endReasonOf(null, "awaiting_human_approval")).toBe("awaiting_human_approval");
+  });
+});
+
+describe("the status line runs on the header's clock", () => {
+  const end = { reason: "awaiting_human_approval" as const, state: "awaiting_human_approval" as const };
+
+  it("while the playback is followed, an ended stream says the playback continues", () => {
+    // The stream ended long before the pacer showed its frames.
+    const playing = { pacedFrames: 2, pending: 12, settled: true };
+    expect(followsPlayback(playing)).toBe(true);
+    expect(streamLine("ended", end, playing, "approved")).toEqual({ kind: "playing" });
+  });
+
+  it("once the playback reached its end, the reason comes from the run's newest state", () => {
+    const done = { pacedFrames: 14, pending: 0, settled: true };
+    expect(streamLine("ended", end, done, "approved")).toEqual({ kind: "ended", reason: "terminal" });
+    expect(streamLine("ended", end, done, "awaiting_human_approval")).toEqual({
+      kind: "ended",
+      reason: "awaiting_human_approval",
+    });
+    // Nothing paced (reduced motion): the run's own state at once.
+    const unpaced = { pacedFrames: 0, pending: 0, settled: true };
+    expect(streamLine("ended", end, unpaced, "rejected")).toEqual({ kind: "ended", reason: "terminal" });
+    expect(streamLine("ended", end, unpaced, null)).toEqual({
+      kind: "ended",
+      reason: "awaiting_human_approval",
+    });
+  });
+
+  it("a stream that has not ended shows its own state", () => {
+    const position = { pacedFrames: 2, pending: 12, settled: false };
+    for (const stream of ["connecting", "open", "replaying", "reconnecting", "error", "closed"] as const) {
+      expect(streamLine(stream, null, position, "approved")).toEqual({ kind: "state", stream });
+    }
+    // An ended state without its end frame keeps the stream's own state.
+    expect(streamLine("ended", null, position, "approved")).toEqual({ kind: "state", stream: "ended" });
+  });
+});
+
+describe("awaitsFirstFrame", () => {
+  const base = { scripted: true, pacing: "on" as const, framesShown: 0, settled: false };
+
+  it("holds a scripted run's header back until its playback shows a record", () => {
+    expect(awaitsFirstFrame(base)).toBe(true);
+    expect(awaitsFirstFrame({ ...base, framesShown: 1 })).toBe(false);
+  });
+
+  it("never holds back a settled stream, an unpaced view, or a model run", () => {
+    // A failed or closed stream: the stored run shows.
+    expect(awaitsFirstFrame({ ...base, settled: true })).toBe(false);
+    expect(awaitsFirstFrame({ ...base, pacing: "reduced" })).toBe(false);
+    expect(awaitsFirstFrame({ ...base, pacing: "skipped" })).toBe(false);
+    expect(awaitsFirstFrame({ ...base, scripted: false })).toBe(false);
+  });
+});
+
+describe("decisionOf", () => {
+  it("names the person's decision from the summary, and none while pending", () => {
+    expect(decisionOf(detail.summary)).toBe("approved");
+    expect(decisionOf({ authorization: "approved", override: true })).toBe("approvedOverride");
+    expect(decisionOf({ authorization: "rejected", override: false })).toBe("rejected");
+    expect(decisionOf({ authorization: "pending", override: false })).toBeNull();
+    // The playback's frames carry no decision before the end.
+    expect(frames.every((f) => decisionOf(f.summary) === null)).toBe(true);
   });
 });

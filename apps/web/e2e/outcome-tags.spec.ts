@@ -5,11 +5,11 @@
 // exactly the part an ellipsis removed ("supported — on SIMULAT…", in es
 // "respaldada — con eviden…"), and the one-sentence template read "on NO
 // EVIDENCE evidence" (es "con evidencia SIMULADO"). Every outcome/evidence
-// combination the mock can produce is rendered in the run header, the My
-// runs cards and the showcase cards, at 1440 and 390 px, in en and es (the
-// two lists also in pt-BR and fr), and
-// every tag must show its whole text: scrollWidth <= clientWidth for the tag
-// and its label, and the tag inside the viewport. The run waiting for the
+// combination the mock can produce is rendered in the run header (in en, es
+// and fr, one test per recommendation kind so each opens only five runs), the
+// My runs cards and the showcase cards (in en, es, pt-BR and fr), at 1440 and
+// 390 px, and every tag must show its whole text: scrollWidth <= clientWidth
+// for the tag and its label, and the tag inside the viewport. The run waiting for the
 // visitor's decision shows that state as a status tag, not plain text.
 
 import type { Page } from "@playwright/test";
@@ -30,8 +30,11 @@ const EVIDENCE = evidenceProvenanceSchema.options;
 const COMBINATIONS = KINDS.flatMap((kind) => EVIDENCE.map((evidence) => ({ kind, evidence })));
 /** The showcase also lists runs that failed before a recommendation, and outcomes it does not know. */
 const SHOWCASE_OUTCOMES = [...KINDS, "failed:evaluation", "escalated"] as const;
-/** en and es for every view; the lists also in pt-BR and fr, whose evidence labels are the longest. */
-const LOCALES: readonly Locale[] = ["en", "es"];
+/**
+ * The run header in en, es and fr (fr has the longest evidence labels, so it
+ * is the one that needs the wrapping CSS); the lists in all four locales.
+ */
+const HEADER_LOCALES: readonly Locale[] = ["en", "es", "fr"];
 const LIST_LOCALES: readonly Locale[] = ["en", "es", "pt-BR", "fr"];
 const WIDTHS = [
   { width: 1440, height: 900 },
@@ -156,27 +159,31 @@ for (const locale of LIST_LOCALES) {
   }
 }
 
-for (const locale of LOCALES) {
+// One test per recommendation kind (its five evidence axes), so no test opens
+// more than five runs and the combinations run in parallel.
+for (const locale of HEADER_LOCALES) {
   for (const size of WIDTHS) {
-    test(`Run header: every outcome and evidence as two whole tags (${locale}, ${size.width}px)`, async ({ page }) => {
-      await page.setViewportSize(size);
-      await page.emulateMedia({ reducedMotion: "reduce" });
-      const source = JSON.stringify(fixture<Json>("run-detail-retry.json"));
-      const extraRuns = COMBINATIONS.map(({ kind, evidence }, index) => {
-        const detail = JSON.parse(source.split(RUN_ID).join(runId(index))) as Json;
-        const summary = detail.summary as Json;
-        summary.recommendation = kind;
-        (summary.provenance as Json).evidence = evidence;
-        return storedRun(detail);
+    for (const kind of KINDS) {
+      test(`Run header: ${kind} on every evidence as two whole tags (${locale}, ${size.width}px)`, async ({ page }) => {
+        await page.setViewportSize(size);
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        const source = JSON.stringify(fixture<Json>("run-detail-retry.json"));
+        const extraRuns = EVIDENCE.map((evidence, index) => {
+          const detail = JSON.parse(source.split(RUN_ID).join(runId(index))) as Json;
+          const summary = detail.summary as Json;
+          summary.recommendation = kind;
+          (summary.provenance as Json).evidence = evidence;
+          return storedRun(detail);
+        });
+        await mockApi(page, { extraRuns });
+        for (const [index, evidence] of EVIDENCE.entries()) {
+          await openRun(page, locale, runId(index));
+          const outcome = page.locator("header.hc-run-header [data-run-field='outcome']");
+          await expect(outcome.locator("[data-outcome-tag='outcome']")).toHaveText(t(locale, `Run.kinds.${kind}`));
+          await expect(outcome.locator("[data-outcome-tag='evidence']")).toHaveText(evidenceTag(locale, evidence));
+          expect(await clippedTags(page), `${kind} on ${evidence}`).toEqual([]);
+        }
       });
-      await mockApi(page, { extraRuns });
-      for (const [index, { kind, evidence }] of COMBINATIONS.entries()) {
-        await openRun(page, locale, runId(index));
-        const outcome = page.locator("header.hc-run-header [data-run-field='outcome']");
-        await expect(outcome.locator("[data-outcome-tag='outcome']")).toHaveText(t(locale, `Run.kinds.${kind}`));
-        await expect(outcome.locator("[data-outcome-tag='evidence']")).toHaveText(evidenceTag(locale, evidence));
-        expect(await clippedTags(page), `${kind} on ${evidence}`).toEqual([]);
-      }
-    });
+    }
   }
 }

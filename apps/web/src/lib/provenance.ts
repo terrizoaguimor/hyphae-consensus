@@ -18,8 +18,9 @@
 //   replayed frames of a scripted run (`isPaceable`), never for a live or
 //   mixed model run.
 // - Simulated evidence is always named next to the outcome, as its own tag
-//   ("supported" + "Evidence: SIMULATED", components/OutcomeTags), and a simulated proof is never a green "valid": it
-//   gets the neutral SIMULATED token with its scripted outcome as text.
+//   ("supported" + "Evidence: SIMULATED", components/OutcomeTags), and a
+//   simulated proof is never a green "valid": it gets the neutral SIMULATED
+//   token with its scripted outcome as text.
 // - Hyphae cyan stays reserved for proof and evidence: no badge here uses the
 //   cyan or teal variants.
 

@@ -905,11 +905,37 @@ applies to HTML responses only. The app icons (`icon-512.png`,
 `icon-1024.png`, dark tile, and their `-light` versions) are served from the
 export root; there is no web app manifest (the app has none, and the API
 server's CSP sets no `manifest-src`). `SocialMeta` writes the Open Graph and
-Twitter card tags itself, with `og:image` as the same-origin path
-`/og-image.png` (1200 x 630, greys, the glass mark and the wordmark on the
-dark stage): Next's `openGraph` metadata would resolve it against
-`http://localhost:3000` without a `metadataBase`, and the public origin is
-not known at build time.
+Twitter card tags itself, with `og:image` pointing at `/og-image.png`
+(1200 x 630, greys, the glass mark and the wordmark on the dark stage):
+Next's `openGraph` metadata would resolve it against
+`http://localhost:3000` without a `metadataBase`. The public origin is known
+only when the build is given one: put `NEXT_PUBLIC_SITE_ORIGIN=https://<hostname>`
+in `apps/web/.env.production.local` (ignored by git; `in-docker.sh` passes no
+variables into the container, Next reads the file) before `pnpm build`, and
+`og:image` becomes `https://<hostname>/og-image.png`, the absolute address
+the Open Graph protocol and the link-preview crawlers (X, LinkedIn, Slack)
+need. Without it `og:image` stays the same-origin path, which many crawlers
+do not resolve. The value must be a bare https origin (no path, query or
+credentials; `parseSiteOrigin` in `src/lib/brand.ts`), or the build fails.
+There is no `og:url`: the tags come from layouts shared by every page under
+them, which cannot know the page's own address.
+
+Known limits, accepted:
+
+- `theme-color` follows the OS colour scheme (two media-gated metas), not
+  the app's own theme toggle: with the app set to dark on a light OS, the
+  browser chrome stays #F4F4F4 above the #0B0B0B page (and the reverse).
+  Following the toggle would need a script rewriting the meta at runtime,
+  which the hash-only CSP makes costly for a cosmetic gain.
+- The top-bar mark's ink is the theme's text colour (`--color-text-primary`,
+  #131313 light, #F4F4F4 dark), so mark and wordmark are one ink, not the
+  Quorum README's #141414 / #EDEDED for the 32 px cut. The token file is
+  generated and has no logo-ink token, and `globals.css` names no colours
+  of its own; the exact ink needs a logo-ink token in the generated token
+  source. The favicon PNGs and `favicon.svg` keep #141414 / #EDEDED.
+- The lockup stays on one line (`white-space: nowrap`); at 360 px and below
+  the top bar's edge padding and gap drop to `--spacing-2` so the mark, the
+  wordmark and the Menu button fit at 320 px, the WCAG 1.4.10 reflow width.
 
 Every file in `public/` other than `licenses/` is built by
 `python -I scripts/web_brand_assets.py <design/logo/quorum-final>` (repository

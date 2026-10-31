@@ -173,6 +173,44 @@ test("no page shows the glass mark below 64 px", async ({ page }) => {
   expect((await mark.boundingBox())?.width).toBe(32);
 });
 
+for (const theme of themes) {
+  test(`at 320 px the lockup stays on one line and the bar fits the viewport, in every locale (${theme})`, async ({
+    page,
+  }) => {
+    // WCAG 1.4.10 reflow width: the mark and the wordmark side by side (the
+    // README's horizontal lockup, never re-set), the Menu button inside.
+    const width = 320;
+    await page.setViewportSize({ width, height: 640 });
+    await useTheme(page, theme);
+    for (const locale of locales) {
+      await page.goto(`/${locale}/`);
+      await hydrated(page);
+      const banner = page.getByRole("banner");
+      const home = banner.getByRole("link", { name: t(locale, "App.name"), exact: true });
+      const mark = home.locator('svg[data-quorum="flat-32"]');
+      const text = home.locator(".hc-wordmark-text");
+      const menu = banner.getByRole("button", { name: t(locale, "Shell.menuButton") });
+      await expect(menu).toBeVisible();
+      const [homeBox, markBox, textBox, menuBox, bannerBox] = await Promise.all(
+        [home, mark, text, menu, banner].map((locator) => locator.boundingBox()),
+      );
+      const where = `${locale} ${theme}`;
+      expect([markBox?.width, markBox?.height], where).toEqual([32, 32]);
+      expect(homeBox!.height, where).toBeLessThanOrEqual(32);
+      // One line of text: no taller than one line box.
+      const lineHeight = await text.evaluate((element) => parseFloat(getComputedStyle(element).lineHeight));
+      expect(textBox!.height, where).toBeLessThanOrEqual(lineHeight + 1);
+      // Side by side, the text after the mark, and clear of the Menu button.
+      expect(textBox!.x, where).toBeGreaterThanOrEqual(markBox!.x + 32);
+      expect(textBox!.x + textBox!.width, where).toBeLessThanOrEqual(menuBox!.x);
+      expect(bannerBox!.height, where).toBe(56);
+      expect(bannerBox!.x + bannerBox!.width, where).toBeLessThanOrEqual(width);
+      expect(menuBox!.x + menuBox!.width, where).toBeLessThanOrEqual(width);
+      expect(homeBox!.x, where).toBeGreaterThanOrEqual(0);
+    }
+  });
+}
+
 test("the static export serves the favicon, the icons and the Open Graph image, and every document links them", async ({
   request,
 }) => {

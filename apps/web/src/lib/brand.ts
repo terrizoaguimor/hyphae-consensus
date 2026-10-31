@@ -34,6 +34,45 @@ export const brandFiles = {
 
 export const OG_IMAGE_SIZE = { width: 1200, height: 630 } as const;
 
+/**
+ * The public origin of the deployment, from the optional build-time
+ * NEXT_PUBLIC_SITE_ORIGIN (README, "Logo (Quorum)"). Unset or empty: none,
+ * and og:image stays a same-origin path. Set: an https origin and nothing
+ * else (no path, query, fragment or credentials; one trailing slash is
+ * accepted), returned without the slash. Anything else fails the build
+ * rather than shipping a wrong address.
+ */
+export function parseSiteOrigin(value: string | undefined): string | undefined {
+  if (value === undefined || value === "") {
+    return undefined;
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`NEXT_PUBLIC_SITE_ORIGIN is not a URL: ${JSON.stringify(value)}`);
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    (value !== url.origin && value !== `${url.origin}/`)
+  ) {
+    throw new Error(
+      `NEXT_PUBLIC_SITE_ORIGIN must be an https origin with no path, query or credentials: ${JSON.stringify(value)}`,
+    );
+  }
+  return url.origin;
+}
+
+/** The deployment's origin, when the build was given one. */
+export const SITE_ORIGIN: string | undefined = parseSiteOrigin(process.env.NEXT_PUBLIC_SITE_ORIGIN);
+
+/** og:image: absolute when the origin is known, else the same-origin path. */
+export function ogImageUrl(origin: string | undefined): string {
+  return origin === undefined ? brandFiles.ogImage : `${origin}${brandFiles.ogImage}`;
+}
+
 /** <link rel="icon"> and <link rel="apple-touch-icon">, same-origin paths. */
 export const brandIcons: NonNullable<Metadata["icons"]> = {
   icon: [

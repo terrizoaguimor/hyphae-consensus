@@ -13,6 +13,7 @@
 // - the top bar's flat mark is the 32 px cut (ink box x 2-29, y 3-28), in
 //   currentColor, decorative, without a style attribute.
 
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +24,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { QuorumGlass, QuorumMark } from "@/components/Quorum";
-import { brandFiles, brandIcons, brandViewport, OG_IMAGE_SIZE } from "@/lib/brand";
+import { SocialMeta } from "@/components/SocialMeta";
+import {
+  brandFiles,
+  brandIcons,
+  brandViewport,
+  OG_IMAGE_SIZE,
+  ogImageUrl,
+  parseSiteOrigin,
+  SITE_ORIGIN,
+} from "@/lib/brand";
 
 import { hueLiterals } from "./colour-scan";
 import { IO_BOUND_TEST_TIMEOUT_MS } from "./io-timeout";
@@ -94,6 +104,9 @@ function huedPixels({ width, pixels }: Png): string[] {
   }
   return hued;
 }
+
+/** SHA-256 of the d attribute of design/logo/quorum-final/mark-flat-32-black.svg (v1.0). */
+const FLAT_32_DESIGN_SHA256 = "a6f89cca43a242d50ff7e9a92d71d72aa2557422ec9d6e8f2cc6aaf645d3d7c2";
 
 const publicFile = (url: string) => path.join(publicDir, url.replace(/^\//, ""));
 
@@ -227,6 +240,48 @@ describe("the metadata", () => {
     const tokens = readFileSync(path.join(appDir, "src/app/hc-mono-tokens.css"), "utf8");
     expect(tokens).toContain("--hc-bg-body: light-dark(#F4F4F4, #0B0B0B);");
   });
+
+  it("reads NEXT_PUBLIC_SITE_ORIGIN as a bare https origin, or none", () => {
+    expect(parseSiteOrigin(undefined)).toBeUndefined();
+    expect(parseSiteOrigin("")).toBeUndefined();
+    expect(parseSiteOrigin("https://consensus.example")).toBe("https://consensus.example");
+    expect(parseSiteOrigin("https://consensus.example/")).toBe("https://consensus.example");
+    expect(parseSiteOrigin("https://consensus.example:8443")).toBe("https://consensus.example:8443");
+    for (const bad of [
+      "http://consensus.example",
+      "consensus.example",
+      "https://consensus.example/en/",
+      "https://consensus.example/?a=1",
+      "https://consensus.example/#top",
+      "https://user:pass@consensus.example",
+      "https://consensus.example//",
+      " https://consensus.example",
+      "javascript:alert(1)",
+    ]) {
+      expect(() => parseSiteOrigin(bad), bad).toThrow(/NEXT_PUBLIC_SITE_ORIGIN/);
+    }
+    // The test build sets none.
+    expect(SITE_ORIGIN).toBeUndefined();
+  });
+
+  it("og:image is the same-origin path without an origin, and absolute with one", () => {
+    expect(ogImageUrl(undefined)).toBe("/og-image.png");
+    expect(ogImageUrl("https://consensus.example")).toBe("https://consensus.example/og-image.png");
+    const props = { siteName: "S", title: "T", description: "D", imageAlt: "A" };
+    const ogImage = (html: string) =>
+      [...html.matchAll(/<meta property="og:image" content="([^"]*)"\/>/g)].map((m) => m[1]);
+    const relative = renderToStaticMarkup(createElement(SocialMeta, props));
+    expect(ogImage(relative)).toEqual(["/og-image.png"]);
+    const absolute = renderToStaticMarkup(createElement(SocialMeta, { ...props, origin: "https://consensus.example" }));
+    expect(ogImage(absolute)).toEqual(["https://consensus.example/og-image.png"]);
+    for (const html of [relative, absolute]) {
+      expect(html).toContain('<meta property="og:image:width" content="1200"/>');
+      expect(html).toContain('<meta name="twitter:card" content="summary_large_image"/>');
+      // No og:url: a shared layout cannot know the page's own address.
+      expect(html).not.toContain("og:url");
+      expect(html).not.toContain("localhost");
+    }
+  });
 });
 
 describe("the mark components", () => {
@@ -245,6 +300,13 @@ describe("the mark components", () => {
     expect([Math.min(...xs), Math.max(...xs) - 1, Math.min(...ys), Math.max(...ys)]).toEqual([2, 29, 3, 28]);
     // 3 px facets: no run narrower than 2 px (the node apex), none wider than 22.
     for (const [, , w] of rects) expect(w).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...rects.map(([, , w]) => w!))).toBe(22);
+    expect(rects).toHaveLength(51);
+    // The path verbatim from design/logo/quorum-final/mark-flat-32-black.svg:
+    // the SHA-256 of that file's d attribute (the design folder is outside
+    // the repository, so its digest is pinned here). Dropping, adding or
+    // moving any one rectangle changes it.
+    expect(createHash("sha256").update(d, "utf8").digest("hex")).toBe(FLAT_32_DESIGN_SHA256);
   });
 
   it("the glass mark is two decorative same-origin images, light and dark surface, at 96 px", () => {

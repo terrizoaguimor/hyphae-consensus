@@ -43,6 +43,7 @@ export function ChainBroken({ chainBreak, place, deciding, onOpenAudit }: ChainB
   return (
     <Callout
       tone="failed"
+      icon="unlink"
       title={t("title")}
       data-chain-broken={place}
       data-chain-broken-sequence={sequence ?? ""}

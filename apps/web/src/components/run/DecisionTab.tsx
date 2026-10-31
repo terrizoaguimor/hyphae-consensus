@@ -26,7 +26,6 @@
 // required for this run, with the override said in body text before any
 // click; neither button is promoted over the other.
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { useFormatter, useTranslations } from "next-intl";
@@ -40,6 +39,7 @@ import { explainContext } from "@/lib/run/explain";
 import { supersededProposal } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { Tag } from "../Tag";
 import { type ChainBreak, ChainBroken } from "./ChainBroken";
 import { Explanation } from "./Explanation";
 import { RevisionComparison } from "./RevisionComparison";
@@ -461,7 +461,7 @@ export function DecisionTab({
           <ul className="hc-list" data-open-objections={openItems.length}>
             {openItems.map((item) => (
               <li key={item.id}>
-                <Badge variant="warning" label={tRun(`stage.kinds.${item.kind}`)} />{" "}
+                <Tag variant="warning" icon="message-square-warning" label={tRun(`stage.kinds.${item.kind}`)} />{" "}
                 {item.description}
               </li>
             ))}

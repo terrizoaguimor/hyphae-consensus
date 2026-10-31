@@ -7,6 +7,7 @@
 
 import type { Locator, Page } from "@playwright/test";
 
+import { ROLE_ICONS, type TagRole, type TagVariant, VARIANT_ROLES } from "../src/lib/provenance";
 import { runPath } from "../src/lib/site";
 
 import { RUN_ID } from "./api-mock";
@@ -22,34 +23,93 @@ export const EVIDENCE_BADGE = ".astryx-badge[data-outcome-tag='evidence'], [data
 
 /**
  * How a status tag looks without hue (design/palette-mono.md 2.1, the
- * variant rules in globals.css), read from the rendered badge: its frame
- * (outline style and width, "none" when there is none), whether its label is
- * inverted (lighter than its fill in the light theme, darker in the dark
- * one: the two solid verdicts), whether it carries the LIVE square, and its
- * fill weight: "solid" under an inverted label, otherwise the fill's
- * contrast against the theme's surface (--color-background-surface):
- * "surface" under 1.1:1 (an outline), "tint" under 1.4:1, "mid" above (the
- * RECORDED mid tint, 1.59:1 light and 1.63:1 dark).
+ * variant rules and role hooks in globals.css), read from the rendered
+ * badge: its frame (outline style and width, "none" when there is none),
+ * whether its label is inverted (lighter than its fill in the light theme,
+ * darker in the dark one: the two solid verdicts), whether it carries the
+ * LIVE square, its fill weight ("solid" under an inverted label, otherwise
+ * the fill's contrast against the theme's surface,
+ * --color-background-surface: "surface" under 1.1:1, an outline; "tint"
+ * under 1.4:1; "mid" above, RECORDED's own mid tint, 1.59:1 light and
+ * 1.63:1 dark), whether it shows the simulated hatch strip (the
+ * /brand/hatch-*.png tile, repeated down one 4px column), whether it has the
+ * pending ink bar (a 3px solid inline-start border) and which icon it
+ * carries (the data-icon of its aria-hidden 12 or 16px svg; null without
+ * one, "invalid:<name>" for an icon that is not hidden or not at a tag size).
  */
-export type TagEncoding = { frame: string; inverted: boolean; marker: boolean; fill: string };
-
-/** The monochrome encoding of each badge variant the views use, and of the "checked" look. */
-export const VARIANT_ENCODING: Record<string, TagEncoding> = {
-  success: { frame: "none", inverted: true, marker: false, fill: "solid" },
-  error: { frame: "double 3px", inverted: true, marker: false, fill: "solid" },
-  purple: { frame: "dashed 1px", inverted: false, marker: false, fill: "tint" },
-  pink: { frame: "solid 2px", inverted: false, marker: true, fill: "surface" },
-  warning: { frame: "double 3px", inverted: false, marker: false, fill: "tint" },
-  neutral: { frame: "solid 1px", inverted: false, marker: false, fill: "mid" },
-  info: { frame: "solid 1px", inverted: false, marker: false, fill: "tint" },
-  blue: { frame: "solid 1px", inverted: false, marker: false, fill: "tint" },
-  // The success variant of a check run in this browser (the chain check, the
-  // showcase manifest): hollow, never the verified solid.
-  checked: { frame: "solid 1px", inverted: false, marker: false, fill: "surface" },
+export type TagEncoding = {
+  frame: string;
+  inverted: boolean;
+  marker: boolean;
+  fill: string;
+  hatch: boolean;
+  bar: boolean;
+  icon: string | null;
 };
 
-/** The verified look: a solid fill under an inverted label, no frame. Nothing simulated may have it. */
-export const VERIFIED_ENCODING = VARIANT_ENCODING.success as TagEncoding;
+/** A role's expected encoding: every channel, and the icons of its family (empty: no icon at all). */
+export type RoleEncoding = Omit<TagEncoding, "icon"> & { icons: readonly string[] };
+
+const plain = { inverted: false, marker: false, hatch: false, bar: false };
+
+/** The monochrome encoding of each status role (src/lib/provenance.ts TagRole), icons from ROLE_ICONS. */
+export const ROLE_ENCODING: Record<TagRole, RoleEncoding> = {
+  verified: { ...plain, frame: "none", inverted: true, fill: "solid", icons: ROLE_ICONS.verified },
+  failed: { ...plain, frame: "double 3px", inverted: true, fill: "solid", icons: ROLE_ICONS.failed },
+  checked: { ...plain, frame: "solid 1px", fill: "surface", icons: ROLE_ICONS.checked },
+  simulated: { ...plain, frame: "dashed 1px", fill: "tint", hatch: true, icons: ROLE_ICONS.simulated },
+  recorded: { ...plain, frame: "solid 1px", fill: "mid", icons: ROLE_ICONS.recorded },
+  live: { ...plain, frame: "solid 2px", marker: true, fill: "surface", icons: ROLE_ICONS.live },
+  contested: { ...plain, frame: "double 3px", fill: "tint", icons: ROLE_ICONS.contested },
+  pending: { ...plain, frame: "solid 2px", fill: "tint", bar: true, icons: ROLE_ICONS.pending },
+  info: { ...plain, frame: "solid 1px", fill: "tint", icons: ROLE_ICONS.info },
+};
+
+/**
+ * The monochrome encoding of each badge variant the views use (its default
+ * role, VARIANT_ROLES), and of the roles a view names for a variant:
+ * "checked" (the success variant of a check run in this browser: the chain
+ * check, the showcase manifest; hollow, never the verified solid),
+ * "recorded" (RECORDED) and "pending" (your decision).
+ */
+export const VARIANT_ENCODING: Record<string, RoleEncoding> = {
+  ...(Object.fromEntries(
+    Object.entries(VARIANT_ROLES).map(([variant, role]) => [variant, ROLE_ENCODING[role]]),
+  ) as Record<TagVariant, RoleEncoding>),
+  checked: ROLE_ENCODING.checked,
+  recorded: ROLE_ENCODING.recorded,
+  pending: ROLE_ENCODING.pending,
+};
+
+/** The verified look: a solid fill under an inverted label, no frame, the shield. Nothing simulated may have it. */
+export const VERIFIED_ENCODING = ROLE_ENCODING.verified;
+
+/** Whether a rendered encoding is exactly `expected`: every channel, and an icon of its family (or none). */
+export function matchesEncoding(found: TagEncoding, expected: RoleEncoding): boolean {
+  const { icon, ...channels } = found;
+  const { icons, ...wanted } = expected;
+  const iconOk = icons.length === 0 ? icon === null : icon !== null && icons.includes(icon);
+  return JSON.stringify(channels, Object.keys(wanted).sort()) === JSON.stringify(wanted, Object.keys(wanted).sort())
+    && iconOk;
+}
+
+/**
+ * A rendered tag does not look verified: not the verified channels (frame,
+ * polarity, marker, fill, as before the icons existed), not the verified
+ * encoding as a whole, and not the verified shield.
+ */
+export function expectNotVerified(found: TagEncoding) {
+  const { frame, inverted, marker, fill } = found;
+  const verified = VERIFIED_ENCODING;
+  expect({ frame, inverted, marker, fill }).not.toEqual({
+    frame: verified.frame,
+    inverted: verified.inverted,
+    marker: verified.marker,
+    fill: verified.fill,
+  });
+  expect(matchesEncoding(found, verified)).toBe(false);
+  expect(found.icon).not.toBe("shield-check");
+}
 
 /** The rendered encoding of every badge the locator finds, in order. */
 export async function tagEncodings(badges: Locator): Promise<TagEncoding[]> {
@@ -81,30 +141,58 @@ export async function tagEncodings(badges: Locator): Promise<TagEncoding[]> {
       const before = getComputedStyle(node, "::before");
       const inverted = dark ? label < fill : label > fill;
       const step = (Math.max(fill, surface) + 0.05) / (Math.min(fill, surface) + 0.05);
+      const rtl = style.direction === "rtl";
+      const start = rtl ? "right" : "left";
+      const barWidth = Number.parseFloat(style.getPropertyValue(`border-${start}-width`));
+      const svg = node.querySelector(":scope > svg[data-icon]");
+      const name = svg?.getAttribute("data-icon") ?? null;
+      const size = svg?.getAttribute("width");
+      const icon =
+        svg === null || name === null
+          ? null
+          : svg.getAttribute("aria-hidden") === "true" && (size === "12" || size === "16") && svg.getAttribute("height") === size
+            ? name
+            : `invalid:${name}`;
       return {
         frame: style.outlineStyle === "none" || width === 0 ? "none" : `${style.outlineStyle} ${style.outlineWidth}`,
         inverted,
         marker: before.content !== "none" && before.width === "8px" && before.height === "8px",
         fill: inverted ? "solid" : step < 1.1 ? "surface" : step < 1.4 ? "tint" : "mid",
+        hatch:
+          /url\("?[^)]*\/brand\/hatch-(light|dark)\.png"?\)/.test(style.backgroundImage) &&
+          style.backgroundRepeat === "repeat-y" &&
+          style.backgroundSize === "4px 4px",
+        bar: style.getPropertyValue(`border-${start}-style`) === "solid" && barWidth >= 3,
+        icon,
       };
     });
   });
 }
 
 /**
- * Every badge the locator finds (at least one) shows `variant`'s monochrome
- * encoding, and none shows the verified look unless `variant` is success.
+ * Every badge the locator finds (at least one) shows the monochrome encoding
+ * of `variant` (a variant, or a role a view names: "checked", "recorded",
+ * "pending"): every channel, frame, polarity, marker, fill, hatch and bar,
+ * and an icon of the role's family (none for LIVE); and none shows the
+ * verified look unless that is what is expected.
  */
 export async function expectEncoding(badges: Locator, variant: string) {
   await expect(badges.first()).toBeVisible();
-  const expected = VARIANT_ENCODING[variant];
+  const expected = VARIANT_ENCODING[variant] ?? ROLE_ENCODING[variant as TagRole];
   expect(expected, `no encoding for variant ${variant}`).toBeDefined();
   const found = await tagEncodings(badges);
   expect(found.length).toBeGreaterThan(0);
   for (const encoding of found) {
-    expect(encoding).toEqual(expected);
-    if (variant !== "success") {
-      expect(encoding).not.toEqual(VERIFIED_ENCODING);
+    const { icons, ...channels } = expected;
+    const { icon, ...rendered } = encoding;
+    expect(rendered).toEqual(channels);
+    if (icons.length === 0) {
+      expect(icon, `${variant} carries no icon`).toBeNull();
+    } else {
+      expect(icons, `${variant}: icon ${String(icon)}`).toContain(icon);
+    }
+    if (expected !== VERIFIED_ENCODING) {
+      expectNotVerified(encoding);
     }
   }
 }
@@ -113,14 +201,26 @@ export async function expectEncoding(badges: Locator, variant: string) {
  * How a full-width callout looks without hue (palette-mono 2.3, the
  * .hc-callout rules in globals.css): the style and width of its
  * inline-start edge, the style and width of its other edges ("none" when
- * there is none), and whether its title is an inverted band.
+ * there is none), whether its title is an inverted band, and where its one
+ * aria-hidden icon sits: "band" (inside the title band, in the band's ink),
+ * "beside" (before the body), or "none" (no icon, or more than one).
  */
-export type CalloutEncoding = { start: string; frame: string; band: boolean };
+export type CalloutEncoding = { start: string; frame: string; band: boolean; icon: "band" | "beside" | "none" };
 
 export const CALLOUT_ENCODING: Record<"failed" | "contested", CalloutEncoding> = {
-  failed: { start: "solid 2px", frame: "solid 2px", band: true },
-  contested: { start: "double 4px", frame: "none", band: false },
+  failed: { start: "solid 2px", frame: "solid 2px", band: true, icon: "band" },
+  contested: { start: "double 4px", frame: "none", band: false, icon: "beside" },
 };
+
+/** The data-icon of a callout's icon (src/components/icons.tsx), or null. */
+export async function calloutIcon(callout: Locator): Promise<string | null> {
+  return callout.evaluate(
+    (node) =>
+      node
+        .querySelector(":scope > svg[data-icon], :scope > .hc-callout-body > .hc-callout-title svg[data-icon]")
+        ?.getAttribute("data-icon") ?? null,
+  );
+}
 
 /** The rendered encoding of a callout, read from its computed style. */
 export async function calloutEncoding(callout: Locator): Promise<CalloutEncoding> {
@@ -152,7 +252,21 @@ export async function calloutEncoding(callout: Locator): Promise<CalloutEncoding
       (dark
         ? luminance(titleStyle.color) < luminance(titleStyle.backgroundColor)
         : luminance(titleStyle.color) > luminance(titleStyle.backgroundColor));
-    return { start: edge(rtl ? "right" : "left"), frame: edge("top"), band };
+    // The callout's own icons: beside the body, or in the title (tags in the body carry their own).
+    const icons = [...node.querySelectorAll(":scope > svg, :scope > .hc-callout-body > .hc-callout-title svg")];
+    const svg = icons.length === 1 ? icons[0] : undefined;
+    const hidden = svg !== undefined && svg.getAttribute("aria-hidden") === "true";
+    const icon: "band" | "beside" | "none" =
+      !hidden || svg === undefined
+        ? "none"
+        : title !== null && titleStyle !== null && title.contains(svg)
+          ? getComputedStyle(svg).color === titleStyle.color
+            ? "band"
+            : "none"
+          : svg.parentElement === node
+            ? "beside"
+            : "none";
+    return { start: edge(rtl ? "right" : "left"), frame: edge("top"), band, icon };
   });
 }
 

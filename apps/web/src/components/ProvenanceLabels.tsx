@@ -13,14 +13,14 @@
 // cyan stays reserved for proof and evidence, so no badge here uses the cyan
 // or teal variants.
 
-import { Badge, type BadgeVariant } from "@astryxdesign/core/Badge";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { getTranslations } from "next-intl/server";
 
-import { INFO_VARIANT, LIVE_VARIANT } from "@/lib/provenance";
+import { INFO_VARIANT, LIVE_VARIANT, type TagVariant } from "@/lib/provenance";
 
 import { ConnectionText } from "./ConnectionText";
+import { Tag } from "./Tag";
 
 type LabelKey =
   | "simulated.label"
@@ -33,7 +33,7 @@ type LabelKey =
 type Sample = {
   /** `Provenance.<key>.description` */
   key: "simulated" | "liveMeta" | "metaModel" | "hybrid" | "recorded" | "replay";
-  badges: ReadonlyArray<{ label: LabelKey; variant: BadgeVariant }>;
+  badges: ReadonlyArray<{ label: LabelKey; variant: TagVariant }>;
 };
 
 // The same variants as the run views (src/lib/provenance.ts): LIVE META in
@@ -73,7 +73,7 @@ export async function ProvenanceLabels() {
           <div key={key} className="hc-provenance-item">
             <dt>
               {badges.map(({ label, variant }) => (
-                <Badge key={label} variant={variant} label={t(label)} />
+                <Tag key={label} variant={variant} labelKey={label} label={t(label)} />
               ))}
             </dt>
             <dd>

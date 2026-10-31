@@ -274,11 +274,21 @@ describe("proofs and outcomes", () => {
     // (integrity-travels, HE #5: a matching manifest gets an explicit
     // status tag).
     expect(offenders.sort()).toEqual(["ChainCheck.tsx", "ShowcaseList.tsx"]);
-    // In ShowcaseList the green literal is that manifest tag and nothing else.
+    // In ShowcaseList the green literal is that manifest tag and nothing else,
+    // and it is drawn "checked" (hollow), never the verified solid.
     const showcase = readFileSync(new URL("showcase/ShowcaseList.tsx", dir), "utf8");
     const greenLines = showcase.split("\n").filter((line) => /["'](success|green)["']/.test(line));
     expect(greenLines).toHaveLength(1);
-    expect(greenLines[0]).toMatch(/<Badge variant="success" label=\{t\("matchesTag"\)\} \/>/);
+    expect(greenLines[0]).toMatch(/<Tag variant="success" role="checked" label=\{t\("matchesTag"\)\} \/>/);
+    // In ChainCheck every success literal is a tag drawn "checked", or the
+    // verdict map whose tags are all drawn "checked".
+    const chain = readFileSync(new URL("run/ChainCheck.tsx", dir), "utf8");
+    const chainGreen = chain.split("\n").filter((line) => /["'](success|green)["']/.test(line));
+    expect(chainGreen.length).toBeGreaterThan(0);
+    for (const line of chainGreen) {
+      expect(line, line).toMatch(/<Tag variant="success" role="checked" |^\s*pass: "success",$|Record<Verdict, "success"/);
+    }
+    expect(chain).toMatch(/<Tag variant=\{VERDICT_BADGES\[verdict\]\} role="checked" /);
     // Reads every file of src/components/ through the bind mount: see
     // tests/io-timeout.ts.
   }, IO_BOUND_TEST_TIMEOUT_MS);
@@ -594,6 +604,8 @@ describe("status encodings without hue", () => {
   it.each([
     '[data-chain-check] .astryx-badge[data-variant="success"]',
     '[data-manifest-status="matches"] .astryx-badge[data-variant="success"]',
+    // The role hook the Tag of a check run in this browser carries (role "checked").
+    '.astryx-badge[data-tag-role="checked"]',
   ])("a check run in this browser is hollow, never the verified solid: %s", (selector) => {
     const checked = rulesOf(selector);
     expect(checked).toEqual({

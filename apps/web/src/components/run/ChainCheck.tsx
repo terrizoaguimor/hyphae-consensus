@@ -37,7 +37,6 @@
 // the progress and then the short verdict once; the detailed results are
 // outside it.
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { useFormatter, useTranslations } from "next-intl";
 import { type ReactNode, useState } from "react";
@@ -57,6 +56,7 @@ import {
 import { digestPrefix } from "@/lib/run/evidence";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { Tag } from "../Tag";
 import type { ChainBreak } from "./ChainBroken";
 
 export type ChainSource = {
@@ -228,7 +228,8 @@ export function ChainCheck({ runId, source, chain, readReceipt, onOutcome }: Cha
   };
 
   const verdictBadge = (verdict: Verdict) => (
-    <Badge variant={VERDICT_BADGES[verdict]} label={t(`verdicts.${verdict}`)} />
+    // A matching cell is checked in this browser, drawn hollow (role "checked"), never verified.
+    <Tag variant={VERDICT_BADGES[verdict]} role="checked" label={t(`verdicts.${verdict}`)} />
   );
 
   /** Where the check stopped, in words. */
@@ -279,14 +280,14 @@ export function ChainCheck({ runId, source, chain, readReceipt, onOutcome }: Cha
         // A copy read before the newest records: the segment matches or extends it, never "matches" alone.
         return isEarlier(segment) ? (
           <>
-            <Badge variant="success" label={t("pass")} />{" "}
+            <Tag variant="success" role="checked" label={t("pass")} />{" "}
             {segment.legacyRecords === 0
               ? t("passSentenceEarlier", { count: segment.chainedRecords })
               : t("passSentenceLegacyEarlier", { chained: segment.chainedRecords, legacy: segment.legacyRecords })}
           </>
         ) : (
           <>
-            <Badge variant="success" label={t("pass")} />{" "}
+            <Tag variant="success" role="checked" label={t("pass")} />{" "}
             {segment.legacyRecords === 0
               ? t("passSentence", { count: segment.chainedRecords })
               : t("passSentenceLegacy", { chained: segment.chainedRecords, legacy: segment.legacyRecords })}
@@ -295,21 +296,21 @@ export function ChainCheck({ runId, source, chain, readReceipt, onOutcome }: Cha
       case "partial":
         return (
           <>
-            <Badge variant="neutral" label={t("partialVerdict")} />{" "}
+            <Tag variant="neutral" icon="circle-dot-dashed" label={t("partialVerdict")} />{" "}
             {t("partialSentence", { chained: segment.runChainedRecords, legacy: segment.runLegacyRecords })}
           </>
         );
       case "unchained":
         return (
           <>
-            <Badge variant="neutral" label={t("unchainedVerdict")} />{" "}
+            <Tag variant="neutral" icon="circle-slash" label={t("unchainedVerdict")} />{" "}
             {t("unchainedSentence", { count: segment.records.length })}
           </>
         );
       case "failed":
         return (
           <>
-            <Badge variant="error" label={t("fail")} /> {t("failSentence")}
+            <Tag variant="error" icon="unlink" label={t("fail")} /> {t("failSentence")}
           </>
         );
     }

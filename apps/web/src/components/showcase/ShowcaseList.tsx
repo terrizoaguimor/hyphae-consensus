@@ -14,14 +14,13 @@
 // and its own pin of each log, compared here with the listed one (a
 // manifest that could not be read says so, with its own retry).
 
-import { Badge, type BadgeVariant } from "@astryxdesign/core/Badge";
 import Link from "next/link";
 import { useFormatter, useTranslations } from "next-intl";
 
 import type { Locale } from "@/i18n/routing";
 import { api } from "@/lib/api/client";
 import type { ShowcaseEntryV1 } from "@/lib/api/types";
-import { RECOMMENDATION_VARIANTS } from "@/lib/provenance";
+import { OUTCOME_ICONS, RECOMMENDATION_VARIANTS, type TagIconName, type TagVariant } from "@/lib/provenance";
 import { digestPrefix } from "@/lib/run/evidence";
 import { baseName } from "@/lib/run/receipt";
 import { byBattery, isUnchained, manifestNote, parseOutcome, pinDisplay } from "@/lib/showcase";
@@ -32,6 +31,7 @@ import { Callout } from "../Callout";
 import { OutcomeTags } from "../OutcomeTags";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { UntrustedText } from "../run/UntrustedText";
+import { Tag } from "../Tag";
 import { LogPinNote } from "./LogPinNote";
 import {
   archivePin,
@@ -51,7 +51,8 @@ const AUTHORIZATIONS = ["pending", "approved", "rejected"] as const;
 /** An entry's outcome in words; OutcomeTags shows it next to its evidence axis. */
 export function useOutcomeText(): (entry: Pick<ShowcaseEntryV1, "outcome">) => {
   text: string;
-  variant: BadgeVariant;
+  variant: TagVariant;
+  icon?: TagIconName;
 } {
   const tRun = useTranslations("Run");
   const t = useTranslations("Showcase");
@@ -63,9 +64,10 @@ export function useOutcomeText(): (entry: Pick<ShowcaseEntryV1, "outcome">) => {
           text: tRun(`kinds.${outcome.value}`),
           // Never green: "supported" is the info role (src/lib/provenance.ts).
           variant: RECOMMENDATION_VARIANTS[outcome.value],
+          icon: OUTCOME_ICONS[outcome.value],
         };
       case "failed":
-        return { text: t("failedAt", { stage: outcome.stage }), variant: "error" };
+        return { text: t("failedAt", { stage: outcome.stage }), variant: "error", icon: "square-x" };
       case "other":
         return { text: t("otherOutcome", { outcome: outcome.value }), variant: "neutral" };
     }
@@ -137,18 +139,19 @@ export function ManifestLine({
         <ApiErrorNotice error={state.error} onRetry={onRetry} />
       ) : outcome === "matches" ? (
         // An explicit status: the tag says the result in a word, the sentence how it was found.
+        // Checked in this browser, not verified: drawn hollow (integrity is not truth).
         <p data-manifest-status="matches">
-          <Badge variant="success" label={t("matchesTag")} />{" "}
+          <Tag variant="success" role="checked" label={t("matchesTag")} />{" "}
           <span data-manifest-check="matches">{t("matches")}</span>
         </p>
       ) : outcome === "unparsed" ? (
         <p data-manifest-status="unparsed">
-          <Badge variant="warning" label={t("unparsedTag")} />{" "}
+          <Tag variant="warning" label={t("unparsedTag")} />{" "}
           <span data-manifest-check="unparsed">{t("unparsed")}</span>
         </p>
       ) : (
         <p data-manifest-status="differs">
-          <Badge variant="error" label={t("differsTag")} />{" "}
+          <Tag variant="error" icon="file-x" label={t("differsTag")} />{" "}
           <span data-manifest-check="differs">{differs()}</span>
         </p>
       )}
@@ -199,7 +202,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
       </p>
       <p className="hc-supporting">{t("recordedNote")}</p>
       {manifestOutcome(manifest) === "differs" ? (
-        <Callout tone="failed" title={t("manifest.differsTitle")} data-manifest-banner="differs">
+        <Callout tone="failed" icon="file-x" title={t("manifest.differsTitle")} data-manifest-banner="differs">
           <p>{t("manifest.differsBody")}</p>
         </Callout>
       ) : manifestOutcome(manifest) === "unparsed" ? (
@@ -280,6 +283,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
                           <OutcomeTags
                             outcome={outcome.text}
                             variant={outcome.variant}
+                            icon={outcome.icon}
                             evidence={entry.provenance.evidence}
                           />
                         </dd>
@@ -292,7 +296,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
                         <dt>{t("schema")}</dt>
                         <dd className="hc-tabular-nums">
                           {t("schemaValue", { version: entry.schema_version })}
-                          {unchained ? <Badge variant="warning" label={t("unchained")} /> : null}
+                          {unchained ? <Tag variant="warning" icon="link-2-off" label={t("unchained")} /> : null}
                         </dd>
                       </div>
                       <div>
@@ -304,7 +308,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
                     <ProvenanceBadges provenance={entry.provenance} />
                     {unconfirmed ? (
                       <p data-archive-unconfirmed>
-                        <Badge variant="warning" label={t("manifest.unconfirmedTag")} />
+                        <Tag variant="warning" label={t("manifest.unconfirmedTag")} />
                       </p>
                     ) : null}
                   </li>

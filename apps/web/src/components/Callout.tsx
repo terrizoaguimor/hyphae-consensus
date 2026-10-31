@@ -2,14 +2,23 @@
 //
 // A full-width callout: an icon, a short title in words and the body, in one
 // of four roles (failed, contested, success, info). The words carry the
-// meaning; the icon and the bar's color only repeat it (no meaning by color
-// alone). For a state of the page the reader must not miss (a chain broken
+// meaning; the icon and the frame only repeat it (no meaning by a shade of
+// grey alone). For a state of the page the reader must not miss (a chain broken
 // in this browser, labels that disagree, a manifest that does not match),
 // instead of one more equal tag in a row. Not a live region: whatever made
-// it appear announces itself. The icons are inline SVG (no style injection,
-// hash-only CSP), hidden from assistive technology.
+// it appear announces itself. The icons are inline SVG (src/components/icons:
+// no style injection, hash-only CSP), hidden from assistive technology.
+//
+// A failed callout is the loudest element (palette-mono 2.3): a 2px ink frame
+// and an inverted title band, with its icon inside the band (unlink for a
+// broken chain, file-x for a manifest that differs, square-x otherwise).
+// The other tones keep the icon beside the body.
 
 import type { ReactNode } from "react";
+
+import type { TagIconName } from "@/lib/provenance";
+
+import { Icon } from "./icons";
 
 export type CalloutTone = "failed" | "contested" | "success" | "info";
 
@@ -18,60 +27,39 @@ type DataAttributes = { [key: `data-${string}`]: string | number | boolean | und
 type CalloutProps = {
   tone: CalloutTone;
   title: ReactNode;
+  /** The tone's icon family member that names this callout's subject (a failed one: unlink, file-x). */
+  icon?: TagIconName;
   children?: ReactNode;
 } & DataAttributes;
 
-/** The icon of each role, drawn on a 20-unit grid with square joins. */
-function CalloutIcon({ tone }: { tone: CalloutTone }) {
-  return (
-    <svg
-      className="hc-callout-icon"
-      viewBox="0 0 20 20"
-      width="20"
-      height="20"
-      aria-hidden="true"
-      focusable="false"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="square"
-      strokeLinejoin="miter"
-    >
-      {tone === "failed" ? (
-        // An octagon with a cross: stop.
-        <>
-          <path d="M6.5 1.5h7l5 5v7l-5 5h-7l-5-5v-7z" />
-          <path d="M7 7l6 6M13 7l-6 6" />
-        </>
-      ) : tone === "contested" ? (
-        // A triangle with an exclamation mark: look closer.
-        <>
-          <path d="M10 1.5l8.5 16h-17z" />
-          <path d="M10 7.5v4.5M10 15v0.5" />
-        </>
-      ) : tone === "success" ? (
-        // A square with a check mark.
-        <>
-          <path d="M2 2h16v16H2z" />
-          <path d="M6 10.5l3 3 5-7" />
-        </>
-      ) : (
-        // A square with an "i".
-        <>
-          <path d="M2 2h16v16H2z" />
-          <path d="M10 9v5.5M10 5.5v0.5" />
-        </>
-      )}
-    </svg>
-  );
+/** Each tone's icons, its default first; an icon outside the family falls back to the default. */
+const TONE_ICONS: Record<CalloutTone, readonly TagIconName[]> = {
+  failed: ["square-x", "unlink", "file-x", "shield-x"],
+  contested: ["triangle-alert", "file-question-mark"],
+  success: ["circle-dashed"],
+  info: ["info"],
+};
+
+function toneIcon(tone: CalloutTone, icon: TagIconName | undefined): TagIconName {
+  const family = TONE_ICONS[tone];
+  return icon !== undefined && family.includes(icon) ? icon : (family[0] as TagIconName);
 }
 
-export function Callout({ tone, title, children, ...data }: CalloutProps) {
+export function Callout({ tone, title, icon, children, ...data }: CalloutProps) {
+  const name = toneIcon(tone, icon);
   return (
     <div className="hc-callout" data-callout-tone={tone} {...data}>
-      <CalloutIcon tone={tone} />
+      {tone === "failed" ? null : <Icon name={name} size={20} className="hc-callout-icon" />}
       <div className="hc-callout-body">
-        <p className="hc-callout-title">{title}</p>
+        {tone === "failed" ? (
+          // The icon sits inside the inverted band, in the band's own (inverted) ink.
+          <p className="hc-callout-title">
+            <Icon name={name} size={16} className="hc-callout-title-icon" />
+            <span>{title}</span>
+          </p>
+        ) : (
+          <p className="hc-callout-title">{title}</p>
+        )}
         {children}
       </div>
     </div>

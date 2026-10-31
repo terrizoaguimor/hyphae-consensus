@@ -754,12 +754,30 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
   `::selection` and autofill take grey tokens. The two blue glows became the
   grey body gradient (`body::before`), and the glass and its backdrop are
   greyed. Status tags are told apart by fill weight, label polarity, frame
-  style and a marker, not by colour (globals.css "Status without hue":
-  verified solid mid grey, failed solid ink in a double frame, simulated
-  dashed, LIVE a 2px ink frame with a square, contested double, recorded a
-  mid tint, info a tint, checked hollow). Callouts likewise (palette-mono
-  2.3): failed a 2px ink frame with an inverted title band, contested a 4px
-  double bar, success and info a 3px solid bar, each on its tint.
+  style, an edge mark or marker and an icon, not by colour (globals.css
+  "Status without hue": verified solid mid grey with no frame, failed solid
+  ink in a double frame, simulated dashed with a 4px pixel hatch strip
+  (`public/brand/hatch-{light,dark}.png`), LIVE a 2px ink frame with an 8px
+  square that pulses three times and stops (static under reduced motion),
+  contested double, RECORDED its own mid tint, pending your decision a 2px
+  frame on the strong tint with a 3px ink bar, info a tint and a hairline,
+  checked hollow). Every tag goes through `src/components/Tag.tsx`: the
+  variant a view picks from `src/lib/provenance.ts` is drawn as a role
+  (`VARIANT_ROLES`; a view may name only a role `VARIANT_ALLOWED_ROLES`
+  allows: success as "checked", neutral as "recorded", blue as "pending"),
+  set as `data-tag-role` for the role hooks, with an icon of that role's
+  family (`ROLE_ICONS`; no outline in two families, the shield-check the
+  verified role's alone, none for LIVE). The icons are Lucide 1.61 shapes
+  redrawn as inline SVG in `src/components/icons.tsx` (ISC, see
+  THIRD_PARTY_NOTICES.md; no icon dependency), aria-hidden, 12 px in tags.
+  Tags are rectangles of radius 2, never pills. Callouts likewise
+  (palette-mono 2.3): failed a 2px ink frame with an inverted title band
+  that holds its icon (unlink for a broken chain, file-x for a manifest
+  that differs), contested a 4px double bar, success and info a 3px solid
+  bar, each on its tint. `tests/tags.test.ts` covers the mapping, the icon
+  families, the rendered Tag and Callout and the role hooks;
+  `e2e/tag-encoding.spec.ts` (with `helpers.ts` `ROLE_ENCODING`) every
+  role's rendered border style, fill, hatch, bar and icon in both themes.
   `tests/no-hue.test.ts` fails on any colour literal
   with a hue in the theme output or the app's stylesheets, and on any colour
   Astryx's base stylesheet sets with a hue that the theme does not
@@ -767,19 +785,23 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
   browser renders, in both themes.
 - **Left for the later round 5 lanes** (known deviations of this
   foundation from palette-mono and design-direction):
-  - The neutral variant carries RECORDED's mid tint, so every other neutral
-    label (THIS SERVER, the HYPHAE evidence labels, no evidence,
-    undetermined, abstained, not checked) shares it; palette-mono 2.1 gives
-    them the informational tint. RECORDED needs a variant or hook of its own
-    first (tags lane).
-  - Two selectors follow the shrunken `--radius-element` (now 4 px) rather
-    than the spec: `[data-recommendation-kind] .astryx-badge` (tags should
-    be 2 px) and the end corners of `.hc-nav-link` (navigation items should
-    be 0). The shapes lane sets both on purpose.
-  - `hc-mono-tokens.css` declares `--hc-btn-grain`, `--hc-glass-grain` and
-    `--hc-hatch` as `url("/brand/*.png")`, but no tile is shipped under
+  - The end corners of `.hc-nav-link` follow the shrunken
+    `--radius-element` (now 4 px); navigation items should be 0. The shapes
+    lane sets it on purpose. (The tags lane set every tag, including
+    `[data-recommendation-kind] .astryx-badge`, to 2 px, and gave RECORDED
+    its own role hook, so the other neutral labels now take the
+    informational tint.)
+  - `hc-mono-tokens.css` declares `--hc-btn-grain` and `--hc-glass-grain`
+    as `url("/brand/brushed-*.png")`, but those tiles are not shipped under
     `public/brand/` yet and nothing uses these tokens. The lane that first
-    uses one adds the tiles in the same commit.
+    uses one adds the tiles in the same commit. (`--hc-hatch` is used by
+    the simulated tag; its two tiles are shipped.)
+  - Tags that palette-mono gives an icon outside the shipped families keep
+    their role's default icon: In progress (`loader`), Draft
+    (`pencil-ruler`), the revision kinds (`equal`, `pencil`, `plus`,
+    `circle-minus`), Approved and Rejected decisions (`stamp`,
+    `user-round-x`) and the chain row cells (`check`, `x`, `minus`,
+    `rotate-ccw`).
 - **Theme**: `src/theme/hyphaeMissionTheme.ts` extends the neutral theme with
   `defineTheme`. `pnpm theme:build` writes the committed
   `hyphae-mission.{css,js,d.ts,css.d.ts,variants.d.ts}`; rebuild after any

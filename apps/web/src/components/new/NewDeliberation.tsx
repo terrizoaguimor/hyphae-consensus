@@ -19,7 +19,6 @@
 // long to wait keeps the Run buttons (or Start) disabled until then, with a
 // countdown on them, and offers a recorded run instead (src/lib/api/backoff.ts).
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
@@ -56,6 +55,7 @@ import { localePath, runPath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
 import { richTags } from "../rich";
+import { Tag } from "../Tag";
 import { Turnstile, type TurnstileControl, TURNSTILE_SITE_KEY } from "./Turnstile";
 
 type NewDeliberationProps = {
@@ -201,14 +201,14 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
                           <ScenarioModelBadge model={scenario.model} />
                         </li>
                         <li>
-                          <Badge variant="purple" label={t("guided.evidenceBadge")} />
+                          <Tag variant="purple" label={t("guided.evidenceBadge")} />
                         </li>
                       </ul>
                     </div>
                     <p>{scenario.description}</p>
                     <p className="hc-scenario-expected">
                       <span className="hc-supporting">{t("guided.expected")}</span>
-                      <Badge
+                      <Tag
                         variant="neutral"
                         label={tRun(`kinds.${scenario.expected_outcome}`)}
                       />
@@ -539,7 +539,7 @@ function ScenarioModelBadge({ model }: { model: ScenarioV1["model"] }) {
   const label = modelLabel({ model });
   return (
     <span data-scenario-model={model}>
-      <Badge variant={label.variant} label={tProvenance(label.key)} />
+      <Tag variant={label.variant} labelKey={label.key} label={tProvenance(label.key)} />
     </span>
   );
 }
@@ -556,10 +556,10 @@ function PresetDescription({ preset }: { preset: PresetV1 }) {
       <span className="hc-preset-text">{preset.description}</span>
       <span className="hc-badges" role="list">
         <span role="listitem">
-          <Badge variant={model.variant} label={tProvenance(model.key)} />
+          <Tag variant={model.variant} labelKey={model.key} label={tProvenance(model.key)} />
         </span>
         <span role="listitem">
-          <Badge variant={evidence.variant} label={tProvenance(evidence.key)} />
+          <Tag variant={evidence.variant} labelKey={evidence.key} label={tProvenance(evidence.key)} />
         </span>
       </span>
     </span>

@@ -15,7 +15,6 @@
 // stream did not deliver (src/lib/run/view.ts stageRecords), so every count
 // matches the run.
 
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { useFormatter, useTranslations } from "next-intl";
 import type { ReactNode } from "react";
@@ -34,6 +33,7 @@ import {
   assessmentVariant,
   deliveryLabel,
   isScriptedRun,
+  OUTCOME_ICONS,
   proofToken,
   RECOMMENDATION_VARIANTS,
 } from "@/lib/provenance";
@@ -47,6 +47,7 @@ import {
 } from "@/lib/run/view";
 
 import { OutcomeTags } from "../OutcomeTags";
+import { Tag } from "../Tag";
 import type { RunData } from "./useRunData";
 
 type StageTabProps = {
@@ -118,7 +119,7 @@ export function StageTab({ data }: StageTabProps) {
             <p className="hc-supporting">{t("pacing.skipped")}</p>
           ) : queued ? (
             <>
-              <Badge variant="purple" label={t("pacing.label")} />
+              <Tag variant="purple" icon="flask-conical" label={t("pacing.label")} />
               <p className="hc-supporting hc-tabular-nums" data-pacing-pending={pending}>
                 {t("pacing.pending", { count: pending })}
               </p>
@@ -171,29 +172,29 @@ export function StageTab({ data }: StageTabProps) {
         <h3 id="lane-heading">{t("stage.lane")}</h3>
         <ul className="hc-badges" role="list">
           <li>
-            <Badge variant="neutral" label={t("stage.retrieved", { count: stage.retrieved })} />
+            <Tag variant="neutral" icon="hash" label={t("stage.retrieved", { count: stage.retrieved })} />
           </li>
           {/* A simulated proof checks nothing: it is counted as such, on its
               own line, never under "proofs checked". */}
           {simulatedProofs === 0 || checkedProofs > 0 ? (
             <li data-lane-proofs="checked">
-              <Badge variant="neutral" label={t("stage.verified", { count: checkedProofs })} />
+              <Tag variant="neutral" icon="hash" label={t("stage.verified", { count: checkedProofs })} />
             </li>
           ) : null}
           {simulatedProofs === 0 ? null : (
             <li data-lane-proofs="simulated">
-              <Badge
+              <Tag
                 variant="purple"
                 label={t("stage.verifiedSimulated", { count: simulatedProofs })}
               />
             </li>
           )}
           <li>
-            <Badge variant="neutral" label={t("stage.proven", { count: stage.proven })} />
+            <Tag variant="neutral" icon="hash" label={t("stage.proven", { count: stage.proven })} />
           </li>
           {stage.unavailable > 0 ? (
             <li>
-              <Badge variant="warning" label={t("stage.unavailable", { count: stage.unavailable })} />
+              <Tag variant="warning" label={t("stage.unavailable", { count: stage.unavailable })} />
             </li>
           ) : null}
         </ul>
@@ -242,7 +243,12 @@ export function RecommendationLine({
   const t = useTranslations("Run");
   return (
     <p data-recommendation-kind={kind}>
-      <OutcomeTags outcome={t(`kinds.${kind}`)} variant={RECOMMENDATION_VARIANTS[kind]} evidence={evidence} />
+      <OutcomeTags
+        outcome={t(`kinds.${kind}`)}
+        variant={RECOMMENDATION_VARIANTS[kind]}
+        icon={OUTCOME_ICONS[kind]}
+        evidence={evidence}
+      />
     </p>
   );
 }
@@ -283,7 +289,7 @@ function FrameBadge({ record, summary }: { record: ShownRecord; summary: RunData
       data-frame-label={label.key}
       data-from-detail={record.fromDetail}
     >
-      <Badge variant={label.variant} label={tProvenance(label.key)} />
+      <Tag variant={label.variant} labelKey={label.key} label={tProvenance(label.key)} />
       <span className="hc-tabular-nums">
         {format.dateTime(new Date(record.event.occurred_at), {
           dateStyle: "medium",
@@ -392,8 +398,9 @@ function ChallengeBody({ challenge }: { challenge: Challenge }) {
         <ul className="hc-list">
           {challenge.items.map((item, index) => (
             <li key={item.id ?? `${index}`}>
-              <Badge
+              <Tag
                 variant="warning"
+                icon="message-square-warning"
                 label={
                   item.claim_id === undefined || item.claim_id === null
                     ? t("objectionNoClaim", { kind: t(`kinds.${item.kind}`) })
@@ -425,7 +432,7 @@ function EvaluationBody({ evaluation }: { evaluation: Evaluation }) {
         {evaluation.assessments.map((assessment) => (
           <li key={assessment.claim_id}>
             <code className="hc-code hc-id">{assessment.claim_id}</code>{" "}
-            <Badge
+            <Tag
               variant={assessmentVariant(assessment.corroborated)}
               label={assessment.corroborated ? t("corroborated") : t("notCorroborated")}
             />
@@ -480,8 +487,11 @@ export function ProofStatus({
           <code className="hc-code">{verification.evidence_id}</code>{" "}
         </>
       ) : null}
-      <Badge
+      {/* The token's key picks its icon only inside its role's family: a
+          simulated "valid" gets the flask, never the verified shield. */}
+      <Tag
         variant={token.variant}
+        labelKey={token.key}
         label={
           token.simulated
             ? tProvenance("simulated.label")

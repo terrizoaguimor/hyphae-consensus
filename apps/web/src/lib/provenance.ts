@@ -31,6 +31,15 @@
 //   no other label uses.
 // - Hyphae cyan stays reserved for proof and evidence: no badge here uses the
 //   cyan or teal variants.
+// - Without hue (round 5, design/palette-mono.md 2.1) a variant is drawn as a
+//   status role (`VARIANT_ROLES`): fill weight, label polarity, frame style,
+//   an edge mark or marker, and an icon, then the word. A variant can take
+//   only the roles `VARIANT_ALLOWED_ROLES` lists (success may be drawn
+//   "checked", never the reverse; neutral may be RECORDED; blue may be your
+//   pending decision), so no label can be drawn verified, LIVE or simulated
+//   by a role override; and an icon outside its role's family
+//   (`ROLE_ICONS`, no outline shared by two roles) falls back to the role's
+//   own (`tagLook`), so a simulated proof never gets the verified shield.
 
 import type { BadgeVariant } from "@astryxdesign/core/Badge";
 
@@ -46,24 +55,256 @@ import type {
   SourceProvenance,
 } from "./api/types";
 
+/** The badge variants the views use (every one has a monochrome encoding in globals.css). */
+export type TagVariant = Extract<
+  BadgeVariant,
+  "success" | "error" | "purple" | "pink" | "warning" | "neutral" | "info" | "blue"
+>;
+
 export type ProvenanceLabel = {
   /** `Provenance.<key>` in the message catalogs. */
   key: string;
-  variant: BadgeVariant;
+  variant: TagVariant;
 };
+
+/**
+ * The status roles of design/palette-mono.md 2.1, each told apart without
+ * hue (globals.css "Status without hue"):
+ *   verified   solid mid grey, inverted label, no frame (a real verifier's accepted proof)
+ *   checked    hollow: the surface and a 1px frame (a check run in this browser)
+ *   simulated  tint, 1px dashed frame, a 4px pixel hatch strip; never solid, never a check
+ *   recorded   its own mid tint and a 1px frame (an archived run)
+ *   live       the surface, a 2px ink frame and the 8px square (pulses 3 times)
+ *   failed     solid ink, inverted label, a double frame
+ *   contested  tint, a double frame
+ *   pending    strong tint, a 2px frame and a 3px ink bar (your decision)
+ *   info       tint, a hairline, quieter ink
+ */
+export type TagRole =
+  | "verified"
+  | "checked"
+  | "simulated"
+  | "recorded"
+  | "live"
+  | "failed"
+  | "contested"
+  | "pending"
+  | "info";
+
+export const TAG_ROLES: readonly TagRole[] = [
+  "verified",
+  "checked",
+  "simulated",
+  "recorded",
+  "live",
+  "failed",
+  "contested",
+  "pending",
+  "info",
+];
+
+/** The role each variant is drawn as, unless the view names an allowed other role. */
+export const VARIANT_ROLES: Record<TagVariant, TagRole> = {
+  success: "verified",
+  error: "failed",
+  purple: "simulated",
+  pink: "live",
+  warning: "contested",
+  neutral: "info",
+  info: "info",
+  blue: "info",
+};
+
+/**
+ * The roles a view may draw each variant as (the first is the default). Only
+ * a quieter reading is ever allowed: the success variant of a check run in
+ * this browser is drawn "checked" (integrity is not truth), the neutral
+ * variant of an archived run RECORDED, the blue state that waits for the
+ * visitor "pending". Nothing can be drawn verified but the success variant,
+ * LIVE but the LIVE variant, or simulated but the simulated one.
+ */
+export const VARIANT_ALLOWED_ROLES: Record<TagVariant, readonly TagRole[]> = {
+  success: ["verified", "checked"],
+  error: ["failed"],
+  purple: ["simulated"],
+  pink: ["live"],
+  warning: ["contested"],
+  neutral: ["info", "recorded"],
+  info: ["info"],
+  blue: ["info", "pending"],
+};
+
+/** Labels whose role is not their variant's default: RECORDED has its own mid tint. */
+const KEY_ROLES: Readonly<Record<string, TagRole>> = {
+  "recorded.label": "recorded",
+};
+
+/**
+ * The icons a tag may carry (Lucide 1.61 shapes, ISC; drawn by
+ * src/components/icons.tsx). Names follow Lucide 1.61 (`file-code-corner`
+ * is design-direction's `file-code-2`, `file-question-mark` its
+ * `file-question`, `history` its alias of `rotate-ccw-clock`).
+ */
+export type TagIconName =
+  | "shield-check"
+  | "square-x"
+  | "shield-x"
+  | "unlink"
+  | "file-x"
+  | "circle-dashed"
+  | "flask-conical"
+  | "file-code-corner"
+  | "archive"
+  | "triangle-alert"
+  | "file-question-mark"
+  | "shuffle"
+  | "link-2-off"
+  | "plug-zap"
+  | "message-square-warning"
+  | "user-round-check"
+  | "info"
+  | "circle-dot"
+  | "circle-pause"
+  | "bot"
+  | "server"
+  | "database"
+  | "package"
+  | "circle-slash"
+  | "circle-question-mark"
+  | "history"
+  | "activity"
+  | "shield-question-mark"
+  | "gauge"
+  | "hash"
+  | "circle-dot-dashed"
+  | "stamp"
+  | "user-round-x";
+
+/**
+ * Each role's icon family, its default first (design-direction 3.2). No icon
+ * is in two families, the check glyph (shield-check) is the verified role's
+ * alone, and LIVE has none: its 8px square is the mark.
+ */
+export const ROLE_ICONS: Record<TagRole, readonly TagIconName[]> = {
+  verified: ["shield-check"],
+  checked: ["circle-dashed"],
+  simulated: ["flask-conical", "file-code-corner"],
+  recorded: ["archive"],
+  live: [],
+  failed: ["square-x", "shield-x", "unlink", "file-x"],
+  contested: [
+    "triangle-alert",
+    "file-question-mark",
+    "shuffle",
+    "link-2-off",
+    "plug-zap",
+    "message-square-warning",
+  ],
+  pending: ["user-round-check"],
+  info: [
+    "info",
+    "circle-dot",
+    "circle-pause",
+    "bot",
+    "server",
+    "database",
+    "package",
+    "circle-slash",
+    "circle-question-mark",
+    "history",
+    "activity",
+    "shield-question-mark",
+    "gauge",
+    "hash",
+    "circle-dot-dashed",
+    "stamp",
+    "user-round-x",
+  ],
+};
+
+/** The icon of each `Provenance.<key>` label (design-direction 3.2), when its role allows it. */
+const KEY_ICONS: Readonly<Record<string, TagIconName>> = {
+  "scripted.label": "file-code-corner",
+  "simulated.label": "flask-conical",
+  "metaModel.label": "bot",
+  "mixedModel.label": "shuffle",
+  "mixedEvidence.label": "shuffle",
+  "undetermined.label": "circle-question-mark",
+  "liveMeta.evidence": "package",
+  "hyphaeLive.label": "database",
+  "noEvidence.label": "circle-slash",
+  "thisServer.label": "server",
+  "recorded.label": "archive",
+  "streaming.label": "activity",
+  "replay.label": "history",
+  "flags.provenance_inconsistent": "triangle-alert",
+  "flags.unchained": "triangle-alert",
+  "flags.mode_undeclared": "triangle-alert",
+  "proof.valid": "shield-check",
+  "proof.invalid": "shield-x",
+  "proof.unavailable": "shield-question-mark",
+  "proof.verification_error": "shield-question-mark",
+  "proof.not_checked": "shield-question-mark",
+};
+
+/** The icon of each outcome (palette-mono 2.1: "supported" is never a check mark). */
+export const OUTCOME_ICONS: Record<RecommendationKind, TagIconName> = {
+  supported: "circle-dot",
+  contested: "triangle-alert",
+  insufficient_evidence: "file-question-mark",
+  abstained: "circle-pause",
+  blocked: "square-x",
+};
+
+/**
+ * The icon of a person's recorded decision (design-direction 3.2): an
+ * informational tag with the decision word, told apart from the neutral
+ * labels beside it by its icon, never by a louder fill.
+ */
+export const DECISION_ICONS: Record<"approved" | "approvedOverride" | "rejected", TagIconName> = {
+  approved: "stamp",
+  approvedOverride: "stamp",
+  rejected: "user-round-x",
+};
+
+/**
+ * How a tag is drawn: its role (the variant's default, or an allowed other
+ * one named by the view or by the label's key) and its icon (the one named,
+ * else the label's, else the role's default; never one outside the role's
+ * family, and none for LIVE).
+ */
+export function tagLook(
+  variant: TagVariant,
+  options: { role?: TagRole; icon?: TagIconName; key?: string } = {},
+): { role: TagRole; icon: TagIconName | null } {
+  const allowed = VARIANT_ALLOWED_ROLES[variant];
+  const keyRole = options.key === undefined ? undefined : KEY_ROLES[options.key];
+  const role =
+    options.role !== undefined && allowed.includes(options.role)
+      ? options.role
+      : keyRole !== undefined && allowed.includes(keyRole)
+        ? keyRole
+        : VARIANT_ROLES[variant];
+  const family = ROLE_ICONS[role];
+  const keyIcon = options.key === undefined ? undefined : KEY_ICONS[options.key];
+  const icon = [options.icon, keyIcon].find(
+    (candidate): candidate is TagIconName => candidate !== undefined && family.includes(candidate),
+  );
+  return { role, icon: icon ?? family[0] ?? null };
+}
 
 /**
  * The LIVE role's variant: the LIVE delivery badge and the LIVE META model
  * badge, and nothing else (tests/provenance.test.ts).
  */
-export const LIVE_VARIANT = "pink" satisfies BadgeVariant;
+export const LIVE_VARIANT = "pink" satisfies TagVariant;
 
 /**
  * The info role: META MODEL in every state, a "supported" outcome, a
  * "corroborated" assessment. Never the success (green) variant, which only
  * a real verifier's accepted proof uses.
  */
-export const INFO_VARIANT = "info" satisfies BadgeVariant;
+export const INFO_VARIANT = "info" satisfies TagVariant;
 
 /** Flags that must be shown and that forbid the LIVE label. */
 export const BLOCKING_FLAGS: readonly ProvenanceFlag[] = [
@@ -255,7 +496,7 @@ export function ndjsonPublishable(
  * nothing was checked, and even on real evidence an outcome is the policy's
  * reading, not a verification).
  */
-export const RECOMMENDATION_VARIANTS: Record<RecommendationKind, BadgeVariant> = {
+export const RECOMMENDATION_VARIANTS: Record<RecommendationKind, TagVariant> = {
   supported: INFO_VARIANT,
   contested: "warning",
   insufficient_evidence: "warning",
@@ -268,7 +509,7 @@ export const RECOMMENDATION_VARIANTS: Record<RecommendationKind, BadgeVariant> =
  * assessment is not a verification, and on simulated evidence nothing was
  * checked); "not corroborated" is neutral.
  */
-export function assessmentVariant(corroborated: boolean): BadgeVariant {
+export function assessmentVariant(corroborated: boolean): TagVariant {
   return corroborated ? INFO_VARIANT : "neutral";
 }
 
@@ -280,7 +521,7 @@ export function assessmentVariant(corroborated: boolean): BadgeVariant {
 export function proofToken(
   status: IntegrityStatus,
   simulated: boolean,
-): { key: string; variant: BadgeVariant; simulated: boolean } {
+): { key: string; variant: TagVariant; simulated: boolean } {
   if (simulated) {
     return { key: `proof.${status}`, variant: "purple", simulated: true };
   }

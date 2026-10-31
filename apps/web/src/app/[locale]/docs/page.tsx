@@ -38,7 +38,7 @@ export default async function DocsPage({ params }: LocaleParams) {
         {/* role="list": Safari drops list semantics when list-style is none. */}
         <ul className="hc-card-list" role="list">
           {docSlugs.map((slug) => (
-            <li key={slug} className="hc-card">
+            <li key={slug} className="hc-card hc-glass hc-glass--static hc-glass--interactive">
               <h3 className="hc-card-title">
                 <Link href={docPath(locale, slug)} className="hc-card-link">
                   {t(`Docs.articles.${slug}.title`)}
@@ -50,7 +50,7 @@ export default async function DocsPage({ params }: LocaleParams) {
         </ul>
       </section>
 
-      <section className="hc-panel">
+      <section className="hc-panel hc-glass hc-glass--static">
         <h2 id="docs-tour" className="hc-panel-title">
           {t("Docs.tourHeading")}
         </h2>

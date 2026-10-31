@@ -128,7 +128,12 @@ describe("no hue in the app's stylesheets", () => {
     .sort();
 
   it("finds the stylesheets", () => {
-    expect(sheets).toEqual(["src/app/globals.css", "src/app/hc-mono-tokens.css", "src/theme/hyphae-mission.css"]);
+    expect(sheets).toEqual([
+      "src/app/globals.css",
+      "src/app/hc-mono-glass.css",
+      "src/app/hc-mono-tokens.css",
+      "src/theme/hyphae-mission.css",
+    ]);
   });
 
   it.each(sheets)("%s declares greys only", (sheet) => {

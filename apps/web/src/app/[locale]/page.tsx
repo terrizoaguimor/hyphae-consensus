@@ -49,7 +49,7 @@ export default async function OverviewPage({ params }: LocaleParams) {
         {/* role="list": Safari drops list semantics when list-style is none. */}
         <ol className="hc-flow" role="list">
           {flowSteps.map((step) => (
-            <li key={step} className="hc-flow-step">
+            <li key={step} className="hc-flow-step hc-glass hc-glass--static">
               <h3>{t(`Overview.flow.${step}.title`)}</h3>
               <p>{t(`Overview.flow.${step}.body`)}</p>
             </li>

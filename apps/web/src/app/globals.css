@@ -29,14 +29,11 @@
     --hc-glow-a: var(--hc-body-0);
     --hc-glow-b: var(--hc-body-1);
 
-    /* Frosted glass of the top bar, the sidebar and dialogs, in greys: the
-       glass/1 and glass/3 fills of palette-mono 3.2 and its gradient edge.
-       The backdrop is greyed too, so nothing behind the glass shows a hue.
+    /* The brushed glass itself (fills, blur, grain, edge, shadows and every
+       fallback) is hc-mono-glass.css, on the .hc-glass classes. What is
+       left here is the top bar's bottom line, the glass edge's darker stop.
        (--hc-scrim comes from hc-mono-tokens.css.) */
-    --hc-glass: var(--hc-glass-1-top);
-    --hc-glass-strong: var(--hc-glass-3-top);
     --hc-glass-border: var(--hc-glass-edge-bottom);
-    --hc-glass-filter: blur(var(--hc-glass-1-blur)) grayscale(1);
 
     /* Motion. Dialogs fade and shift a little; the drawer slides in. */
     --hc-overlay-duration: 200ms;
@@ -301,50 +298,6 @@
     white-space: nowrap;
   }
 
-  /* Frosted glass, with solid fallbacks. */
-
-  .hc-glass {
-    background-color: var(--hc-glass);
-    -webkit-backdrop-filter: var(--hc-glass-filter);
-    backdrop-filter: var(--hc-glass-filter);
-  }
-
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .hc-glass {
-      background-color: var(--color-background-surface);
-    }
-
-    .hc-dialog {
-      background-color: var(--color-background-popover);
-    }
-  }
-
-  @media (prefers-reduced-transparency: reduce) {
-    .hc-glass {
-      background-color: var(--color-background-surface);
-      -webkit-backdrop-filter: none;
-      backdrop-filter: none;
-    }
-
-    .hc-dialog {
-      background-color: var(--color-background-popover);
-      -webkit-backdrop-filter: none;
-      backdrop-filter: none;
-    }
-
-    .hc-dialog::backdrop {
-      background-color: var(--hc-scrim-opaque);
-    }
-  }
-
-  @media (forced-colors: active) {
-    .hc-glass,
-    .hc-dialog {
-      -webkit-backdrop-filter: none;
-      backdrop-filter: none;
-    }
-  }
-
   /* Shell: top bar, sidebar (desktop), content sheet, footer. */
 
   .hc-shell {
@@ -370,6 +323,15 @@
     min-height: var(--hc-topbar-height);
     padding-inline: var(--spacing-4);
     border-block-end: 1px solid var(--hc-glass-border);
+  }
+
+  /* Forced colours: the glass's real CanvasText border (hc-mono-glass.css)
+     stays on the bottom edge only, the line the top bar draws on screen; a
+     frame round a full-width sticky bar would read as a box. */
+  @media (forced-colors: active) {
+    .hc-topbar {
+      border-width: 0 0 1px;
+    }
   }
 
   .hc-wordmark {
@@ -480,7 +442,7 @@
       height: calc(100dvh - var(--hc-topbar-height));
       overflow-y: auto;
       padding: var(--spacing-5) var(--spacing-3);
-      border-inline-end: 1px solid var(--hc-glass-border);
+      /* Static glass (hc-mono-glass.css): its edge is the boundary. */
     }
 
     .hc-main {
@@ -663,27 +625,39 @@
     border-block-start: 1px solid var(--color-border);
   }
 
-  /* Dialogs (tour, drawer): native <dialog>, frosted, with entry and exit
-     transitions that the reduced-motion rules above tone down. */
+  /* Dialogs (tour, drawer): native modal <dialog> (top layer), live glass
+     level 3 (.hc-glass .hc-glass--3, hc-mono-glass.css: fill, blur, edge,
+     shadow and fallbacks), with entry and exit transitions that the
+     reduced-motion rules above tone down. position: fixed is the user
+     agent's for a modal dialog, restated because .hc-glass sets relative
+     (for its edge pseudo-element). On screen the edge is the glass's ring,
+     so the dialog has no border of its own (the user agent's would be
+     medium solid); in forced colours and print the ring is hidden and the
+     glass's real 1px border is the dialog's boundary, so the reset is
+     guarded like .hc-panel:where(.hc-glass--static) below (in forced
+     colours the drawer keeps its inline-end edge: the border-block and
+     border-inline-start resets of .hc-dialog--drawer). */
 
   .hc-dialog {
+    position: fixed;
     width: min(32rem, calc(100vw - 2rem));
     max-height: calc(100dvh - 2rem);
     padding: 0;
     overflow: auto;
-    border: 1px solid var(--hc-glass-border);
     border-radius: var(--radius-container);
     color: var(--color-text-primary);
-    background-color: var(--hc-glass-strong);
-    -webkit-backdrop-filter: blur(var(--hc-glass-3-blur)) grayscale(1);
-    backdrop-filter: blur(var(--hc-glass-3-blur)) grayscale(1);
-    box-shadow: var(--shadow-high);
     opacity: 0;
     transform: var(--hc-dialog-shift);
     transition-property: var(--hc-overlay-properties);
     transition-duration: var(--hc-overlay-duration);
     transition-timing-function: var(--hc-ease);
     transition-behavior: allow-discrete;
+  }
+
+  @media screen and (forced-colors: none) {
+    .hc-dialog {
+      border: 0;
+    }
   }
 
   .hc-dialog[open] {
@@ -698,8 +672,9 @@
     }
   }
 
+  /* The scrim's colour (normal, and opaque under reduced transparency) is
+     set in hc-mono-glass.css; here only its fade. */
   .hc-dialog::backdrop {
-    background-color: var(--hc-scrim);
     opacity: 0;
     transition-property: opacity, overlay, display;
     transition-duration: var(--hc-overlay-duration);
@@ -914,6 +889,20 @@
     background-color: var(--color-background-card);
   }
 
+  /* A panel in static glass (the run header, the Settings panels, the docs
+     tour panel): the glass's transparent border shows its gradient edge, and
+     its opaque fill covers the card colour (which stays underneath, so the
+     more-contrast fallback is still a flat card). On screen only and without
+     forced colours, so the glass's print and forced-colours borders win. No
+     specificity beyond .hc-panel, so a later border of meaning (the Settings
+     3:1 boundary) still wins. Other panels (messages, panels nested in a
+     card, panels holding long text or a table) stay solid. */
+  @media screen and (forced-colors: none) {
+    .hc-panel:where(.hc-glass--static) {
+      border-color: transparent;
+    }
+  }
+
   .hc-panel > p {
     margin: 0;
   }
@@ -1020,9 +1009,8 @@
     flex-direction: column;
     gap: var(--spacing-2);
     padding: var(--spacing-5);
-    border: 1px solid var(--color-border-emphasized);
     border-radius: var(--radius-container);
-    background-color: var(--color-background-card);
+    /* Static glass (hc-mono-glass.css): its fill, edge and shadow. */
     counter-increment: hc-flow;
   }
 
@@ -1065,14 +1053,10 @@
     flex-direction: column;
     gap: var(--spacing-2);
     padding: var(--spacing-5);
-    border: 1px solid var(--color-border-emphasized);
     border-radius: var(--radius-container);
-    background-color: var(--color-background-card);
-    transition: border-color var(--duration-fast) ease;
-  }
-
-  .hc-card:hover {
-    border-color: var(--color-accent);
+    /* Static glass, clickable (hc-mono-glass.css): fill, edge, highlight,
+       and its hover (bg/hover with the edge at border/strong, no border
+       colour of its own: palette-mono 2.3). */
   }
 
   .hc-card > p {
@@ -1739,18 +1723,13 @@
     flex-direction: column;
     gap: var(--spacing-3);
     padding: var(--spacing-5);
-    border: 1px solid var(--color-border-emphasized);
     border-radius: var(--radius-container);
-    background-color: var(--color-background-card);
+    /* Static glass (hc-mono-glass.css): its fill, edge and shadow. */
   }
 
   /* The whole run card is its title link's hit area (.hc-card-link::after). */
   .hc-run-card {
     position: relative;
-  }
-
-  .hc-run-card:hover {
-    border-color: var(--color-accent);
   }
 
   .hc-scenario-card > p,
@@ -1880,7 +1859,9 @@
     padding: var(--spacing-5);
     border: 2px solid var(--color-accent);
     border-radius: var(--radius-container);
-    background-color: var(--color-background-card);
+    /* No fill: live glass/2 on narrow viewports, static from 672px
+       (.hc-glass--float, hc-mono-glass.css); the 2px ink border is its own
+       emphasis and covers the static edge. */
   }
 
   [data-decision-card-lead] {
@@ -2008,9 +1989,12 @@
     gap: var(--spacing-2);
   }
 
+  /* Dense tables are never glass (palette-mono 3.5): a solid surface, also
+     inside a glass panel. */
   .hc-timeline {
     width: 100%;
     border-collapse: collapse;
+    background-color: var(--color-background-surface);
     font-size: var(--text-supporting-size);
     line-height: var(--text-supporting-leading);
   }

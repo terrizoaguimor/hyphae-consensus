@@ -171,7 +171,7 @@ export function RunsList({ locale }: RunsListProps) {
             const title = run.title ?? t("untitled");
             const created = new Date(run.created_at).getTime();
             return (
-              <li key={run.run_id} className="hc-run-card" data-run-id={run.run_id}>
+              <li key={run.run_id} className="hc-run-card hc-glass hc-glass--static hc-glass--interactive" data-run-id={run.run_id}>
                 <h2 className="hc-card-title">
                   <Link
                     href={runPath(locale, run.run_id)}

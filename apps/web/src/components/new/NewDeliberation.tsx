@@ -14,7 +14,10 @@
 // build cannot solve the Turnstile challenge the server requires
 // (src/lib/live/form.ts); Start waits for a preset, the attestation and a
 // token, and every submit spends the token and asks for a fresh challenge.
-// Every API error is shown with its code's sentence and the Retry-After wait.
+// Every API error is shown with its code's sentence and the Retry-After wait;
+// a guided refusal inside the card that was pressed. A 429 that says how
+// long to wait keeps the Run buttons (or Start) disabled until then, with a
+// countdown on them, and offers a recorded run instead (src/lib/api/backoff.ts).
 
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
@@ -28,6 +31,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
+import { type Backoff, backoffSeconds, formatWait, useBackoff, useEndpointBackoff } from "@/lib/api/backoff";
 import { api, ApiError, isApiError, JUDGE_CODE_MAX_CHARS, newIdempotencyKey } from "@/lib/api/client";
 import type { Capabilities } from "@/lib/api/schemas";
 import type {
@@ -78,7 +82,44 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
   const [loadError, setLoadError] = useState<ApiError | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [starting, setStarting] = useState<GuidedScenario | null>(null);
-  const [startError, setStartError] = useState<ApiError | null>(null);
+  // The refusal is shown inside the card that was pressed (HE #18).
+  const [startError, setStartError] = useState<{ scenario: GuidedScenario; error: ApiError } | null>(
+    null,
+  );
+  // A 429 that says how long to wait keeps every Run button disabled until
+  // then; a connection-wide one (rate_limited) keeps live Start disabled too.
+  const connectionBackoff = useBackoff();
+  const backoff = useEndpointBackoff(connectionBackoff);
+  const waiting = backoff.remaining;
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const failedButtonRef = useRef<HTMLButtonElement>(null);
+  // Set when a refusal has just disabled the Run buttons, until it is rendered.
+  const refusedWithWait = useRef(false);
+  const wasWaiting = useRef(false);
+
+  // The pressed button is disabled by the wait, which drops the keyboard
+  // focus: the notice in its card takes it, and gives it back to the button
+  // once the wait is over (unless the visitor moved it elsewhere).
+  useEffect(() => {
+    if (refusedWithWait.current) {
+      refusedWithWait.current = false;
+      noticeRef.current?.focus();
+    }
+  });
+  useEffect(() => {
+    if (waiting !== null) {
+      wasWaiting.current = true;
+      return;
+    }
+    if (!wasWaiting.current) {
+      return;
+    }
+    wasWaiting.current = false;
+    const active = document.activeElement;
+    if (active === null || active === document.body || active === noticeRef.current) {
+      failedButtonRef.current?.focus();
+    }
+  }, [waiting]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,7 +144,7 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
   const startGuided = async (scenario: GuidedScenario) => {
     // The pressed button is busy (aria-disabled, still focusable) rather than
     // disabled, so a second press reaches here and is dropped.
-    if (starting !== null) {
+    if (starting !== null || waiting !== null) {
       return;
     }
     setStarting(scenario);
@@ -113,8 +154,13 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
       const created = await api.createGuidedRun(scenario, newIdempotencyKey());
       router.push(runPath(locale, created.run.run_id));
     } catch (error) {
-      setStartError(toApiError(error, "/runs"));
+      const refusal = toApiError(error, "/runs");
+      setStartError({ scenario, error: refusal });
       setStarting(null);
+      if (backoffSeconds(refusal) !== null) {
+        refusedWithWait.current = true;
+        backoff.start(refusal);
+      }
     }
   };
 
@@ -167,24 +213,44 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
                     <div className="hc-actions">
                       {/* The pressed button is busy, never disabled: a disabled button would drop the keyboard focus. */}
                       <Button
+                        ref={startError?.scenario === scenario.id ? failedButtonRef : undefined}
                         variant="primary"
-                        label={starting === scenario.id ? t("guided.starting") : t("guided.run")}
-                        aria-label={t("guided.runScenario", { title: scenario.title })}
-                        isDisabled={starting !== null && starting !== scenario.id}
+                        label={
+                          waiting !== null
+                            ? t("guided.wait", { time: formatWait(waiting) })
+                            : starting === scenario.id
+                              ? t("guided.starting")
+                              : t("guided.run")
+                        }
+                        aria-label={
+                          waiting !== null
+                            ? t("guided.waitScenario", {
+                                title: scenario.title,
+                                time: formatWait(waiting),
+                              })
+                            : t("guided.runScenario", { title: scenario.title })
+                        }
+                        isDisabled={waiting !== null || (starting !== null && starting !== scenario.id)}
                         isLoading={starting === scenario.id}
                         onClick={() => void startGuided(scenario.id)}
+                        data-wait={waiting === null ? undefined : String(waiting)}
                       />
                     </div>
+                    {startError?.scenario === scenario.id ? (
+                      // Focusable from script only: it takes the focus while the wait disables the button.
+                      <div ref={noticeRef} tabIndex={-1} data-scenario-error>
+                        <ApiErrorNotice error={startError.error} context="create" remaining={waiting} />
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             )}
           </>
         )}
-        {startError === null ? null : <ApiErrorNotice error={startError} />}
       </section>
 
-      <LiveSection locale={locale} capabilities={capabilities} />
+      <LiveSection locale={locale} capabilities={capabilities} connectionBackoff={connectionBackoff} />
     </div>
   );
 }
@@ -192,9 +258,11 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
 type LiveSectionProps = {
   locale: Locale;
   capabilities: Capabilities;
+  /** The page's connection-wide wait, shared with the guided Run buttons. */
+  connectionBackoff: Backoff;
 };
 
-function LiveSection({ locale, capabilities }: LiveSectionProps) {
+function LiveSection({ locale, capabilities, connectionBackoff }: LiveSectionProps) {
   const t = useTranslations("NewDeliberation.live");
   const live = capabilities.live ?? null;
   return (
@@ -214,13 +282,19 @@ function LiveSection({ locale, capabilities }: LiveSectionProps) {
           </Link>
         </div>
       ) : (
-        <LiveForm locale={locale} live={live} />
+        <LiveForm locale={locale} live={live} connectionBackoff={connectionBackoff} />
       )}
     </section>
   );
 }
 
-function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }) {
+type LiveFormProps = {
+  locale: Locale;
+  live: LiveCapabilitiesV1;
+  connectionBackoff: Backoff;
+};
+
+function LiveForm({ locale, live, connectionBackoff }: LiveFormProps) {
   const t = useTranslations("NewDeliberation.live");
   const router = useRouter();
   const [presetId, setPresetId] = useState<string>("");
@@ -236,10 +310,17 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
   // has been rendered: where the keyboard focus goes then.
   const refused = useRef(false);
   const onToken = useCallback((value: string | null) => setToken(value), []);
+  // A 429 that says how long to wait keeps Start disabled until then (HE #18);
+  // a connection-wide one (rate_limited) keeps the guided Run buttons
+  // disabled too.
+  const backoff = useEndpointBackoff(connectionBackoff);
+  const waiting = backoff.remaining;
+  const wasWaiting = useRef(false);
 
   const closed = liveClosedReason(live, TURNSTILE_SITE_KEY);
   const blocker = startBlocker({ live, presetId, attested, judgeCode, token, starting });
   const budget = live.budget ?? null;
+  const startDisabled = startNativelyDisabled(closed, blocker) || waiting !== null;
 
   // The refused request spent the Turnstile token, so the form usually comes
   // back waiting for a fresh one, with Start natively disabled again: the
@@ -256,15 +337,36 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
     if (active !== null && active !== document.body && active !== button) {
       return;
     }
-    if (focusAfterRefusal(closed, blocker) === "notice") {
+    // A wait disables Start too: the notice holds the focus until it is over.
+    if (waiting !== null || focusAfterRefusal(closed, blocker) === "notice") {
       errorRef.current?.focus();
     } else {
       button?.focus();
     }
   });
 
+  // Once the wait is over, a focus still on the notice (or dropped) goes
+  // back to Start when it can be pressed.
+  useEffect(() => {
+    if (waiting !== null) {
+      wasWaiting.current = true;
+      return;
+    }
+    if (!wasWaiting.current) {
+      return;
+    }
+    wasWaiting.current = false;
+    const active = document.activeElement;
+    if (
+      (active === null || active === document.body || active === errorRef.current) &&
+      !startNativelyDisabled(closed, blocker)
+    ) {
+      submitRef.current?.focus();
+    }
+  }, [waiting, closed, blocker]);
+
   const start = async () => {
-    if (closed !== null || blocker !== null) {
+    if (closed !== null || blocker !== null || waiting !== null) {
       return;
     }
     // A Turnstile token is single-use (the server spends it at Siteverify
@@ -291,9 +393,11 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
       );
       router.push(runPath(locale, created.run.run_id));
     } catch (cause) {
+      const refusal = toApiError(cause, "/live-runs");
       refused.current = true;
-      setError(toApiError(cause, "/live-runs"));
+      setError(refusal);
       setStarting(false);
+      backoff.start(refusal);
     }
   };
 
@@ -391,15 +495,22 @@ function LiveForm({ locale, live }: { locale: Locale; live: LiveCapabilitiesV1 }
           ref={submitRef}
           type="submit"
           variant="primary"
-          label={starting ? t("starting") : t("start")}
-          isDisabled={startNativelyDisabled(closed, blocker)}
+          label={
+            waiting !== null
+              ? t("wait", { time: formatWait(waiting) })
+              : starting
+                ? t("starting")
+                : t("start")
+          }
+          isDisabled={startDisabled}
           isLoading={starting}
+          data-wait={waiting === null ? undefined : String(waiting)}
         />
       </div>
       {error === null ? null : (
         // Focusable from script only: it takes the focus after a refusal that leaves Start disabled.
         <div ref={errorRef} tabIndex={-1} data-live-error>
-          <ApiErrorNotice error={error} />
+          <ApiErrorNotice error={error} context="create" remaining={waiting} />
         </div>
       )}
     </form>

@@ -1,7 +1,7 @@
 {
   "Docs": {
     "lead": "Explicaciones breves de cómo funciona Hyphae Consensus y qué significan sus resultados.",
-    "buildNote": "Las vistas del portal que ejecutan deliberaciones no están conectadas en esta versión; estas páginas describen el sistema tal como funciona hoy y el portal público tal como está planificado.",
+    "buildNote": "El servidor del portal no respondió, así que las vistas que ejecutan deliberaciones no se pueden usar ahora mismo; estas páginas describen el sistema tal como funciona y el portal público tal como está planificado.",
     "articlesHeading": "Artículos",
     "tourHeading": "Recorrido de un minuto",
     "tourText": "Seis pasos breves por las ideas principales. Puedes saltarlo en cualquier momento.",
@@ -183,8 +183,8 @@
             "body": "Ejecuciones grabadas, con guion o con el modelo de Meta, leídas desde un archivo que las conserva sin cambios. Cada una lleva la etiqueta GRABADO, conserva las etiquetas de modelo y de evidencia que traen sus registros y nunca se presenta como una ejecución en vivo."
           },
           "build": {
-            "heading": "En esta versión",
-            "body": "Ninguno de los tres modos está conectado en esta versión del portal."
+            "heading": "En este portal",
+            "body": "El servidor del portal no respondió, así que ahora mismo ninguno de los tres modos puede iniciar una ejecución desde él."
           }
         },
         "technical": {
@@ -193,6 +193,10 @@
           "language": "Las tareas predefinidas y la conversación con el modelo se mantienen en inglés, para que las afirmaciones coincidan con los registros de evidencia en inglés. Las vistas traducidas marcan el texto del modelo como salida original en inglés."
         }
       }
+    },
+    "modesBuild": {
+      "connected": "Este portal está conectado a su servidor. Qué modos pueden iniciar una ejecución depende de lo que habilite el servidor; Nueva deliberación los muestra.",
+      "pending": "Qué modos pueden iniciar una ejecución depende de lo que habilite el servidor del portal; Nueva deliberación los muestra."
     }
   }
 }

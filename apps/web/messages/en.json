@@ -8,7 +8,7 @@
     "name": "Hyphae Consensus",
     "tagline": "Verifiable multi-agent reasoning and decision accountability",
     "intro": "Three AI roles (Proposer, Critic and Evidence Evaluator) work through a software-engineering problem. The runtime retrieves evidence from Hyphae memory and verifies its proofs, the Evaluator judges each claim against that evidence, and a fixed policy turns the result into a recommendation. Only a person can authorize it, and authorizing records a decision without executing anything.",
-    "buildNote": "This build of the portal is not connected to the Hyphae Consensus API. It explains the system and shows the labels it will use; nothing in it calls a model or reads memory."
+    "buildNote": "The Hyphae Consensus API did not answer, so this portal can only explain the system and show the labels it uses; nothing in it calls a model or reads memory right now."
   },
   "Shell": {
     "skipToContent": "Skip to main content",
@@ -44,10 +44,10 @@
   },
   "NotConnected": {
     "badge": "Not connected",
-    "message": "This view connects to the Hyphae Consensus API; it is not connected in this build.",
+    "message": "The Hyphae Consensus API did not answer, so this view cannot show anything right now.",
     "plannedHeading": "Once connected, this view will:",
     "related": "Related",
-    "unreachable": "The API did not answer: the request to /api/v1/health failed ({code}).",
+    "unreachable": "The request to /api/v1/health failed ({code}).",
     "retry": "Try again"
   },
   "ApiGate": {
@@ -56,7 +56,6 @@
     "contractMismatch": "This build was made for API contract {build}, and the server reports contract {server}: every answer is still checked against this build’s contract, but what is new on the server may not be shown."
   },
   "Api": {
-    "errorTitle": "The server refused the request",
     "errorDetail": "Code {code}, HTTP {status}.",
     "retryAfter": "{seconds, plural, =0 {You can retry now.} one {Retry in # second.} other {Retry in # seconds.}}",
     "retry": "Try again",
@@ -76,7 +75,7 @@
       "too_many_streams": "Too many open streams for this run or this connection.",
       "storage_full": "The server holds its maximum number of visitor runs and could not free one; retry shortly.",
       "live_disabled": "Live mode is not enabled on this server.",
-      "shutting_down": "The server is shutting down and admits no new run.",
+      "shutting_down": "The server is shutting down; try again in a minute.",
       "run_not_awaiting_decision": "The run is not awaiting a human decision.",
       "decision_conflict": "The run changed since you saw it; it was re-read, check it again before deciding.",
       "idempotency_key_reused": "This request key was already used with a different request.",
@@ -111,6 +110,31 @@
       "unexpected_status": "The server answered with a status this client does not understand.",
       "bad_response": "The server's answer does not match the API contract this build was made for.",
       "unknown": "The server refused the request with a code this build does not know."
+    },
+    "createErrors": {
+      "shutting_down": "The server is shutting down and admits no new run."
+    },
+    "fallback": "Watch a recorded run instead",
+    "headlines": {
+      "notAccepted": "This request was not accepted",
+      "rateLimited": "{seconds, plural, =0 {Too many requests from this connection. You can retry now.} one {Too many requests from this connection. Retry in # second.} other {Too many requests from this connection. Retry in # seconds.}}",
+      "rateLimitedNoWait": "Too many requests from this connection. Wait a moment.",
+      "busy": "The server is busy. Try again shortly.",
+      "liveInProgress": "Another live run is in progress",
+      "liveLimit": "The live limit for now is reached",
+      "budgetToday": "Today’s live budget is used up",
+      "budgetSpent": "The live budget is used up",
+      "liveClosed": "Live mode cannot start a run right now",
+      "humanCheck": "The human check did not go through",
+      "location": "Not available from your location",
+      "session": "This needs a session first",
+      "notAvailable": "This address is not available to you",
+      "decision": "Your decision was not recorded",
+      "decisionUncertain": "Your decision may or may not have been recorded. Check the run before you decide again.",
+      "serverProblem": "The server had a problem",
+      "serverUnavailable": "The server is unavailable right now",
+      "unreachable": "The server did not answer",
+      "unreadable": "The server’s answer could not be read"
     }
   },
   "NotFound": {
@@ -122,7 +146,7 @@
     "primaryAction": "Run a guided example",
     "primaryActionNeutral": "Go to New deliberation",
     "primaryActionPlanned": "How guided examples will work",
-    "primaryActionNote": "Guided runs need the Hyphae Consensus API, which is not connected in this build.",
+    "primaryActionNote": "Guided runs need the Hyphae Consensus API, which did not answer.",
     "secondaryAction": "How it works",
     "flowHeading": "How a deliberation works",
     "flow": {
@@ -194,7 +218,9 @@
       "run": "Run",
       "runScenario": "Run {title}",
       "starting": "Starting…",
-      "disabled": "Guided examples are not enabled on this server."
+      "disabled": "Guided examples are not enabled on this server.",
+      "wait": "Try again in {time}",
+      "waitScenario": "Run {title}: try again in {time}"
     },
     "live": {
       "heading": "Live presets",
@@ -242,7 +268,8 @@
         "provider_refused_key": "Meta’s Model API refused the server’s key, so the ledger stopped itself.",
         "inconsistent": "The ledger’s records disagree, so it stopped itself.",
         "other": "The ledger stopped itself (code {code})."
-      }
+      },
+      "wait": "Try again in {time}"
     }
   },
   "Runs": {
@@ -1133,8 +1160,9 @@
       },
       "descriptions": {
         "simple": "Plain-language explanations; technical details start collapsed.",
-        "technical": "Technical details start expanded in Docs, and run explanations will use them once the API is connected."
-      }
+        "technical": "Technical details start expanded in Docs. Run explanations use them too, but the API did not answer, so there is no run to explain right now."
+      },
+      "technicalConnected": "Technical details start expanded in Docs and in run explanations."
     },
     "reset": {
       "heading": "Saved settings",
@@ -1164,11 +1192,15 @@
     "steps": {
       "welcome": {
         "title": "Welcome to Hyphae Consensus",
-        "body": "Three AI roles work through a software-engineering problem, the runtime checks the evidence, and a fixed policy recommends. Only a person can authorize. In this build the portal is not connected, so its views say what they will do."
+        "body": "Three AI roles work through a software-engineering problem, the runtime checks the evidence, and a fixed policy recommends. Only a person can authorize. The portal’s server did not answer, so its views say what they would do.",
+        "bodyConnected": "Three AI roles work through a software-engineering problem, the runtime checks the evidence, and a fixed policy recommends. Only a person can authorize. The portal is connected to its server: New deliberation shows what this server can run.",
+        "bodyPending": "Three AI roles work through a software-engineering problem, the runtime checks the evidence, and a fixed policy recommends. Only a person can authorize."
       },
       "guided": {
         "title": "Start with a guided example",
-        "body": "Once the portal is connected, a guided example will start instantly. Its roles will be scripted and its evidence simulated, so it will be labeled SIMULATED and will call no model."
+        "body": "Once the portal is connected, a guided example will start instantly. Its roles will be scripted and its evidence simulated, so it will be labeled SIMULATED and will call no model.",
+        "bodyConnected": "When this server offers guided examples, one starts instantly from New deliberation. Its roles are scripted and its evidence is simulated, so it is labeled SIMULATED and calls no model.",
+        "bodyPending": "A guided example has scripted roles and simulated evidence, so it is labeled SIMULATED and calls no model."
       },
       "live": {
         "title": "Live Meta presets",
@@ -1268,7 +1300,9 @@
       "verification_error": "verification error",
       "not_checked": "not checked"
     },
-    "note": "A valid proof shows that Hyphae can reproduce the sealed recall a record came from, not that the record is true, relevant or complete, or that a model used it."
+    "note": "A valid proof shows that Hyphae can reproduce the sealed recall a record came from, not that the record is true, relevant or complete, or that a model used it.",
+    "introConnected": "Every run and event is marked with where it comes from, on separate axes: the model (scripted or live Meta), the evidence (simulated or a sealed snapshot), the source (this server or the research archive) and the delivery of each event (live or replay). Labels come from recorded data, never from the request. What they mean:",
+    "introPending": "Labels mark where a run or an event comes from, on separate axes: the model (scripted or live Meta), the evidence (simulated or a sealed snapshot), the source (this server or the research archive) and the delivery of each event (live or replay). A label comes from recorded data, never from the request. What they mean:"
   },
   "Footer": {
     "nonAffiliation": "Independent project; not affiliated with, sponsored by, or endorsed by Meta."

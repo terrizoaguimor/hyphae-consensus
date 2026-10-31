@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// The provenance legend (Overview): what each label will mean once the portal
-// is connected, aligned with the Modes article (messages/docs). Every label is
+// The provenance legend (Overview): what each label means, aligned with the
+// Modes article (messages/docs); its intro is in the present tense once the
+// API answered, in the planned wording once it did not, and a definition
+// with no claim about the connection until the probe settles. Every label is
 // text; color only repeats it. The labels sit on separate axes (plan B4), so
 // a model label never stands alone: it is always next to the evidence label
 // (SEALED SNAPSHOT for public live runs, SIMULATED for the archived hybrid
@@ -17,6 +19,8 @@ import { Text } from "@astryxdesign/core/Text";
 import { getTranslations } from "next-intl/server";
 
 import { INFO_VARIANT, LIVE_VARIANT } from "@/lib/provenance";
+
+import { ConnectionText } from "./ConnectionText";
 
 type LabelKey =
   | "simulated.label"
@@ -55,7 +59,15 @@ export async function ProvenanceLabels() {
       <Heading level={2} id="provenance-heading">
         {t("heading")}
       </Heading>
-      <Text as="p">{t("intro")}</Text>
+      <Text as="p">
+        {/* Present tense once the API answered; planned once it did not; neutral until then (HE #8). */}
+        <ConnectionText
+          as="span"
+          connected={t("introConnected")}
+          unreachable={t("intro")}
+          pending={t("introPending")}
+        />
+      </Text>
       <dl className="hc-provenance-list">
         {samples.map(({ key, badges }) => (
           <div key={key} className="hc-provenance-item">

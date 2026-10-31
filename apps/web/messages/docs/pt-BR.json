@@ -1,7 +1,7 @@
 {
   "Docs": {
     "lead": "Explicações curtas de como o Hyphae Consensus funciona e do que seus resultados significam.",
-    "buildNote": "As telas do portal que executam deliberações não estão conectadas nesta versão; estas páginas descrevem o sistema como ele funciona hoje e o portal público como está planejado.",
+    "buildNote": "O servidor do portal não respondeu, então as telas que executam deliberações não podem ser usadas agora; estas páginas descrevem o sistema como ele funciona e o portal público como está planejado.",
     "articlesHeading": "Artigos",
     "tourHeading": "Tour de um minuto",
     "tourText": "Seis passos curtos pelas ideias principais. Você pode pular a qualquer momento.",
@@ -183,8 +183,8 @@
             "body": "Execuções gravadas, roteirizadas ou com o modelo da Meta, lidas a partir de um arquivo que as preserva sem alterações. Cada uma tem o rótulo GRAVADO, mantém os rótulos de modelo e de evidência que os seus registros trazem e nunca é apresentada como ao vivo."
           },
           "build": {
-            "heading": "Nesta versão",
-            "body": "Nenhum dos três modos está conectado nesta versão do portal."
+            "heading": "Neste portal",
+            "body": "O servidor do portal não respondeu, então agora nenhum dos três modos pode iniciar uma execução a partir dele."
           }
         },
         "technical": {
@@ -193,6 +193,10 @@
           "language": "As tarefas predefinidas e a conversa com o modelo ficam em inglês, para que as afirmações correspondam aos registros de evidência em inglês. As telas traduzidas marcam o texto do modelo como saída original em inglês."
         }
       }
+    },
+    "modesBuild": {
+      "connected": "Este portal está conectado ao seu servidor. Quais modos podem iniciar uma execução depende do que o servidor habilita; Nova deliberação os mostra.",
+      "pending": "Quais modos podem iniciar uma execução depende do que o servidor do portal habilita; Nova deliberação os mostra."
     }
   }
 }

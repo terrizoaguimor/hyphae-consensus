@@ -83,6 +83,18 @@ function getServerSnapshot(): ApiHealth {
   return PENDING;
 }
 
+/**
+ * What copy that depends on the connection may say: `connected` once the
+ * probe answered, `unreachable` once it did not (the server did not answer:
+ * a static export without an API reads the same as an outage), `pending`
+ * until then (copy that makes no claim either way).
+ */
+export type ConnectionState = "pending" | "connected" | "unreachable";
+
+export function connectionState(health: ApiHealth): ConnectionState {
+  return health.status === "ok" ? "connected" : health.status;
+}
+
 /** The cached health probe; `retry()` probes again after a failure. */
 export function useApiHealth(): ApiHealth & { retry: () => void } {
   const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

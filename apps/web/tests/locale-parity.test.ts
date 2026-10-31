@@ -227,10 +227,31 @@ describe("message catalogs", () => {
     );
   });
 
+  // Round 4 (HE #8): the placeholder is shown only when GET /api/v1/health
+  // did not answer, so it says that, never "not connected in this build".
   it("carries the exact English not-connected statement", () => {
     expect(catalog("ui", "en").get("NotConnected.message")).toBe(
-      "This view connects to the Hyphae Consensus API; it is not connected in this build.",
+      "The Hyphae Consensus API did not answer, so this view cannot show anything right now.",
     );
+  });
+
+  it("never words an outage as a build that is not connected", () => {
+    for (const key of [
+      "NotConnected.message",
+      "App.buildNote",
+      "Overview.primaryActionNote",
+      "Tour.steps.welcome.body",
+      "Settings.explanation.descriptions.technical",
+    ]) {
+      const text = catalog("ui", "en").get(key) ?? "";
+      expect(text, key).toMatch(/did not answer/u);
+      expect(text, key).not.toMatch(/in this build|this build of the portal is not connected/iu);
+    }
+    for (const key of ["Docs.buildNote", "Docs.articles.modes.sections.build.body"]) {
+      const text = catalog("docs", "en").get(key) ?? "";
+      expect(text, key).toMatch(/did not answer/u);
+      expect(text, key).not.toMatch(/in this build/iu);
+    }
   });
 
   it.each(routing.locales)("%s names the app Hyphae Consensus", (locale) => {

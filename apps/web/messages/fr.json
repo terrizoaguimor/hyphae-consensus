@@ -8,7 +8,7 @@
     "name": "Hyphae Consensus",
     "tagline": "Raisonnement multi-agents vérifiable et responsabilité des décisions",
     "intro": "Trois rôles d’IA (Proposant, Critique et Évaluateur des éléments probants) travaillent sur un problème de génie logiciel. L’environnement d’exécution récupère des éléments probants dans la mémoire Hyphae et vérifie leurs preuves, l’Évaluateur juge chaque affirmation au regard de ces éléments, et une politique fixe transforme le résultat en recommandation. Seule une personne peut l’autoriser, et autoriser enregistre une décision sans rien exécuter.",
-    "buildNote": "Cette version du portail n’est pas connectée à l’API de Hyphae Consensus. Elle explique le système et présente les étiquettes qu’il utilisera ; rien n’y appelle de modèle ni ne lit la mémoire."
+    "buildNote": "L’API de Hyphae Consensus n’a pas répondu : ce portail peut seulement expliquer le système et présenter les étiquettes qu’il utilise ; pour l’instant, rien n’y appelle de modèle ni ne lit la mémoire."
   },
   "Shell": {
     "skipToContent": "Aller au contenu principal",
@@ -44,10 +44,10 @@
   },
   "NotConnected": {
     "badge": "Non connecté",
-    "message": "Cette vue se connecte à l’API de Hyphae Consensus ; elle n’est pas connectée dans cette version.",
+    "message": "L’API de Hyphae Consensus n’a pas répondu : cette vue ne peut rien afficher pour l’instant.",
     "plannedHeading": "Une fois connectée, cette vue :",
     "related": "Voir aussi",
-    "unreachable": "L’API n’a pas répondu : la requête vers /api/v1/health a échoué ({code}).",
+    "unreachable": "La requête vers /api/v1/health a échoué ({code}).",
     "retry": "Réessayer"
   },
   "ApiGate": {
@@ -56,7 +56,6 @@
     "contractMismatch": "Cette version a été construite pour le contrat d’API {build}, et le serveur annonce le contrat {server} : chaque réponse reste vérifiée avec le contrat de cette version, mais ce qui est nouveau sur le serveur peut ne pas s’afficher."
   },
   "Api": {
-    "errorTitle": "Le serveur a refusé la requête",
     "errorDetail": "Code {code}, HTTP {status}.",
     "retryAfter": "{seconds, plural, =0 {Vous pouvez réessayer maintenant.} one {Réessayez dans # seconde.} other {Réessayez dans # secondes.}}",
     "retry": "Réessayer",
@@ -76,7 +75,7 @@
       "too_many_streams": "Trop de flux ouverts pour cette exécution ou cette connexion.",
       "storage_full": "Le serveur a atteint son maximum d’exécutions de visiteurs et n’a pu en libérer aucune ; réessayez bientôt.",
       "live_disabled": "Le mode en direct n’est pas activé sur ce serveur.",
-      "shutting_down": "Le serveur s’arrête et n’admet aucune nouvelle exécution.",
+      "shutting_down": "Le serveur s’arrête ; réessayez dans une minute.",
       "run_not_awaiting_decision": "L’exécution n’attend pas de décision humaine.",
       "decision_conflict": "L’exécution a changé depuis que vous l’avez vue ; elle a été relue, vérifiez-la de nouveau avant de décider.",
       "idempotency_key_reused": "Cette clé de requête a déjà servi à une requête différente.",
@@ -111,6 +110,31 @@
       "unexpected_status": "Le serveur a répondu avec un statut que ce client ne comprend pas.",
       "bad_response": "La réponse du serveur ne correspond pas au contrat d’API pour lequel cette version a été construite.",
       "unknown": "Le serveur a refusé la requête avec un code que cette version ne connaît pas."
+    },
+    "createErrors": {
+      "shutting_down": "Le serveur s’arrête et n’admet aucune nouvelle exécution."
+    },
+    "fallback": "Voir plutôt une exécution enregistrée",
+    "headlines": {
+      "notAccepted": "Cette requête n’a pas été acceptée",
+      "rateLimited": "{seconds, plural, =0 {Trop de requêtes depuis cette connexion. Vous pouvez réessayer maintenant.} one {Trop de requêtes depuis cette connexion. Réessayez dans # seconde.} other {Trop de requêtes depuis cette connexion. Réessayez dans # secondes.}}",
+      "rateLimitedNoWait": "Trop de requêtes depuis cette connexion. Attendez un instant.",
+      "busy": "Le serveur est occupé. Réessayez bientôt.",
+      "liveInProgress": "Une autre exécution en direct est en cours",
+      "liveLimit": "La limite d’exécutions en direct est atteinte pour l’instant",
+      "budgetToday": "Le budget en direct du jour est épuisé",
+      "budgetSpent": "Le budget en direct est épuisé",
+      "liveClosed": "Le mode en direct ne peut pas lancer d’exécution pour l’instant",
+      "humanCheck": "La vérification humaine n’a pas abouti",
+      "location": "Indisponible depuis votre emplacement",
+      "session": "Une session est d’abord nécessaire",
+      "notAvailable": "Cette adresse ne vous est pas accessible",
+      "decision": "Votre décision n’a pas été enregistrée",
+      "decisionUncertain": "Votre décision a pu être enregistrée ou non. Vérifiez l’exécution avant de décider à nouveau.",
+      "serverProblem": "Le serveur a rencontré un problème",
+      "serverUnavailable": "Le serveur est indisponible pour l’instant",
+      "unreachable": "Le serveur n’a pas répondu",
+      "unreadable": "La réponse du serveur n’a pas pu être lue"
     }
   },
   "NotFound": {
@@ -122,7 +146,7 @@
     "primaryAction": "Lancer un exemple guidé",
     "primaryActionNeutral": "Aller à Nouvelle délibération",
     "primaryActionPlanned": "Comment fonctionneront les exemples guidés",
-    "primaryActionNote": "Les exécutions guidées nécessitent l’API de Hyphae Consensus, qui n’est pas connectée dans cette version.",
+    "primaryActionNote": "Les exécutions guidées nécessitent l’API de Hyphae Consensus, qui n’a pas répondu.",
     "secondaryAction": "Comment ça marche",
     "flowHeading": "Comment se déroule une délibération",
     "flow": {
@@ -194,7 +218,9 @@
       "run": "Lancer",
       "runScenario": "Lancer {title}",
       "starting": "Démarrage…",
-      "disabled": "Les exemples guidés ne sont pas activés sur ce serveur."
+      "disabled": "Les exemples guidés ne sont pas activés sur ce serveur.",
+      "wait": "Réessayer dans {time}",
+      "waitScenario": "Lancer {title} : réessayer dans {time}"
     },
     "live": {
       "heading": "Tâches prédéfinies en direct",
@@ -242,7 +268,8 @@
         "provider_refused_key": "La Model API de Meta a refusé la clé du serveur : le registre s’est arrêté de lui-même.",
         "inconsistent": "Les enregistrements du registre ne concordent pas : il s’est arrêté de lui-même.",
         "other": "Le registre s’est arrêté de lui-même (code {code})."
-      }
+      },
+      "wait": "Réessayer dans {time}"
     }
   },
   "Runs": {
@@ -1133,8 +1160,9 @@
       },
       "descriptions": {
         "simple": "Explications en langage courant ; les détails techniques sont d’abord repliés.",
-        "technical": "Les détails techniques sont d’abord dépliés dans la documentation, et les explications des exécutions les utiliseront une fois l’API connectée."
-      }
+        "technical": "Les détails techniques sont d’abord dépliés dans la documentation. Les explications des exécutions les utilisent aussi, mais l’API n’a pas répondu : il n’y a pour l’instant aucune exécution à expliquer."
+      },
+      "technicalConnected": "Les détails techniques sont d’abord dépliés dans la documentation et dans les explications des exécutions."
     },
     "reset": {
       "heading": "Paramètres enregistrés",
@@ -1164,11 +1192,15 @@
     "steps": {
       "welcome": {
         "title": "Bienvenue dans Hyphae Consensus",
-        "body": "Trois rôles d’IA travaillent sur un problème de génie logiciel, l’environnement d’exécution vérifie les éléments probants et une politique fixe recommande. Seule une personne peut autoriser. Dans cette version, le portail n’est pas connecté : ses vues indiquent ce qu’elles feront."
+        "body": "Trois rôles d’IA travaillent sur un problème de génie logiciel, l’environnement d’exécution vérifie les éléments probants et une politique fixe recommande. Seule une personne peut autoriser. Le serveur du portail n’a pas répondu : ses vues indiquent ce qu’elles feraient.",
+        "bodyConnected": "Trois rôles d’IA travaillent sur un problème de génie logiciel, l’environnement d’exécution vérifie les éléments probants et une politique fixe recommande. Seule une personne peut autoriser. Le portail est connecté à son serveur : Nouvelle délibération montre ce que ce serveur peut lancer.",
+        "bodyPending": "Trois rôles d’IA travaillent sur un problème de génie logiciel, l’environnement d’exécution vérifie les éléments probants et une politique fixe recommande. Seule une personne peut autoriser."
       },
       "guided": {
         "title": "Commencez par un exemple guidé",
-        "body": "Une fois le portail connecté, un exemple guidé démarrera immédiatement. Ses rôles seront scénarisés et ses éléments probants simulés : il sera donc étiqueté SIMULÉ et n’appellera aucun modèle."
+        "body": "Une fois le portail connecté, un exemple guidé démarrera immédiatement. Ses rôles seront scénarisés et ses éléments probants simulés : il sera donc étiqueté SIMULÉ et n’appellera aucun modèle.",
+        "bodyConnected": "Quand ce serveur propose des exemples guidés, l’un d’eux démarre immédiatement depuis Nouvelle délibération. Ses rôles sont scénarisés et ses éléments probants simulés : il est donc étiqueté SIMULÉ et n’appelle aucun modèle.",
+        "bodyPending": "Un exemple guidé a des rôles scénarisés et des éléments probants simulés : il est donc étiqueté SIMULÉ et n’appelle aucun modèle."
       },
       "live": {
         "title": "Tâches prédéfinies du mode Meta en direct",
@@ -1268,7 +1300,9 @@
       "verification_error": "erreur de vérification",
       "not_checked": "non vérifiée"
     },
-    "note": "Une preuve valide montre que Hyphae peut reproduire la requête scellée dont provient un enregistrement, pas que cet enregistrement est vrai, pertinent ou complet, ni qu’un modèle l’a utilisé."
+    "note": "Une preuve valide montre que Hyphae peut reproduire la requête scellée dont provient un enregistrement, pas que cet enregistrement est vrai, pertinent ou complet, ni qu’un modèle l’a utilisé.",
+    "introConnected": "Chaque exécution et chaque événement sont marqués de leur provenance, sur des axes distincts : le modèle (scénarisé ou Meta en direct), les éléments probants (simulés ou un instantané scellé), la source (ce serveur ou l’archive de recherche) et la diffusion de chaque événement (en direct ou rejeu). Les étiquettes proviennent des données enregistrées, jamais de la requête. Ce qu’elles signifient :",
+    "introPending": "Les étiquettes indiquent la provenance d’une exécution ou d’un événement, sur des axes distincts : le modèle (scénarisé ou Meta en direct), les éléments probants (simulés ou un instantané scellé), la source (ce serveur ou l’archive de recherche) et la diffusion de chaque événement (en direct ou rejeu). Chaque étiquette provient des données enregistrées, jamais de la requête. Ce qu’elles signifient :"
   },
   "Footer": {
     "nonAffiliation": "Projet indépendant ; non affilié à Meta, ni parrainé ni approuvé par Meta."

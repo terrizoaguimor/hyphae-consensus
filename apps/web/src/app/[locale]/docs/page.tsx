@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Docs index: the explainer articles, the tour launcher (the tour is always
-// reachable from here), and how the explanation level works.
+// reachable from here), and how the explanation level works. The build note
+// appears only when the API did not answer (src/components/ConnectionText.tsx).
 
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 
+import { ConnectionText } from "@/components/ConnectionText";
 import { PageHeader } from "@/components/PageHeader";
 import { richTags } from "@/components/rich";
 import { TourLauncher } from "@/components/TourInvite";
@@ -23,7 +25,12 @@ export default async function DocsPage({ params }: LocaleParams) {
   return (
     <>
       <PageHeader title={t("Nav.docs")} lead={t("Docs.lead")}>
-        <p className="hc-build-note">{t("Docs.buildNote")}</p>
+        {/* Only when the API did not answer: a connected portal has no build note (HE #8). */}
+        <ConnectionText
+          className="hc-build-note"
+          connected={null}
+          unreachable={t("Docs.buildNote")}
+        />
       </PageHeader>
 
       <section className="hc-section">

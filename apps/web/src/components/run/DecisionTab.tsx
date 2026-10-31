@@ -33,6 +33,7 @@ import { useFormatter, useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError, isApiError, newIdempotencyKey } from "@/lib/api/client";
+import { decisionOutcomeUnknown } from "@/lib/api/errors";
 import type { DecisionResponseV1, DecisionV1, RunDetailV1 } from "@/lib/api/types";
 import { awaitsDecision, DECIDE_BUTTON_VARIANT, decisionFormCopy, isOverride } from "@/lib/run/decision";
 import { explainContext } from "@/lib/run/explain";
@@ -118,7 +119,10 @@ export function DecisionTab({
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<DecisionResponseV1 | null>(null);
+  // A decision's error and a cancel's error are kept apart: a refused cancel
+  // is not headed "Your decision was not recorded" (no decision was sent).
   const [error, setError] = useState<ApiError | null>(null);
+  const [cancelError, setCancelError] = useState<ApiError | null>(null);
   const [cancelling, setCancelling] = useState<"idle" | "requested">("idle");
   // Where the keyboard focus goes when a decision sent from this tab
   // replaces the form (the pressed button is gone with it): the recorded
@@ -209,7 +213,10 @@ export function DecisionTab({
     } catch (cause) {
       const apiError = toApiError(cause, `/runs/${runId}/decision`);
       setError(apiError);
-      if (apiError.code === "decision_conflict") {
+      // A conflict, or a failure after which the decision may have been
+      // recorded (no answer, a timeout, an unreadable answer), re-reads the
+      // run, so the page shows what the server holds.
+      if (apiError.code === "decision_conflict" || decisionOutcomeUnknown(apiError.code)) {
         const refreshed = await api.getRun(runId).catch(() => null);
         if (refreshed !== null) {
           onDetail?.(refreshed);
@@ -221,12 +228,12 @@ export function DecisionTab({
   };
 
   const cancel = async () => {
-    setError(null);
+    setCancelError(null);
     try {
       await api.cancel(runId);
       setCancelling("requested");
     } catch (cause) {
-      setError(toApiError(cause, `/runs/${runId}/cancel`));
+      setCancelError(toApiError(cause, `/runs/${runId}/cancel`));
     }
   };
 
@@ -337,7 +344,7 @@ export function DecisionTab({
             : t("notAwaiting")}
         </p>
       )}
-      {error === null ? null : <ApiErrorNotice error={error} />}
+      {error === null ? null : <ApiErrorNotice error={error} context="decision" />}
       <ul className="hc-related" role="list">
         <li>
           <a href={links.receipt} className="hc-link" data-receipt-link>
@@ -473,6 +480,12 @@ export function DecisionTab({
           ) : (
             <div className="hc-actions">
               <Button variant="destructive" label={t("cancel")} onClick={() => void cancel()} />
+            </div>
+          )}
+          {/* Headed by the code's class (a refused cancel is not a refused decision). */}
+          {cancelError === null ? null : (
+            <div data-cancel-error>
+              <ApiErrorNotice error={cancelError} context="read" />
             </div>
           )}
         </section>

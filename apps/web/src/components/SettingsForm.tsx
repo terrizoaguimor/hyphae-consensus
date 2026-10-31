@@ -24,6 +24,7 @@ import {
   writeStorage,
 } from "@/lib/preferences";
 
+import { useConnectionState } from "./ConnectionText";
 import { LocaleSwitcher } from "./LocaleSwitcher";
 import { usePreferences } from "./preferences";
 
@@ -43,6 +44,7 @@ export function SettingsForm({ locale, endonyms }: SettingsFormProps) {
     setExplanation,
     resetAll,
   } = usePreferences();
+  const connection = useConnectionState();
   const [status, setStatus] = useState("");
   // null until the one-shot notice key was read (once per mount).
   const languageNotice = useRef<boolean | null>(null);
@@ -163,7 +165,19 @@ export function SettingsForm({ locale, endonyms }: SettingsFormProps) {
               key={option}
               value={option}
               label={t(`explanation.options.${option}`)}
-              description={t(`explanation.descriptions.${option}`)}
+              description={
+                option === "technical" ? (
+                  // What the level reaches depends on the connection: no
+                  // run is explained when the server did not answer (HE #8).
+                  <span data-connection-copy={connection}>
+                    {connection === "unreachable"
+                      ? t("explanation.descriptions.technical")
+                      : t("explanation.technicalConnected")}
+                  </span>
+                ) : (
+                  t(`explanation.descriptions.${option}`)
+                )
+              }
             />
           ))}
         </RadioList>

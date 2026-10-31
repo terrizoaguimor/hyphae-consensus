@@ -131,6 +131,17 @@ const ALLOWED: Record<string, string> = {
   "Api.errors.turnstile_required": "live endpoint error",
   "Api.errors.attestation_required": "live endpoint error",
   "Api.errors.geo_blocked_live": "live endpoint error",
+  // The connected variant of the legend's introduction (round 4, HE #8).
+  "Provenance.introConnected": "Overview legend only",
+  // Its variant until the health probe settles (round 4 apply, review R1-2).
+  "Provenance.introPending": "Overview legend only",
+  // The headlines of the live endpoints' error classes D, E and F
+  // (src/lib/api/errors.ts): chosen only for the codes above.
+  "Api.headlines.liveInProgress": "live endpoint error headline",
+  "Api.headlines.liveLimit": "live endpoint error headline",
+  "Api.headlines.budgetToday": "live endpoint error headline",
+  "Api.headlines.budgetSpent": "live endpoint error headline",
+  "Api.headlines.liveClosed": "live endpoint error headline",
 };
 
 const catalogs = routing.locales.map((locale) => ({ locale, messages: read(locale) }));

@@ -12,17 +12,13 @@ import { Button } from "@astryxdesign/core/Button";
 import { useTranslations } from "next-intl";
 import { type RefObject, useRef, useState } from "react";
 
+import { tourBodyKey, tourSteps } from "@/lib/tour";
+
+import { useConnectionState } from "./ConnectionText";
 import { Modal } from "./Modal";
 import { usePreferences } from "./preferences";
 
-export const tourSteps = [
-  "welcome",
-  "guided",
-  "live",
-  "runs",
-  "labels",
-  "decide",
-] as const;
+export { type TourStep, tourSteps } from "@/lib/tour";
 
 const TITLE_ID = "hc-tour-title";
 const BODY_ID = "hc-tour-body";
@@ -52,8 +48,10 @@ type TourStepsProps = {
   onClose: (outcome: "skipped" | "completed") => void;
 };
 
+// Each step's body has one variant per connection state (src/lib/tour.ts).
 function TourSteps({ primaryRef, onClose }: TourStepsProps) {
   const t = useTranslations("Tour");
+  const connection = useConnectionState();
   const [index, setIndex] = useState(0);
   const [announcement, setAnnouncement] = useState("");
 
@@ -72,7 +70,7 @@ function TourSteps({ primaryRef, onClose }: TourStepsProps) {
         current: next + 1,
         total,
         title: t(`steps.${target}.title`),
-        body: t(`steps.${target}.body`),
+        body: t(tourBodyKey(target, connection)),
       }),
     );
     // Back disappears on the first step: keep focus inside the dialog.
@@ -89,8 +87,8 @@ function TourSteps({ primaryRef, onClose }: TourStepsProps) {
       <h2 id={TITLE_ID} className="hc-dialog-title">
         {t(`steps.${step}.title`)}
       </h2>
-      <p id={BODY_ID} className="hc-tour-body">
-        {t(`steps.${step}.body`)}
+      <p id={BODY_ID} className="hc-tour-body" data-connection-copy={connection}>
+        {t(tourBodyKey(step, connection))}
       </p>
       <ol className="hc-tour-dots" aria-hidden="true">
         {tourSteps.map((name, position) => (

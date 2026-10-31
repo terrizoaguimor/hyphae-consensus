@@ -15,6 +15,8 @@
 
 import type { Locator, Page } from "@playwright/test";
 
+import { VARIANT_ROLES } from "../src/lib/provenance";
+
 import {
   framesWith,
   liveModelDetail,
@@ -24,7 +26,7 @@ import {
 } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, hydrated, t, test, useTheme } from "./fixtures";
-import { expectEncoding, expectNotVerified, openRun, tagEncodings } from "./helpers";
+import { EXPECTED_VARIANT_ROLES, expectEncoding, expectNotVerified, openRun, tagEncodings } from "./helpers";
 
 type Json = Record<string, unknown>;
 
@@ -198,4 +200,11 @@ test("a flag is contested: the double frame on a tint and the warning triangle",
   await expect(flag).toBeVisible();
   await expectEncoding(flag, "contested");
   expect(await icons(flag)).toEqual(["triangle-alert"]);
+});
+
+test("the app draws each badge variant as the role the e2e checks expect, written out independently", () => {
+  // helpers.ts writes the variant-to-role table out instead of reading the
+  // app's VARIANT_ROLES, so the encoding checks above cannot move with a
+  // regression of the app's mapping; this pins the two together.
+  expect(VARIANT_ROLES).toEqual(EXPECTED_VARIANT_ROLES);
 });

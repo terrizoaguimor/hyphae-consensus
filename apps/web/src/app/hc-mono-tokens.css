@@ -7,9 +7,10 @@
    design/palette-mono/hc-mono-tokens.css, revision 2. One change: the light block below sets color-scheme on
    [data-theme="light"] only, not on :root, so a page whose head script has not run (no JavaScript) keeps the
    theme's `color-scheme: light dark` and follows the OS, as before. The tiles under /brand/ ship with the glass. */
-/* Not shipped yet: public/brand/ holds no tile, and nothing uses --hc-btn-grain, --hc-glass-grain or --hc-hatch, so
-   nothing requests them. The lane that first uses one of these tokens adds its tiles in the same commit (otherwise
-   the page requests a missing file). */
+/* Shipped: the hatch tiles (public/brand/hatch-light.png and hatch-dark.png, round 5 tags lane); --hc-hatch is used by
+   the simulated tag (globals.css). Not shipped yet: the brushed grain tiles, and nothing uses --hc-btn-grain or
+   --hc-glass-grain, so nothing requests them. The lane that first uses one of these tokens adds its tiles in the same
+   commit (otherwise the page requests a missing file). */
 @layer app {
   :root {
     --hc-mono-0: #FFFFFF;

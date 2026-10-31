@@ -178,7 +178,11 @@ export type TagIconName =
   | "hash"
   | "circle-dot-dashed"
   | "stamp"
-  | "user-round-x";
+  | "user-round-x"
+  | "equal"
+  | "pencil"
+  | "plus"
+  | "circle-minus";
 
 /**
  * Each role's icon family, its default first (design-direction 3.2). No icon
@@ -199,6 +203,7 @@ export const ROLE_ICONS: Record<TagRole, readonly TagIconName[]> = {
     "link-2-off",
     "plug-zap",
     "message-square-warning",
+    "circle-minus",
   ],
   pending: ["user-round-check"],
   info: [
@@ -219,6 +224,9 @@ export const ROLE_ICONS: Record<TagRole, readonly TagIconName[]> = {
     "circle-dot-dashed",
     "stamp",
     "user-round-x",
+    "equal",
+    "pencil",
+    "plus",
   ],
 };
 
@@ -265,6 +273,22 @@ export const DECISION_ICONS: Record<"approved" | "approvedOverride" | "rejected"
   approved: "stamp",
   approvedOverride: "stamp",
   rejected: "user-round-x",
+};
+
+/**
+ * The tag of each claim change in the revision view (design-direction 3.2):
+ * an expected change is not a warning, so unchanged, changed and added are
+ * informational, each with its own icon; only a dropped claim (`removed`)
+ * stays contested.
+ */
+export const REVISION_TAGS: Record<
+  "unchanged" | "changed" | "added" | "removed",
+  { variant: TagVariant; icon: TagIconName }
+> = {
+  unchanged: { variant: "neutral", icon: "equal" },
+  changed: { variant: "neutral", icon: "pencil" },
+  added: { variant: "neutral", icon: "plus" },
+  removed: { variant: "warning", icon: "circle-minus" },
 };
 
 /**

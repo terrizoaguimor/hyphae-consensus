@@ -7,7 +7,7 @@
 
 import type { Locator, Page } from "@playwright/test";
 
-import { ROLE_ICONS, type TagRole, type TagVariant, VARIANT_ROLES } from "../src/lib/provenance";
+import { ROLE_ICONS, type TagRole, type TagVariant } from "../src/lib/provenance";
 import { runPath } from "../src/lib/site";
 
 import { RUN_ID } from "./api-mock";
@@ -66,20 +66,52 @@ export const ROLE_ENCODING: Record<TagRole, RoleEncoding> = {
 };
 
 /**
+ * The role each badge variant must be drawn as (palette-mono 2.1), written
+ * out here rather than read from the app's VARIANT_ROLES, so that a
+ * regression of the app's mapping (say purple drawn verified) makes the
+ * encoding checks fail instead of moving their expectation with it.
+ */
+export const EXPECTED_VARIANT_ROLES: Record<TagVariant, TagRole> = {
+  success: "verified",
+  error: "failed",
+  purple: "simulated",
+  pink: "live",
+  warning: "contested",
+  neutral: "info",
+  info: "info",
+  blue: "info",
+};
+
+/**
  * The monochrome encoding of each badge variant the views use (its default
- * role, VARIANT_ROLES), and of the roles a view names for a variant:
+ * role, EXPECTED_VARIANT_ROLES), and of the roles a view names for a variant:
  * "checked" (the success variant of a check run in this browser: the chain
  * check, the showcase manifest; hollow, never the verified solid),
  * "recorded" (RECORDED) and "pending" (your decision).
  */
 export const VARIANT_ENCODING: Record<string, RoleEncoding> = {
   ...(Object.fromEntries(
-    Object.entries(VARIANT_ROLES).map(([variant, role]) => [variant, ROLE_ENCODING[role]]),
+    Object.entries(EXPECTED_VARIANT_ROLES).map(([variant, role]) => [variant, ROLE_ENCODING[role]]),
   ) as Record<TagVariant, RoleEncoding>),
   checked: ROLE_ENCODING.checked,
   recorded: ROLE_ENCODING.recorded,
   pending: ROLE_ENCODING.pending,
 };
+
+/**
+ * Whether a rendered encoding shows the LIVE look: LIVE's visual channels
+ * (the 2px ink frame and the 8px square, on the surface), whatever icon it
+ * carries. The icon is left out on purpose: every non-LIVE tag carries one,
+ * so requiring LIVE's "no icon" here would let a non-LIVE label drawn with
+ * the LIVE frame and square slip past the honesty checks.
+ */
+export function looksLive(found: TagEncoding): boolean {
+  const live = ROLE_ENCODING.live;
+  const keys = Object.keys(live)
+    .filter((key) => key !== "icons")
+    .sort();
+  return JSON.stringify(found, keys) === JSON.stringify(live, keys);
+}
 
 /** The verified look: a solid fill under an inverted label, no frame, the shield. Nothing simulated may have it. */
 export const VERIFIED_ENCODING = ROLE_ENCODING.verified;

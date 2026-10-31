@@ -33,6 +33,7 @@ import {
   proofToken,
   type ProvenanceLabel,
   RECOMMENDATION_VARIANTS,
+  REVISION_TAGS,
   ROLE_ICONS,
   sourceLabel,
   TAG_ROLES,
@@ -208,6 +209,31 @@ describe("the icon families", () => {
       expect(icon, decision).not.toBe(tagLook("neutral", { key: "thisServer.label" }).icon);
     }
     expect(DECISION_ICONS.rejected).not.toBe(DECISION_ICONS.approved);
+  });
+
+  it("an expected revision change is informational; only a dropped claim is contested", () => {
+    const looks = Object.fromEntries(
+      Object.entries(REVISION_TAGS).map(([kind, { variant, icon }]) => [kind, tagLook(variant, { icon })]),
+    );
+    expect(looks).toEqual({
+      unchanged: { role: "info", icon: "equal" },
+      changed: { role: "info", icon: "pencil" },
+      added: { role: "info", icon: "plus" },
+      removed: { role: "contested", icon: "circle-minus" },
+    });
+    for (const kind of ["unchanged", "changed", "added"] as const) {
+      expect(looks[kind]?.role, kind).not.toBe("contested");
+      expect(looks[kind]?.role, kind).not.toBe("failed");
+    }
+  });
+
+  it("the icons file carries Lucide's ISC notice word for word", () => {
+    const words = (text: string) => text.replace(/^\s*\/\/ ?/gm, "").replace(/\s+/g, " ").trim();
+    const licence = readFileSync(new URL("../public/licenses/Lucide-LICENSE.txt", import.meta.url), "utf8");
+    const isc = words(licence.split(/^---\r?$/m)[0] ?? "");
+    expect(isc).toMatch(/^ISC License Copyright .* IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE\.$/);
+    const header = readFileSync(new URL("../src/components/icons.tsx", import.meta.url), "utf8").split(/^import /m)[0];
+    expect(words(header ?? "")).toContain(isc);
   });
 
   it("an icon outside the role's family falls back to the role's own", () => {

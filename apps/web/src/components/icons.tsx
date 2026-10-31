@@ -9,18 +9,20 @@
 // from its published geometry under the ISC licence:
 //
 //   ISC License
+//
 //   Copyright (c) 2026 Lucide Icons and Contributors
+//
 //   Permission to use, copy, modify, and/or distribute this software for any
 //   purpose with or without fee is hereby granted, provided that the above
 //   copyright notice and this permission notice appear in all copies.
+//
 //   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 //   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
 //   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
 //   ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 //   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 //   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-//   OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//   SOFTWARE.
+//   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 //
 // Some Lucide shapes derive from Feather (MIT, Copyright (c) 2013-present Cole
 // Bemis). THIRD_PARTY_NOTICES.md, "Icons"; Lucide's licence file (ISC and the
@@ -205,6 +207,21 @@ export const ICON_SHAPES: Record<TagIconName, readonly Shape[]> = {
     ["path", { d: "m21.5 16.5-5 5" }],
     ["circle", { cx: "10", cy: "8", r: "5" }],
   ],
+  equal: [
+    ["line", { x1: "5", x2: "19", y1: "9", y2: "9" }],
+    ["line", { x1: "5", x2: "19", y1: "15", y2: "15" }],
+  ],
+  pencil: [
+    [
+      "path",
+      {
+        d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z",
+      },
+    ],
+    ["path", { d: "m15 5 4 4" }],
+  ],
+  plus: [["path", { d: "M5 12h14" }], ["path", { d: "M12 5v14" }]],
+  "circle-minus": [["circle", { cx: "12", cy: "12", r: "10" }], ["path", { d: "M8 12h8" }]],
 };
 
 /** The sizes design-direction 3.9 uses: 12 (compact tags), 16 (tags, callout bands), 20 (callouts). */

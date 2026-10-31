@@ -52,14 +52,12 @@ import {
   expectNotVerified,
   expectNoLive,
   liveBadge,
-  matchesEncoding,
+  looksLive,
   openRun,
   OUTCOME_BADGE,
-  type RoleEncoding,
   type TagEncoding,
   tagEncodings,
   takeProblem,
-  VARIANT_ENCODING,
 } from "./helpers";
 
 type Json = Record<string, unknown>;
@@ -86,14 +84,25 @@ async function expectNotGreen(badges: Locator, variant: string) {
   await expectEncoding(badges, variant);
 }
 
-/** The trimmed texts of the badges the locator finds that show the LIVE encoding. */
+/**
+ * The trimmed texts of the badges the locator finds that show the LIVE look:
+ * LIVE's frame, square, fill and polarity, whatever icon they carry (helpers.ts
+ * looksLive), so a non-LIVE label with its own icon drawn in LIVE's frame and
+ * square still counts. Every badge found carries no icon, as a LIVE label does.
+ */
 async function liveLooking(badges: Locator): Promise<string[]> {
   const encodings = await tagEncodings(badges);
   const texts = await badges.allInnerTexts();
-  const live = VARIANT_ENCODING.pink as RoleEncoding;
-  return texts
-    .filter((_, index) => encodings[index] !== undefined && matchesEncoding(encodings[index] as TagEncoding, live))
-    .map((text) => text.trim());
+  const found = texts
+    .map((text, index) => ({ text: text.trim(), encoding: encodings[index] }))
+    .filter(
+      (entry): entry is { text: string; encoding: TagEncoding } =>
+        entry.encoding !== undefined && looksLive(entry.encoding),
+    );
+  for (const { text, encoding } of found) {
+    expect(encoding.icon, `the LIVE-looking tag ${text} carries no icon`).toBeNull();
+  }
+  return found.map((entry) => entry.text);
 }
 
 test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, pageProblems }) => {
@@ -972,6 +981,11 @@ test("after a rejection the header shows it as its own tag, never a grey word, a
   // is the informational tag (palette-mono 2.1, as THIS SERVER is since
   // RECORDED got its own role), so what sets it apart from a neutral label is
   // the tag's shape and its own icon (the person declined), not a shade.
+  // This is an accepted, spec-driven change, not an equal-strength
+  // replacement: before round 5 this test required the decision's fill to
+  // differ from THIS SERVER's (a pre-attentive difference); both are now the
+  // info role, which palette-mono 2.2 lets differ only by icon and word (a
+  // read channel). The fill is still required to be a tint, never none.
   const neutral = page
     .locator("header.hc-run-header")
     .getByText(t("en", "Provenance.thisServer.label"), { exact: true })
@@ -1918,6 +1932,16 @@ test("the revision view compares the original and the revised proposal claim by 
   await expect(first.locator("td").nth(1)).toHaveText("Payment timeouts correlate with retry bursts above 5 attempts");
   await expect(first.locator("td").nth(2)).toHaveText(t("en", "Run.revision.kinds.changed"));
   await expect(first.locator("td [lang='en']")).toHaveCount(2);
+  // An expected change is not a warning (design-direction 3.2): a changed
+  // claim is informational, never the contested double frame, with the pencil.
+  const changedTags = compare.locator("[data-claim-change='changed'] .astryx-badge");
+  await expect(changedTags).toHaveCount(2);
+  await expect(changedTags.first()).toHaveAttribute("data-tag-role", "info");
+  await expectEncoding(changedTags, "neutral");
+  for (const encoding of await tagEncodings(changedTags)) {
+    expect(encoding.frame).not.toBe("double 3px");
+    expect(encoding.icon).toBe("pencil");
+  }
   await expect(compare.locator("[data-claim-id='claim-2'][data-claim-change='changed']")).toContainText(
     "Capping retries at 3 attempts with jitter matches the documented constraint",
   );
@@ -1952,6 +1976,16 @@ test("a revision that shares only some claim ids says that ids alone cannot tell
   await expect(compare).toHaveAttribute("data-claim-pairing", "id");
   await expect(compare.locator("[data-claim-id='claim-9'][data-claim-change='added']")).toHaveCount(1);
   await expect(compare.locator("[data-claim-id='claim-2'][data-claim-change='removed']")).toHaveCount(1);
+  // An added claim is informational (the plus); only a dropped one stays
+  // contested (the double frame and circle-minus), design-direction 3.2.
+  const added = compare.locator("[data-claim-change='added'] .astryx-badge");
+  await expect(added).toHaveAttribute("data-tag-role", "info");
+  await expectEncoding(added, "neutral");
+  expect((await tagEncodings(added)).map((encoding) => encoding.icon)).toEqual(["plus"]);
+  const dropped = compare.locator("[data-claim-change='removed'] .astryx-badge");
+  await expect(dropped).toHaveAttribute("data-tag-role", "contested");
+  await expectEncoding(dropped, "warning");
+  expect((await tagEncodings(dropped)).map((encoding) => encoding.icon)).toEqual(["circle-minus"]);
   await expect(compare.locator("[data-claim-pairing-partial]")).toHaveText(t("en", "Run.revision.partialIds"));
   await expectNoLive(page, "en");
 });

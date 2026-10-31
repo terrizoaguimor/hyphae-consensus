@@ -21,6 +21,7 @@
 import { useLocale, useTranslations } from "next-intl";
 
 import type { Claim, Proposal, RunDetailV1 } from "@/lib/api/types";
+import { REVISION_TAGS } from "@/lib/provenance";
 import { claimComparison, revisedByMetaModel, revisionSteps } from "@/lib/run/revision";
 
 import { Tag } from "../Tag";
@@ -109,7 +110,8 @@ export function RevisionComparison({ original, revised, detail }: RevisionCompar
                       </td>
                       <td data-label={t("change")}>
                         <Tag
-                          variant={change.kind === "unchanged" ? "neutral" : "warning"}
+                          variant={REVISION_TAGS[change.kind].variant}
+                          icon={REVISION_TAGS[change.kind].icon}
                           label={t(`kinds.${change.kind}`)}
                         />
                         {change.kind === "changed" &&

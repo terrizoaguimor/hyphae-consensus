@@ -798,10 +798,11 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
     the simulated tag; its two tiles are shipped.)
   - Tags that palette-mono gives an icon outside the shipped families keep
     their role's default icon: In progress (`loader`), Draft
-    (`pencil-ruler`), the revision kinds (`equal`, `pencil`, `plus`,
-    `circle-minus`), Approved and Rejected decisions (`stamp`,
-    `user-round-x`) and the chain row cells (`check`, `x`, `minus`,
-    `rotate-ccw`).
+    (`pencil-ruler`) and the chain row cells (`check`, `x`, `minus`,
+    `rotate-ccw`). (The revision kinds follow design-direction 3.2 through
+    `REVISION_TAGS` in `src/lib/provenance.ts`: unchanged, changed and
+    added are informational, with `equal`, `pencil` and `plus`; only a
+    dropped claim stays contested, with `circle-minus`.)
 - **Theme**: `src/theme/hyphaeMissionTheme.ts` extends the neutral theme with
   `defineTheme`. `pnpm theme:build` writes the committed
   `hyphae-mission.{css,js,d.ts,css.d.ts,variants.d.ts}`; rebuild after any

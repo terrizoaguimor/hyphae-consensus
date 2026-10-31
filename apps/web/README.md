@@ -881,6 +881,43 @@ sidebar and the two dialogs, with a solid background under
 `prefers-reduced-transparency: reduce`, without `backdrop-filter` support,
 and in forced-colors mode.
 
+## Logo (Quorum)
+
+The Quorum mark (design/logo/quorum-final, v1.0; its README is the rule
+book) follows one threshold: below 64 px the mark is always flat. The top
+bar (56 px) carries the hand-set 32 px pixel cut before the wordmark, inline
+in `currentColor` (`QuorumMark`, `src/components/Quorum.tsx`), so it takes
+the wordmark's ink in each theme with no style attribute; it is decorative
+and the home link is named by the wordmark. The brushed-glass mark appears
+only at 64 px or more, as images of the small glass files (64 to 192 px):
+96 px on the root page's language chooser and on the 404 page
+(`QuorumGlass`). Both surfaces are in the page and `globals.css` shows the
+one for `<html data-theme>` (the OS setting when the head script has not run;
+light in print), so their gradient and filter ids never meet another mark's.
+
+`src/lib/brand.ts` holds the paths and the metadata the three documents (the
+`[locale]` layout, the root layout, the 404 page) share: the favicon
+(`favicon.svg`, the 16 px cut, plus the 16 and 32 px PNGs), the 180 px
+apple-touch icon, and `theme-color` in greys (the body background, #F4F4F4
+light, #0B0B0B dark). `favicon.svg` is the one shipped SVG with a `<style>`
+element (its dark-browser ink): it is linked, never inlined, and the CSP
+applies to HTML responses only. The app icons (`icon-512.png`,
+`icon-1024.png`, dark tile, and their `-light` versions) are served from the
+export root; there is no web app manifest (the app has none, and the API
+server's CSP sets no `manifest-src`). `SocialMeta` writes the Open Graph and
+Twitter card tags itself, with `og:image` as the same-origin path
+`/og-image.png` (1200 x 630, greys, the glass mark and the wordmark on the
+dark stage): Next's `openGraph` metadata would resolve it against
+`http://localhost:3000` without a `metadataBase`, and the public origin is
+not known at build time.
+
+Every file in `public/` other than `licenses/` is built by
+`python -I scripts/web_brand_assets.py <design/logo/quorum-final>` (repository
+root; standard library only). `tests/brand-assets.test.ts` checks the sizes,
+that every PNG pixel is grey, and that the SVGs carry no style attribute,
+script or external reference; `e2e/brand.spec.ts` checks the top bar, the
+glass threshold, the served files, the links in every document, and axe.
+
 ## i18n
 
 next-intl 4 with static rendering and no middleware or proxy:

@@ -2,7 +2,8 @@
   "Metadata": {
     "title": "Hyphae Consensus",
     "titleTemplate": "%s · Hyphae Consensus",
-    "description": "Hyphae Consensus portal: verifiable multi-agent reasoning and decision accountability."
+    "description": "Hyphae Consensus portal: verifiable multi-agent reasoning and decision accountability.",
+    "ogImageAlt": "The Quorum mark, three glass facets around a central node, above the words Hyphae Consensus, on a dark grey background."
   },
   "App": {
     "name": "Hyphae Consensus",

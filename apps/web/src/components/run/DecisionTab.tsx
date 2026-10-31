@@ -34,7 +34,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, ApiError, isApiError, newIdempotencyKey } from "@/lib/api/client";
 import type { DecisionResponseV1, DecisionV1, RunDetailV1 } from "@/lib/api/types";
-import { awaitsDecision, decisionFormCopy, isOverride } from "@/lib/run/decision";
+import { awaitsDecision, DECIDE_BUTTON_VARIANT, decisionFormCopy, isOverride } from "@/lib/run/decision";
 import { supersededProposal } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
@@ -74,6 +74,13 @@ type DecisionTabProps = {
   links: DecisionLinks;
   /** Replaces the workspace's detail after a decision (a run of this server only). */
   onDetail?: (detail: RunDetailV1) => void;
+  /**
+   * The decision this session recorded, held by the workspace so its header
+   * and this tab agree even when the detail could not be read again after it.
+   */
+  decided?: DecisionV1 | null;
+  /** Called with the decision the server recorded, before the detail is read again. */
+  onDecided?: (decision: DecisionV1) => void;
 };
 
 function toApiError(error: unknown, path: string): ApiError {
@@ -87,7 +94,7 @@ function toApiError(error: unknown, path: string): ApiError {
       });
 }
 
-export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) {
+export function DecisionTab({ runId, data, links, onDetail, decided, onDecided }: DecisionTabProps) {
   const t = useTranslations("Run.decision");
   const tRun = useTranslations("Run");
   const format = useFormatter();
@@ -141,7 +148,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
     original !== null && current !== null
       ? { id: current.id, summary: current.summary, original }
       : null;
-  const recorded: DecisionV1 | null = result?.decision ?? detail.decision ?? null;
+  const recorded: DecisionV1 | null = result?.decision ?? detail.decision ?? decided ?? null;
   const awaiting = awaitsDecision(detail.summary, recorded);
   const kind = recommendation?.kind ?? detail.summary.recommendation ?? null;
   const overrideNeeded = approvedChoice === true && isOverride(kind) && note.trim() === "";
@@ -176,6 +183,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
         newIdempotencyKey(),
       );
       setResult(response);
+      onDecided?.(response.decision);
       const refreshed = await api.getRun(runId).catch(() => null);
       if (refreshed !== null) {
         onDetail?.(refreshed);
@@ -282,7 +290,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
           <div className="hc-actions hc-decide-actions">
             {/* The pressed button is busy, never disabled: a disabled button would drop the keyboard focus. */}
             <Button
-              variant={copy.approveVariant}
+              variant={DECIDE_BUTTON_VARIANT}
               className="hc-decide-button"
               data-decide="approve"
               label={submitting && approvedChoice === true ? t("submitting") : t(copy.approve)}
@@ -291,7 +299,7 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
               onClick={() => void submit(true)}
             />
             <Button
-              variant={copy.rejectVariant}
+              variant={DECIDE_BUTTON_VARIANT}
               className="hc-decide-button"
               data-decide="reject"
               label={submitting && approvedChoice === false ? t("submitting") : t("reject")}

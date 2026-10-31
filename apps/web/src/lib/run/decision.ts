@@ -68,10 +68,13 @@ export type DecisionFormCopy = {
   noteOptional: boolean;
   /** The override line shown above the note before any click (override runs only). */
   overrideNotice: "overrideNotice" | null;
-  /** The Approve and Reject buttons' variant: the same for both, on every run. */
-  approveVariant: "secondary";
-  rejectVariant: "secondary";
 };
+
+/**
+ * The one variant both Approve and Reject take, on every run: equal weight
+ * is structural (a single constant), not a per-button choice.
+ */
+export const DECIDE_BUTTON_VARIANT = "secondary" as const;
 
 export function decisionFormCopy(kind: RecommendationKind | null | undefined): DecisionFormCopy {
   const override = isOverride(kind);
@@ -81,7 +84,5 @@ export function decisionFormCopy(kind: RecommendationKind | null | undefined): D
     noteDescription: override ? "noteRequiredDescription" : "noteDescription",
     noteOptional: !override,
     overrideNotice: override ? "overrideNotice" : null,
-    approveVariant: "secondary",
-    rejectVariant: "secondary",
   };
 }

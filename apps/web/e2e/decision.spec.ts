@@ -4,7 +4,8 @@
 // (heuristic evaluation, round 4, problems 4 and 12), at 1440 and 390 px:
 // - while a run awaits a decision the header says so and offers "Go to your
 //   decision" on every tab, which opens the Decision tab and moves the focus
-//   to the decision card; the link is gone once the decision is recorded;
+//   to the decision card; the link is gone once the decision is recorded,
+//   even when the run's detail cannot be read again after it;
 // - Decision is the tab right after the first one;
 // - the decision card comes before the long explanation, with Approve and
 //   Reject full-size (at least 40 px high), of the same variant and colour;
@@ -20,7 +21,7 @@ import { evidenceLabel } from "../src/lib/provenance";
 import { awaitingDecisionDetail, mockApi, storedRun } from "./api-mock";
 import { fixture } from "./contract";
 import { expect, locales, t, test, type Locale } from "./fixtures";
-import { openRun } from "./helpers";
+import { dropProblems, openRun } from "./helpers";
 
 type Json = Record<string, unknown>;
 
@@ -183,6 +184,51 @@ for (const viewport of VIEWPORTS) {
       // Decided: the card keeps its place, the header no longer offers the decision.
       await expect(page.locator("[data-decision-card='first'] [data-decision-recorded='approved']")).toBeVisible();
       await expect(go).toHaveCount(0);
+    });
+
+    test(`a decision recorded while the detail cannot be read again: the header and the tab agree (${viewport.name})`, async ({
+      page,
+      pageProblems,
+    }) => {
+      const mock = await mockApi(page, { detail: awaitingDecisionDetail() });
+      // Once the decision is POSTed, every later GET /runs/{id} fails.
+      const posted = () => mock.calls.some((c) => c.method === "POST" && c.path.endsWith("/decision"));
+      const refetches: string[] = [];
+      await page.route(
+        (url) => /^\/api\/v1\/runs\/run-[0-9a-f-]+$/.test(url.pathname),
+        async (route, request) => {
+          if (request.method() === "GET" && posted()) {
+            refetches.push(request.url());
+            return route.fulfill({
+              status: 500,
+              contentType: "application/json",
+              body: JSON.stringify({ code: "internal", message: "internal error" }),
+            });
+          }
+          return route.fallback();
+        },
+      );
+      await openRun(page, "en");
+      await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+      const go = page.locator("[data-go-to-decision]");
+      await go.getByRole("button", { name: t("en", "Run.header.goToDecision") }).click();
+      const form = page.locator("[data-decision-card='first'] [data-decision-form]");
+      await form.locator("[data-decide='reject']").click();
+      await expect(page.locator("[data-decision-recorded='rejected']")).toBeVisible();
+      expect(refetches.length).toBeGreaterThan(0);
+      // The tab shows the decision as recorded, and the header no longer asks for it.
+      await expect(go).toHaveCount(0);
+      // Leaving the tab and coming back keeps the recorded decision, never the form again.
+      await page.getByRole("tab", { name: t("en", "Run.tabs.evidence"), exact: true }).click();
+      await expect(go).toHaveCount(0);
+      await page.getByRole("tab", { name: t("en", "Run.tabs.decision"), exact: true }).click();
+      await expect(page.locator("[data-decision-recorded='rejected']")).toBeVisible();
+      await expect(page.locator("[data-decision-form]")).toHaveCount(0);
+      // The failed re-reads were provoked here on purpose; any other problem still counts.
+      await expect
+        .poll(() => pageProblems.filter((p) => p.startsWith("HTTP 500: /api/v1/runs/")).length)
+        .toBeGreaterThanOrEqual(1);
+      dropProblems(pageProblems, /^HTTP 500: \/api\/v1\/runs\/run-[0-9a-f-]+$/);
     });
 
     for (const locale of locales.filter((l): l is Exclude<Locale, "en"> => l !== "en")) {

@@ -34,7 +34,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { dynamicTranslator } from "@/i18n/dynamic";
 import type { Locale } from "@/i18n/routing";
 import { api, isRunId } from "@/lib/api/client";
-import type { RunDetailV1, ShowcaseEntryV1 } from "@/lib/api/types";
+import type { DecisionV1, RunDetailV1, ShowcaseEntryV1 } from "@/lib/api/types";
 import {
   evidenceLabel,
   isLive,
@@ -137,6 +137,8 @@ function Workspace({
   const format = useFormatter();
   const recorded = mode.kind === "recorded";
   const [tab, setTab] = useState<TabKey>(recorded ? "decision" : "stage");
+  // The decision this session recorded from the Decision tab (the server's answer).
+  const [decided, setDecided] = useState<DecisionV1 | null>(null);
   const { detail, detailError, summary, frames, reloadDetail } = mode.data;
   const archive = mode.kind === "recorded" ? mode.data.entry : null;
   // The entry's log digest, cross-checked against the manifest this browser checked.
@@ -237,7 +239,9 @@ function Workspace({
     label: value === "stage" ? stageLabel : t(`tabs.${value}`),
   }));
   // The run awaits a decision that can be recorded here: the header offers it on every tab.
-  const awaiting = !recorded && awaitsDecision(summary, detail?.decision);
+  // A decision sent from the Decision tab counts at once, even when the
+  // detail could not be read again after it (the tab shows it as recorded).
+  const awaiting = !recorded && awaitsDecision(summary, detail?.decision ?? decided);
   const links: DecisionLinks =
     mode.kind === "recorded"
       ? {
@@ -406,6 +410,8 @@ function Workspace({
             data={mode.data}
             links={links}
             onDetail={mode.kind === "own" ? mode.data.setDetail : undefined}
+            decided={decided}
+            onDecided={mode.kind === "own" ? setDecided : undefined}
           />
         ) : null}
       </div>

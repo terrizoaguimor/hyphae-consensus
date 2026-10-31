@@ -142,19 +142,30 @@ turns the pacing off. Server timestamps are shown untouched.
   (scripted outcome …)", factual and relevance statuses and a decision's
   authority have their own words, a failure or an unavailable retrieval
   reads the sentence of its code.
-- **Decision** (`DecisionTab`): the recommendation kind with its evidence
-  axis and, right under it, the scope line when the recommendation is for a
-  revision (which proposal it is for, which one it replaced, the task, both
-  summaries side by side: K03/K04), rationale, protocol, unresolved
-  assumptions and uncertainties, the open objections, the public decision
-  form (approve or reject with an optional note; an override of a blocked or
-  abstained run needs the note) with the fixed public_demo notice, enabled
-  only while the run awaits a decision and belongs to this session; the
-  recorded decision with the server's notice; the receipt link, and the
-  verbatim log link only when the public surface publishes it
-  (`ndjsonPublishable`, the server's rule: a live-declared run answers `404
-  ndjson_unavailable`, said in a sentence instead); cancel for a run still
-  deliberating.
+- **Decision** (`DecisionTab`, the tab right after the stage; first for a
+  recorded run): while a decision can be recorded here, and once one is,
+  the decision card comes first in the tab, before the long content
+  (`src/lib/run/decision.ts`). It holds the recommendation line with its
+  evidence axis (while awaiting), the fixed public_demo no-authority notice,
+  then the public decision form, enabled only while the run awaits a
+  decision and belongs to this session: a note and two full-size buttons
+  that share one variant (`DECIDE_BUTTON_VARIANT`), so Approve is never
+  promoted over Reject. On a blocked or abstained run Approve reads "Approve
+  as an override", the note is labelled "Required for this run" and the
+  override notice says, before any click, that approving needs the note (the
+  server's rule: a rejection needs none); elsewhere the note is optional.
+  Once decided, the card shows the recorded decision with the server's
+  notice (the workspace holds the decision this session sent, so the
+  header's "Go to your decision" goes away even if the detail cannot be read
+  again). Otherwise the card stays after the objections. Then the
+  recommendation kind and, right under it, the scope line when the
+  recommendation is for a revision (which proposal it is for, which one it
+  replaced, the task, both summaries side by side: K03/K04), rationale,
+  protocol, unresolved assumptions and uncertainties, the open objections.
+  The card also links the receipt, and the verbatim log only when the
+  public surface publishes it (`ndjsonPublishable`, the server's rule: a
+  live-declared run answers `404 ndjson_unavailable`, said in a sentence
+  instead); cancel for a run still deliberating.
 - **Evidence** (`EvidenceTab`, lane W2): every record the run retrieved
   (`src/lib/run/evidence.ts`, from `mergeEvents`): kind, project, retrieval
   mode, snapshot id and capture time when present, what its proof covers

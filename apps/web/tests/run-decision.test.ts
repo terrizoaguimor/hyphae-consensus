@@ -18,7 +18,13 @@ import { describe, expect, it } from "vitest";
 import { contractDir } from "../scripts/gen-api-types.mjs";
 import { routing } from "../src/i18n/routing";
 import type { RecommendationKind, RunDetailV1 } from "../src/lib/api/types";
-import { awaitsDecision, decisionFormCopy, isOverride, runTabOrder } from "../src/lib/run/decision";
+import {
+  awaitsDecision,
+  DECIDE_BUTTON_VARIANT,
+  decisionFormCopy,
+  isOverride,
+  runTabOrder,
+} from "../src/lib/run/decision";
 
 function fixture<T>(name: string): T {
   return JSON.parse(readFileSync(path.join(contractDir(), "fixtures", name), "utf8")) as T;
@@ -89,8 +95,6 @@ describe("decisionFormCopy", () => {
       noteDescription: "noteRequiredDescription",
       noteOptional: false,
       overrideNotice: "overrideNotice",
-      approveVariant: "secondary",
-      rejectVariant: "secondary",
     });
   });
 
@@ -102,16 +106,18 @@ describe("decisionFormCopy", () => {
       noteDescription: "noteDescription",
       noteOptional: true,
       overrideNotice: null,
-      approveVariant: "secondary",
-      rejectVariant: "secondary",
     });
   });
 
   it("never promotes Approve over Reject", () => {
+    // Both buttons take the one shared variant (DecisionTab passes it to
+    // both); the copy carries no per-button variant that could differ. The
+    // rendered weight (variant and computed colours) is checked in
+    // e2e/decision.spec.ts.
+    expect(DECIDE_BUTTON_VARIANT).not.toBe("primary");
     for (const kind of [...KINDS, null, undefined]) {
-      const copy = decisionFormCopy(kind);
-      expect(copy.approveVariant).toBe(copy.rejectVariant);
-      expect(copy.approveVariant).not.toBe("primary");
+      const copy: Record<string, unknown> = decisionFormCopy(kind);
+      expect(Object.keys(copy).some((key) => key.toLowerCase().includes("variant"))).toBe(false);
     }
     expect(isOverride(null)).toBe(false);
     expect(isOverride(undefined)).toBe(false);
@@ -153,5 +159,20 @@ describe("the English override wording", () => {
     expect(message("en", "Run.decision.approveOverride")).toBe("Approve as an override");
     expect(message("en", "Run.decision.noteRequired")).toContain("Required for this run");
     expect(message("en", "Run.header.goToDecision")).toBe("Go to your decision");
+  });
+
+  it("ties the note to approving, the server's rule (a rejection needs none)", () => {
+    // The server refuses only an approval without a note (DecideError::OverrideNoteRequired).
+    const notice = message("en", "Run.decision.overrideNotice");
+    expect(notice).toContain("to approve");
+    expect(notice).toContain("Approving this run");
+    expect(notice).not.toContain("approving it");
+    const description = message("en", "Run.decision.noteRequiredDescription");
+    expect(description).toContain("rejecting does not");
+    expect(description).not.toContain("why you reject");
+  });
+
+  it("points at the objections section without saying any is open", () => {
+    expect(message("en", "Run.decision.cardReasons")).not.toContain("open objections");
   });
 });

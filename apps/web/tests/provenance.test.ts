@@ -267,7 +267,16 @@ describe("proofs and outcomes", () => {
       }
     };
     walk(dir);
-    expect(offenders.sort()).toEqual(["ChainCheck.tsx"]);
+    // The two real checks run in this browser: the chain check, and the
+    // showcase manifest's SHA-256 compared with the pinned digest
+    // (integrity-travels, HE #5: a matching manifest gets an explicit
+    // status tag).
+    expect(offenders.sort()).toEqual(["ChainCheck.tsx", "ShowcaseList.tsx"]);
+    // In ShowcaseList the green literal is that manifest tag and nothing else.
+    const showcase = readFileSync(new URL("showcase/ShowcaseList.tsx", dir), "utf8");
+    const greenLines = showcase.split("\n").filter((line) => /["'](success|green)["']/.test(line));
+    expect(greenLines).toHaveLength(1);
+    expect(greenLines[0]).toMatch(/<Badge variant="success" label=\{t\("matchesTag"\)\} \/>/);
     // Reads every file of src/components/ through the bind mount: see
     // tests/io-timeout.ts.
   }, IO_BOUND_TEST_TIMEOUT_MS);

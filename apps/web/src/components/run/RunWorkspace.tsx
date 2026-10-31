@@ -337,7 +337,7 @@ function Workspace({
       data-run-mode={recorded ? "recorded" : "own"}
     >
       <header
-        className="hc-run-header hc-panel"
+        className="hc-run-header hc-panel hc-glass hc-glass--static"
         data-header-clock={following ? "playback" : "run"}
         data-header-state={beforePlayback ? "not_shown" : shown.state}
       >

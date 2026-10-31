@@ -190,7 +190,7 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
             {scenarios.length === 0 ? null : (
               <ul className="hc-scenario-list" role="list">
                 {scenarios.map((scenario) => (
-                  <li key={scenario.id} className="hc-scenario-card" data-scenario={scenario.id}>
+                  <li key={scenario.id} className="hc-scenario-card hc-glass hc-glass--static" data-scenario={scenario.id}>
                     <div className="hc-scenario-head">
                       <h3 className="hc-card-title">{scenario.title}</h3>
                       <ul className="hc-badges" role="list">

@@ -737,7 +737,8 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
   layer order: `@astryxdesign/core/reset.css` (`reset`) →
   `@astryxdesign/core/astryx.css` (`astryx-base`) →
   `src/theme/hyphae-mission.css` (`astryx-theme`) →
-  `src/app/hc-mono-tokens.css` and `src/app/globals.css` (`app`). App rules
+  `src/app/hc-mono-tokens.css`, `src/app/hc-mono-glass.css` and
+  `src/app/globals.css` (`app`, in that order). App rules
   stay inside `@layer app`, because unlayered rules would beat every Astryx
   layer.
 - **Monochrome** (owner direction 2026-10-31,
@@ -776,10 +777,65 @@ Prebuilt path only: no swizzled components, no StyleX compiler, no Tailwind.
     than the spec: `[data-recommendation-kind] .astryx-badge` (tags should
     be 2 px) and the end corners of `.hc-nav-link` (navigation items should
     be 0). The shapes lane sets both on purpose.
-  - `hc-mono-tokens.css` declares `--hc-btn-grain`, `--hc-glass-grain` and
-    `--hc-hatch` as `url("/brand/*.png")`, but no tile is shipped under
-    `public/brand/` yet and nothing uses these tokens. The lane that first
-    uses one adds the tiles in the same commit.
+  - `hc-mono-tokens.css` declares `--hc-hatch` as `url("/brand/hatch-*.png")`,
+    but the hatch tiles are not shipped yet and nothing uses the token. The
+    lane that first uses it adds the tiles in the same commit. (The brushed
+    grain tiles ship with the glass, below.)
+- **Brushed glass** (round 5, lane glass; palette-mono.md section 3):
+  `src/app/hc-mono-glass.css` is the material part of
+  `design/palette-mono/hc-mono-glass.css` (live glass, static glass, the
+  clickable card, the dialog scrim, every fallback and the ink button), in
+  `@layer app`, loaded after the tokens and before `globals.css`, so the
+  component rules there (position, radius, the decision card's 2px border,
+  the Settings 3:1 borders) win and set no fill, backdrop or shadow on an
+  element that carries the glass. The design file's other parts are not
+  copied: its browser defaults and body backdrop were already in
+  `globals.css`, and its status tags, rows and callouts would collide with
+  the app's `.hc-tag` and `.hc-callout` (tags lane). The grain tiles
+  (`public/brand/brushed-{light,dark}.png`, 128 × 128 grey + alpha, and
+  `@2x`, 256 × 256, byte-identical to `design/palette-mono/brand/`) are
+  same-origin, so `img-src 'self'` covers them and the CSP is unchanged;
+  `--hc-glass-grain` switches per theme, `--hc-btn-grain` is the light tile
+  in both.
+  - **Live** (`.hc-glass`, a 16 or 24 px greyed blur, sheen, grain, masked
+    edge ring): the top bar (`--region`, level 1), the tour and the drawer
+    (level 3; native modal dialogs in the top layer, so the drawer is not
+    caught by the top bar's backdrop root; the drawer at the level 1 blur
+    under 672 px), and the decision card (`hc-glass--2 hc-glass--float`):
+    live level 2 under 672 px, static level 2 from 672 px, the one floating
+    card of palette-mono 3.7.
+  - **Static** (`.hc-glass--static`: opaque stops, grain, a border-box edge,
+    no backdrop, no pseudo-element): the sidebar, the run header, the run and
+    showcase cards and the docs cards (both `--interactive`: top highlight,
+    flat hover), the scenario cards, the Overview steps, the docs tour panel
+    and the five Settings panels. The live ring's `::before` is scoped to
+    non-static glass, so the Overview step number (the step's own
+    `::before`) is untouched.
+  - **Solid**: tables (`.hc-timeline` on the surface colour, also inside a
+    panel), tags, inputs, code and JSON, long text (docs, legal pages, the
+    Decision tab's recommendation and explanation panels, which stay plain
+    `.hc-panel`), message panels (errors, not-connected, empty states),
+    stage and proof cards, and any panel nested in a card.
+  - **Primary button** (`.astryx-button[data-variant="primary"]`): the ink
+    gradient `btn/top` → `btn/bottom` under the button grain, a 1px
+    highlight and lowlight; hover the hover gradient; pressed (`:active`)
+    flat `btn/hover-bottom` with no shadow; forced colours the system
+    button.
+  - **Fallbacks**: no `backdrop-filter` (opaque stops), reduced transparency
+    (the OS setting, or a `.hc-transparency-reduced` root class that no
+    Settings control sets yet: opaque stops and colour, no blur, opaque
+    scrim), more contrast (flat popover surface, strong ring), forced
+    colours (Canvas, CanvasText border), print (surface, strong border, no
+    body gradient).
+  - Tests: `tests/glass.test.ts` (the sheet's rules and every fallback, glass
+    never on a forbidden selector or element, live glass only on the four
+    allowed elements, the tiles' sizes and alpha, the button, and
+    palette-mono's worst-case contrast recomputed on the shipped tokens and
+    tiles) and `e2e/glass.spec.ts`. palette-mono's own checker,
+    `palette_mono_check.py`, passes every contrast pair and glass row on the
+    shipped tokens (byte-equal values) and tiles; its only failures are the
+    six tag lints (forced-colour inversion, the LIVE pulse, the hatch, the
+    pending bar, tags in a selected row), which belong to the tags lane.
 - **Theme**: `src/theme/hyphaeMissionTheme.ts` extends the neutral theme with
   `defineTheme`. `pnpm theme:build` writes the committed
   `hyphae-mission.{css,js,d.ts,css.d.ts,variants.d.ts}`; rebuild after any
@@ -876,10 +932,14 @@ Reduced motion comes from the OS (`prefers-reduced-motion`) or from Settings
 (`data-motion="reduce"` on `<html>`), and is tiered: the drawer's slide and
 the dialog's small shift go, short opacity fades stay, everything else is cut
 to 0.01 ms (so `transitionend` still fires), and Motion gets
-`reducedMotion="always"`. Frosted glass is limited to the top bar, the
-sidebar and the two dialogs, with a solid background under
-`prefers-reduced-transparency: reduce`, without `backdrop-filter` support,
-and in forced-colors mode.
+`reducedMotion="always"`. Live glass (a backdrop filter) is limited to the
+top bar, the open dialog (tour or drawer) and, on narrow viewports, the
+decision card ("Brushed glass" under Astryx). Under
+`prefers-reduced-transparency: reduce` it takes the opaque stops and an
+opaque background colour, with no blur and an opaque scrim; without
+`backdrop-filter` support the opaque stops; with `prefers-contrast: more` a
+flat surface with a strong ring; in forced-colors mode system colours and a
+real border; in print the surface with a strong border.
 
 ## i18n
 
@@ -1013,6 +1073,7 @@ same-origin request or request to another origin.
 | `preferences.spec.ts` | Theme switch and persistence; OS following; Settings (each choice, its announcement, persistence, Docs details, reset); "Match system"; a language chosen in Settings confirmed in the new language; the locale switcher and the root page's redirect; no cookies at all |
 | `onboarding.spec.ts` | Offered but never opened by itself; Skip, Escape and backdrop close it and are remembered; all six steps with Back and Finish; strict focus trap and inert page; reopening from Docs; translated in every locale |
 | `motion.spec.ts` | OS reduced motion and the in-app setting remove movement and keep a short fade; "Match system" follows the OS live; the drawer; reduced transparency makes the glass solid (Chromium, through the DevTools protocol) |
+| `glass.spec.ts` | The brushed glass, in both themes: a live backdrop filter only on the top bar and, at 390 px, the decision card (from 672 px the card is static), with the theme's grain tile; an open drawer or tour is the one modal dialog, live level 3 (the drawer at the 16 px blur on a phone), with its scrim; static glass (grain, opaque gradient, no backdrop) on the sidebar, the run header, the Overview steps (their number untouched), the docs cards and the Settings panels (their 3:1 border kept); no glass nested in glass; tables and tags solid (opaque fill, no grain, no backdrop) on the Decision, Audit trail and Meta API tabs at both widths; the primary button's ink gradient and grain, and its pressed state (flat, no shadow); more contrast, forced colours and print drop every backdrop filter; axe with no violation at all on the Decision tab at both widths |
 | `a11y.spec.ts` | axe on every page in both themes and all locales, the overlays, the 404 page in both themes, and phone layouts |
 | `api.spec.ts` | Over the mocked `/api/v1` (`e2e/api-mock.ts`, the contract fixtures; the live section in the contract's shape, validated with the client's zod mirror): New deliberation -> run -> frames -> decision -> receipt link (with the `Idempotency-Key` and the `expected` block checked); a replayed finished run never reads LIVE and is named Playback; no LIVE word on a replayed, flagged or listed live-model run in the four locales, and LIVE for a live-model run in progress; a `provenance_inconsistent` run never reads LIVE even on live-delivered frames; pacing only for scripted runs, and off with the in-app Reduced setting; the header's labels; the live section's disabled state, the closed form (no site key, tripped or unreadable ledger) and the open form's request (trimmed invite code, a live refusal's sentence); an error's sentence and Retry-After; a failed detail request with its retry; a failed stream with the stored records and a reconnect; a failed run explained from its code; the scope line of a revision; no verbatim-log link for a live-declared run; My runs with and without a session; the Explorer (filter, translated statuses, SIMULATED proofs, =0 count); the run page without an id; the runtime NotConnected state against the static server; the Overview's button (and a server on another contract); the four locales; axe on `/new`, `/runs` and the three tabs of `/run` in every locale and theme, and on the open live form, a failed run and a failed detail; lane W2: the Evidence tab (simulated and sealed-snapshot coverage, the English original note), the Proof inspector (simulated and real proofs, a failed receipt, a receipt with other limitations), the Audit trail (chain, receipt, log, check command; a live-declared run), a guided run's log checked in the browser (pass, then a changed record failing at its sequence), the Meta API panel (scripted doubles, recorded Meta calls and totals), the explanations (plain, technical, before protocol 1.3, three locales), the revision view, and axe on all seven tabs; the guided Run, live Start, Approve and Reject buttons keeping the keyboard focus while their request is in flight and after it (and through a 429 wait); round 4: the connected and not-connected variants of the legend intro, the tour, the Docs build note, Modes and Settings, the outage wording, and error headlines by class and context (500, 503, 429 distinct; a refused decision; a showcase read), the 429 countdown with disabled buttons and the recorded-run link, and the guided error inside its card; the pending variants while the health probe is held, the notice's countdown reaching "You can retry now", a `rate_limited` wait shared with live Start (and a busy wait that is not), a refused cancel headed by its class, a decision answered with an unreadable 200 headed as uncertain, and the guided Run button keeping the focus after a 500 |
 | `layout-contrast.spec.ts` | Round 4, heuristic evaluation #9 and #10: every main screen (Overview, New deliberation and its open live form, Runs, a run's Playback and Decision with a revision, its Explorer, Evidence, Proof inspector, Audit trail and Meta API tabs on a guided run and on a recorded run, the showcase, a recorded run's Decision, Docs, Settings, the legal pages) no wider than a 390 px phone in English and Spanish, the Decision screens in all four locales (`document.scrollingElement.scrollWidth`); the claim comparison stacked one block per claim below 672 px (its column names visual only), a table above, claim ids on one line; the decision's outcome tag never cut, its evidence label visible (simulated, sealed snapshot and a recorded run, four locales); and the computed colors of radio rings, checkbox boxes, the native select, the Settings panels and the dashed not-connected panel at 3:1 or more against their fill and surroundings in both themes, and of the off Switch track (top bar and drawer) in the light theme, where it is off |

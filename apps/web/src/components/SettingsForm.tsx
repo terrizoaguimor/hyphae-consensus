@@ -71,7 +71,7 @@ export function SettingsForm({ locale, endonyms }: SettingsFormProps) {
 
   return (
     <div className="hc-settings">
-      <section className="hc-panel">
+      <section className="hc-panel hc-glass hc-glass--static">
         <h2 id="settings-theme" className="hc-panel-title">
           {t("theme.label")}
         </h2>
@@ -97,7 +97,7 @@ export function SettingsForm({ locale, endonyms }: SettingsFormProps) {
         </RadioList>
       </section>
 
-      <section className="hc-panel">
+      <section className="hc-panel hc-glass hc-glass--static">
         <h2 id="settings-language" className="hc-panel-title">
           {t("language.label")}
         </h2>
@@ -115,7 +115,7 @@ export function SettingsForm({ locale, endonyms }: SettingsFormProps) {
         />
       </section>
 
-      <section className="hc-panel">
+      <section className="hc-panel hc-glass hc-glass--static">
         <h2 id="settings-motion" className="hc-panel-title">
           {t("motion.label")}
         </h2>
@@ -142,7 +142,7 @@ export function SettingsForm({ locale, endonyms }: SettingsFormProps) {
         </RadioList>
       </section>
 
-      <section className="hc-panel">
+      <section className="hc-panel hc-glass hc-glass--static">
         <h2 id="settings-explanation" className="hc-panel-title">
           {t("explanation.label")}
         </h2>
@@ -183,7 +183,7 @@ export function SettingsForm({ locale, endonyms }: SettingsFormProps) {
         </RadioList>
       </section>
 
-      <section className="hc-panel">
+      <section className="hc-panel hc-glass hc-glass--static">
         <h2 id="settings-reset" className="hc-panel-title">
           {t("reset.heading")}
         </h2>

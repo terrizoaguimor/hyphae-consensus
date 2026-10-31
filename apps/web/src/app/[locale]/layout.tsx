@@ -75,7 +75,7 @@ export default async function LocaleLayout({
             {t("Shell.skipToContent")}
           </a>
           <div className="hc-shell">
-            <header className="hc-topbar hc-glass">
+            <header className="hc-topbar hc-glass hc-glass--region">
               <Link href={localePath(locale, "")} className="hc-wordmark">
                 {t("App.name")}
               </Link>
@@ -86,7 +86,7 @@ export default async function LocaleLayout({
               <MobileNav locale={locale} endonyms={endonyms} />
             </header>
             <nav
-              className="hc-sidebar hc-glass"
+              className="hc-sidebar hc-glass hc-glass--static hc-glass--region"
               aria-label={t("Shell.primaryNavLabel")}
             >
               <PrimaryNav locale={locale} />

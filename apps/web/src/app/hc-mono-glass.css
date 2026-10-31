@@ -1,0 +1,256 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/*
+ * Brushed glass: the material of the monochrome system (design/palette-mono.md section 3, revision 2, 2026-10-31).
+ * Brought in from design/palette-mono/hc-mono-glass.css: its material part (live glass, static glass, the clickable
+ * card, the dialog scrim, the fallbacks and the ink button). Its other parts live elsewhere: the browser defaults and
+ * the body backdrop are in globals.css (mono-theme lane), the status tags, rows and callouts belong to the tags lane
+ * (globals.css "Status without hue"), and links are underlined by globals.css.
+ *
+ * Static stylesheet: no runtime-injected style, no style attribute, so it works under the hash-only CSP. The grain
+ * tiles are same-origin files under /brand/ (public/brand/, img-src 'self'), named by the tokens in
+ * hc-mono-tokens.css. The theme switch lives in those tokens (light-dark() tuples, and the tiles per [data-theme]),
+ * never in a [data-theme] selector here, so every fallback below wins at equal specificity by source order.
+ *
+ * Load order (styles.ts): hc-mono-tokens.css, this file, globals.css. The component rules of globals.css (position,
+ * radius, padding, the 2px decision border, the Settings 3:1 borders) come later and win; they set no fill, backdrop
+ * or shadow on an element that carries the glass, so the material and its fallbacks are decided here.
+ *
+ * Where it goes (palette-mono 3.5): live glass on the top bar, on one overlay at a time (the tour and the drawer, both
+ * native modal dialogs in the top layer) and on the decision card on narrow viewports; static glass on the sidebar,
+ * the run header, the cards of a list (runs, the showcase, scenarios, the docs index, the Overview steps) and the
+ * Settings panels. Never on tables, long text, tags, inputs or code: those stay solid (tests/glass.test.ts).
+ */
+@layer app {
+
+  /* ------------------------------------------------------------------ live glass (top bar, one overlay, one floating card) */
+  .hc-glass {
+    --hc-g-top: var(--hc-glass-1-top);
+    --hc-g-bottom: var(--hc-glass-1-bottom);
+    --hc-g-blur: var(--hc-glass-1-blur);
+    --hc-g-shadow: var(--hc-glass-shadow-1);
+    position: relative;
+    isolation: isolate;
+    border-radius: 6px;
+    color: var(--hc-text-primary);
+    background-color: transparent;
+    /* grain (one token per theme), sheen on a fixed 720px layer so the light source sits at the same offset on every
+       box, then the fill gradient */
+    background-image:
+      var(--hc-glass-grain),
+      linear-gradient(105deg, transparent 30%, var(--hc-glass-sheen) 42%, var(--hc-glass-sheen) 46%, transparent 60%),
+      linear-gradient(180deg, var(--hc-g-top) 0%, var(--hc-g-bottom) 100%);
+    background-repeat: repeat, no-repeat, no-repeat;
+    background-size: 128px 128px, 720px 100%, 100% 100%;
+    background-position: 0 0, 0 0, 0 0;
+    -webkit-backdrop-filter: blur(var(--hc-g-blur)) grayscale(1);
+    backdrop-filter: blur(var(--hc-g-blur)) grayscale(1);
+    box-shadow:
+      inset 0 1px 0 var(--hc-glass-highlight),
+      inset 0 -1px 0 var(--hc-glass-lowlight),
+      var(--hc-g-shadow);
+  }
+
+  /* text/tertiary fails on dark live glass (3.4:1 worst case) and on dark static glass/3 (4.45:1), so there the token is
+     the secondary ink; on static glass 1 and 2 it passes and stays. */
+  .hc-glass:not(.hc-glass--static) { --hc-text-tertiary: var(--hc-text-secondary); }
+
+  /* gradient border of live glass: a 1px ring drawn by a masked pseudo-element (a border-box layer would show through
+     the translucent fill). Static glass uses a border-box layer instead (no mask), and never touches ::before (here or
+     in a fallback), so a static card's own ::before (the Overview step number) is left alone. :where() keeps the
+     specificity of .hc-glass::before, so the fallbacks below still win by source order. */
+  .hc-glass:where(:not(.hc-glass--static))::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(180deg, var(--hc-glass-edge-top) 0%, var(--hc-glass-edge-bottom) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    pointer-events: none;
+  }
+
+  .hc-glass--2 {
+    --hc-g-top: var(--hc-glass-2-top);
+    --hc-g-bottom: var(--hc-glass-2-bottom);
+    --hc-g-blur: var(--hc-glass-2-blur);
+    --hc-g-shadow: var(--hc-glass-shadow-2);
+  }
+
+  .hc-glass--3 {
+    --hc-g-top: var(--hc-glass-3-top);
+    --hc-g-bottom: var(--hc-glass-3-bottom);
+    --hc-g-blur: var(--hc-glass-3-blur);
+    --hc-g-shadow: var(--hc-glass-shadow-3);
+  }
+
+  /* regions are square (radius 0): top bar, sidebar */
+  .hc-glass--region { border-radius: 0; }
+
+  /* the drawer drops to level 1 blur on narrow viewports (3.7) */
+  @media (max-width: 671.98px) {
+    .hc-dialog--drawer { --hc-g-blur: var(--hc-glass-1-blur); }
+  }
+
+  /* ------------------------------------------------------------------ static glass: cards, panels, sidebar, run header */
+  /* Always the opaque stops, no backdrop-filter, no sheen, no top highlight (not interactive). The edge is a border-box
+     gradient layer under an opaque padding-box fill (no pseudo-element: a list of 50 cards makes no 50 render
+     surfaces). */
+  .hc-glass--static {
+    --hc-g-top: var(--hc-glass-1-top-opaque);
+    --hc-g-bottom: var(--hc-glass-1-bottom-opaque);
+    border: 1px solid transparent;
+    background-image:
+      var(--hc-glass-grain),
+      linear-gradient(180deg, var(--hc-g-top) 0%, var(--hc-g-bottom) 100%),
+      linear-gradient(180deg, var(--hc-glass-edge-top) 0%, var(--hc-glass-edge-bottom) 100%);
+    background-origin: padding-box, padding-box, border-box;
+    background-clip: padding-box, padding-box, border-box;
+    background-repeat: repeat, no-repeat, no-repeat;
+    background-size: 128px 128px, 100% 100%, 100% 100%;
+    background-position: 0 0, 0 0, 0 0;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: inset 0 -1px 0 var(--hc-glass-lowlight), var(--hc-g-shadow);
+  }
+  .hc-glass--static:where(.hc-glass--2) { --hc-g-top: var(--hc-glass-2-top-opaque); --hc-g-bottom: var(--hc-glass-2-bottom-opaque); }
+  .hc-glass--static:where(.hc-glass--3) { --hc-g-top: var(--hc-glass-3-top-opaque); --hc-g-bottom: var(--hc-glass-3-bottom-opaque); --hc-text-tertiary: var(--hc-text-secondary); }
+
+  /* The floating card (the decision card, .hc-glass--float): live glass/2 only on narrow viewports, where it is the
+     one card that may sit over the scrolling evidence (3.3, 3.7: at most one floating card is live); static glass/2
+     from 672px, with the same declarations as .hc-glass--static. */
+  @media (min-width: 672px) {
+    .hc-glass--float {
+      --hc-g-top: var(--hc-glass-2-top-opaque);
+      --hc-g-bottom: var(--hc-glass-2-bottom-opaque);
+      border: 1px solid transparent;
+      background-image:
+        var(--hc-glass-grain),
+        linear-gradient(180deg, var(--hc-g-top) 0%, var(--hc-g-bottom) 100%),
+        linear-gradient(180deg, var(--hc-glass-edge-top) 0%, var(--hc-glass-edge-bottom) 100%);
+      background-origin: padding-box, padding-box, border-box;
+      background-clip: padding-box, padding-box, border-box;
+      background-repeat: repeat, no-repeat, no-repeat;
+      background-size: 128px 128px, 100% 100%, 100% 100%;
+      background-position: 0 0, 0 0, 0 0;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      box-shadow: inset 0 -1px 0 var(--hc-glass-lowlight), var(--hc-g-shadow);
+    }
+    .hc-glass--float::before { display: none; }
+  }
+
+  /* a clickable card: the top highlight comes back (material = interactive), and hover is a flat bg/hover fill with the
+     edge at border/strong (3:1 or more), not a fill change alone */
+  .hc-glass--interactive {
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 var(--hc-glass-highlight), inset 0 -1px 0 var(--hc-glass-lowlight), var(--hc-g-shadow);
+  }
+  .hc-glass--interactive:where(:hover, .is-hover) {
+    background-image:
+      linear-gradient(var(--hc-bg-hover), var(--hc-bg-hover)),
+      linear-gradient(var(--hc-bg-hover), var(--hc-bg-hover)),
+      linear-gradient(var(--hc-border-strong), var(--hc-border-strong));
+  }
+
+  /* dialogs: the scrim (normal state). globals.css adds only its fade. */
+  .hc-dialog::backdrop { background: var(--hc-scrim); }
+
+  /* ------------------------------------------------------------------ fallbacks */
+  /* no backdrop-filter support: opaque stops, everything else kept (gradient, grain, edge, shadows) */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .hc-glass { --hc-g-top: var(--hc-glass-1-top-opaque); --hc-g-bottom: var(--hc-glass-1-bottom-opaque); }
+    .hc-glass--2 { --hc-g-top: var(--hc-glass-2-top-opaque); --hc-g-bottom: var(--hc-glass-2-bottom-opaque); }
+    .hc-glass--3 { --hc-g-top: var(--hc-glass-3-top-opaque); --hc-g-bottom: var(--hc-glass-3-bottom-opaque); }
+  }
+
+  /* reduced transparency, from the OS setting or from a root class .hc-transparency-reduced (palette-mono 3.6 plans a
+     Settings toggle for it; the app has none yet, so only the OS setting applies today): opaque stops, no blur, an
+     opaque scrim, and an opaque background colour under the gradient (the bottom stop); gradient and grain stay */
+  @media (prefers-reduced-transparency: reduce) {
+    .hc-glass { --hc-g-top: var(--hc-glass-1-top-opaque); --hc-g-bottom: var(--hc-glass-1-bottom-opaque); background-color: var(--hc-g-bottom); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .hc-glass--2 { --hc-g-top: var(--hc-glass-2-top-opaque); --hc-g-bottom: var(--hc-glass-2-bottom-opaque); }
+    .hc-glass--3 { --hc-g-top: var(--hc-glass-3-top-opaque); --hc-g-bottom: var(--hc-glass-3-bottom-opaque); }
+    .hc-dialog::backdrop { background: var(--hc-scrim-opaque); }
+  }
+  :where(.hc-transparency-reduced) .hc-glass { --hc-g-top: var(--hc-glass-1-top-opaque); --hc-g-bottom: var(--hc-glass-1-bottom-opaque); background-color: var(--hc-g-bottom); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  :where(.hc-transparency-reduced) .hc-glass--2 { --hc-g-top: var(--hc-glass-2-top-opaque); --hc-g-bottom: var(--hc-glass-2-bottom-opaque); }
+  :where(.hc-transparency-reduced) .hc-glass--3 { --hc-g-top: var(--hc-glass-3-top-opaque); --hc-g-bottom: var(--hc-glass-3-bottom-opaque); }
+  :where(.hc-transparency-reduced) .hc-dialog::backdrop { background: var(--hc-scrim-opaque); }
+
+  /* more contrast: flat solid surfaces with a strong 1px ring; no sheen, no grain, no gradient edge */
+  @media (prefers-contrast: more) {
+    .hc-glass {
+      background-image: none;
+      background-color: var(--hc-bg-popover);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      box-shadow: 0 0 0 1px var(--hc-border-strong);
+    }
+    .hc-glass:where(:not(.hc-glass--static))::before { display: none; }
+    .hc-glass--interactive:where(:hover, .is-hover) { background-image: none; background-color: var(--hc-bg-hover); }
+  }
+
+  /* forced colours (Windows High Contrast): system colours, a real border, nothing decorative */
+  @media (forced-colors: active) {
+    .hc-glass {
+      background: Canvas;
+      color: CanvasText;
+      border: 1px solid CanvasText;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      box-shadow: none;
+    }
+    .hc-glass:where(:not(.hc-glass--static))::before { display: none; }
+  }
+
+  /* print: the tokens force the light scheme (hc-mono-tokens.css); here only the material and the body backdrop go */
+  @media print {
+    .hc-glass {
+      background: var(--hc-bg-surface);
+      border: 1px solid var(--hc-border-strong);
+      box-shadow: none;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    .hc-glass:where(:not(.hc-glass--static))::before,
+    body::before { display: none; }
+  }
+
+  /* ------------------------------------------------------------------ the primary button (ink material = interactive) */
+  /* Astryx's primary Button (.astryx-button[data-variant="primary"], <button> or <a>) and .hc-btn--primary: an opaque
+     ink gradient, the button grain (the light tile at .06 in both themes), a 1px highlight on top and lowlight at the
+     bottom. Hover: the hover gradient. Pressed: flat btn/hover-bottom, no shadow. This layer comes after Astryx's, so
+     these rules replace its accent fill and its overlay layers. */
+  .astryx-button[data-variant="primary"],
+  .hc-btn--primary {
+    color: var(--hc-btn-text);
+    border: 1px solid var(--hc-accent-solid);
+    background-color: var(--hc-btn-bottom);
+    background-image: var(--hc-btn-grain), linear-gradient(180deg, var(--hc-btn-top) 0%, var(--hc-btn-bottom) 100%);
+    background-repeat: repeat, no-repeat;
+    background-size: 128px 128px, 100% 100%;
+    background-position: 0 0, 0 0;
+    box-shadow: inset 0 1px 0 var(--hc-btn-highlight), inset 0 -1px 0 var(--hc-btn-lowlight), 0 1px 2px rgb(0 0 0 / 0.2);
+  }
+  .astryx-button[data-variant="primary"]:hover:not(:disabled, [aria-disabled="true"]),
+  .hc-btn--primary:hover {
+    background-image: var(--hc-btn-grain), linear-gradient(180deg, var(--hc-btn-hover-top) 0%, var(--hc-btn-hover-bottom) 100%);
+  }
+  .astryx-button[data-variant="primary"]:active:not(:disabled, [aria-disabled="true"]),
+  .hc-btn--primary:active {
+    background-image: none;
+    background-color: var(--hc-btn-hover-bottom);
+    box-shadow: none;
+  }
+  /* forced colours: the system button (ButtonFace, ButtonText border), so an inverted solid block means status only;
+     hovered and pressed too (those rules above are more specific) */
+  @media (forced-colors: active) {
+    .astryx-button[data-variant="primary"],
+    .astryx-button[data-variant="primary"]:is(:hover, :active):not(:disabled, [aria-disabled="true"]),
+    .hc-btn--primary:is(:hover, :active),
+    .hc-btn--primary { background: ButtonFace; color: ButtonText; border-color: ButtonText; box-shadow: none; }
+  }
+}

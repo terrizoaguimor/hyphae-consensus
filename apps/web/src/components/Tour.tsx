@@ -32,7 +32,7 @@ export function Tour() {
       onClose={() => closeTour("skipped")}
       labelledBy={TITLE_ID}
       describedBy={BODY_ID}
-      className="hc-dialog hc-dialog--tour"
+      className="hc-dialog hc-dialog--tour hc-glass hc-glass--3"
       initialFocus={primaryRef}
     >
       {/* Mounted per opening, so every opening starts at the first step. */}

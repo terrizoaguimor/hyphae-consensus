@@ -60,7 +60,7 @@ export function MobileNav({ locale, endonyms }: MobileNavProps) {
         isOpen={isOpen}
         onClose={close}
         labelledBy="hc-mobile-drawer-title"
-        className="hc-dialog hc-dialog--drawer"
+        className="hc-dialog hc-dialog--drawer hc-glass hc-glass--3"
       >
         <div id="hc-mobile-drawer" className="hc-drawer">
           <div className="hc-drawer-header">

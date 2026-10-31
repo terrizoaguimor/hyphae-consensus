@@ -261,7 +261,7 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
                 const outcome = outcomeText(entry);
                 const unchained = isUnchained(entry);
                 return (
-                  <li key={entry.run_id} className="hc-run-card" data-showcase-run={entry.run_id} data-label={entry.label}>
+                  <li key={entry.run_id} className="hc-run-card hc-glass hc-glass--static hc-glass--interactive" data-showcase-run={entry.run_id} data-label={entry.label}>
                     <h3 className="hc-card-title">
                       {/* The visible content is the link's name: the English
                           archive title keeps its lang="en" for screen readers,

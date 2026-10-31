@@ -246,7 +246,7 @@ export function DecisionTab({
   // the log.
   const card = (
     <section
-      className="hc-section hc-decision-card"
+      className="hc-section hc-decision-card hc-glass hc-glass--2 hc-glass--float"
       aria-labelledby="decision-form"
       data-decision-card={cardFirst ? "first" : "after"}
     >

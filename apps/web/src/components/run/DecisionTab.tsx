@@ -29,6 +29,7 @@ import type { DecisionResponseV1, DecisionV1, RunDetailV1 } from "@/lib/api/type
 import { supersededProposal } from "@/lib/run/view";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { type ChainBreak, ChainBroken } from "./ChainBroken";
 import { Explanation } from "./Explanation";
 import { RevisionComparison } from "./RevisionComparison";
 import { RecommendationLine } from "./StageTab";
@@ -65,6 +66,10 @@ type DecisionTabProps = {
   links: DecisionLinks;
   /** Replaces the workspace's detail after a decision (a run of this server only). */
   onDetail?: (detail: RunDetailV1) => void;
+  /** Where a chain check run in this browser failed (it travels here, next to the decision); null when none did. */
+  chainBreak?: ChainBreak | null;
+  /** Opens the Audit trail, where the failed check is. */
+  onOpenAudit?: () => void;
 };
 
 const OVERRIDE_KINDS = new Set(["blocked", "abstained"]);
@@ -80,7 +85,7 @@ function toApiError(error: unknown, path: string): ApiError {
       });
 }
 
-export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) {
+export function DecisionTab({ runId, data, links, onDetail, chainBreak = null, onOpenAudit }: DecisionTabProps) {
   const t = useTranslations("Run.decision");
   const tRun = useTranslations("Run");
   const format = useFormatter();
@@ -285,6 +290,9 @@ export function DecisionTab({ runId, data, links, onDetail }: DecisionTabProps) 
         <h3 id="decision-form" ref={formHeadingRef} tabIndex={-1}>
           {t("formHeading")}
         </h3>
+        {chainBreak === null ? null : (
+          <ChainBroken chainBreak={chainBreak} place="decision" deciding={awaiting} onOpenAudit={onOpenAudit} />
+        )}
         <p className="hc-build-note" data-public-demo-notice>
           {t("publicDemo")}
         </p>

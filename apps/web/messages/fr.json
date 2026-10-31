@@ -775,7 +775,9 @@
       "receiptJson": "Le reçu en JSON",
       "archivePending": "Le fichier de journal de cette exécution et son empreinte fixée arrivent avec la liste de la vitrine, qui ne liste pas cette exécution.",
       "archiveLoading": "Lecture de la liste de la vitrine, qui nomme le fichier de journal de cette exécution et son empreinte fixée…",
-      "archiveFailed": "Le fichier de journal de cette exécution, son empreinte fixée, la commande qui le vérifie et la vérification de la chaîne dans le navigateur arrivent avec la liste de la vitrine, qui n’a pas pu être lue : son erreur, avec un nouvel essai, est affichée plus haut."
+      "archiveFailed": "Le fichier de journal de cette exécution, son empreinte fixée, la commande qui le vérifie et la vérification de la chaîne dans le navigateur arrivent avec la liste de la vitrine, qui n’a pas pu être lue : son erreur, avec un nouvel essai, est affichée plus haut.",
+      "finalStateRecorded": "État final à l’enregistrement",
+      "finalStateReadOnly": "Aucune décision ne peut être enregistrée ici."
     },
     "meta": {
       "heading": "Panneau de l’API Meta",
@@ -978,6 +980,33 @@
       "unpairedMeta": "Toutes les révisions de cette exécution ont été écrites par l’adaptateur du modèle Meta, qui numérote à nouveau les affirmations de chaque proposition.",
       "partialIds": "Certains id d’affirmation n’apparaissent que dans l’une des deux propositions : les id seuls ne permettent pas de savoir si une telle affirmation a été ajoutée ou retirée, ou reformulée sous un autre id.",
       "noClaims": "Aucune affirmation enregistrée."
+    },
+    "chainBroken": {
+      "title": "Chaîne rompue dans ce navigateur",
+      "atRecord": "La vérification de la chaîne faite sur cette page a échoué à l’enregistrement {sequence} (ligne {line}) : le journal ne concorde pas avec sa propre chaîne de hachage.",
+      "atLine": "La vérification de la chaîne faite sur cette page a échoué à la ligne {line} : le journal ne concorde pas avec sa propre chaîne de hachage.",
+      "copies": "La vérification de la chaîne faite sur cette page a échoué : le journal ne concorde pas avec les copies auxquelles il a été comparé.",
+      "beforeDeciding": "Consultez la piste d’audit avant de décider.",
+      "details": "La piste d’audit indique ce qui ne concorde pas.",
+      "pageState": "C’est ce que cette page a trouvé : ce n’est pas enregistré sur le serveur et ce n’est pas une étiquette de l’exécution. Refaire la vérification le remplace.",
+      "openAudit": "Ouvrir la piste d’audit"
+    },
+    "consistency": {
+      "flagTitle": "Les étiquettes ne concordent pas : traitez cette exécution comme non vérifiée.",
+      "labelsTitle": "Cette page a trouvé des étiquettes qui ne concordent pas avec les enregistrements de l’exécution",
+      "labelsBody": "Traitez cette exécution comme non vérifiée tant que ce n’est pas expliqué. C’est la vérification propre à cette page sur les enregistrements affichés ; elle n’ajoute ni ne retire aucune étiquette.",
+      "labels": {
+        "metaModelScriptedSteps": "{count, plural, =0 {L’étiquette du modèle nomme le modèle de Meta, et aucune étape enregistrée n’est la doublure scénarisée.} one {L’étiquette du modèle nomme le modèle de Meta, mais # étape enregistrée est la doublure scénarisée : aucun modèle n’a été appelé pour elle.} many {L’étiquette du modèle nomme le modèle de Meta, mais # d’étapes enregistrées sont la doublure scénarisée : aucun modèle n’a été appelé pour elles.} other {L’étiquette du modèle nomme le modèle de Meta, mais # étapes enregistrées sont la doublure scénarisée : aucun modèle n’a été appelé pour elles.}}",
+        "scriptedModelCalls": "{count, plural, =0 {L’étiquette du modèle dit scénarisé, et aucune étape enregistrée n’est un appel à un modèle.} one {L’étiquette du modèle dit scénarisé, mais # étape enregistrée est un appel à un modèle.} many {L’étiquette du modèle dit scénarisé, mais # d’étapes enregistrées sont des appels à un modèle.} other {L’étiquette du modèle dit scénarisé, mais # étapes enregistrées sont des appels à un modèle.}}",
+        "memoryEvidenceSimulatedProofs": "{count, plural, =0 {L’étiquette des éléments probants nomme des éléments probants de Hyphae, et aucune preuve enregistrée n’est SIMULÉE.} one {L’étiquette des éléments probants nomme des éléments probants de Hyphae, mais # preuve enregistrée est SIMULÉE : scénarisée, rien de vérifié.} many {L’étiquette des éléments probants nomme des éléments probants de Hyphae, mais # de preuves enregistrées sont SIMULÉES : scénarisées, rien de vérifié.} other {L’étiquette des éléments probants nomme des éléments probants de Hyphae, mais # preuves enregistrées sont SIMULÉES : scénarisées, rien de vérifié.}}",
+        "simulatedEvidenceRealProofs": "{count, plural, =0 {L’étiquette des éléments probants dit simulés, et aucune preuve enregistrée n’est celle d’un vérificateur réel.} one {L’étiquette des éléments probants dit simulés, mais # preuve enregistrée est celle d’un vérificateur réel.} many {L’étiquette des éléments probants dit simulés, mais # de preuves enregistrées sont celles d’un vérificateur réel.} other {L’étiquette des éléments probants dit simulés, mais # preuves enregistrées sont celles d’un vérificateur réel.}}"
+      },
+      "receipt": {
+        "title": "Le reçu et l’exécution ne concordent pas",
+        "finalState": "État final : le reçu dit « {receipt} », l’exécution dit « {run} ».",
+        "eventCount": "Événements : le reçu en compte {receipt}, l’exécution {run}.",
+        "body": "Le serveur construit le reçu à partir des enregistrements de l’exécution ; les deux devraient donc concorder. Relisez le reçu ; s’ils ne concordent toujours pas, traitez-les tous deux avec prudence."
+      }
     }
   },
   "Showcase": {
@@ -1011,7 +1040,12 @@
       "checking": "Vérification du SHA-256 du manifeste dans ce navigateur…",
       "matches": "Vérifié dans ce navigateur : les octets du manifeste donnent le SHA-256 publié.",
       "differs": "Contrôlé dans ce navigateur : les octets du manifeste donnent {sha256}…, pas le SHA-256 publié ; ses notes ne sont donc pas affichées.",
-      "trust": "Cela ne vaut que ce que vaut la copie de l’empreinte avec laquelle vous comparez, par exemple un MANIFEST.json d’un commit étiqueté."
+      "trust": "Cela ne vaut que ce que vaut la copie de l’empreinte avec laquelle vous comparez, par exemple un MANIFEST.json d’un commit étiqueté.",
+      "matchesTag": "Concorde",
+      "differsTag": "Diffère",
+      "differsTitle": "Le manifeste de l’archive ne correspond pas à son SHA-256 publié",
+      "differsBody": "Ses notes sont masquées et les journaux ne peuvent pas être vérifiés avec lui. Les exécutions ci-dessous sont affichées telles que le serveur les liste.",
+      "unconfirmedTag": "Archive non confirmée"
     },
     "pin": {
       "matches": "Le manifeste vérifié dans ce navigateur fixe ce même SHA-256 pour ce fichier.",
@@ -1039,7 +1073,8 @@
         "differs": "Les octets du manifeste de l’archive ne donnent pas le SHA-256 publié ; sa note sur le journal de cette exécution, s’il en a une, n’est donc pas affichée, et le SHA-256 du journal n’y est pas comparé."
       },
       "awaiting": "arrêtée à son point de décision ; aucune décision n’a été enregistrée",
-      "back": "Retour à la vitrine"
+      "back": "Retour à la vitrine",
+      "manifestProblemTitle": "Le manifeste de l’archive n’a pas pu être confirmé"
     }
   },
   "Settings": {

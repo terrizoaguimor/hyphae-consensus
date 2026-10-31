@@ -1254,6 +1254,70 @@
     font-weight: 600;
   }
 
+  /* A full-width callout (src/components/Callout.tsx): icon, title in words,
+     body. The role's color is on the bar and the border only; the text keeps
+     the primary color on a surface the contrast test covers (the failed role
+     reuses the error surface of .hc-error, which already passes). */
+  .hc-callout {
+    display: flex;
+    gap: var(--spacing-3);
+    align-items: flex-start;
+    width: 100%;
+    margin: 0;
+    padding: var(--spacing-3) var(--spacing-4);
+    border: 1px solid var(--color-border-emphasized);
+    border-inline-start-width: 3px;
+    border-radius: var(--radius-element);
+    background-color: var(--color-background-muted);
+    color: var(--color-text-primary);
+  }
+
+  .hc-callout[data-callout-tone="failed"] {
+    border-color: var(--color-error);
+    background-color: var(--color-error-muted);
+  }
+
+  .hc-callout[data-callout-tone="contested"] {
+    border-color: var(--color-warning);
+  }
+
+  .hc-callout[data-callout-tone="success"] {
+    border-color: var(--color-success);
+  }
+
+  .hc-callout-icon {
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-block-start: 0.125rem;
+  }
+
+  .hc-callout-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+    min-width: 0;
+  }
+
+  .hc-callout-body > p,
+  .hc-callout-body > ul {
+    margin: 0;
+  }
+
+  .hc-callout-title {
+    font-weight: 600;
+  }
+
+  /* As inside .hc-error: supporting lines keep the primary color on the
+     failed surface and differ by size only. */
+  .hc-callout .hc-supporting {
+    color: var(--color-text-primary);
+  }
+
+  .hc-callout .hc-actions {
+    margin-block-start: var(--spacing-1);
+  }
+
   .hc-kv {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));

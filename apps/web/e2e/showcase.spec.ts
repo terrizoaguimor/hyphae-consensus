@@ -2168,3 +2168,165 @@ test("a recorded run's chain check runs from the keyboard", async ({ page }) => 
   await expect(page.locator("[data-chain-verdict='pass']")).toBeVisible();
   await expect(again).toBeVisible();
 });
+
+// Heuristic evaluation, problem 5: the manifest's result is a status, not
+// body text. A manifest that matches reads as a success tag; one that does
+// not is a failed tag and a failed banner at the top of the list, and every
+// run card says the archive is not confirmed (a state of this page, next to
+// the run's own labels, which stay).
+test("a manifest that matches is an explicit success status, and no card reads unconfirmed", async ({ page }) => {
+  const { list } = entries();
+  await mockApi(page, { showcase: list });
+  await openShowcase(page, "en");
+  const status = page.locator("[data-manifest-status='matches']");
+  await expect(status).toBeVisible();
+  await expect(status.getByText(t("en", "Showcase.manifest.matchesTag"), { exact: true })).toBeVisible();
+  await expect(status.locator("[data-manifest-check='matches']")).toHaveText(t("en", "Showcase.manifest.matches"));
+  await expect(page.locator("[data-manifest-banner]")).toHaveCount(0);
+  await expect(page.locator("[data-archive-unconfirmed]")).toHaveCount(0);
+});
+
+test("a manifest that does not match is a failed status and banner, and every card reads 'Archive not confirmed'", async ({
+  page,
+}) => {
+  const { l01, list } = entries();
+  const forged = Buffer.from(
+    JSON.stringify({
+      created: "2026-10-27",
+      files: [{ path: String(l01.file), sha256: "0", kind: "event_log", description: "forged note" }],
+    }),
+  );
+  await mockApi(page, {
+    showcase: list,
+    research: { "MANIFEST.json": forged },
+    recordedRuns: [recordedRun(l01, { base: "invalid_proof", generationFailed: true })],
+  });
+  await openShowcase(page, "en");
+  // The status on the manifest's own line: a failed tag in words.
+  const status = page.locator("[data-manifest-status='differs']");
+  await expect(status.getByText(t("en", "Showcase.manifest.differsTag"), { exact: true })).toBeVisible();
+  await expect(page.locator("[data-manifest-status='matches']")).toHaveCount(0);
+  // The banner at the top of the list, before the manifest line and the batteries.
+  const banner = page.locator("[data-manifest-banner='differs']");
+  await expect(banner).toHaveAttribute("data-callout-tone", "failed");
+  await expect(banner.locator(".hc-callout-title")).toHaveText(t("en", "Showcase.manifest.differsTitle"));
+  await expect(banner).toContainText(t("en", "Showcase.manifest.differsBody"));
+  await expect(banner.locator("svg[aria-hidden='true']")).toHaveCount(1);
+  const order = await page
+    .locator("[data-manifest-banner], [data-manifest], [data-battery]")
+    .evaluateAll((nodes) =>
+      nodes.map((node) =>
+        node.hasAttribute("data-manifest-banner") ? "banner" : node.hasAttribute("data-manifest") ? "manifest" : "battery",
+      ),
+    );
+  expect(order.slice(0, 2)).toEqual(["banner", "manifest"]);
+  // Every run card, its own labels kept.
+  const cards = page.locator("[data-showcase-run]");
+  await expect(cards).toHaveCount(list.length);
+  await expect(page.locator("[data-showcase-run] [data-archive-unconfirmed]")).toHaveCount(list.length);
+  for (const card of await cards.all()) {
+    await expect(card.locator("[data-archive-unconfirmed]")).toHaveText(t("en", "Showcase.manifest.unconfirmedTag"));
+    await expect(card.locator(".hc-badges").getByText(t("en", "Provenance.recorded.label"), { exact: true })).toBeVisible();
+  }
+
+  // The recorded run says it in a failed callout too, with a title.
+  await openRecorded(page, "en", String(l01.run_id));
+  const problem = page.locator("[data-recorded-run] [data-manifest-problem-callout='differs']");
+  await expect(problem).toHaveAttribute("data-callout-tone", "failed");
+  await expect(problem.locator(".hc-callout-title")).toHaveText(t("en", "Showcase.run.manifestProblemTitle"));
+  await expect(problem.locator("[data-manifest-problem='differs']")).toHaveText(t("en", "Showcase.run.manifestProblem.differs"));
+});
+
+test("a manifest that cannot be read leaves every card 'Archive not confirmed' until it is", async ({
+  page,
+  pageProblems,
+}) => {
+  const { list } = entries();
+  await mockApi(page, { showcase: list });
+  let failures = 1;
+  await page.route("**/research/MANIFEST.json", async (route) => {
+    if (failures > 0) {
+      failures -= 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ code: "shutting_down", message: "shutting down" }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await openShowcase(page, "en");
+  const line = page.locator("[data-manifest='error']");
+  await expect(line.locator("[data-error-code='shutting_down']")).toBeVisible();
+  await expect(page.locator("[data-showcase-run] [data-archive-unconfirmed]")).toHaveCount(list.length);
+  // Not a mismatch: no failed banner for a manifest that was not read.
+  await expect(page.locator("[data-manifest-banner]")).toHaveCount(0);
+  await line.getByRole("button", { name: t("en", "Api.retry") }).click();
+  await expect(page.locator("[data-manifest-status='matches']")).toBeVisible();
+  await expect(page.locator("[data-archive-unconfirmed]")).toHaveCount(0);
+  takeProblem(pageProblems, "HTTP 503: /research/MANIFEST.json");
+  dropProblems(pageProblems, /^console: Failed to load resource: the server responded with a status of 503/);
+});
+
+// Heuristic evaluation, problem 5, on a recorded run: a failed chain check
+// travels to the header and the Decision tab, which, read-only, does not ask
+// to look before deciding.
+test("a recorded run's failed chain check travels to the header and the read-only decision", async ({ page }) => {
+  const { r06, list } = entries();
+  const runId = String(r06.run_id);
+  const file = String(r06.file);
+  const target = logSegment(file, runId).first + 3;
+  const original = researchBytes(file);
+  const text = original.toString("utf8");
+  const line = text.split("\n")[target - 1] ?? "";
+  expect(line).toContain(`"sequence":${target},`);
+  const tampered = Buffer.from(
+    text
+      .split("\n")
+      .map((l, i) => (i === target - 1 ? l.replace(`"sequence":${target},`, `"sequence":${target}, `) : l))
+      .join("\n"),
+  );
+  await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })], research: { [file]: tampered } });
+  await openRecorded(page, "en", runId);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  await expect(page.locator("[data-chain-verdict='fail']")).toBeVisible();
+  const broken = page.locator("header.hc-run-header [data-chain-broken='header']");
+  await expect(broken).toHaveAttribute("data-callout-tone", "failed");
+  await expect(broken).toHaveAttribute("data-chain-broken-sequence", String(target));
+  await expect(broken).toContainText(`failed at record ${target} (line ${target})`);
+  await expect(broken).toContainText(t("en", "Run.chainBroken.details"));
+  await expect(broken).not.toContainText(t("en", "Run.chainBroken.beforeDeciding"));
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  await expect(page.locator("[data-decision-unavailable]")).toHaveText(t("en", "Run.decision.recordedReadOnly"));
+  await expect(broken).toBeVisible();
+  const atDecision = page.locator("[data-decision] [data-chain-broken='decision']");
+  await expect(atDecision).toContainText(`failed at record ${target} (line ${target})`);
+  await expect(atDecision).not.toContainText(t("en", "Run.chainBroken.beforeDeciding"));
+  await expectNoLiveOnPage(page, "en", IDENTIFIERS);
+});
+
+// Heuristic evaluation, problem 7: a recorded run is read-only, so its
+// receipt's final state is the state it was recorded in, and the page never
+// says "awaiting your decision".
+test("a recorded run's receipt states its final state when recorded, never 'awaiting your decision'", async ({
+  page,
+}) => {
+  const { r06, list } = entries();
+  await mockApi(page, { showcase: list, recordedRuns: [recordedRun(r06, { base: "retry" })] });
+  await openRecorded(page, "en", String(r06.run_id));
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  const receipt = page.locator("[data-audit-receipt='ready']");
+  await expect(receipt).toBeVisible();
+  const finalState = receipt.locator("[data-receipt-field='final_state']");
+  await expect(finalState).toContainText(t("en", "Showcase.run.awaiting"));
+  await expect(finalState).toContainText(t("en", "Run.audit.finalStateReadOnly"));
+  await expect(receipt.getByText(t("en", "Run.audit.finalStateRecorded"), { exact: true })).toBeVisible();
+  for (const tab of ["decision", "explorer", "evidence", "proofs", "audit", "meta"] as const) {
+    await page.getByRole("tab", { name: t("en", `Run.tabs.${tab}`) }).click();
+    await expect(page.locator(`[data-tab='${tab}']`)).toBeVisible();
+    await expect(page.locator("main")).not.toContainText(t("en", "Run.states.awaiting_human_approval"));
+  }
+});

@@ -1877,3 +1877,176 @@ for (const theme of themes) {
     expect(blocking(scans)).toEqual([]);
   });
 }
+
+// Heuristic evaluation, problem 5: a chain check that fails in this browser
+// travels. It raises a failed callout under the header's labels on every tab
+// and next to the decision, until a later check does not fail; it is a
+// state of this page, not a label of the run.
+test("a chain check that fails in this browser travels to the header and to the decision", async ({ page }) => {
+  const chained = await chainedRun(awaitingDecisionDetail());
+  const lines = chained.ndjson.toString("utf8").split("\n");
+  const tampered = Buffer.from(lines.map((line, i) => (i === 3 ? line.replace("Fact:", "Fake:") : line)).join("\n"));
+  await mockApi(page, { detail: chained.detail, receipt: chained.receipt, ndjson: { [RUN_ID]: tampered } });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  const header = page.locator("header.hc-run-header");
+  // Before any check: nothing says the chain is broken.
+  await expect(page.locator("[data-chain-broken]")).toHaveCount(0);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  await expect(page.locator("[data-chain-verdict='fail']")).toBeVisible();
+  // The header says it at once, in the failed role, with the record it stopped at.
+  const broken = header.locator("[data-chain-broken='header']");
+  await expect(broken).toBeVisible();
+  await expect(broken).toHaveAttribute("data-callout-tone", "failed");
+  await expect(broken).toHaveAttribute("data-chain-broken-sequence", "4");
+  await expect(broken.locator(".hc-callout-title")).toHaveText(t("en", "Run.chainBroken.title"));
+  await expect(broken.locator("svg[aria-hidden='true']")).toHaveCount(1);
+  await expect(broken).toContainText("failed at record 4 (line 4)");
+  await expect(broken).toContainText(t("en", "Run.chainBroken.beforeDeciding"));
+  await expect(broken).toContainText(t("en", "Run.chainBroken.pageState"));
+  // Inside the Audit trail there is no button to open it.
+  await expect(broken.getByRole("button", { name: t("en", "Run.chainBroken.openAudit") })).toHaveCount(0);
+
+  // The Decision tab: the header callout stays, and the decision carries its own, next to the buttons.
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  await expect(page.locator("[data-decision-form]")).toBeVisible();
+  await expect(broken).toBeVisible();
+  const atDecision = page.locator("[data-decision] [data-chain-broken='decision']");
+  await expect(atDecision).toBeVisible();
+  await expect(atDecision).toHaveAttribute("data-callout-tone", "failed");
+  await expect(atDecision).toContainText("failed at record 4 (line 4)");
+  await expect(atDecision).toContainText(t("en", "Run.chainBroken.beforeDeciding"));
+  // Every other tab keeps the header callout.
+  for (const tab of ["explorer", "evidence", "proofs", "meta", "playback"] as const) {
+    await page.getByRole("tab", { name: t("en", `Run.tabs.${tab}`) }).click();
+    await expect(page.locator(`[data-tab='${tab === "playback" ? "stage" : tab}']`)).toBeVisible();
+    await expect(broken).toBeVisible();
+  }
+  // Its button opens the Audit trail.
+  await broken.getByRole("button", { name: t("en", "Run.chainBroken.openAudit") }).click();
+  await expect(page.getByRole("tab", { name: t("en", "Run.tabs.audit") })).toHaveAttribute("aria-selected", "true");
+  await expect(broken).toBeVisible();
+
+  // Checked again over the intact log (same page): the callout goes away everywhere.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockApi(page, { detail: chained.detail, receipt: chained.receipt, ndjson: { [RUN_ID]: chained.ndjson } });
+  await page.getByRole("button", { name: t("en", "Run.chain.run") }).click();
+  await expect(page.locator("[data-chain-verdict='pass']")).toBeVisible();
+  await expect(page.locator("[data-chain-broken]")).toHaveCount(0);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.decision") }).click();
+  await expect(page.locator("[data-decision-form]")).toBeVisible();
+  await expect(page.locator("[data-chain-broken]")).toHaveCount(0);
+});
+
+// Heuristic evaluation, problem 7: the system's PROVENANCE INCONSISTENT flag
+// keeps its tag in the row and gets a full-width callout with its note (said
+// once), and the page's own check names the labels the records contradict.
+test("PROVENANCE INCONSISTENT is a full-width callout, and labels that disagree with the steps are named", async ({
+  page,
+}) => {
+  const detail = liveModelDetail(["provenance_inconsistent"]);
+  const provenance = (detail.summary as { provenance: Record<string, unknown> }).provenance;
+  await mockApi(page, { detail, frames: framesWith(provenance, "live") });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  const header = page.locator("header.hc-run-header");
+  // The tag stays among the labels.
+  await expect(
+    header.locator(".hc-badges").getByText(t("en", "Provenance.flags.provenance_inconsistent"), { exact: true }),
+  ).toBeVisible();
+  // The callout: contested, full width, a title in words and the flag's note, once on the page.
+  const flag = header.locator("[data-provenance-flag-callout='provenance_inconsistent']");
+  await expect(flag).toBeVisible();
+  await expect(flag).toHaveAttribute("data-callout-tone", "contested");
+  await expect(flag.locator(".hc-callout-title")).toHaveText(t("en", "Run.consistency.flagTitle"));
+  await expect(flag).toContainText(t("en", "Provenance.flagNotes.provenance_inconsistent"));
+  await expect(page.getByText(t("en", "Provenance.flagNotes.provenance_inconsistent"))).toHaveCount(1);
+  const badges = await header.locator(".hc-provenance-badges").boundingBox();
+  const callout = await flag.boundingBox();
+  expect(callout?.width ?? 0).toBeGreaterThanOrEqual((badges?.width ?? 0) - 1);
+  // The page's own check: Meta's model over scripted steps, the snapshot over simulated proofs.
+  const disagree = header.locator("[data-labels-disagree]");
+  await expect(disagree).toHaveAttribute("data-callout-tone", "contested");
+  await expect(disagree.locator(".hc-callout-title")).toHaveText(t("en", "Run.consistency.labelsTitle"));
+  await expect(disagree.locator("[data-labels-disagreement='metaModelScriptedSteps']")).toContainText(
+    "The model label names Meta’s model, but 6 recorded steps are the scripted double",
+  );
+  await expect(disagree.locator("[data-labels-disagreement='memoryEvidenceSimulatedProofs']")).toContainText(
+    "recorded proofs are SIMULATED",
+  );
+  // It opens the Audit trail.
+  await flag.getByRole("button", { name: t("en", "Run.chainBroken.openAudit") }).click();
+  await expect(page.getByRole("tab", { name: t("en", "Run.tabs.audit") })).toHaveAttribute("aria-selected", "true");
+  await expectNoLive(page, "en");
+});
+
+test("a LIVE frame over the scripted double is reconciled by a 'labels disagree' callout", async ({ page }) => {
+  const run = inProgressLiveRun(5);
+  await mockApi(page, { detail: run.detail, frames: run.frames });
+  await openRun(page, "en");
+  const header = page.locator("header.hc-run-header");
+  // LIVE stays what the rules make it (a live frame of a live-model run) ...
+  await expect(header.getByText(t("en", "Provenance.live.label"), { exact: true })).toBeVisible();
+  // ... and the steps that say no model was called are named next to it, not left unflagged.
+  await expect(page.locator("[data-model-note='scripted']").first()).toBeVisible();
+  const disagree = header.locator("[data-labels-disagree]");
+  await expect(disagree).toBeVisible();
+  // Records 1 to 5: the proposal and the challenge, each the scripted double.
+  await expect(disagree.locator("[data-labels-disagreement='metaModelScriptedSteps']")).toContainText(
+    "The model label names Meta’s model, but 2 recorded steps are the scripted double",
+  );
+});
+
+test("a run whose labels match its records shows no 'labels disagree' callout", async ({ page }) => {
+  await mockApi(page, { detail: metaCallsDetail() });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await expect(page.locator("[data-labels-disagreement='metaModelScriptedSteps']")).toHaveCount(0);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockApi(page);
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await expect(page.locator("[data-labels-disagree]")).toHaveCount(0);
+  await expect(page.locator("[data-provenance-flag-callout]")).toHaveCount(0);
+});
+
+// Heuristic evaluation, problem 7: a receipt that contradicts the run it is
+// for is flagged, field by field, instead of shown as if it agreed.
+test("a receipt that disagrees with the run says what disagrees; an agreeing one says nothing", async ({ page }) => {
+  // The receipt of the decided run (approved, 15 events) against the run awaiting its decision (14 events).
+  const detail = awaitingDecisionDetail();
+  await mockApi(page, { detail });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  const disagrees = page.locator("[data-audit-receipt='ready'] [data-receipt-disagrees]");
+  await expect(disagrees).toHaveAttribute("data-callout-tone", "contested");
+  await expect(disagrees.locator(".hc-callout-title")).toHaveText(t("en", "Run.consistency.receipt.title"));
+  await expect(disagrees.locator("[data-receipt-disagreement='finalState']")).toHaveText(
+    "Final state: the receipt says “approved”, the run says “awaiting your decision”.",
+  );
+  await expect(disagrees.locator("[data-receipt-disagreement='eventCount']")).toHaveText(
+    "Events: the receipt counts 15, the run 14.",
+  );
+
+  // The same run with the receipt of its own state: nothing to flag.
+  const receipt = fixture<Json>("receipt-v2-retry.json");
+  receipt.final_state = "awaiting_human_approval";
+  receipt.event_count = 14;
+  receipt.authorization = { state: "pending" };
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockApi(page, { detail, receipt });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  await page.getByRole("tab", { name: t("en", "Run.tabs.audit") }).click();
+  await expect(page.locator("[data-audit-receipt='ready']")).toBeVisible();
+  await expect(page.locator("[data-receipt-field='event_count']")).toHaveText("14");
+  await expect(page.locator("[data-receipt-disagrees]")).toHaveCount(0);
+});

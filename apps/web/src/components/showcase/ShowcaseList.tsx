@@ -29,10 +29,11 @@ import { byBattery, isUnchained, manifestNote, parseOutcome, pinDisplay } from "
 import { showcaseRunPath } from "@/lib/site";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { Callout } from "../Callout";
 import { ProvenanceBadges } from "../ProvenanceBadges";
 import { UntrustedText } from "../run/UntrustedText";
 import { LogPinNote } from "./LogPinNote";
-import { archivePin, checkedManifest, type ManifestState, useArchive } from "./useArchive";
+import { archivePin, checkedManifest, manifestUnconfirmed, type ManifestState, useArchive } from "./useArchive";
 
 type ShowcaseListProps = {
   locale: Locale;
@@ -128,9 +129,16 @@ export function ManifestLine({
       ) : state.status === "error" ? (
         <ApiErrorNotice error={state.error} onRetry={onRetry} />
       ) : state.matches ? (
-        <p data-manifest-check="matches">{t("matches")}</p>
+        // An explicit status: the tag says the result in a word, the sentence how it was found.
+        <p className="hc-manifest-status" data-manifest-status="matches">
+          <Badge variant="success" label={t("matchesTag")} />{" "}
+          <span data-manifest-check="matches">{t("matches")}</span>
+        </p>
       ) : (
-        <p data-manifest-check="differs">{t("differs", { sha256: digestPrefix(state.sha256) ?? state.sha256 })}</p>
+        <p className="hc-manifest-status" data-manifest-status="differs">
+          <Badge variant="error" label={t("differsTag")} />{" "}
+          <span data-manifest-check="differs">{t("differs", { sha256: digestPrefix(state.sha256) ?? state.sha256 })}</span>
+        </p>
       )}
       <p className="hc-supporting">{t("trust")}</p>
     </div>
@@ -169,6 +177,8 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
     );
   }
   const notes = checkedManifest(state);
+  // A page state, not a label of any run: the archive was not confirmed in this browser.
+  const unconfirmed = manifestUnconfirmed(state);
   const events = entries.reduce((sum, entry) => sum + entry.event_count, 0);
   return (
     <div className="hc-showcase" data-showcase="list">
@@ -176,6 +186,11 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
         {t("count", { count: entries.length, events })}
       </p>
       <p className="hc-supporting">{t("recordedNote")}</p>
+      {manifest.status === "ready" && !manifest.matches ? (
+        <Callout tone="failed" title={t("manifest.differsTitle")} data-manifest-banner="differs">
+          <p>{t("manifest.differsBody")}</p>
+        </Callout>
+      ) : null}
       <ManifestLine
         state={manifest}
         file={showcase.manifest_file}
@@ -266,6 +281,11 @@ export function ShowcaseList({ locale }: ShowcaseListProps) {
                     </dl>
                     {/* A recorded run is never presented as running: RECORDED, and META MODEL without a delivery. */}
                     <ProvenanceBadges provenance={entry.provenance} />
+                    {unconfirmed ? (
+                      <p data-archive-unconfirmed>
+                        <Badge variant="warning" label={t("manifest.unconfirmedTag")} />
+                      </p>
+                    ) : null}
                   </li>
                 );
               })}

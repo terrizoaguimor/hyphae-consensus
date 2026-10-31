@@ -57,6 +57,7 @@ import {
 import { digestPrefix } from "@/lib/run/evidence";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import type { ChainBreak } from "./ChainBroken";
 
 export type ChainSource = {
   url: string;
@@ -82,6 +83,13 @@ type ChainCheckProps = {
   chain: ChainV1 | null;
   /** Reads the run's receipt now (its head and record count are compared); rejects with an ApiError. */
   readReceipt: () => Promise<RunReceiptV2>;
+  /**
+   * Told the outcome of every check that finishes: where it failed, or null
+   * when it did not fail (so the workspace's "chain broken in this browser"
+   * travels to every tab until a later check does not fail). A check that
+   * could not run (an error, no WebCrypto) tells nothing.
+   */
+  onOutcome?: (chainBreak: ChainBreak | null) => void;
 };
 
 type CheckState =
@@ -144,7 +152,7 @@ function problemValues(problem: ChainProblem): Record<string, string | number> {
   }
 }
 
-export function ChainCheck({ runId, source, chain, readReceipt }: ChainCheckProps) {
+export function ChainCheck({ runId, source, chain, readReceipt, onOutcome }: ChainCheckProps) {
   const t = useTranslations("Run.chain");
   const tProblem = dynamicTranslator(useTranslations("Run.chain.problems"));
   const format = useFormatter();
@@ -195,6 +203,11 @@ export function ChainCheck({ runId, source, chain, readReceipt }: ChainCheckProp
         chainHead: expectedChain?.head_hash ?? null,
       });
       setState({ status: "done", result, segment, receipt, chain: expectedChain, pin });
+      onOutcome?.(
+        segment.outcome === "failed"
+          ? { sequence: result.failure?.sequence ?? null, line: result.failure?.line ?? null }
+          : null,
+      );
     } catch (error) {
       setState({
         status: "error",

@@ -28,17 +28,21 @@ import type {
   ConsensusFrameV1,
   RunDetailV1,
   RunReceiptV2,
+  RunState,
   RunSummaryV1,
   ShowcaseEntryV1,
 } from "@/lib/api/types";
 import { ndjsonPublishable } from "@/lib/provenance";
+import { type ReceiptDisagreement, receiptDisagreements } from "@/lib/run/consistency";
 import { digestPrefix } from "@/lib/run/evidence";
 import { baseName, ownLogFileName, receiptFileName, verifyCommand } from "@/lib/run/receipt";
 import { mergeEvents } from "@/lib/run/view";
 import { type LogPin, pinDisplay, pinSource } from "@/lib/showcase";
 
 import { ApiErrorNotice } from "../ApiErrorNotice";
+import { Callout } from "../Callout";
 import { LogPinNote } from "../showcase/LogPinNote";
+import type { ChainBreak } from "./ChainBroken";
 import { ChainCheck } from "./ChainCheck";
 import { type RunTimeReceiptReader, RunTimeReceiptNote } from "./RunTimeReceipt";
 import type { RunReceipt } from "./useReceipt";
@@ -59,6 +63,8 @@ type AuditTabProps = {
   archiveMissing: MissingEntry | null;
   /** The receipt a recorded run's record holds, read on request. */
   runTime: RunTimeReceiptReader;
+  /** Told the outcome of each finished chain check (where it failed, or null), so a failure travels to every tab. */
+  onChainOutcome?: (chainBreak: ChainBreak | null) => void;
 };
 
 /** Authorities with their own word (`Run.explorer.authority.<value>`). */
@@ -82,12 +88,18 @@ export function AuditTab({
   pin,
   archiveMissing,
   runTime,
+  onChainOutcome,
 }: AuditTabProps) {
   const t = useTranslations("Run.audit");
   const events = useMemo(() => mergeEvents(detail, frames), [detail, frames]);
   const recorded = summary?.provenance.source === "research_archive";
   const chain = detail?.chain ?? null;
   const state = receipt.state;
+  // The receipt against the server's copy of the run, once neither is moving on.
+  const disagreements =
+    detail === null || state.status !== "ready"
+      ? []
+      : receiptDisagreements(state.receipt, detail.summary, receipt.pending);
 
   // The verbatim log: a recorded run's research file, or this server's
   // events.ndjson when the public surface publishes it.
@@ -274,13 +286,19 @@ export function AuditTab({
           }}
           chain={chain}
           readReceipt={receipt.read}
+          onOutcome={onChainOutcome}
         />
       )}
 
       <section className="hc-section" aria-labelledby="audit-receipt" data-audit-receipt={state.status}>
         <h4 id="audit-receipt">{t("receiptHeading")}</h4>
         {state.status === "ready" ? (
-          <ReceiptSummary receipt={state.receipt} recorded={recorded} onReload={receipt.reload} />
+          <>
+            {disagreements.length === 0 ? null : (
+              <ReceiptDisagrees disagreements={disagreements} recorded={recorded} />
+            )}
+            <ReceiptSummary receipt={state.receipt} recorded={recorded} onReload={receipt.reload} />
+          </>
         ) : state.status === "error" ? (
           <>
             <p>{t("receiptFailed")}</p>
@@ -293,6 +311,43 @@ export function AuditTab({
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * A run state in words. A recorded run is read-only: stopped at its
+ * decision point, it never reads "awaiting your decision".
+ */
+function useStateText(recorded: boolean): (state: RunState) => string {
+  const tRun = useTranslations("Run");
+  const tShowcase = useTranslations("Showcase.run");
+  return (state) =>
+    recorded && state === "awaiting_human_approval" ? tShowcase("awaiting") : tRun(`states.${state}`);
+}
+
+/** The receipt and the run disagree: what, field by field, with both values. */
+function ReceiptDisagrees({
+  disagreements,
+  recorded,
+}: {
+  disagreements: ReceiptDisagreement[];
+  recorded: boolean;
+}) {
+  const t = useTranslations("Run.consistency.receipt");
+  const stateText = useStateText(recorded);
+  return (
+    <Callout tone="contested" title={t("title")} data-receipt-disagrees={disagreements.map((d) => d.field).join(" ")}>
+      <ul className="hc-list">
+        {disagreements.map((disagreement) => (
+          <li key={disagreement.field} data-receipt-disagreement={disagreement.field}>
+            {disagreement.field === "finalState"
+              ? t("finalState", { receipt: stateText(disagreement.receipt), run: stateText(disagreement.run) })
+              : t("eventCount", { receipt: disagreement.receipt, run: disagreement.run })}
+          </li>
+        ))}
+      </ul>
+      <p>{t("body")}</p>
+    </Callout>
   );
 }
 
@@ -313,7 +368,7 @@ function ReceiptSummary({
 }) {
   const t = useTranslations("Run.audit");
   const tRunTime = useTranslations("Run.runTimeReceipt");
-  const tRun = useTranslations("Run");
+  const stateText = useStateText(recorded);
   const tExplorer = useTranslations("Run.explorer");
   const tProvenance = dynamicTranslator(useTranslations("Provenance"));
   const format = useFormatter();
@@ -365,8 +420,12 @@ function ReceiptSummary({
           </dd>
         </div>
         <div>
-          <dt>{t("finalState")}</dt>
-          <dd>{tRun(`states.${receipt.final_state}`)}</dd>
+          {/* A recorded run's receipt states the run as it was recorded; nothing can be decided here. */}
+          <dt>{recorded ? t("finalStateRecorded") : t("finalState")}</dt>
+          <dd data-receipt-field="final_state">
+            {stateText(receipt.final_state)}
+            {recorded ? <span className="hc-supporting">{t("finalStateReadOnly")}</span> : null}
+          </dd>
         </div>
         <div>
           <dt>{t("eventCount")}</dt>

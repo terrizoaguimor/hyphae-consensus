@@ -38,6 +38,19 @@ export function checkedManifest(state: ArchiveState): ArchiveManifest | null {
 }
 
 /**
+ * The archive could not be confirmed in this browser: its manifest could not
+ * be read, does not match the published digest, or does not read as the
+ * archive's format. False while it is still being checked, and once it is
+ * confirmed (checkedManifest is not null).
+ */
+export function manifestUnconfirmed(state: ArchiveState): boolean {
+  if (state.status !== "ready" || state.manifest.status === "loading") {
+    return false;
+  }
+  return checkedManifest(state) === null;
+}
+
+/**
  * The pin of one archive file as the views show it: "checking" while the
  * manifest is still being read and checked, else the listing's digest
  * cross-checked against the checked manifest (src/lib/showcase.ts logPin).

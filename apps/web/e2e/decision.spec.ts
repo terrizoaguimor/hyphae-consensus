@@ -123,11 +123,11 @@ for (const viewport of VIEWPORTS) {
           run.kind,
         );
         const evidence = ((detail.summary as Json).provenance as Json).evidence as EvidenceProvenance;
-        await expect(card.locator("[data-decision-card-lead] [data-recommendation-kind]")).toHaveText(
-          t("en", "Run.outcome", {
-            kind: t("en", `Run.kinds.${run.kind}`),
-            evidence: t("en", `Provenance.${evidenceLabel(evidence).key}`),
-          }),
+        // The outcome and its evidence are two tags (no-truncation, HE #3).
+        const lead = card.locator("[data-decision-card-lead] [data-recommendation-kind]");
+        await expect(lead.locator("[data-outcome-tag='outcome']")).toHaveText(t("en", `Run.kinds.${run.kind}`));
+        await expect(lead.locator("[data-outcome-tag='evidence']")).toHaveText(
+          t("en", "Run.outcomeEvidence", { evidence: t("en", `Provenance.${evidenceLabel(evidence).key}`) }),
         );
 
         // The no-authority notice stays.

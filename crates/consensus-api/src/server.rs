@@ -59,7 +59,7 @@ use crate::public_config::{
 };
 use crate::public_view::Surface;
 use crate::runs::{ManagerSettings, RunManager};
-use crate::session::{random_hex_32, SessionStore};
+use crate::session::{random_hex_32, SessionStore, SESSIONS_FILE};
 use crate::showcase::Showcase;
 use crate::static_files::{csp_hash, inline_bodies, StaticSite};
 use crate::stream::Broadcasts;
@@ -245,12 +245,17 @@ pub fn build_public(cfg: &PublicConfig, opts: BuildOptions) -> Result<Built, Str
         request_timeout: cfg.runtime.request_timeout,
         version: VERSION.into(),
     };
+    // Visitor sessions survive a restart: their hashes are kept next to the
+    // runs they own (crate::session, "Persistence").
+    let (sessions, sessions_warning) = SessionStore::persistent(
+        cfg.session_ttl,
+        cfg.session_max,
+        cfg.cookie_secure,
+        cfg.runtime.run_store_dir.join(SESSIONS_FILE),
+    );
+    warnings.extend(sessions_warning);
     let state = AppState {
-        sessions: Arc::new(SessionStore::new(
-            cfg.session_ttl,
-            cfg.session_max,
-            cfg.cookie_secure,
-        )),
+        sessions: Arc::new(sessions),
         rates: Arc::new(RateTables::new(&cfg.runtime.rates)),
         stream_caps: Arc::new(StreamCaps::new(
             cfg.runtime.sse.max_per_run,
@@ -443,8 +448,13 @@ where
             }
         }
     });
-    serve.await?;
+    let served = serve.await;
     purge.abort();
+    // The sessions changed since the writer's last rewrite reach the disk
+    // before the process ends (crate::session, "Persistence").
+    let sessions = state.sessions.clone();
+    let _ = tokio::task::spawn_blocking(move || sessions.flush()).await;
+    served?;
     Ok(())
 }
 

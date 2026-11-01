@@ -28,6 +28,7 @@ import {
   beforeCarryForwardDetail,
   chainedRun,
   failedDetail,
+  failedLiveRun,
   framesWith,
   inProgressLiveRun,
   liveModelDetail,
@@ -134,7 +135,8 @@ test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, p
   expect(creation?.body).toEqual({ scenario: "retry" });
   expect(creation?.headers["idempotency-key"]).toMatch(/^[0-9a-f-]{36}$/);
   expect(creation?.headers["content-type"]).toBe("application/json");
-  expect(mock.calls.filter((c) => c.path === "/api/v1/session").map((c) => c.method)).toEqual(["GET"]);
+  // One POST /session (it keeps an existing session), never a GET first.
+  expect(mock.calls.filter((c) => c.path === "/api/v1/session").map((c) => c.method)).toEqual(["POST"]);
 
   await hydrated(page);
   await expect(page.locator("h2.hc-run-title")).toHaveText("Fix payment client timeouts");
@@ -1063,13 +1065,16 @@ test("My runs lists the session's runs with their retention dates", async ({ pag
 });
 
 test("My runs shows no list and no count without a session", async ({ page, pageProblems }) => {
-  await mockApi(page, { session: false });
+  // A browser without a session has no session flag either: nothing is asked
+  // (no 401 in the console, round 8 C7).
+  const mock = await mockApi(page, { session: false });
   await page.goto("/en/runs/");
   await hydrated(page);
   await expect(page.locator("[data-runs='no-session']")).toContainText(t("en", "Runs.noSession"));
   await expect(page.locator("[data-run-count]")).toHaveCount(0);
   await expect(page.locator("[data-run-id]")).toHaveCount(0);
-  takeProblem(pageProblems, "HTTP 401: /api/v1/session");
+  expect(mock.calls.filter((c) => c.path === "/api/v1/session")).toEqual([]);
+  expect(pageProblems).toEqual([]);
 });
 
 test("the Explorer tab lists every record and filters by type", async ({ page }) => {
@@ -2916,4 +2921,268 @@ test("a showcase that cannot be read is headed as an unavailable server, never w
   await expect(notice).toContainText(t("en", "Api.errors.shutting_down"));
   await expect(notice).not.toContainText("admits");
   takeProblem(pageProblems, "HTTP 503: /api/v1/showcase");
+});
+
+// ---------------------------------------------------------------------------
+// Round 8, lane C: a failed run explains itself and offers a fresh start
+// ---------------------------------------------------------------------------
+
+/** The first public live run's failure (2026-11-01): the propose call's document was refused. */
+const FIRST_LIVE_FAILURE = "model returned malformed structured output: draft has no claims";
+
+const formatIn = (locale: (typeof locales)[number], key: string, values: Record<string, string | number>) =>
+  String(new IntlMessageFormat(t(locale, key), locale).format(values));
+
+for (const locale of locales) {
+  test(`a live run refused at the propose call says where, by whom, and what comes next (${locale})`, async ({
+    page,
+  }) => {
+    const run = failedLiveRun("propose", "model_malformed_output", FIRST_LIVE_FAILURE);
+    await mockApi(page, { extraRuns: [run] });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openRun(page, locale, LIVE_RUN_ID);
+    const panel = page.locator("[data-failure-code='model_malformed_output']");
+    await expect(panel).toBeVisible();
+    // The role-naming sentence, with the role as its subject.
+    await expect(panel.locator("[data-failure-sentence]")).toHaveText(
+      t(locale, "Run.failure.roleCodes.model_malformed_output", {
+        role: t(locale, "Run.failure.subjects.proposer"),
+      }),
+    );
+    // Where it stopped: the stage's own name and its role, never the raw stage.
+    await expect(panel.locator("[data-failure-where='proposer']")).toHaveText(
+      t(locale, "Run.failure.where", {
+        stageName: t(locale, "Run.failure.stageNames.propose"),
+        role: t(locale, "Run.stage.proposer"),
+      }),
+    );
+    await expect(panel).toContainText(t(locale, "Run.failure.stageNames.propose"));
+    await expect(panel).toContainText(t(locale, "Run.stage.proposer"));
+    await expect(panel).not.toContainText("propose", { useInnerText: true });
+    await expect(panel).toContainText(t(locale, "Run.failure.nothingDecided"));
+    await expect(panel.locator("[data-failure-next='transient']")).toHaveText(t(locale, "Run.failure.next.transient"));
+    // A failure Meta or the model caused is not counted toward the day's live runs.
+    await expect(panel.locator("[data-failure-not-counted]")).toHaveText(t(locale, "Run.failure.quota.notCounted"));
+    // Another live run, with the same preset, and how long this one stays.
+    const again = panel.locator("[data-failure-again='live']");
+    await expect(again.getByRole("link")).toHaveText(t(locale, "Run.failure.again.live"));
+    await expect(again.getByRole("link")).toHaveAttribute("href", `/${locale}/new/?preset=R01-reference#live-heading`);
+    await expect(again).toContainText(formatIn(locale, "Run.failure.again.note", { hours: 24 }));
+    // Never the server's English reason; the raw stage and code only under the technical details.
+    await expect(page.locator("main")).not.toContainText(FIRST_LIVE_FAILURE);
+    await expect(page.locator("main")).not.toContainText("draft has no claims");
+    await expect(panel.locator("[data-failure-detail]")).toHaveText(
+      t(locale, "Run.failure.detail", { stage: "propose", code: "model_malformed_output" }),
+    );
+    await expect(panel.locator("details.hc-details")).not.toHaveAttribute("open", /.*/u);
+  });
+}
+
+test("following 'Start another live run' preselects the preset and nothing else", async ({ page }) => {
+  const run = failedLiveRun("propose", "model_malformed_output", FIRST_LIVE_FAILURE);
+  const mock = await mockApi(page, { extraRuns: [run], liveEnabled: true, liveRequiresTurnstile: false });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en", LIVE_RUN_ID);
+  await page.locator("[data-failure-again='live']").getByRole("link").click();
+  await expect(page).toHaveURL(/\/en\/new\/\?preset=R01-reference#live-heading$/u);
+  await hydrated(page);
+  const form = page.locator("[data-live='form']");
+  await expect(form).toHaveAttribute("data-live-state", "open");
+  await expect(form.getByRole("radio", { name: "Fix payment client timeouts" })).toBeChecked();
+  // The attestation, the invite code and the human check are the visitor's to give again.
+  await expect(form.getByRole("checkbox", { name: t("en", "NewDeliberation.live.attest") })).not.toBeChecked();
+  await expect(form.locator("[data-start-blocker='attestation']")).toBeVisible();
+  await page.getByText(t("en", "NewDeliberation.live.inviteSummary")).click();
+  await expect(form.getByRole("textbox", { name: t("en", "NewDeliberation.live.inviteLabel") })).toHaveValue("");
+  await expect(page.getByRole("button", { name: t("en", "NewDeliberation.live.start") })).toBeDisabled();
+  expect(mock.calls.filter((c) => c.path === "/api/v1/live-runs")).toEqual([]);
+  // The live section is scrolled into view.
+  await expect(page.locator("#live-heading")).toBeInViewport();
+});
+
+test("an unknown preset in the address preselects nothing", async ({ page }) => {
+  await mockApi(page, { liveEnabled: true, liveRequiresTurnstile: false });
+  await page.goto("/en/new/?preset=R99-unknown#live-heading");
+  await hydrated(page);
+  const form = page.locator("[data-live='form']");
+  await expect(form).toHaveAttribute("data-live-state", "open");
+  await expect(form.getByRole("radio", { name: "Fix payment client timeouts" })).not.toBeChecked();
+  await expect(form.locator("[data-start-blocker='preset']")).toBeVisible();
+});
+
+test("a failed guided run links to the guided examples; approved and awaiting runs offer no new run", async ({
+  page,
+}) => {
+  const run = failedDetail("model_timeout", "the model call timed out after 120 s", "critique");
+  await mockApi(page, { detail: run.detail, frames: run.frames });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  const panel = page.locator("[data-failure-code='model_timeout']");
+  await expect(panel.locator("[data-failure-again='guided']").getByRole("link")).toHaveAttribute(
+    "href",
+    "/en/new/#guided-heading",
+  );
+  await expect(panel.locator("[data-failure-again='guided']").getByRole("link")).toHaveText(
+    t("en", "Run.failure.again.guided"),
+  );
+  // A guided run counts toward no live quota.
+  await expect(panel.locator("[data-failure-not-counted]")).toHaveCount(0);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+
+  for (const detail of [awaitingDecisionDetail(), fixture<Record<string, unknown>>("run-detail-retry.json")]) {
+    await mockApi(page, { detail });
+    await openRun(page, "en");
+    await expect(page.locator("[data-run-field='state']")).not.toHaveText("");
+    await expect(page.locator("[data-failure-code]")).toHaveCount(0);
+    await expect(page.locator("[data-failure-again]")).toHaveCount(0);
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
+});
+
+test("the stage of a run that failed at the propose call says who failed and who was never reached", async ({
+  page,
+}) => {
+  const run = failedLiveRun("propose", "model_malformed_output", FIRST_LIVE_FAILURE);
+  await mockApi(page, { extraRuns: [run] });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en", LIVE_RUN_ID);
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  const proposer = page.locator("[data-role-card='Proposer']");
+  await expect(proposer).toHaveAttribute("data-role-state", "failed-here");
+  await expect(proposer).toContainText(t("en", "Run.stage.failedHere"));
+  for (const role of ["Critic", "Evidence Evaluator"]) {
+    const card = page.locator(`[data-role-card='${role}']`);
+    await expect(card).toHaveAttribute("data-role-state", "not-reached");
+    await expect(card).toContainText(t("en", "Run.stage.notReached"));
+  }
+  await expect(page.locator(".hc-stage")).not.toContainText(t("en", "Run.stage.waiting"));
+  await expect(page.locator(".hc-stage")).not.toContainText("yet");
+});
+
+test("the stage of a run that failed at the critique keeps the proposal and marks the Critic", async ({ page }) => {
+  const run = failedDetail("model_timeout", "the model call timed out after 120 s", "critique");
+  await mockApi(page, { detail: run.detail, frames: run.frames });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en");
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  const proposer = page.locator("[data-role-card='Proposer']");
+  await expect(proposer).toHaveAttribute("data-role-state", "shown");
+  // The first proposal (the retry fixture's revision comes after the critique).
+  await expect(proposer).toContainText("Raise the payment client retry limit to fix timeouts");
+  await expect(page.locator("[data-role-card='Critic']")).toHaveAttribute("data-role-state", "failed-here");
+  await expect(page.locator("[data-role-card='Evidence Evaluator']")).toHaveAttribute("data-role-state", "not-reached");
+  await expect(page.locator(".hc-stage")).not.toContainText(t("en", "Run.stage.waiting"));
+  // The panel names the stage and the role: the critique step, the Critic.
+  await expect(page.locator("[data-failure-where='critic']")).toHaveText(
+    t("en", "Run.failure.where", {
+      stageName: t("en", "Run.failure.stageNames.critique"),
+      role: t("en", "Run.stage.critic"),
+    }),
+  );
+});
+
+test("a run still deliberating waits for its roles", async ({ page }) => {
+  const run = inProgressLiveRun(4);
+  await mockApi(page, { detail: run.detail, frames: run.frames });
+  await openRun(page, "en");
+  await expect(page.locator("[data-role-card='Proposer']")).toHaveAttribute("data-role-state", "shown");
+  for (const role of ["Critic", "Evidence Evaluator"]) {
+    const card = page.locator(`[data-role-card='${role}']`);
+    await expect(card).toHaveAttribute("data-role-state", "waiting");
+    await expect(card).toContainText(t("en", "Run.stage.waiting"));
+  }
+});
+
+test("a live run's Meta tab says where its cost is counted; a guided run's says none is shown", async ({ page }) => {
+  const run = failedLiveRun("propose", "model_malformed_output", FIRST_LIVE_FAILURE);
+  await mockApi(page, { extraRuns: [run] });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await openRun(page, "en", LIVE_RUN_ID);
+  await page.getByRole("tab", { name: t("en", "Run.tabs.meta") }).click();
+  await expect(page.locator("[data-meta-no-cost='live']")).toHaveText(t("en", "Run.meta.noCostLive"));
+  // The refused call is listed, at the stage the panel names.
+  await expect(page.locator("[data-invocation-sequence='2']")).toContainText(
+    t("en", "Run.meta.failedAt", { stage: t("en", "Run.failure.stageNames.propose") }),
+  );
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+
+  await mockApi(page);
+  await openRun(page, "en");
+  await page.getByRole("tab", { name: t("en", "Run.tabs.meta") }).click();
+  await expect(page.locator("[data-meta-no-cost='none']")).toHaveText(t("en", "Run.meta.noCost"));
+});
+
+test("the live form states that a run can fail, the daily rule and what a failed run costs", async ({ page }) => {
+  await mockApi(page, {
+    liveEnabled: true,
+    liveRequiresTurnstile: false,
+    liveDaily: { client: 3, inviteCode: 5 },
+  });
+  await page.goto("/en/new/");
+  await hydrated(page);
+  await expect(page.locator("[data-live-fail-note]")).toHaveText(t("en", "NewDeliberation.live.failNote"));
+  await expect(page.locator("[data-live-quota]")).toHaveText(
+    formatIn("en", "NewDeliberation.live.quota.rule", { clientDaily: 3, codeDaily: 5 }),
+  );
+  await expect(page.locator("[data-budget-note-failed]")).toHaveText(t("en", "NewDeliberation.live.budget.noteFailed"));
+});
+
+test("a server that publishes no daily figures gets no rule with invented numbers", async ({ page }) => {
+  await mockApi(page, { liveEnabled: true, liveRequiresTurnstile: false });
+  await page.goto("/en/new/");
+  await hydrated(page);
+  await expect(page.locator("[data-live='form']")).toBeVisible();
+  await expect(page.locator("[data-live-quota]")).toHaveCount(0);
+});
+
+test("My runs with no session flag asks nothing and lists nothing", async ({ page, pageProblems }) => {
+  const mock = await mockApi(page, { sessionFlag: false });
+  await page.goto("/en/runs/");
+  await hydrated(page);
+  await expect(page.locator("[data-runs='no-session']")).toContainText(t("en", "Runs.noSession"));
+  expect(mock.calls.filter((c) => c.path === "/api/v1/session")).toEqual([]);
+  expect(mock.calls.filter((c) => c.path.startsWith("/api/v1/runs"))).toEqual([]);
+  expect(pageProblems).toEqual([]);
+});
+
+test("a session flag the server no longer honours is cleared after one 401", async ({ page, pageProblems }) => {
+  const mock = await mockApi(page, { session: false, sessionFlag: true });
+  await page.goto("/en/runs/");
+  await hydrated(page);
+  await expect(page.locator("[data-runs='no-session']")).toContainText(t("en", "Runs.noSession"));
+  expect(mock.calls.filter((c) => c.path === "/api/v1/session").map((c) => c.method)).toEqual(["GET"]);
+  expect(await page.evaluate(() => window.localStorage.getItem("hc.session"))).toBeNull();
+  takeProblem(pageProblems, "HTTP 401: /api/v1/session");
+  // The next visit asks nothing.
+  await page.reload();
+  await hydrated(page);
+  await expect(page.locator("[data-runs='no-session']")).toBeVisible();
+  expect(mock.calls.filter((c) => c.path === "/api/v1/session")).toHaveLength(1);
+});
+
+test("My runs still asks the server when the browser cannot keep the session flag", async ({ page, pageProblems }) => {
+  // A session cookie, but a storage that refuses every write (full, or
+  // blocked by privacy settings): the flag's absence says nothing.
+  const mock = await mockApi(page, { session: true, sessionFlag: false });
+  await page.addInitScript(() => {
+    Storage.prototype.setItem = () => {
+      throw new DOMException("refused", "QuotaExceededError");
+    };
+  });
+  await page.goto("/en/runs/");
+  await hydrated(page);
+  await expect(page.locator("[data-runs='list']")).toBeVisible();
+  expect(mock.calls.filter((c) => c.path === "/api/v1/session").map((c) => c.method)).toEqual(["GET"]);
+  expect(pageProblems).toEqual([]);
+});
+
+test("a run this browser cannot reach names the causes that remain possible", async ({ page, pageProblems }) => {
+  await mockApi(page);
+  // No such run on the mock: GET /runs/{id} and its stream answer 404 not_found.
+  await page.goto(runPath("en", "run-00000000-0000-4000-8000-0000000000ff"));
+  await hydrated(page);
+  await expect(page.locator("[data-run='error']")).toContainText(t("en", "Api.errors.not_found"));
+  await expect(page.locator("[data-run-restart-hint]")).toHaveText(t("en", "Run.restartHint"));
+  dropProblems(pageProblems, /HTTP 404: \/api\/v1\/runs\//u);
+  dropProblems(pageProblems, /EventSource/u);
 });

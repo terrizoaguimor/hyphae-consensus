@@ -91,6 +91,7 @@
           "heading": "Durante cuánto tiempo",
           "items": {
             "runs": "Archivos de las ejecuciones: se eliminan por completo 7 días después de la ejecución. Dos cosas los sobreviven: una entrada de una línea en el índice de ejecuciones (identificador, hora y hash final) y la entrada de costo de la ejecución en el libro de presupuesto del modo en vivo. Ninguna de las dos contiene el texto de la ejecución.",
+            "sessions": "Registros de sesión: el hash SHA-256 del identificador de tu sesión, con cuándo empezó y cuándo termina la sesión, guardado en el disco del servidor hasta que la sesión termina (24 horas como máximo) y borrado de él pocos minutos después, para que un reinicio del servidor no la termine. El identificador mismo nunca se escribe en disco.",
             "addresses": "Hashes con clave de las direcciones de red: solo en memoria, en tablas de tamaño limitado; no se escriben en disco y desaparecen cuando el servidor se reinicia o la tabla los descarta.",
             "logs": "Registros de solicitudes del servidor, registros del túnel cloudflared y registros del sistema del equipo anfitrión: siguen la rotación de registros del anfitrión.",
             "operator": "El registro detallado del operador, indexado por identificador de solicitud, que guarda el detalle de los fallos para diagnosticarlos: lo conserva el operador y no se publica."
@@ -144,6 +145,10 @@
         "outcomes": {
           "heading": "Disputa y abstención son resultados normales",
           "body": "Una ejecución que termina disputada o en abstención es el sistema informando con honestidad de objeciones abiertas, contradicciones o vacíos, en lugar de convertir la incertidumbre en confianza."
+        },
+        "liveFailures": {
+          "heading": "Una ejecución en vivo puede fallar",
+          "body": "Una ejecución en vivo puede fallar: el servicio de Meta puede agotar el tiempo o devolver una respuesta que el protocolo rechaza. Una ejecución fallida no decide nada, indica dónde se detuvo y puedes iniciar otra."
         },
         "labels": {
           "heading": "Las ejecuciones simuladas y grabadas están identificadas",

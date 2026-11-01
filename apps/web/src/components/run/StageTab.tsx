@@ -13,7 +13,9 @@
 // a server rationale over SIMULATED proofs gets a caption saying so). The
 // records are the frames shown so far plus what the detail holds and the
 // stream did not deliver (src/lib/run/view.ts stageRecords), so every count
-// matches the run.
+// matches the run. On a run that ended, a role without a document is never
+// "waiting": the role whose call failed says so, the roles after it say they
+// were not reached (view.ts roleCardState).
 
 import { Button } from "@astryxdesign/core/Button";
 import { useFormatter, useTranslations } from "next-intl";
@@ -39,6 +41,8 @@ import {
 } from "@/lib/provenance";
 import {
   type Carried,
+  type RoleCardState,
+  roleCardState,
   type ShownRecord,
   stageOf,
   stageRecords,
@@ -79,6 +83,18 @@ export function StageTab({ data }: StageTabProps) {
   const queued = pacing === "on" && pending > 0;
   const simulatedProofs = stage.verifications.filter(({ document }) => document.simulated).length;
   const checkedProofs = stage.verifications.length - simulatedProofs;
+  // On the stage's own clock: the failure once its record is shown (or, at
+  // rest, the summary's when no record says it), and "ended" once every
+  // record is on the stage and the run is in a final state. A run that
+  // ended never reads "waiting" (C5).
+  const atRest = settled && pending === 0;
+  const runState = summary?.state ?? null;
+  const failedStage =
+    stage.failure?.document.stage ??
+    (atRest && runState === "failed" ? (summary?.failure?.stage ?? null) : null);
+  const ended =
+    atRest && (runState === "failed" || runState === "approved" || runState === "rejected");
+  const roleRun = { ended, failedStage };
 
   return (
     <div className="hc-stage-tab">
@@ -137,6 +153,7 @@ export function StageTab({ data }: StageTabProps) {
             carried={stage.proposal}
             invocation={stage.proposal?.document.invocation ?? null}
             summary={summary}
+            state={roleCardState("proposer", stage.proposal !== null, roleRun)}
           >
             {stage.proposal === null ? null : (
               <ProposalBody
@@ -150,6 +167,7 @@ export function StageTab({ data }: StageTabProps) {
             carried={stage.challenge}
             invocation={stage.challenge?.document.invocation ?? null}
             summary={summary}
+            state={roleCardState("critic", stage.challenge !== null, roleRun)}
           >
             {stage.challenge === null ? null : (
               <ChallengeBody challenge={stage.challenge.document.challenge} />
@@ -160,6 +178,7 @@ export function StageTab({ data }: StageTabProps) {
             carried={stage.evaluation}
             invocation={stage.evaluation?.document.invocation ?? null}
             summary={summary}
+            state={roleCardState("evaluator", stage.evaluation !== null, roleRun)}
           >
             {stage.evaluation === null ? null : (
               <EvaluationBody evaluation={stage.evaluation.document.evaluation} />
@@ -305,18 +324,21 @@ function RoleCard({
   carried,
   invocation,
   summary,
+  state,
   children,
 }: {
   title: string;
   carried: Carried<unknown> | null;
   invocation: ModelInvocationV1 | null;
   summary: RunData["summary"];
+  /** What the card says (src/lib/run/view.ts roleCardState). */
+  state: RoleCardState;
   children: ReactNode;
 }) {
   const t = useTranslations("Run");
   const tProvenance = useTranslations("Provenance");
   return (
-    <article className="hc-stage-card" data-role-card={title}>
+    <article className="hc-stage-card" data-role-card={title} data-role-state={state}>
       <header className="hc-stage-card-head">
         <h4>{title}</h4>
         {carried === null ? null : <FrameBadge record={carried.record} summary={summary} />}
@@ -328,7 +350,18 @@ function RoleCard({
             : t("stage.model", { model: invocation.model, provider: invocation.provider })}
         </p>
       )}
-      {carried === null ? <p className="hc-supporting">{t("stage.waiting")}</p> : children}
+      {state === "failed-here" ? (
+        <p className="hc-supporting" data-role-note="failed-here">
+          {t("stage.failedHere")}
+        </p>
+      ) : null}
+      {carried !== null ? (
+        children
+      ) : state === "failed-here" ? null : (
+        <p className="hc-supporting" data-role-note={state}>
+          {state === "not-reached" ? t("stage.notReached") : t("stage.waiting")}
+        </p>
+      )}
     </article>
   );
 }

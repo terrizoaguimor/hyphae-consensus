@@ -46,6 +46,7 @@ import {
 import { labelDisagreements } from "@/lib/run/consistency";
 import { awaitsDecision, runTabOrder, type RunTabKey } from "@/lib/run/decision";
 import { evidenceView, generationFailures } from "@/lib/run/evidence";
+import { againPath, visitorRunKind } from "@/lib/run/failure";
 import { baseName } from "@/lib/run/receipt";
 import {
   awaitsFirstFrame,
@@ -72,7 +73,7 @@ import { type ChainBreak, ChainBroken } from "./ChainBroken";
 import { DecisionTab, type DecisionLinks } from "./DecisionTab";
 import { EvidenceTab } from "./EvidenceTab";
 import { ExplorerTab } from "./ExplorerTab";
-import { FailureSentence } from "./FailureSentence";
+import { FailureSentence, useVisitorAccessHours } from "./FailureSentence";
 import { MetaTab } from "./MetaTab";
 import { ProofsTab } from "./ProofsTab";
 import { StageTab } from "./StageTab";
@@ -245,12 +246,27 @@ function Workspace({
     });
   const following = beforePlayback || (position !== null && followsPlayback(position));
   const shown = position === null ? summary : headerSummary(detail, frames, position);
+  // A failed run of this browser offers another one; the note under the
+  // link says how long this one stays in My runs (the capabilities' limits).
+  const failedOwnRun =
+    mode.kind === "own" && shown !== null && !beforePlayback && (shown.failure ?? null) !== null;
+  const accessHours = useVisitorAccessHours(failedOwnRun);
 
   if (summary === null || shown === null) {
     if (detailError !== null && summary === null) {
       return (
         <div className="hc-section" data-run="error">
           <ApiErrorNotice error={detailError} onRetry={reloadDetail} />
+          {/* A not_found run is another browser's or session's, a run of a
+              session that expired or was evicted, or a run deleted after its
+              access window (sessions now survive a restart, crate::session
+              "Persistence"): the hint names those causes without guessing
+              which case it is. */}
+          {!recorded && detailError.code === "not_found" ? (
+            <p className="hc-supporting" data-run-restart-hint>
+              {t("restartHint")}
+            </p>
+          ) : null}
           <div className="hc-actions">
             {recorded ? (
               <Button variant="secondary" label={tShowcase("back")} href={localePath(locale, "showcase")} />
@@ -298,6 +314,10 @@ function Workspace({
   // Before the playback starts the header shows no outcome of the ending.
   const outcome = beforePlayback ? null : (shown.recommendation ?? null);
   const failure = beforePlayback ? null : (shown.failure ?? null);
+  // A live run of the public surface: its failures may not count toward the
+  // day's live runs, and its cost is counted in the public live budget.
+  const publicLive = !recorded && visitorRunKind(summary.provenance) === "live";
+  const again = failedOwnRun ? againPath(localePath(locale, "new"), summary.provenance) : null;
   // Decision comes right after the first tab (first for a recorded run, whose default tab it is).
   const items: Array<{ value: TabKey; label: string }> = runTabOrder(recorded).map((value) => ({
     value,
@@ -428,7 +448,15 @@ function Workspace({
             </dd>
           </div>
         </dl>
-        {failure === null ? null : <FailureSentence failure={failure} />}
+        {failure === null ? null : (
+          <FailureSentence
+            failure={failure}
+            own={mode.kind === "own"}
+            live={publicLive}
+            again={again}
+            accessHours={accessHours}
+          />
+        )}
         <div>
           <p className="hc-supporting">{t("header.provenance")}</p>
           <ProvenanceBadges
@@ -536,7 +564,9 @@ function Workspace({
             onChainOutcome={setChainBreak}
           />
         ) : null}
-        {tab === "meta" ? <MetaTab detail={detail} frames={frames} detailError={detailError} /> : null}
+        {tab === "meta" ? (
+          <MetaTab detail={detail} frames={frames} detailError={detailError} publicLive={publicLive} />
+        ) : null}
         {tab === "decision" ? (
           <DecisionTab
             runId={runId}

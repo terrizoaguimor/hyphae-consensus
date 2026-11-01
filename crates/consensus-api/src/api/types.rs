@@ -1008,6 +1008,17 @@ pub struct LiveCapabilitiesV1 {
     pub requires_turnstile: bool,
     /// Always true: `attest_adult` must be true on every live run.
     pub requires_adult_attestation: bool,
+    /// Public-lane live runs one network (client key) may start per UTC
+    /// day (`CONSENSUS_LIVE_CLIENT_DAILY`). A run that Meta or the model
+    /// ended before any recommendation is given back, up to 2 a day.
+    /// Absent from servers that predate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_daily: Option<u32>,
+    /// Live runs one invite code may start per UTC day
+    /// (`CONSENSUS_LIVE_JUDGE_CODE_DAILY`), with the same give-back.
+    /// Absent from servers that predate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invite_code_daily: Option<u32>,
 }
 
 /// `GET /api/v1/capabilities`.

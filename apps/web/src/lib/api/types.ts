@@ -4,7 +4,7 @@
 // JSON Schemas of contracts/api-v1 (`pnpm api:types`); tests/api-types.test.ts
 // regenerates it in memory and fails on drift (`pnpm api:check`).
 //
-// contract-sha256: 465f4117d8a12365ed06bc594f5972f19160d3016b085bcb5836e75786ad760e
+// contract-sha256: b16942c8ad40315a7a802ddc3ac5c40cbba3ba7bcf840b6a8740110f3d29cbb6
 // schemas (28): ApiError, CancelResponseV1, CapabilitiesV1, ConsensusFrameV1, CreateGuidedRunRequest, CreateLiveRunRequest, CreateOperatorRunRequest, DecisionRequest, DecisionResponseV1, EventV1, EventsQuery, HealthV1, ListRunsQuery, PolicyTrace, ProvenanceV1, ReadyV1, ResyncV1, RunCreatedV1, RunDetailV1, RunListV1, RunReceiptV2, RunSummaryV1, ScenariosV1, SessionV1, ShowcaseEntryV1, ShowcaseV1, SseFrameV1, StreamEndV1
 
 /**
@@ -12,7 +12,7 @@
  * (contracts/api-v1/contract-sha256.txt); GET /api/v1/health reports the
  * server's as `contract_sha256`.
  */
-export const CONTRACT_SHA256 = "465f4117d8a12365ed06bc594f5972f19160d3016b085bcb5836e75786ad760e";
+export const CONTRACT_SHA256 = "b16942c8ad40315a7a802ddc3ac5c40cbba3ba7bcf840b6a8740110f3d29cbb6";
 
 /** The schema files of the contract, one per request, response or frame type. */
 export const CONTRACT_SCHEMAS = [
@@ -660,6 +660,14 @@ export type LiveCapabilitiesV1 = {
    * The visitor-safe budget. Absent when the ledger could not be read: no run can be admitted until it can (`/ready` then reports `live.ledger_ok: false`), and no figure is invented in its place.
    */
   budget?: PublicBudgetV1 | null;
+  /**
+   * Public-lane live runs one network (client key) may start per UTC day (`CONSENSUS_LIVE_CLIENT_DAILY`). A run that Meta or the model ended before any recommendation is given back, up to 2 a day. Absent from servers that predate it.
+   */
+  client_daily?: number | null;
+  /**
+   * Live runs one invite code may start per UTC day (`CONSENSUS_LIVE_JUDGE_CODE_DAILY`), with the same give-back. Absent from servers that predate it.
+   */
+  invite_code_daily?: number | null;
   presets: PresetV1[];
   /** Always true: `attest_adult` must be true on every live run. */
   requires_adult_attestation: boolean;

@@ -25,6 +25,7 @@ import {
   mergeEvents,
   newerDetail,
   newestSummary,
+  roleCardState,
   stageOf,
   stageRecords,
   streamLine,
@@ -281,5 +282,59 @@ describe("decisionOf", () => {
     expect(decisionOf({ authorization: "pending", override: false })).toBeNull();
     // The playback's frames carry no decision before the end.
     expect(frames.every((f) => decisionOf(f.summary) === null)).toBe(true);
+  });
+});
+
+// Round 8, C5: a failed run's stage never says "nothing from this role yet".
+describe("roleCardState", () => {
+  const roles = ["proposer", "critic", "evaluator"] as const;
+
+  it("marks the role whose call failed, and the roles never reached", () => {
+    const atPropose = { ended: true, failedStage: "propose" };
+    expect(roles.map((role) => roleCardState(role, false, atPropose))).toEqual([
+      "failed-here",
+      "not-reached",
+      "not-reached",
+    ]);
+    const atCritique = { ended: true, failedStage: "critique" };
+    expect(roles.map((role, i) => roleCardState(role, i === 0, atCritique))).toEqual([
+      "shown",
+      "failed-here",
+      "not-reached",
+    ]);
+    // A revision that failed: the Proposer failed here (its first proposal
+    // stays under the note); the earlier roles keep their documents.
+    const atRevise = { ended: true, failedStage: "revise" };
+    expect(roles.map((role) => roleCardState(role, true, atRevise))).toEqual(["failed-here", "shown", "shown"]);
+    // A failure outside a role's call (the token budget, the deadline).
+    const atBudget = { ended: true, failedStage: "token_budget" };
+    expect(roles.map((role, i) => roleCardState(role, i < 2, atBudget))).toEqual([
+      "shown",
+      "shown",
+      "not-reached",
+    ]);
+  });
+
+  it("waits only while the run is under way", () => {
+    const active = { ended: false, failedStage: null };
+    expect(roles.map((role, i) => roleCardState(role, i === 0, active))).toEqual(["shown", "waiting", "waiting"]);
+    const ended = { ended: true, failedStage: null };
+    expect(roleCardState("critic", false, ended)).toBe("not-reached");
+  });
+
+  it("reads the failure record the stage shows", () => {
+    const failed = stageOf([
+      {
+        event: {
+          ...(detail.events[0] as RunDetailV1["events"][number]),
+          sequence: 99,
+          payload: { type: "run_failed", stage: "propose", code: "model_malformed_output", message: "x" },
+        },
+        delivery: "replay",
+        fromDetail: true,
+      },
+    ]);
+    expect(failed.failure?.document).toEqual({ stage: "propose", code: "model_malformed_output" });
+    expect(stageOf([]).failure).toBeNull();
   });
 });

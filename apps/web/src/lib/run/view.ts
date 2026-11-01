@@ -31,6 +31,7 @@ import type {
   VerificationV1,
 } from "../api/types";
 import type { StreamState } from "../api/sse";
+import { type FailureRole, stageRole } from "./failure";
 
 /** The detail to keep: a response never replaces a detail that is further along. */
 export function newerDetail(next: RunDetailV1, current: RunDetailV1 | null): RunDetailV1 {
@@ -254,11 +255,42 @@ export type Stage = {
   challenge: Carried<{ challenge: Challenge; invocation: ModelInvocationV1 }> | null;
   evaluation: Carried<{ evaluation: Evaluation; invocation: ModelInvocationV1 }> | null;
   recommendation: Carried<Recommendation> | null;
+  /** The run's failure record (its stage and code, never its message), once shown. */
+  failure: Carried<{ stage: string; code: string | null }> | null;
   retrieved: number;
   unavailable: number;
   proven: number;
   verifications: Carried<VerificationV1>[];
 };
+
+/**
+ * What a role's card on the stage says:
+ * - `shown`: the role's latest document;
+ * - `failed-here`: the run failed at this role's call (with the role's
+ *   earlier document under it, if any);
+ * - `not-reached`: the run ended before this role answered;
+ * - `waiting`: the run is still under way (never on a run that ended).
+ */
+export type RoleCardState = "shown" | "failed-here" | "not-reached" | "waiting";
+
+/**
+ * The state of a role's card: `failedStage` is the stage of the failure the
+ * stage shows (null when none), `ended` that the run is shown at rest in a
+ * final state (failed, approved, rejected).
+ */
+export function roleCardState(
+  role: Exclude<FailureRole, "runtime">,
+  hasDocument: boolean,
+  run: { ended: boolean; failedStage: string | null },
+): RoleCardState {
+  if (run.failedStage !== null && stageRole(run.failedStage) === role) {
+    return "failed-here";
+  }
+  if (hasDocument) {
+    return "shown";
+  }
+  return run.ended || run.failedStage !== null ? "not-reached" : "waiting";
+}
 
 /** The latest document of each role and the lane's counts, from the records given. */
 export function stageOf(records: ShownRecord[]): Stage {
@@ -267,6 +299,7 @@ export function stageOf(records: ShownRecord[]): Stage {
     challenge: null,
     evaluation: null,
     recommendation: null,
+    failure: null,
     retrieved: 0,
     unavailable: 0,
     proven: 0,
@@ -305,6 +338,9 @@ export function stageOf(records: ShownRecord[]): Stage {
         break;
       case "recommendation_issued":
         stage.recommendation = { record, document: payload.recommendation };
+        break;
+      case "run_failed":
+        stage.failure = { record, document: { stage: payload.stage, code: payload.code ?? null } };
         break;
       case "evidence_retrieved":
         stage.retrieved += 1;

@@ -72,7 +72,7 @@
       "csrf_rejected": "Le serveur a refusé l’origine de la requête.",
       "host_not_allowed": "Le serveur ne répond pas pour ce nom d’hôte.",
       "client_unidentified": "Le serveur n’a pas pu identifier ce client.",
-      "session_required": "Une session est d’abord nécessaire ; elle démarre lorsque vous lancez un exemple guidé.",
+      "session_required": "Une session est d’abord nécessaire ; elle commence lorsque vous lancez un exemple guidé ou une exécution en direct.",
       "unauthorized": "Cette route exige les identifiants de l’opérateur.",
       "not_found": "Rien n’existe à cette adresse, ou l’exécution appartient à une autre session.",
       "method_not_allowed": "Le serveur n’autorise pas cette méthode sur cette route.",
@@ -240,7 +240,8 @@
         "availableNow": "Disponible maintenant",
         "dailyRemaining": "Reste aujourd’hui (UTC)",
         "lifetimeRemaining": "Reste au total",
-        "note": "En dollars américains, tels que le registre budgétaire du serveur les annonce. Chaque exécution en direct réserve son coût maximal avant de démarrer : une exécution peut donc être refusée alors qu’il reste du budget."
+        "note": "En dollars américains, tels que le registre budgétaire du serveur les annonce. Chaque exécution en direct réserve son coût maximal avant de démarrer : une exécution peut donc être refusée alors qu’il reste du budget.",
+        "noteFailed": "Une exécution qui échoue dépense quand même ce qu’ont coûté ses appels avant l’arrêt ; le reste de sa réservation est rendu."
       },
       "attest": "Je confirme avoir 18 ans ou plus et ne pas utiliser le mode en direct depuis un territoire restreint.",
       "attestDescription": "Le mode en direct appelle le modèle de Meta avec la clé du propriétaire ; le serveur ne lance une exécution en direct qu’avec cette confirmation.",
@@ -275,7 +276,11 @@
         "inconsistent": "Les enregistrements du registre ne concordent pas : il s’est arrêté de lui-même.",
         "other": "Le registre s’est arrêté de lui-même (code {code})."
       },
-      "wait": "Réessayer dans {time}"
+      "wait": "Réessayer dans {time}",
+      "failNote": "Une exécution en direct peut échouer : le service de Meta peut expirer ou renvoyer une réponse que le protocole refuse. Une exécution échouée ne décide rien, indique où elle s’est arrêtée, et vous pouvez en lancer une autre.",
+      "quota": {
+        "rule": "Chaque réseau peut lancer {clientDaily, plural, =0 {aucune exécution en direct} one {# exécution en direct} other {# exécutions en direct}} par jour (UTC), et chaque code d’invitation {codeDaily, number}. Une exécution qui échoue à cause du modèle ou du service de Meta n’est pas comptée (jusqu’à 2 par jour)."
+      }
     }
   },
   "Runs": {
@@ -286,7 +291,7 @@
       "expiry": "gardera chaque exécution accessible pendant 24 heures et supprimera ses fichiers au bout de 7 jours ;",
       "status": "indiquera si une exécution est encore en délibération, attend votre décision ou est terminée."
     },
-    "noSession": "Ce navigateur n’a pas de session, il n’y a donc rien à lister. Une session démarre lorsque vous lancez un exemple guidé.",
+    "noSession": "Ce navigateur n’a pas de session, il n’y a donc rien à lister. Une session commence lorsque vous lancez un exemple guidé ou une exécution en direct.",
     "empty": "Aucune exécution dans cette session pour l’instant.",
     "startOne": "Lancer une délibération",
     "refresh": "Actualiser",
@@ -446,7 +451,9 @@
       "recommendation": "Recommandation",
       "noRecommendation": "Aucune recommandation émise pour l’instant.",
       "noRecommendationFailed": "Aucune recommandation n’a été émise : l’exécution a échoué.",
-      "model": "{model} via {provider}"
+      "model": "{model} via {provider}",
+      "failedHere": "L’appel de ce rôle a échoué ici ; voir l’échec ci-dessus.",
+      "notReached": "Non atteint : l’exécution s’est arrêtée avant ce rôle."
     },
     "explorer": {
       "heading": "Chronologie des événements",
@@ -598,7 +605,55 @@
         "meta_transport": "La connexion à la Model API de Meta a échoué.",
         "meta_config": "La configuration de la Model API du serveur n’a pas pu être utilisée.",
         "model_output_truncated": "La sortie du modèle a atteint sa limite de longueur avant que le document soit complet.",
-        "model_refusal": "Le modèle a refusé de produire le document."
+        "model_refusal": "Le modèle a refusé de produire le document.",
+        "model_no_claims": "Le modèle a répondu par une proposition sans affirmations : elle a été refusée.",
+        "model_content_filtered": "Le filtre de contenu du fournisseur a retenu la réponse du modèle : aucun document n’est revenu.",
+        "model_unexpected_finish": "Le modèle s’est arrêté avant d’avoir terminé son document, pour une raison que le runtime n’accepte pas : la réponse a été refusée.",
+        "adapter_schema_error": "Le serveur n’a pas pu construire la requête destinée au modèle : aucun appel n’a été fait.",
+        "meta_bad_envelope": "La Model API de Meta a répondu par quelque chose qui n’est pas une réponse du modèle.",
+        "run_deadline_reached": "Il restait trop peu de temps à l’exécution pour le prochain appel au modèle : il n’a pas été fait."
+      },
+      "technical": "Détails techniques",
+      "where": "Elle s’est arrêtée à l’étape « {stageName} » ({role}).",
+      "nothingDecided": "Rien n’a été décidé : aucune recommandation n’a été émise, aucune décision ne peut être enregistrée sur cette exécution et rien n’a été modifié nulle part.",
+      "next": {
+        "transient": "Ce type d’échec est généralement temporaire : le même preset peut réussir lors d’une nouvelle exécution.",
+        "protocol": "Le protocole a arrêté l’exécution volontairement plutôt que de continuer sur un document refusé. Une nouvelle exécution du même preset est indépendante de celle-ci.",
+        "closed": "Recommencer risque de ne pas fonctionner pour l’instant : ce qui a arrêté cette exécution se situe du côté du serveur, et une nouvelle exécution le rencontrerait probablement aussi.",
+        "closedLive": "Recommencer risque de ne pas fonctionner pour l’instant ; la page des presets en direct indique si le mode en direct est ouvert.",
+        "cancelled": "L’exécution a été annulée : elle s’est arrêtée là où elle en était. Une nouvelle exécution repart du début.",
+        "deadline": "L’exécution a épuisé son temps imparti avant de se terminer. Une nouvelle exécution dispose de son propre temps imparti."
+      },
+      "stageNames": {
+        "propose": "proposition",
+        "critique": "critique",
+        "evaluate": "évaluation des preuves",
+        "revise": "révision",
+        "token_budget": "contrôle du budget de jetons",
+        "deadline": "contrôle de l’échéance",
+        "shutdown": "arrêt du serveur",
+        "interrupted": "redémarrage du serveur"
+      },
+      "subjects": {
+        "proposer": "Le Proposant",
+        "critic": "Le Critique",
+        "evaluator": "L’Évaluateur des éléments probants",
+        "runtime": "L’environnement d’exécution"
+      },
+      "roleCodes": {
+        "model_malformed_output": "{role} a répondu, mais son document n’avait pas la forme exigée par le runtime : le runtime l’a refusé plutôt que de deviner.",
+        "model_no_claims": "{role} a répondu par une proposition sans affirmations : le runtime l’a refusée plutôt que de deviner.",
+        "model_content_filtered": "{role} n’a rendu aucun document : le filtre de contenu du fournisseur a retenu sa réponse, le runtime n’avait donc rien à vérifier.",
+        "model_unexpected_finish": "{role} s’est arrêté avant d’avoir terminé son document, pour une raison que le runtime n’accepte pas : le runtime a refusé la réponse plutôt que de deviner."
+      },
+      "quota": {
+        "notCounted": "Un échec de ce type n’est pas compté dans les exécutions en direct du jour (jusqu’à 2 par jour)."
+      },
+      "again": {
+        "live": "Lancer une autre exécution en direct",
+        "guided": "Lancer un autre exemple guidé",
+        "note": "Une nouvelle exécution est indépendante de celle-ci ; cette exécution échouée reste dans Mes exécutions {hours, plural, =0 {jusqu’à sa suppression} one {pendant # heure} other {pendant # heures}}.",
+        "noteShort": "Une nouvelle exécution est indépendante de celle-ci ; cette exécution échouée reste dans Mes exécutions."
       }
     },
     "unavailable": {
@@ -869,7 +924,8 @@
       "total": "{sum} (indiqué par {reported, number} sur {calls, plural, =0 {aucun appel} one {# appel} many {# d’appels} other {# appels}})",
       "requestIds": "Les id de requête sont ceux que l’environnement d’exécution a enregistrés pour l’API de Meta ; les journaux ne sont pas signés : ils montrent ce qui a été enregistré, pas que Meta l’a renvoyé.",
       "operatorOnly": "Aucune ligne ne porte la limite de sortie, le nombre de tentatives ni les empreintes du schéma et du prompt : la surface publique ne les publie pas.",
-      "noCost": "Aucun coût n’est affiché : l’API ne publie aucun prix."
+      "noCost": "Aucun coût n’est affiché : l’API ne publie aucun prix.",
+      "noCostLive": "Le coût de cette exécution n’est pas affiché ici ; ce qu’ont coûté ses appels à Meta est compté dans le budget public en direct, exécutions échouées comprises."
     },
     "explain": {
       "heading": "Pourquoi la politique recommande cela",
@@ -1070,7 +1126,8 @@
         "eventCount": "Événements : le reçu en compte {receipt}, l’exécution {run}.",
         "body": "Le serveur construit le reçu à partir des enregistrements de l’exécution ; les deux devraient donc concorder. Relisez le reçu ; s’ils ne concordent toujours pas, traitez-les tous deux avec prudence."
       }
-    }
+    },
+    "restartHint": "La session de ce navigateur ne peut pas voir cette exécution : elle appartient peut-être à un autre navigateur ou à une autre session, votre session a pu se terminer, ou l’exécution a pu être supprimée après sa période d’accès."
   },
   "Showcase": {
     "lead": "Des exécutions enregistrées, scénarisées ou menées avec le modèle de Meta, lues depuis une archive qui les conserve à l’identique.",

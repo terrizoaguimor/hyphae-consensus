@@ -369,6 +369,8 @@ pub struct LiveHarness {
     pub snapshot: Option<Arc<SnapshotFactory>>,
     /// The `[snapshot]` lines the evidence factory logged.
     pub evidence_log: Arc<Mutex<Vec<String>>>,
+    /// The `[live]` (and give-back) lines the gate wrote to its journal.
+    pub journal: Arc<Mutex<Vec<String>>>,
 }
 
 /// The production factory over a snapshot directory, as `serve-public`
@@ -500,7 +502,9 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
         scripted => ScriptedEvidenceFactory::new(scripted),
     };
     meta.public_mode = true;
-    let gate = Arc::new(BudgetedGate::new(GateParts {
+    let journal: Arc<Mutex<Vec<String>>> = Arc::default();
+    let journal_sink = journal.clone();
+    let gate = BudgetedGate::new(GateParts {
         ledger: ledger.clone(),
         siteverify: verifier,
         geo: config.geo.clone(),
@@ -514,7 +518,10 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
         // the lock is free), so a test sees what it wrote to them at once.
         snapshot_max_age: Duration::ZERO,
         config: config.clone(),
-    }));
+    });
+    let gate = Arc::new(gate.with_journal(Arc::new(move |line: &str| {
+        journal_sink.lock().unwrap().push(line.to_string())
+    })));
     let mut env: Vec<(&str, &str)> = vec![("CONSENSUS_LIVE_CONCURRENCY", "1")];
     let trust = if trust_proxy { "true" } else { "false" };
     env.push(("CONSENSUS_TRUST_PROXY_HEADERS", trust));
@@ -540,6 +547,7 @@ pub fn live_server(opts: LiveOptions, mut meta: MetaConfig) -> LiveHarness {
         factory,
         snapshot,
         evidence_log,
+        journal,
     }
 }
 
@@ -551,6 +559,11 @@ impl LiveHarness {
     /// The `[snapshot]` lines logged so far.
     pub fn evidence_lines(&self) -> Vec<String> {
         self.evidence_log.lock().unwrap().clone()
+    }
+
+    /// The gate's journal lines so far.
+    pub fn journal_lines(&self) -> Vec<String> {
+        self.journal.lock().unwrap().clone()
     }
 
     /// Records of one `type` across every day file of the ledger.

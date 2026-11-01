@@ -10,14 +10,19 @@
 // would pass for evidence of a call (no request id, no latency, no tokens).
 // A request id is evidence that a Meta call was recorded, never that anything
 // is live. Totals are computed from the rows, over real calls only. The
-// contract publishes no prices, so no cost is shown.
+// contract publishes no prices, so no cost is shown; a live run of the public
+// surface says where its cost is counted instead (the public live budget,
+// failed runs included). A refused call's stage is named as the failure
+// panel names it (src/lib/run/failure.ts stageNameKey).
 
 import { useFormatter, useTranslations } from "next-intl";
 import { useMemo } from "react";
 
+import { dynamicTranslator } from "@/i18n/dynamic";
 import type { ApiError } from "@/lib/api/client";
 import type { ConsensusFrameV1, RunDetailV1 } from "@/lib/api/types";
 import { digestPrefix } from "@/lib/run/evidence";
+import { stageNameKey } from "@/lib/run/failure";
 import {
   invocationRows,
   invocationTotals,
@@ -30,10 +35,17 @@ type MetaTabProps = {
   detail: RunDetailV1 | null;
   frames: ConsensusFrameV1[];
   detailError: ApiError | null;
+  /** A live run of the public surface: its cost is counted in the public live budget. */
+  publicLive?: boolean;
 };
 
-export function MetaTab({ detail, frames, detailError }: MetaTabProps) {
+export function MetaTab({ detail, frames, detailError, publicLive = false }: MetaTabProps) {
   const t = useTranslations("Run.meta");
+  const tFailure = dynamicTranslator(useTranslations("Run.failure"));
+  const stageText = (stage: string) => {
+    const key = stageNameKey(stage);
+    return key === null ? stage : tFailure(key);
+  };
   const tRoles = useTranslations("Run.explorer.roles");
   const tProvenance = useTranslations("Provenance");
   const format = useFormatter();
@@ -114,7 +126,7 @@ export function MetaTab({ detail, frames, detailError }: MetaTabProps) {
                     <td>
                       {role === null ? t("unknownRole") : tRoles(role)}
                       {failedStage === null ? null : (
-                        <span className="hc-supporting">{` ${t("failedAt", { stage: failedStage })}`}</span>
+                        <span className="hc-supporting">{` ${t("failedAt", { stage: stageText(failedStage) })}`}</span>
                       )}
                     </td>
                     {invocation.scripted ? (
@@ -205,8 +217,8 @@ export function MetaTab({ detail, frames, detailError }: MetaTabProps) {
             )}
             <p className="hc-supporting">{t("requestIds")}</p>
             {absent ? <p className="hc-supporting" data-meta-operator-only>{t("operatorOnly")}</p> : null}
-            <p className="hc-supporting" data-meta-no-cost>
-              {t("noCost")}
+            <p className="hc-supporting" data-meta-no-cost={publicLive ? "live" : "none"}>
+              {publicLive ? t("noCostLive") : t("noCost")}
             </p>
           </section>
         </>

@@ -91,6 +91,7 @@
           "heading": "Pendant combien de temps",
           "items": {
             "runs": "Fichiers des exécutions : supprimés en entier 7 jours après l’exécution. Deux choses leur survivent : une entrée d’une ligne dans l’index des exécutions (identifiant, heure et hachage final) et l’entrée de coût de l’exécution dans le registre budgétaire du mode en direct. Ni l’une ni l’autre ne contient le texte de l’exécution.",
+            "sessions": "Enregistrements de session : l’empreinte SHA-256 de l’identifiant de votre session, avec le début et la fin de la session, conservée sur le disque du serveur jusqu’à la fin de la session (24 heures au plus) et effacée de celui-ci dans les minutes qui suivent, afin qu’un redémarrage du serveur n’y mette pas fin. L’identifiant lui-même n’est jamais écrit sur disque.",
             "addresses": "Empreintes à clé des adresses réseau : en mémoire seulement, dans des tables de taille limitée ; elles ne sont pas écrites sur disque et disparaissent au redémarrage du serveur ou lorsque la table les évince.",
             "logs": "Journaux de requêtes du serveur, journaux du tunnel cloudflared et journaux système de la machine hôte : ils suivent la rotation des journaux de l’hôte.",
             "operator": "Le journal détaillé de l’opérateur, indexé par identifiant de requête, qui conserve le détail des échecs pour le diagnostic : il est conservé par l’opérateur et n’est pas publié."
@@ -144,6 +145,10 @@
         "outcomes": {
           "heading": "Contestation et abstention sont des résultats normaux",
           "body": "Une exécution qui finit contestée ou en abstention, c’est le système qui signale honnêtement des objections ouvertes, des contradictions ou des lacunes, au lieu de transformer l’incertitude en confiance."
+        },
+        "liveFailures": {
+          "heading": "Une exécution en direct peut échouer",
+          "body": "Une exécution en direct peut échouer : le service de Meta peut expirer ou renvoyer une réponse que le protocole refuse. Une exécution échouée ne décide rien, indique où elle s’est arrêtée, et vous pouvez en lancer une autre."
         },
         "labels": {
           "heading": "Les exécutions simulées et enregistrées sont signalées",

@@ -266,6 +266,49 @@ describe("translations of the review's round 2", () => {
   });
 });
 
+// A visitor's failure sentence (round 8, C8) says what happened, in a
+// sentence that starts with who or what did it, never with a bare "Refused"
+// (es Rechazado, fr Refusé, pt-BR Recusado): the failure panel's code and
+// role sentences, where it stopped, what comes next, the quota and the live
+// form's expectation.
+describe.each(routing.locales)("visitor failure sentences start with their subject (%s)", (locale) => {
+  const REFUSED = /^(refused|refuse|rejected|rechazad[oa]s?|rechaz[oó]|refus[ée]e?s?|recusad[oa]s?|recus[oa]u?)$/iu;
+  const ui = load(`${locale}.json`);
+  const run = ui.Run as Catalog;
+  const failure = run.failure as Catalog;
+  const strings = (node: string | Catalog | undefined): string[] =>
+    node === undefined ? [] : typeof node === "string" ? [node] : Object.values(node).flatMap(strings);
+  const values: Record<string, string | number> = {
+    role: message(ui, "Run.failure.subjects.proposer"),
+    stageName: message(ui, "Run.failure.stageNames.propose"),
+    stage: "propose",
+    code: "x_code",
+    hours: 24,
+  };
+  const sentences = [
+    ...strings(failure.codes),
+    ...strings(failure.roleCodes),
+    ...strings(failure.next),
+    ...strings(failure.quota),
+    message(ui, "Run.failure.where"),
+    message(ui, "Run.failure.nothingDecided"),
+    message(ui, "Run.failure.unknownCode"),
+    message(ui, "Run.failure.noCode"),
+    message(ui, "Run.stage.failedHere"),
+    message(ui, "Run.stage.notReached"),
+    message(ui, "NewDeliberation.live.failNote"),
+  ];
+
+  it("never begins with 'refused'", () => {
+    expect(sentences.length).toBeGreaterThan(40);
+    for (const sentence of sentences) {
+      const shown = String(new IntlMessageFormat(sentence, locale).format(values));
+      const first = /^[\p{L}’']+/u.exec(shown.trim())?.[0] ?? "";
+      expect(first, shown).not.toMatch(REFUSED);
+    }
+  });
+});
+
 // The guided scenario cards name the model axis with the run pages' label
 // (owner decision 2026-10-31): SCRIPTED (es CON GUION, pt-BR ROTEIRIZADO, fr
 // SCÉNARISÉ), never a card-only "SIMULATED model" wording; the label words

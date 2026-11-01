@@ -1570,6 +1570,10 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
     client). `pnpm api:check` regenerates the types from the committed contract and
     compares them byte for byte, so it, `pnpm check` and the CI web job fail until the
     types are regenerated (read from `apps/web/scripts/gen-api-types.mjs`; not run here).
+    Update: the types were regenerated (`pnpm api:check` passes at `bc3b262`); since
+    round 8 (2026-11-01: `client_daily` and `invite_code_daily` in `LiveCapabilitiesV1`,
+    `docs/evaluation.md` §8) the contract is `b16942c8…cbb6`, and the generated types
+    (`CONTRACT_SHA256`) name the same digest.
     The web workspace does not render the policy trace; G6 and G7 have not been checked
     through the hostname. The legacy operator console keeps UI-3 (decisions against the
     state at click time, a stale selection), UI-6 (no claim text) and UI-9 (`irrelevant`

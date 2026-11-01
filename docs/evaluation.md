@@ -1122,6 +1122,51 @@ with its disagreements.
   refusals, tampering) and `cargo test -p consensus-api --test baseline` (the adapter and
   the subcommand against the loopback fake of the Chat Completions endpoint).
 
+## 8. A failed public live run, as the visitor and the operator see it (2026-11-01, round 8)
+
+The first public live run (`run-d589e1a9`, preset `R01-reference`) failed at its first call:
+`run_failed`, stage `propose`, code `model_malformed_output` (the draft had no claims), after
+281 input and 2,695 output tokens (2,500 of them reasoning), finish reason `stop`, $0.055.
+The protocol (schema 1.3, policy 1.2) did not change for it; the Proposer's prompt and schema
+did (`prompt-freeze-3`, §6.4: a proposal always carries a claim, and a claimless or
+unreadable answer is asked again once). This section is about what a failure tells its
+visitor and its operator, and what it costs the visitor's daily quota (lane C,
+`fix/r8-failure-ux`).
+
+- *The failure panel.* The run page names the role whose call it was and the stage by name
+  ("The Proposer answered, but its document did not have the form the runtime requires
+  ...", "It stopped at the proposal step (Proposer)."), says that nothing was decided, and
+  says what the code's class means for a new run: transient (Meta's service or the model;
+  the same preset can succeed on a new run), protocol (every `*_contract` code: the protocol
+  stopped the run on purpose), closed (budget, key, billing, configuration, persistence,
+  panic), and sentences of their own for `cancelled` and `deadline`. The raw stage and code
+  move under the technical details; the server's reason is never shown. A failed run of the
+  visitor's links to a new one (the live form with the same preset preselected, or the
+  guided examples); the attestation, the Turnstile token and the invite code are never
+  carried over. The Stage tab marks the failed role and the roles never reached, instead of
+  "Nothing from this role yet."
+- *The daily quota.* A public or judge run that ends with a transient code before any
+  recommendation gives its daily count back (`live/gate.rs` `GIVE_BACK_CODES`), at most 2
+  times per client key or invite code and UTC day; `cancelled`, `deadline`, the `*_contract`
+  codes, the budget and token-budget codes never do. The money is never given back: the
+  ledger keeps what the run's calls were settled at. The gate logs
+  `[live-gate] daily count given back for a run that failed with <code>`, without the
+  client key.
+- *The journal.* Every metered run writes `[live] run=<id> lane=<lane> preset=<id> admitted
+  reserve=<usd>` and `[live] run=<id> ended state=<state> stage=<stage> code=<code>
+  request_id=<id> attempts=<n> charged=<usd> wall=<s>s`, and every ledger or quota refusal
+  at admission `[live] refused lane=<lane> preset=<id> code=<code>`; never a client key, a
+  judge code, a token, a pseudonym or a reason text.
+- *An API contract change, not a protocol change.* `LiveCapabilitiesV1` gains two optional
+  fields, `client_daily` and `invite_code_daily` (the figures the live form's rule states),
+  so `contract_sha256` moves from `465f4117d8a12365ed06bc594f5972f19160d3016b085bcb5836e75786ad760e`
+  to `b16942c8ad40315a7a802ddc3ac5c40cbba3ba7bcf840b6a8740110f3d29cbb6`. The schema version
+  (1.3), the policy (1.2), the event log, the receipts and every archived run are unchanged.
+- *Sessions and the console.* The web client's `ensureSession` is one `POST /session` (which
+  keeps a session its cookie names), and My runs asks `GET /session` only when this browser
+  holds the session flag (`hc.session` in localStorage), so a visitor without a session sees
+  no 401.
+
 ## Corrections (2026-10-27, independent audit)
 
 The independent audit of commit `72e422a`

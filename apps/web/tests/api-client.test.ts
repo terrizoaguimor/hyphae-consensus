@@ -2,23 +2,27 @@
 //
 // The fetch wrapper: JSON headers, same-origin credentials, idempotency keys,
 // the Turnstile header, typed errors (contract body, Retry-After, unreachable,
-// non-contract responses), and ensureSession POSTing only when GET says there
-// is no session. The fixtures of contracts/api-v1 stand in for the server.
+// non-contract responses), ensureSession as one POST and never a GET (round
+// 8, C7: no console 401 for a visitor without a session), and the session
+// flag My runs reads. The fixtures of contracts/api-v1 stand in for the server.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { contractDir } from "../scripts/gen-api-types.mjs";
 import {
   ApiError,
   createApiClient,
+  hasSessionFlag,
   isRunId,
   JUDGE_CODE_MAX_CHARS,
   judgeCodeForRequest,
   newIdempotencyKey,
   parseRetryAfter,
+  SESSION_FLAG_KEY,
+  sessionFlag,
   TURNSTILE_HEADER,
 } from "../src/lib/api/client";
 
@@ -245,33 +249,126 @@ describe("errors", () => {
 });
 
 describe("ensureSession", () => {
-  it("returns the existing session without POSTing", async () => {
-    const { calls, client } = server([{ body: fixtureText("session.json") }]);
+  // POST /session keeps the session a valid cookie names (200, created
+  // false, no new cookie) and mints one otherwise (201): one POST either
+  // way, and never a GET first, so a visitor without a session sees no 401.
+  it("keeps an existing session with exactly one POST and no GET", async () => {
+    const existing = JSON.stringify({ ...JSON.parse(fixtureText("session.json")), created: false });
+    const { calls, client } = server([{ body: existing }]);
     const session = await client.ensureSession();
     expect(session.pseudonym).toMatch(/^visitor:/);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.init.method).toBe("GET");
+    expect(session.created).toBe(false);
+    expect(calls.map((c) => c.init.method)).toEqual(["POST"]);
+    expect(calls[0]?.url).toBe("/api/v1/session");
+    expect(headerOf(calls[0] as Call, "Content-Type")).toBeUndefined();
   });
 
-  it("POSTs only when GET says there is no session", async () => {
-    const { calls, client } = server([
-      { status: 401, body: JSON.stringify({ code: "session_required", message: "a session is required" }) },
-      { body: fixtureText("session.json") },
-    ]);
+  it("mints a session with exactly one POST and no GET when there is none", async () => {
+    const { calls, client } = server([{ status: 201, body: fixtureText("session.json") }]);
     const session = await client.ensureSession();
     expect(session.created).toBe(true);
-    expect(calls.map((c) => c.init.method)).toEqual(["GET", "POST"]);
-    expect(calls[1]?.url).toBe("/api/v1/session");
-    expect(headerOf(calls[1] as Call, "Content-Type")).toBeUndefined();
+    expect(calls.map((c) => c.init.method)).toEqual(["POST"]);
   });
 
-  it("propagates other GET failures instead of minting a session", async () => {
+  it("propagates a refused POST instead of retrying it", async () => {
     const { calls, client } = server([
       { status: 429, body: JSON.stringify({ code: "rate_limited", message: "x", retry_after_secs: 10 }) },
     ]);
     const error = (await client.ensureSession().catch((e: unknown) => e)) as ApiError;
     expect(error.code).toBe("rate_limited");
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("the session flag", () => {
+  function withStorage(): Map<string, string> {
+    const items = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => items.get(key) ?? null,
+      setItem: (key: string, value: string) => void items.set(key, value),
+      removeItem: (key: string) => void items.delete(key),
+    };
+    vi.stubGlobal("window", { localStorage: storage });
+    return items;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is set by a session the server confirms and cleared by a 401 or a DELETE", async () => {
+    const items = withStorage();
+    expect(hasSessionFlag()).toBe(false);
+    const { client } = server([
+      { body: fixtureText("session.json") },
+      { status: 401, body: JSON.stringify({ code: "session_required", message: "a session is required" }) },
+      { body: fixtureText("session.json") },
+      { status: 200, body: "" },
+    ]);
+    await client.ensureSession();
+    expect(items.get(SESSION_FLAG_KEY)).toBe("1");
+    expect(hasSessionFlag()).toBe(true);
+    expect(await client.getSession()).toBeNull();
+    expect(hasSessionFlag()).toBe(false);
+    expect(await client.getSession()).not.toBeNull();
+    expect(hasSessionFlag()).toBe(true);
+    await client.deleteSession();
+    expect(hasSessionFlag()).toBe(false);
+    expect(SESSION_FLAG_KEY).toBe("hc.session");
+  });
+
+  it("is only a hint: without storage there is no flag and nothing throws", async () => {
+    expect(hasSessionFlag()).toBe(false);
+    const { client } = server([{ body: fixtureText("session.json") }]);
+    await expect(client.ensureSession()).resolves.toMatchObject({ created: true });
+  });
+
+  it("says absent only when the storage works, and unknown when it cannot hold the flag", () => {
+    // No window (or no storage): nothing can be told.
+    expect(sessionFlag()).toBe("unknown");
+    const items = withStorage();
+    expect(sessionFlag()).toBe("absent");
+    expect(items.size).toBe(0);
+    items.set(SESSION_FLAG_KEY, "1");
+    expect(sessionFlag()).toBe("set");
+    vi.unstubAllGlobals();
+
+    // Storage blocked by the browser: reading throws.
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: () => {
+          throw new Error("SecurityError");
+        },
+        setItem: () => {
+          throw new Error("SecurityError");
+        },
+        removeItem: () => undefined,
+      },
+    });
+    expect(sessionFlag()).toBe("unknown");
+    expect(hasSessionFlag()).toBe(false);
+    vi.unstubAllGlobals();
+
+    // Storage readable but refusing writes (full): the flag could never have been set.
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("QuotaExceededError");
+        },
+        removeItem: () => undefined,
+      },
+    });
+    expect(sessionFlag()).toBe("unknown");
+    vi.unstubAllGlobals();
+
+    // Accessing localStorage itself throws.
+    vi.stubGlobal("window", {
+      get localStorage(): Storage {
+        throw new Error("SecurityError");
+      },
+    });
+    expect(sessionFlag()).toBe("unknown");
   });
 });
 

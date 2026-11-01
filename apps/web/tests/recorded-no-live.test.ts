@@ -117,6 +117,19 @@ const ALLOWED: Record<string, string> = {
   // recorded view shows them.
   "Run.failure.codes.budget_refused": "a live run's budget failure",
   "Run.failure.codes.budget_unsettled": "a live run's budget failure",
+  // The failure panel's next step, quota and new-run link (round 8): shown
+  // only for a run of this server (FailureSentence `own`; the quota and the
+  // live link only for a live run of the public surface, failure.ts
+  // visitorRunKind), never for a recorded run.
+  "Run.failure.next.closed": "own runs only: what comes next for this server's run",
+  "Run.failure.next.closedLive": "a live run of this server only (failure.ts nextKey)",
+  "Run.failure.quota.notCounted": "a live run of this server only",
+  "Run.failure.again.live": "a failed live run of this server only",
+  // The Meta tab's cost sentence of a live run of this server's public
+  // surface (MetaTab publicLive); a recorded run reads Run.meta.noCost.
+  "Run.meta.noCostLive": "a live run of this server only",
+  // A session error: the showcase and its recorded runs need no session.
+  "Api.errors.session_required": "session error, never on a recorded view",
   // Errors the server answers only to the live endpoints (POST /runs/live,
   // the live budget), never to GET /showcase or a recorded run.
   "Api.errors.live_disabled": "live endpoint error",

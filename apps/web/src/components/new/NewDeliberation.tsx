@@ -46,6 +46,8 @@ import {
   type LiveClosedReason,
   liveClosedReason,
   parseUsd,
+  presetFromQuery,
+  quotaRuleValues,
   type StartBlocker,
   startBlocker,
   startNativelyDisabled,
@@ -140,6 +142,22 @@ export function NewDeliberation({ locale }: NewDeliberationProps) {
       cancelled = true;
     };
   }, [attempt]);
+
+  // A link to a section (the failure panel's "Start another run") arrives
+  // before the sections exist: once they are drawn, the one it names is
+  // scrolled to, once.
+  const loaded = capabilities !== null && scenarios !== null;
+  const scrolledToHash = useRef(false);
+  useEffect(() => {
+    if (!loaded || scrolledToHash.current) {
+      return;
+    }
+    scrolledToHash.current = true;
+    const id = window.location.hash.slice(1);
+    if (id === "live-heading" || id === "guided-heading") {
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    }
+  }, [loaded]);
 
   const startGuided = async (scenario: GuidedScenario) => {
     // The pressed button is busy (aria-disabled, still focusable) rather than
@@ -276,6 +294,9 @@ function LiveSection({ locale, capabilities, connectionBackoff }: LiveSectionPro
     >
       <h2 id="live-heading">{t("heading")}</h2>
       <p>{t("intro")}</p>
+      <p className="hc-supporting" data-live-fail-note>
+        {t("failNote")}
+      </p>
       {!capabilities.live_enabled || live === null ? (
         <div className="hc-panel hc-not-connected" data-live="disabled">
           <p className="hc-not-connected-message">{t("disabled")}</p>
@@ -300,7 +321,13 @@ type LiveFormProps = {
 function LiveForm({ locale, live, connectionBackoff }: LiveFormProps) {
   const t = useTranslations("NewDeliberation.live");
   const router = useRouter();
-  const [presetId, setPresetId] = useState<string>("");
+  // A preset the address names (`?preset=`) is chosen when the server lists
+  // it; nothing else is taken from the address. The form is drawn on the
+  // client only, once the capabilities are read, so the address is there.
+  const [presetId, setPresetId] = useState<string>(() =>
+    typeof window === "undefined" ? "" : presetFromQuery(window.location.search, live),
+  );
+  const quota = quotaRuleValues(live);
   const [attested, setAttested] = useState(false);
   const [judgeCode, setJudgeCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
@@ -444,6 +471,11 @@ function LiveForm({ locale, live, connectionBackoff }: LiveFormProps) {
         </ul>
       )}
       {budget === null ? null : <BudgetPanel budget={budget} />}
+      {quota === null ? null : (
+        <p className="hc-supporting hc-tabular-nums" data-live-quota>
+          {t("quota.rule", quota)}
+        </p>
+      )}
       {closed === null && live.requires_adult_attestation ? (
         <div className="hc-field" data-live-attestation>
           <CheckboxInput
@@ -606,7 +638,9 @@ function BudgetPanel({ budget }: { budget: PublicBudgetV1 }) {
           </dd>
         </div>
       </dl>
-      <p className="hc-supporting">{t("note")}</p>
+      <p className="hc-supporting" data-budget-note>
+        {t("note")} <span data-budget-note-failed>{t("noteFailed")}</span>
+      </p>
     </div>
   );
 }

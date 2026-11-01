@@ -80,7 +80,7 @@ pub mod codes {
 
 /// The code recorded for a failed model call: the client's own when it
 /// gave one, else the generic code of the error's kind.
-fn model_error_code(e: &ModelError) -> &'static str {
+pub(crate) fn model_error_code(e: &ModelError) -> &'static str {
     e.code().unwrap_or(match e {
         ModelError::Timeout => codes::MODEL_TIMEOUT,
         ModelError::MalformedOutput { .. } => codes::MODEL_MALFORMED_OUTPUT,
@@ -169,6 +169,9 @@ pub enum OrchestratorError {
 /// bounds each round's context.
 pub const MAX_EVIDENCE_PER_RUN: usize = 20;
 
+/// Records asked for per recall (one recall per claim per round).
+pub const RECALL_LIMIT: usize = 5;
+
 /// Default per-run token cap (input + output, all model calls). The
 /// 2026-10-26 live calls averaged about 4k tokens each, so a full 9-call
 /// run at that rate needs roughly a quarter of this.
@@ -192,17 +195,26 @@ impl Default for RunLimits {
 }
 
 /// Running token account for one run.
-struct TokenBudget {
+pub(crate) struct TokenBudget {
     cap: u64,
     used: u64,
     calls: u32,
 }
 
 impl TokenBudget {
+    /// An empty account against `limits`.
+    pub(crate) fn new(limits: &RunLimits) -> Self {
+        Self {
+            cap: limits.max_run_tokens,
+            used: 0,
+            calls: 0,
+        }
+    }
+
     /// Charges one call. Returns the failure code and reason when the run
     /// must stop: the cap is crossed, or the call reported no usage, which
     /// would make the cap unenforceable (never assumed to be zero).
-    fn charge(
+    pub(crate) fn charge(
         &mut self,
         stage: &str,
         invocation: &ModelInvocation,
@@ -364,11 +376,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         // Every model call is charged against the run's token cap. The
         // call's document is recorded first (its tokens were spent and
         // belong in the receipt); then an exhausted budget fails the run.
-        let mut budget = TokenBudget {
-            cap: self.limits.max_run_tokens,
-            used: 0,
-            calls: 0,
-        };
+        let mut budget = TokenBudget::new(&self.limits);
 
         // Stage 1: proposal.
         if let Some(stop) = control.check() {
@@ -415,129 +423,42 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             // Retrieve evidence per claim (read-only memory access).
             // Retrieval is performed by the runtime, never by a model,
             // so these events are attributed to Actor::Runtime.
-            let mut capped = 0usize;
-            for claim in &proposal.claims {
-                if let Some(stop) = control.check() {
-                    return self.stop(sink, agg, stop, "memory recall");
+            let queries: Vec<String> = proposal
+                .claims
+                .iter()
+                .map(|c| c.statement.clone())
+                .collect();
+            let already: Vec<EvidenceId> = agg.retrieved.iter().map(|e| e.id.clone()).collect();
+            let recalled = {
+                let (ids, clock) = (&mut self.ids, &self.clock);
+                let mut record = |payload: EventPayload| {
+                    emit_event(ids, clock, sink, &mut agg, Actor::Runtime, payload)
+                };
+                recall_evidence(
+                    &mut self.memory,
+                    &task.project_id,
+                    &queries,
+                    &already,
+                    control,
+                    &mut proof_failures,
+                    &mut record,
+                )
+            };
+            match recalled {
+                Ok(()) => {}
+                Err(EvidenceStop::Stopped(stop, checkpoint)) => {
+                    return self.stop(sink, agg, stop, checkpoint)
                 }
-                match self
-                    .memory
-                    .recall_with_proof(&task.project_id, &claim.statement, 5)
-                {
-                    Ok(recall) => {
-                        for rec in recall.records {
-                            // A record retrieved earlier in the run is
-                            // already in every later round's context; only
-                            // NEW records count against the cap.
-                            if agg.retrieved.iter().any(|e| e.id == rec.id) {
-                                continue;
-                            }
-                            if agg.retrieved.len() >= MAX_EVIDENCE_PER_RUN {
-                                capped += 1;
-                                continue;
-                            }
-                            if let Some(failure) = &recall.proof_failure {
-                                proof_failures.push((rec.id.clone(), failure.clone()));
-                            }
-                            self.emit(
-                                sink,
-                                &mut agg,
-                                Actor::Runtime,
-                                EventPayload::EvidenceRetrieved { evidence: rec },
-                            )?;
-                        }
-                        // TC-4: a record of another project never becomes
-                        // evidence, and its drop is on the record.
-                        for foreign in &recall.foreign {
-                            self.emit(
-                                sink,
-                                &mut agg,
-                                Actor::Runtime,
-                                EventPayload::EvidenceUnavailable {
-                                    query: claim.statement.clone(),
-                                    reason: foreign_record_reason(foreign, &task.project_id),
-                                    code: Some(codes::FOREIGN_RECORD.into()),
-                                },
-                            )?;
-                        }
-                        // HY-6/HY-12: every proof the backend sealed is
-                        // recorded, an empty result's included (it proves
-                        // absence, e.g. project isolation).
-                        if let Some(proof) = recall.proof {
-                            let empty = proof.evidence_ids.is_empty();
-                            self.emit(
-                                sink,
-                                &mut agg,
-                                Actor::Runtime,
-                                EventPayload::RecallProven {
-                                    request: proof.request,
-                                    evidence_ids: proof.evidence_ids,
-                                    proof_ref: proof.proof_ref,
-                                    anchor: proof.anchor,
-                                    empty,
-                                },
-                            )?;
-                        }
-                    }
-                    Err(e) => {
-                        self.emit(
-                            sink,
-                            &mut agg,
-                            Actor::Runtime,
-                            EventPayload::EvidenceUnavailable {
-                                query: claim.statement.clone(),
-                                reason: e.to_string(),
-                                code: Some(memory_error_code(&e).into()),
-                            },
-                        )?;
-                    }
-                }
-            }
-            if capped > 0 {
-                // The cap degrades evidence; it must never do so silently.
-                self.emit(
-                    sink,
-                    &mut agg,
-                    Actor::Runtime,
-                    EventPayload::EvidenceUnavailable {
-                        query: "(per-run evidence cap)".into(),
-                        reason: format!(
-                            "{capped} additional record(s) not processed: per-run cap of {MAX_EVIDENCE_PER_RUN} distinct records reached"
-                        ),
-                        code: Some(codes::EVIDENCE_CAP.into()),
-                    },
-                )?;
+                Err(EvidenceStop::Record(e)) => return Err(e),
             }
             // The round context: every record retrieved in the run so far,
             // as the log recorded it (protocol 1.3 carry-forward).
             let evidence = agg.retrieved.clone();
-            // Integrity pre-checks (events emitted after evaluation so the
-            // three orthogonal axes land in one record). Records whose
-            // proof GENERATION failed upstream carry `proof_error`:
-            // corruption-class signals count as Invalid (never silently
-            // downgraded), other failures as Unavailable. Every record is
-            // checked every round; a verifier may reuse its own results
-            // (the Hyphae verifier reuses a result for the same artifact
-            // bytes and anchor).
-            let mut checks: Vec<ProofCheck> = Vec::with_capacity(evidence.len());
-            for ev in &evidence {
-                let check = match &ev.proof_error {
-                    Some(reason) => {
-                        let failure = proof_failures
-                            .iter()
-                            .find(|(id, _)| id == &ev.id)
-                            .map(|(_, f)| f);
-                        upstream_proof_check(ev, reason, failure)
-                    }
-                    None => {
-                        if let Some(stop) = control.check() {
-                            return self.stop(sink, agg, stop, "proof verification");
-                        }
-                        self.verifier.verify(ev)
-                    }
+            let checks =
+                match check_integrity(&mut self.verifier, &evidence, &proof_failures, control) {
+                    Ok(checks) => checks,
+                    Err((stop, checkpoint)) => return self.stop(sink, agg, stop, checkpoint),
                 };
-                checks.push(check);
-            }
             let ctx = RoleContext {
                 integrity: evidence
                     .iter()
@@ -627,22 +548,8 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             // replay re-derives all but the integrity status with the same
             // function.
             for (ev, check) in ctx.evidence.iter().zip(checks) {
-                let (factual_status, relevance_status) =
-                    contract::verification_statuses(&evaluation, &ev.id);
-                let verification = EvidenceVerification {
-                    schema_version: SCHEMA_VERSION.into(),
-                    evidence_id: ev.id.clone(),
-                    integrity_status: check.status,
-                    factual_status,
-                    relevance_status,
-                    verifier: check.verifier,
-                    verified_anchor: check.verified_anchor,
-                    detail: check.detail,
-                    checked_at: self.clock.now(),
-                    round: Some(round),
-                    proof_ref: ev.proof_ref.clone(),
-                    report: check.report,
-                };
+                let verification =
+                    verification_record(ev, check, &evaluation, round, self.clock.now());
                 self.emit(
                     sink,
                     &mut agg,
@@ -738,21 +645,7 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         actor: Actor,
         payload: EventPayload,
     ) -> Result<(), OrchestratorError> {
-        let new = NewEvent {
-            event_id: EventId::new(self.ids.next("evt")),
-            run_id: agg.run_id.clone(),
-            actor,
-            occurred_at: self.clock.now(),
-            payload,
-        };
-        // Validate before persisting: the log must never hold a record
-        // that replay would reject (that would poison the whole run).
-        agg.clone().apply(&new.clone().into_sequenced(0))?;
-        // Apply the record as the sink stored it (sequence, chain hash;
-        // the original record when the event id was already stored).
-        let stored = sink.append(new)?;
-        agg.apply(&stored)?;
-        Ok(())
+        emit_event(&mut self.ids, &self.clock, sink, agg, actor, payload)
     }
 
     /// Ends the run with `RunFailed` at `stage`, with its code and reason.
@@ -855,6 +748,208 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
     ) -> Result<RunAggregate, OrchestratorError> {
         let reason = format!("{stage} output refused by the protocol 1.3 contract: {violation}");
         self.fail_with(sink, agg, stage, code, &reason, Some(invocation))
+    }
+}
+
+/// Records one event of a run: validated against the run's aggregate
+/// before it is persisted (the log must never hold a record that replay
+/// would reject, which would poison the whole run), then applied as the
+/// sink stored it (sequence, chain hash; the original record when the
+/// event id was already stored).
+fn emit_event<C: Clock, I: IdGen, S: EventSink>(
+    ids: &mut I,
+    clock: &C,
+    sink: &mut S,
+    agg: &mut RunAggregate,
+    actor: Actor,
+    payload: EventPayload,
+) -> Result<(), OrchestratorError> {
+    let new = NewEvent {
+        event_id: EventId::new(ids.next("evt")),
+        run_id: agg.run_id.clone(),
+        actor,
+        occurred_at: clock.now(),
+        payload,
+    };
+    agg.clone().apply(&new.clone().into_sequenced(0))?;
+    let stored = sink.append(new)?;
+    agg.apply(&stored)?;
+    Ok(())
+}
+
+/// Why [`recall_evidence`] stopped before every query was recalled.
+pub(crate) enum EvidenceStop<E> {
+    /// The run's control was tripped at the named checkpoint.
+    Stopped(Stop, &'static str),
+    /// Recording an event failed.
+    Record(E),
+}
+
+/// The evidence stage of one round, shared by the consensus deliberation
+/// and the single-agent baseline ([`crate::baseline`]) so both recall and
+/// record evidence the same way: one [`MemoryClient::recall_with_proof`]
+/// per query (at most [`RECALL_LIMIT`] records each), checked against
+/// `control` before each recall. Each record not already retrieved in the
+/// run (`already`, then the ones recorded here) becomes `EvidenceRetrieved`
+/// while the run holds fewer than [`MAX_EVIDENCE_PER_RUN`]; records past
+/// the cap are counted and the drop recorded once, after the last query
+/// (`EvidenceUnavailable`, code `evidence_cap`). A record the backend
+/// returned for another project is dropped and recorded as
+/// `EvidenceUnavailable` (code `foreign_record`); every proof the backend
+/// sealed, an empty result's included, is recorded as `RecallProven`
+/// after the recall's records; a failed recall is `EvidenceUnavailable`
+/// with the memory error's code. Each new record whose proof generation
+/// failed upstream has that failure pushed on `proof_failures`, for
+/// [`check_integrity`]. Every event goes through `record`, attributed to
+/// the runtime (retrieval is never a model's action).
+pub(crate) fn recall_evidence<Mem: MemoryClient, E>(
+    memory: &mut Mem,
+    project: &ProjectId,
+    queries: &[String],
+    already: &[EvidenceId],
+    control: &RunControl,
+    proof_failures: &mut Vec<(EvidenceId, ProofFailure)>,
+    record: &mut dyn FnMut(EventPayload) -> Result<(), E>,
+) -> Result<(), EvidenceStop<E>> {
+    let mut known: Vec<EvidenceId> = already.to_vec();
+    let mut capped = 0usize;
+    for query in queries {
+        if let Some(stop) = control.check() {
+            return Err(EvidenceStop::Stopped(stop, "memory recall"));
+        }
+        match memory.recall_with_proof(project, query, RECALL_LIMIT) {
+            Ok(recall) => {
+                for rec in recall.records {
+                    // A record retrieved earlier in the run is already in
+                    // every later round's context; only NEW records count
+                    // against the cap.
+                    if known.contains(&rec.id) {
+                        continue;
+                    }
+                    if known.len() >= MAX_EVIDENCE_PER_RUN {
+                        capped += 1;
+                        continue;
+                    }
+                    if let Some(failure) = &recall.proof_failure {
+                        proof_failures.push((rec.id.clone(), failure.clone()));
+                    }
+                    let id = rec.id.clone();
+                    record(EventPayload::EvidenceRetrieved { evidence: rec })
+                        .map_err(EvidenceStop::Record)?;
+                    known.push(id);
+                }
+                // TC-4: a record of another project never becomes evidence,
+                // and its drop is on the record.
+                for foreign in &recall.foreign {
+                    record(EventPayload::EvidenceUnavailable {
+                        query: query.clone(),
+                        reason: foreign_record_reason(foreign, project),
+                        code: Some(codes::FOREIGN_RECORD.into()),
+                    })
+                    .map_err(EvidenceStop::Record)?;
+                }
+                // HY-6/HY-12: every proof the backend sealed is recorded,
+                // an empty result's included (it proves absence, e.g.
+                // project isolation).
+                if let Some(proof) = recall.proof {
+                    let empty = proof.evidence_ids.is_empty();
+                    record(EventPayload::RecallProven {
+                        request: proof.request,
+                        evidence_ids: proof.evidence_ids,
+                        proof_ref: proof.proof_ref,
+                        anchor: proof.anchor,
+                        empty,
+                    })
+                    .map_err(EvidenceStop::Record)?;
+                }
+            }
+            Err(e) => {
+                record(EventPayload::EvidenceUnavailable {
+                    query: query.clone(),
+                    reason: e.to_string(),
+                    code: Some(memory_error_code(&e).into()),
+                })
+                .map_err(EvidenceStop::Record)?;
+            }
+        }
+    }
+    if capped > 0 {
+        // The cap degrades evidence; it must never do so silently.
+        record(EventPayload::EvidenceUnavailable {
+            query: "(per-run evidence cap)".into(),
+            reason: format!(
+                "{capped} additional record(s) not processed: per-run cap of {MAX_EVIDENCE_PER_RUN} distinct records reached"
+            ),
+            code: Some(codes::EVIDENCE_CAP.into()),
+        })
+        .map_err(EvidenceStop::Record)?;
+    }
+    Ok(())
+}
+
+/// The integrity pre-check of every record of `evidence`, in order (their
+/// events are emitted after the evaluation, so the three orthogonal axes
+/// land in one record). Records whose proof GENERATION failed upstream
+/// carry `proof_error`: corruption-class signals count as Invalid (never
+/// silently downgraded), other failures as Unavailable, and no verifier
+/// runs for them. Every other record goes through `verifier`, after a
+/// `control` check (checkpoint `proof verification`). Every record is
+/// checked every round; a verifier may reuse its own results (the Hyphae
+/// verifier reuses a result for the same artifact bytes and anchor).
+pub(crate) fn check_integrity<V: ProofVerifier>(
+    verifier: &mut V,
+    evidence: &[EvidenceReference],
+    proof_failures: &[(EvidenceId, ProofFailure)],
+    control: &RunControl,
+) -> Result<Vec<ProofCheck>, (Stop, &'static str)> {
+    let mut checks: Vec<ProofCheck> = Vec::with_capacity(evidence.len());
+    for ev in evidence {
+        let check = match &ev.proof_error {
+            Some(reason) => {
+                let failure = proof_failures
+                    .iter()
+                    .find(|(id, _)| id == &ev.id)
+                    .map(|(_, f)| f);
+                upstream_proof_check(ev, reason, failure)
+            }
+            None => {
+                if let Some(stop) = control.check() {
+                    return Err((stop, "proof verification"));
+                }
+                verifier.verify(ev)
+            }
+        };
+        checks.push(check);
+    }
+    Ok(checks)
+}
+
+/// The combined verification record of one record of a round: integrity
+/// from its proof check, factual and relevance status from the round's
+/// recorded `evaluation` ([`contract::verification_statuses`]), never
+/// cross-derived. Replay re-derives all but the integrity status with the
+/// same function.
+pub(crate) fn verification_record(
+    ev: &EvidenceReference,
+    check: ProofCheck,
+    evaluation: &Evaluation,
+    round: u32,
+    checked_at: String,
+) -> EvidenceVerification {
+    let (factual_status, relevance_status) = contract::verification_statuses(evaluation, &ev.id);
+    EvidenceVerification {
+        schema_version: SCHEMA_VERSION.into(),
+        evidence_id: ev.id.clone(),
+        integrity_status: check.status,
+        factual_status,
+        relevance_status,
+        verifier: check.verifier,
+        verified_anchor: check.verified_anchor,
+        detail: check.detail,
+        checked_at,
+        round: Some(round),
+        proof_ref: ev.proof_ref.clone(),
+        report: check.report,
     }
 }
 

@@ -166,7 +166,9 @@ the git history (the operator's local time, UTC−05:00); the architecture is de
   (the design sources named in `apps/web/README.md` are outside it).
 - **Optional:** a single-model baseline battery (one Meta call per final-battery task on
   the same evidence), only with the owner's spend approval. Without it, no comparative
-  claim beyond what the recorded runs show is made.
+  claim beyond what the recorded runs show is made. Approved by the owner on 2026-11-01
+  (about 4 live runs, cap $5); the tooling and the comparison method are in
+  `docs/evaluation.md` §7; not run yet.
 
 ### Owner actions
 

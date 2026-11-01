@@ -122,6 +122,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
+pub mod baseline;
+
 /// Stable codes of the Meta adapter's provider failures, recorded as
 /// `RunFailed.code`; the reason next to each is a fixed message for its
 /// class. Model-output codes (`model_output_truncated`, `model_refusal`,
@@ -1228,7 +1230,7 @@ mod probe {
 
     const TS: &str = "1970-01-01T00:00:00Z";
 
-    fn task() -> Task {
+    pub(super) fn task() -> Task {
         Task {
             schema_version: SCHEMA_VERSION.into(),
             id: TaskId::new("{task-id}"),
@@ -1285,7 +1287,7 @@ mod probe {
         }
     }
 
-    fn context(full: bool) -> RoleContext {
+    pub(super) fn context(full: bool) -> RoleContext {
         if !full {
             return RoleContext::default();
         }
@@ -1573,6 +1575,15 @@ fn provider(code: &'static str, message: impl Into<String>) -> ModelError {
 
 fn config_error(e: ConfigError) -> ModelError {
     provider(codes::CONFIG, e.to_string())
+}
+
+/// What identifies one kind of call: the name of its strict schema, its
+/// system message (sent verbatim) and the SHA-256 of its prompt template
+/// (recorded as `prompt_sha256`).
+struct CallSpec {
+    schema_name: &'static str,
+    system: String,
+    prompt_sha256: String,
 }
 
 pub struct MetaModelClient {
@@ -1936,9 +1947,26 @@ impl MetaModelClient {
         schema: OrderedJson,
         user: String,
     ) -> Result<(T, ModelInvocation), ModelError> {
+        let spec = CallSpec {
+            schema_name: role.schema_name(),
+            system: role.system_prompt(),
+            prompt_sha256: self.prompt_hash(role),
+        };
+        self.call_spec(spec, schema, user)
+    }
+
+    /// [`call`](Self::call) for any call: its schema name, system message
+    /// and prompt-template digest given by `spec` (the single-agent
+    /// baseline's call is not one of the four roles).
+    fn call_spec<T: DeserializeOwned>(
+        &mut self,
+        spec: CallSpec,
+        schema: OrderedJson,
+        user: String,
+    ) -> Result<(T, ModelInvocation), ModelError> {
         self.failed = None;
         self.calls += 1;
-        let schema_name = role.schema_name();
+        let schema_name = spec.schema_name;
         // The digest is of these bytes, and the request body embeds the
         // same serialization of the same document.
         let schema_text = serde_json::to_string(&schema)
@@ -1948,7 +1976,7 @@ impl MetaModelClient {
             messages: [
                 ChatMessage {
                     role: "system",
-                    content: role.system_prompt(),
+                    content: spec.system,
                 },
                 ChatMessage {
                     role: "user",
@@ -1982,7 +2010,7 @@ impl MetaModelClient {
             max_completion_tokens: Some(self.cfg.max_completion_tokens),
             schema_name: Some(schema_name.to_string()),
             schema_sha256: Some(sha256_hex(schema_text.as_bytes())),
-            prompt_sha256: Some(self.prompt_hash(role)),
+            prompt_sha256: Some(spec.prompt_sha256),
             reasoning_effort: self.cfg.reasoning_effort.clone(),
             safety_identifier_sent: Some(self.cfg.safety_identifier.is_some()),
             attempts: None,

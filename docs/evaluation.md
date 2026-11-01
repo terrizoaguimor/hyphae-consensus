@@ -29,7 +29,8 @@ every invocation and receipt, and proofs come from a scripted verifier.
 What this shows: the runtime handles contradictions, abstention, proof gating,
 offline memory, model failure, and hostile memory text the way its rules say it
 should. What it does **not** show: anything about live model quality, and it is
-**not a baseline comparison**. No single-agent baseline is executed; the "first
+**not a baseline comparison**. No single-agent baseline is executed (§7 plans one; not
+run yet); the "first
 proposal" column is the case author's label for the scripted first proposal.
 
 | Case | First proposal (authored label) | Runtime outcome | Model calls |
@@ -764,6 +765,155 @@ record's `hash`; each receipt's `chain.head_hash` is the `hash` of its log's las
 (`672b360e…`, `70cc732e…`, `4475a698…`, `9bd0e80f…`). The full hash recomputation and the
 policy re-derivation are the archive's tests (`research_archive`, `research_receipts`,
 added with the archive in `a6cef95`).
+
+## 7. Single-agent baseline (plan; **not run yet**)
+
+**Status.** Not run yet: no baseline run exists, no number in this section is a result,
+and nothing here supports a comparative claim. The owner approved the battery on
+2026-11-01 (about 4 live runs, spend cap $5); the integrator runs it. Until it has run
+and been archived, the statement of §1 stands: no single-agent baseline was executed.
+
+**Question.** On the same tasks, with the same model and the same verified evidence, does
+one agent working alone, in one call, approve proposals that the three-role consensus
+(Proposer, Critic, Evidence Evaluator, runtime policy) caught?
+
+### 7.1 What is held equal, and how
+
+| Held equal | Consensus (M01–M04, §6.3) | Baseline | Enforced by |
+|---|---|---|---|
+| Tasks | `R01-reference`, `R05-add-jitter`, `R07-exp-backoff`, `R04-remove-cap` on `demo-repo` | the same four, paired B01–M01, B02–M02, B03–M03, B04–M04 | `scripts/baseline_battery.py` loads `TASKS` from `scripts/live_battery.py` (never a copy); `consensus-api baseline run` refuses a paired consensus run whose project, title or description differ |
+| Model | Meta `muse-wonder-1.0`, `max_completion_tokens` 16,000 | the same, through the same adapter path (`MetaModelClient`, strict structured output, same retry and time-budget rules) | the operator's Meta configuration, the variables `serve-operator` reads; each invocation records model, request id, latency, tokens, `prompt_sha256` and `schema_sha256` |
+| Evidence | the re-seeded demo store, anchor `27943f61…f42347c`; each run retrieved all 7 records | recall queries = every claim statement of the paired M run (its proposal and each revision, in order, each once), so the baseline recalls what that run's final round held in context | the runtime's own evidence stage (`recall_evidence` in `crates/consensus-runtime/src/orchestrator.rs`, shared by both: same memory port, 5 records per recall, 20 per run, foreign-record drop, `recall_proven` records); the plan records the paired log's SHA-256 and run id |
+| Proof checks | `hyphae proof verify` pinned to the anchor, every record | the same check (`check_integrity`, shared), one `evidence_verified` per record | the operator's Hyphae configuration with `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` pinned |
+| What the model sees of a record | id, kind, integrity status, content (bounded), in an `<UNTRUSTED_EVIDENCE>` block | the same block (`evidence_block`) | `crates/consensus-api/src/meta/baseline.rs` |
+| Verdict vocabulary | the runtime policy (rules 1.2) derives `supported` / `contested` / `insufficient_evidence` / `abstained` / `blocked` | the agent is told those five verdicts and the policy's rules in their priority order, and picks one itself | the prompt (`BASELINE_VERDICT_RULES`) |
+
+What differs is the protocol, which is the point: **one** Meta call
+(`DraftBaselineAssessment`) in which the agent proposes the change, assesses each of its own
+claims against the records (the Evaluator's corroboration rules), lists the objections it
+sees in its own proposal (each `open` or `addressed`), and states its verdict with a
+reason. No Critic, no Evaluator, no revision, no rounds, no runtime policy. The agent's
+verdict is recorded as its own statement (`agent_verdict`), never as a recommendation; no
+human decision is recorded on a baseline run and nothing is executed.
+
+Two asymmetries are known in advance and will be reported, not corrected: the baseline
+sees the union of records the consensus run accumulated over its rounds already in its
+single call, where the consensus Proposer's first draft saw none; and the consensus spent
+4–7 calls per run (§6.3) where the baseline spends one, so tokens and latency are compared
+as reported, not normalized.
+
+### 7.2 Procedure
+
+1. Build `consensus-api` at the commit under test; record the commit and the binary's
+   SHA-256.
+2. Before the first run, read the Hyphae store's anchor out of band. If it is not
+   `27943f61…f42347c`, stop: the store changed since M01–M04 and the evidence would not be
+   the same.
+3. `python -I scripts/baseline_battery.py <consensus-api> <OUT_DIR>` (no task arguments: the
+   planned pairs above), with the live configuration of §6.3 and the same
+   `CONSENSUS_MODEL_TIMEOUT_SECS` as that battery (120 s, or record the deviation). Each run
+   makes exactly one Meta call; the driver stops at the first run that could not be
+   recorded. The baseline is not metered by the live ledger: the spend bound is four calls
+   (plus any 429/503 retries the adapter makes, recorded in `attempts`) under the
+   `CONSENSUS_MAX_RUN_TOKENS` cap.
+4. `consensus-api baseline verify <OUT_DIR>/runs/<run_id>.jsonl` for each run (chain,
+   replay, re-derived counts; the printed summary must equal the one in the run record).
+5. Archive: copy `<OUT_DIR>/B0N.json` and `<OUT_DIR>/runs/` (not `<OUT_DIR>/consensus/`,
+   the copies of already-archived logs) to `research/<date>/baseline-<date>/`, add one
+   `BASELINE_BATTERIES` entry to `scripts/make_research_manifest.py`, regenerate the
+   manifest, run `CONSENSUS_RESEARCH_DIR=<copy> cargo test -p consensus-tests --test
+   research_baseline` on a copy first, then the archive tests on `research/`. The files are
+   pinned with kinds `baseline_log` and `baseline_record` and the runs listed under
+   `baseline_runs`, never under `runs`: the consensus event log refuses a baseline log
+   (its `schema_version` is `baseline-1.0`; every record also says `run_kind:
+   single_agent_baseline`), so no consensus tool can read, replay or serve one as a
+   consensus run.
+
+### 7.3 What is compared, per task
+
+All from the archived records; nothing typed in.
+
+1. **Evidence actually seen.** The baseline's retrieved record ids against the paired M
+   run's (the 7 store records). Any difference is reported and the task's comparison
+   marked as on different evidence.
+2. **Claims that contradict the stored records.** For each baseline claim and for each
+   claim of the paired run's first proposal and final proposal: (a) as the model recorded
+   it (the baseline's own `contradicting_evidence`; the consensus Evaluator's); (b) as two
+   readers record it, independently and before seeing either verdict, against the 7
+   records' text (archived verbatim in the M logs): consistent, contradicted (naming the
+   record) or not settled. Disagreements between the readers are reported with both
+   readings. The readers apply the same reading to both sides, so the comparison does not
+   rest on one model judging another. Known stored facts the readers check against
+   include the attempt cap of 3 (the constraint record), the default policy
+   `max_attempts = 1, jitter_ms = 0`, the 2026-09 payments review decision, and the
+   seeded test record that misdescribes the fixture test (Corrections, item 3).
+3. **Objections raised.** The number and kinds of the baseline's objections (and how many
+   it marked `open`) against the paired run's round-1 Critic items; and, by the readers,
+   whether the baseline raised an objection naming a conflict the consensus caught (for
+   R04, the attempt cap; for R07, the default policy; for R01 and R05, the records the
+   paired run's round-1 Evaluator cited as contradicting).
+4. **The final verdict.** The baseline's `agent_verdict` against the consensus outcome:
+   M03 `supported`; M01, M02 and M04 have none (failed: two by the provider, one by the
+   evaluation contract), so for them the comparison is against what the consensus had
+   recorded by its last judged round (contradictions cited, items left open), reported as
+   such and never as a recommendation the consensus did not issue.
+5. **The agent against its own findings.** `policy_reading` in each summary: the kind the
+   runtime's policy rules would derive from the baseline's own claim assessments, its open
+   objections and the verification records. A comparison aid only (`BaselineRun::policy_reading`),
+   never recorded in the log and never a recommendation. It separates an agent that did
+   not see a problem from one that saw it and approved anyway.
+6. **Cost.** Calls, input/output/reasoning tokens and model latency, from the
+   invocations, against the paired run's.
+
+### 7.4 What counts as "the baseline approved what the consensus caught"
+
+A task counts when the baseline's `agent_verdict` is `supported` and at least one of these
+holds:
+
+- a baseline claim the readers record as contradicted by a record that the consensus
+  Evaluator cited as contradicting in any round of the paired run;
+- the baseline's proposal does what the consensus revised away from in the paired run
+  (for R04: removing the attempt cap or retrying until success, which M04's revision
+  replaced with the documented `max_attempts = 3, jitter_ms = 50`), or rests on a premise
+  the paired run's Evaluator recorded as contradicted (for R07: that retries already use a
+  fixed delay, which M03's Evaluator found contradicted by the default-policy record);
+- the baseline's own record contradicts its verdict: `policy_reading` is not `supported`
+  (an own `contradicting_evidence` entry, an `open` objection, or an uncorroborated
+  claim).
+
+The converse is counted the same way: a task where the consensus reached `supported`
+(only M03 can) and the baseline did not, with the baseline's reason (for example, that no
+stored record specifies an exponential schedule, the uncertainty M03's own revision
+recorded).
+
+### 7.5 What the battery cannot show
+
+Four runs, one per task, on one model and one seeded demo store: no rate, no
+significance, and no claim about other models, tasks or stores. The same input can end
+differently on another run (the same task text ended `insufficient_evidence` in R01 and
+`contested` in R02, §5.2); a single baseline run per task is one sample. Three of the four consensus runs ended without a recommendation, so the
+verdict comparison has one consensus verdict to compare against. Integrity proofs show
+that the records are the anchored ones, not that they are true (`docs/verification.md`); the
+readers' reading of the records is the reference for "contradicts", and it is reported
+with its disagreements.
+
+### 7.6 Tooling (offline-tested; no live call in its tests)
+
+- `crates/consensus-runtime/src/baseline.rs`: the runner, the log format
+  (`baseline-1.0`, the consensus envelope plus `run_kind`, the same hash-chain recipe),
+  the contract the agent's document is checked against before it is recorded, the
+  read-only verifier and replay (which refuses a re-hashed forgery of a verification
+  status, of the counts, of a dropped verification or of a cut log), and the summary.
+- `crates/consensus-api/src/meta/baseline.rs`: the one Meta call (prompt, strict schema,
+  draft checks). `crates/consensus-api/src/baseline_cli.rs`: the operator-only
+  `consensus-api baseline run | verify` subcommand; no route, no change to `/api/v1`.
+- `scripts/baseline_battery.py` (driver), `scripts/make_research_manifest.py`
+  (`BASELINE_BATTERIES`, empty), `crates/consensus-tests/tests/research_baseline.rs`
+  (archive checks, run on a synthetic battery until a real one is archived).
+- Offline tests: `cargo test -p consensus-runtime baseline` (a scripted model double:
+  record order, chain, the same evidence as a consensus run with that run's queries,
+  refusals, tampering) and `cargo test -p consensus-api --test baseline` (the adapter and
+  the subcommand against the loopback fake of the Chat Completions endpoint).
 
 ## Corrections (2026-10-27, independent audit)
 

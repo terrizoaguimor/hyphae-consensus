@@ -375,3 +375,66 @@ pub fn offline_scenario() -> Scenario {
         input: retry_input(),
     }
 }
+
+/// The reference task for the single-agent baseline: the consensus
+/// scenario's memory and verifier, and one scripted document in which the
+/// agent proposes raising retries to 10, sees the stored constraint that
+/// contradicts it, raises the conflict as an open objection, and still
+/// calls its proposal supported: the case the baseline comparison counts
+/// as "approved what the consensus caught".
+pub struct BaselineScenario {
+    pub model: crate::fakes::ScriptedBaselineModel,
+    pub memory: FakeMemoryClient,
+    pub verifier: FakeProofVerifier,
+    pub input: TaskInput,
+}
+
+/// The scripted single-agent document of [`baseline_scenario`].
+pub fn baseline_document() -> crate::baseline::BaselineAssessment {
+    use crate::baseline::{AgentVerdict, BaselineAssessment, BaselineObjection, ObjectionStatus};
+    BaselineAssessment {
+        schema_version: crate::baseline::BASELINE_SCHEMA_VERSION.into(),
+        id: "assess-1".into(),
+        run_id: RunId::new("placeholder"),
+        summary: "Raise the payment client retry limit to 10 attempts".into(),
+        plan_steps: vec!["Set max_attempts to 10".into()],
+        claims: vec![
+            claim(
+                "claim-1",
+                "Payment timeouts correlate with retry bursts above 5 attempts",
+            ),
+            claim("claim-2", "Raising the retry limit to 10 attempts is safe"),
+        ],
+        assumptions: vec!["Upstream services tolerate more retries".into()],
+        uncertainties: vec![],
+        assessments: vec![
+            assessment("claim-1", true, &["ev-fact"], &[]),
+            assessment("claim-2", false, &[], &["ev-constraint"]),
+        ],
+        objections: vec![BaselineObjection {
+            id: "obj-1".into(),
+            kind: ChallengeKind::ConstraintConflict,
+            claim_id: Some(ClaimId::new("claim-2")),
+            description: "The stored constraint caps retries at 3 attempts".into(),
+            evidence_refs: vec![EvidenceId::new("ev-constraint")],
+            status: ObjectionStatus::Open,
+        }],
+        verdict: AgentVerdict::Supported,
+        verdict_reason: "More retries ride out transient upstream failures".into(),
+        created_at: TS.into(),
+    }
+}
+
+/// [`retry_constraint_scenario`]'s task, memory and verifier with the
+/// scripted single agent of [`baseline_document`].
+pub fn baseline_scenario() -> BaselineScenario {
+    let s = retry_constraint_scenario();
+    let mut model = crate::fakes::ScriptedBaselineModel::new();
+    model.assessments.push_back(Ok(baseline_document()));
+    BaselineScenario {
+        model,
+        memory: s.memory,
+        verifier: s.verifier,
+        input: s.input,
+    }
+}

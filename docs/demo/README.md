@@ -11,7 +11,7 @@ as the UI labels it.
 | File | What it holds |
 |---|---|
 | [`impact-story.md`](impact-story.md) | The impact story: run F03, where the Critic and the Evaluator caught the claim a single Proposer call would have shipped; three sentences, a 60-word version for the submission form, and where each fact is in `research/`. |
-| [`script.md`](script.md) | The script, beat by beat (3:00 target; the rules set no length), with the narration, the numbers on each screen and their sources. |
+| [`script.md`](script.md) | The script, beat by beat (3:00 of narration plus a 6 s end card; the rules set no length), with the narration, the numbers on each screen and their sources. |
 | [`shot-list.md`](shot-list.md) | The Mission Control screens per beat: route, tab, state, what must be visible and what must not appear. |
 | [`recording-checklist.md`](recording-checklist.md) | The local server, the browser window (1920 × 1080, full screen, 125 % zoom, dark theme), the order of clicks, the stop rules, editing, the honesty checks and the upload. |
 | [`captions-en.srt`](captions-en.srt), [`captions-es.srt`](captions-es.srt) | Subtitles timed to the script's beats (English word for word; Spanish translation). Re-time them to the final cut. |
@@ -20,7 +20,9 @@ as the UI labels it.
 ## Rules this package keeps
 
 - A scripted or simulated run is never called live; a recorded run is never
-  presented as running. LIVE does not appear in this cut.
+  presented as running. LIVE does not appear in this cut (the Overview's
+  "Provenance labels" legend, which draws a LIVE META sample, is kept out of
+  frame).
 - Every figure said or shown comes from a named run in `research/` or a section
   of `docs/evaluation.md`, as recorded, or is rendered by the portal from the
   run on screen. No figure is rounded or upgraded, and no rate of any outcome

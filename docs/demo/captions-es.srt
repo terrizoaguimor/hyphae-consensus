@@ -71,6 +71,7 @@ Cada llamada envía un esquema JSON estricto para su rol.
 
 16
 00:00:55,000 --> 00:00:59,500
+[Corrida grabada M04 · 30 oct 2026 · no en vivo]
 Con el protocolo 1.3, el esquema del Evaluator
 se construye en cada llamada,
 
@@ -82,11 +83,10 @@ y por objeción abierta,
 18
 00:01:03,500 --> 00:01:06,500
 así que nada puede omitirse en silencio.
-Y falla de forma segura.
+Y ante la duda, rechaza.
 
 19
 00:01:06,500 --> 00:01:11,000
-[Corrida grabada M04 · 30 oct 2026 · no en vivo]
 En la corrida M04, el 30 de octubre,
 el Evaluator dejó una contradicción sin juzgar:
 
@@ -185,7 +185,7 @@ fijado en el manifiesto del archivo.
 40
 00:02:23,500 --> 00:02:27,000
 El log no está firmado: esto muestra
-que nada cambió desde que se fijó,
+que los bytes coinciden con ese digest fijado,
 
 41
 00:02:27,000 --> 00:02:30,000
@@ -193,7 +193,7 @@ no que algo en él sea verdadero.
 
 42
 00:02:30,000 --> 00:02:33,000
-[Ejemplo guiado · evidencia SIMULATED]
+[Ejemplo guiado · roles programados · evidencia SIMULATED · sin llamada al modelo]
 La corrida se detiene en un punto de decisión.
 
 43
@@ -201,30 +201,33 @@ La corrida se detiene en un punto de decisión.
 Solo una persona aprueba o rechaza,
 
 44
-00:02:36,000 --> 00:02:40,000
+00:02:36,000 --> 00:02:39,500
 y en este portal público
 la decisión no tiene autoridad:
 
 45
-00:02:40,000 --> 00:02:44,000
+00:02:39,500 --> 00:02:43,000
 aprobar registra una elección
 y no ejecuta nada.
 
 46
-00:02:44,000 --> 00:02:50,000
+00:02:43,000 --> 00:02:47,000
 Esta es la corrida guiada;
 una corrida grabada es de solo lectura.
 
 47
-00:02:50,000 --> 00:02:54,500
+00:02:47,000 --> 00:02:52,500
 Hyphae Consensus: recomendaciones de agentes
-que puedes inspeccionar, comprobar y pedirles cuentas
+que puedes inspeccionar, comprobar y someter a rendición de cuentas
 
 48
-00:02:54,500 --> 00:02:57,000
+00:02:52,500 --> 00:02:54,000
 antes de que nadie actúe.
 
 49
-00:02:57,000 --> 00:03:00,000
+00:02:54,000 --> 00:02:57,500
 Sus tres roles usan muse-wonder-1.0 de Meta;
-lo construimos con Muse Code.
+
+50
+00:02:57,500 --> 00:03:00,000
+lo construimos con Muse Code y Claude.

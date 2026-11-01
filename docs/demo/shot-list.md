@@ -55,7 +55,7 @@ memory records".
 
 | # | Route · tab | State | Must be visible | Must not appear |
 |---|---|---|---|---|
-| 2a | `/en/` | API connected ("Connected to the API: schema 1.3, policy 1.2, contract …") | the four cards: Three roles deliberate · The runtime checks evidence · A fixed policy recommends · A person authorizes | the tour invitation (dismiss it before recording: "No, thanks"); "Not connected" anywhere |
+| 2a | `/en/` | API connected ("Connected to the API: schema 1.3, policy 1.2, contract …") | the four cards: Three roles deliberate · The runtime checks evidence · A fixed policy recommends · A person authorizes | the tour invitation (dismiss it before recording: "No, thanks"); "Not connected" anywhere; the "Provenance labels" legend right below the cards (its LIVE META row): frame the four cards with the legend under the bottom edge |
 
 ## Beat 3 · 0:40–1:15 · The Meta API
 
@@ -65,8 +65,9 @@ memory records".
 | 3b | `/en/showcase/` → M04 (group `live-battery-2026-10-30-p13`) | loaded | header: Outcome "None: the run failed", "29 records"; the box "The run failed · A model document broke the deliberation protocol and was refused. · Stage evaluate, code evaluation_contract."; the badges | the word "blocked" in a caption (M04 failed; it was not blocked by the policy) |
 | 3c (optional, 3 s) | M04 · Meta API | — | 6 invocations, the last one on the failure record; totals input 9,849, output 22,544, reasoning 19,030 | — |
 
-Caption 3a: the F03 label. Caption 3b–3c: "Recorded run M04 · 30 Oct 2026 ·
-from the research archive · not live".
+Caption 3a (0:40–0:55): the F03 label. Caption 3b–3c (0:55–1:15, from the
+cut; SRT cue 16): "Recorded run M04 · 30 Oct 2026 · from the research archive
+· not live".
 
 ## Beat 4 · 1:15–1:45 · The deliberation
 
@@ -74,12 +75,14 @@ from the research archive · not live".
 |---|---|---|---|---|
 | 4a | `/en/new/` · Guided examples | — | the intro ("The roles are scripted doubles and the evidence is simulated: no model is called and no proof is real. …") and the card "Reference: retry budget" with SCRIPTED · SIMULATED evidence; click its Run | the live-mode-off line |
 | 4b | guided run · Playback | pacing on | Playback tab; header SCRIPTED · SIMULATED; "simulated · paced for readability"; the Proposer, Critic and Evidence Evaluator columns filling in (proposal, "constraint conflict on claim-2", "not corroborated", "contradicted by ev-constraint", then the revision) | LIVE anywhere |
-| 4c | F03 · Decision | — | "contested" with "Evidence: HYPHAE RECALL"; "This recommendation is for revised proposal prop-12, which replaced the original proposal prop-1." with the task; "Why the policy recommends this"; the rationale "Contested: 5/5 claims corroborated; proofs: 6 valid, 0 invalid, 0 unavailable/error; 6 unresolved challenges."; "Open objections" (3 missing test, 2 unsupported claim, 1 security risk); "Earlier-round objections never re-judged: 5." | `claim-15` in a close-up, unless the caption 4b′ is on screen |
+| 4c | F03 · Decision | — | "contested" with "Evidence: HYPHAE RECALL"; "This recommendation is for revised proposal prop-12, which replaced the original proposal prop-1." with the task; "Why the policy recommends this"; the rationale "Contested: 5/5 claims corroborated; proofs: 6 valid, 0 invalid, 0 unavailable/error; 6 unresolved challenges."; "Open objections" (3 missing test, 2 unsupported claim, 1 security risk); "Earlier-round objections never re-judged: 5." | `claim-15` in a close-up |
 
 Caption 4a–4b: "Guided example · scripted roles · SIMULATED evidence · no model
-call". Caption 4c: the F03 label, and, for as long as the claims of `prop-12`
-are in frame, "4b′: one cited record misdescribes the fixture test
-(docs/evaluation.md, Corrections 3)".
+call". Caption 4c: the F03 label, and, for the whole of 4c (1:30–1:45,
+including the narration "all 5 claims were corroborated"), a second line "One
+cited record misdescribes the fixture test (docs/evaluation.md, Corrections
+3)". The never-re-judged count is not captioned: the portal's own line says it
+and stays in frame.
 
 If the never-re-judged count differs from 5, stop and report it.
 
@@ -97,19 +100,19 @@ If the never-re-judged count differs from 5, stop and report it.
 | 6a | F03 · Audit trail | before the check | "The chain": first record 64, last record 91; "Check the chain in this browser" and its button | — |
 | 6b | same | after "Check the chain" | "Chain checks out"; "All 189 records hash and link as recorded, and this run's segment matches what the views hold."; the five "matches" lines (file SHA-256 `3d647ed9…` (292,322 bytes) against the manifest's pin; 189 records checked; sequences 64 to 91 (28 records); the head `629a2fb5…`; record count against the receipt's (28)); the limits paragraph | the limits paragraph scrolled away before it is read |
 
-## Beat 7 · 2:30–2:50 · A person decides
+## Beat 7 · 2:30–2:47 · A person decides
 
 | # | Route · tab | State | Must be visible | Must not appear |
 |---|---|---|---|---|
 | 7a | `/en/runs/` → the guided run · Decision | awaiting the decision | "Your decision" with the notice "Decisions on this public portal carry no operational authority: approving or rejecting records your choice on this run and executes nothing."; Approve and Reject; below, "supported" with "Evidence: SIMULATED" and the scope line "This recommendation is for revised proposal prop-2, which replaced the original proposal prop-1." | a typed note |
 | 7b | same | Approve clicked | "Decision recorded: approved by visitor:… on …"; "This decision carries no operational authority: it records a visitor's choice on a simulated run."; header "Your decision: Approved", 15 records | — |
 
-## Beat 8 · 2:50–3:00 · Close
+## Beat 8 · 2:47–3:00 · Close, then the end card 3:00–3:06
 
 | # | Screen | Must be visible |
 |---|---|---|
-| 8a | `/en/` top | the Quorum logo and "Hyphae Consensus"; "Verifiable multi-agent reasoning and decision accountability" |
-| 8b | end card (editor) | the four lines of `script.md`, beat 8 |
+| 8a (2:47–3:00) | `/en/` top | the Quorum logo and "Hyphae Consensus"; "Verifiable multi-agent reasoning and decision accountability" |
+| 8b (3:00–3:06, silent) | end card (editor) | the four lines of `script.md`, beat 8 |
 
 ## Never on screen
 

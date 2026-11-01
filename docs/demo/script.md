@@ -1,4 +1,4 @@
-# Video script (3:00)
+# Video script (3:00 of narration, 3:06 with the end card)
 
 Rewritten 2026-10-31 against `a657531`, the frozen UI (monochrome, brushed
 glass, Quorum logo), for a **local recording**: Mission Control served by
@@ -12,8 +12,10 @@ The story of beat 1 is [`impact-story.md`](impact-story.md).
 
 **Length.** The hackathon rules set no video length (owner research of
 2026-10-31: "minute" appears on none of the event's pages; the Demo criterion
-only scores "the quality of the demo video"). 3:00 is our own target, chosen to
-cover the four judging criteria without padding. If the submission form, once
+only scores "the quality of the demo video"). 3:00 of narration is our own
+target, chosen to cover the four judging criteria without padding; the end
+card follows it on its own, silent, for 6 s (3:00–3:06), so the export runs
+about 3:06. If the submission form, once
 the owner is logged in, names a shorter limit, that limit wins: cut beat 4's
 guided half first, then beat 7's last sentence.
 
@@ -30,15 +32,23 @@ guided half first, then beat 7's last sentence.
     live";
   - M04: header badges META MODEL · HYPHAE RECALL · RECORDED; caption
     "Recorded run M04 · 30 Oct 2026 · from the research archive · not live".
-  No sequence is called live, in narration, caption or title. LIVE never
-  appears on screen in this cut (nothing here is a live run).
+  No sequence is called live, in narration, caption or title. No run on
+  screen is labelled LIVE in this cut (nothing here is a live run). The one
+  place the portal draws a LIVE META badge outside a run, the Overview's
+  "Provenance labels" legend, is kept out of frame (`shot-list.md`, 2a).
+  The label lines of the SRT files are short forms of these captions (they
+  drop "from the research archive" and, after the first cue of a run, the
+  date); the burned-in caption is always the full label above.
 - **Figures.** Each beat lists the numbers on its screen and what the
   narration says, with the source. The value written here is what the archive
   holds; the portal renders it from the run. If the screen shows a different
   value, stop and report it: do not record over it, and do not "correct" the
   narration to a number the archive does not hold.
-- **Pace.** About 145 words a minute (432 words in 3:00). Each beat's narration
-  fits its slot at that pace; the captions use the same words.
+- **Pace.** About 145 words a minute on average (435 words in 3:00). Beats
+  run between about 130 and 156 words a minute (table at the end); the
+  fastest are beats 3 and 5, at about 155, a brisk but normal narration pace.
+  Do a timed read before the session: a beat that overruns its slot is cut in
+  words, not sped up. The captions use the same words.
 - **Integrity is not truth.** A `valid` proof says the record is the one that
   was stored, not that it is true; beat 5 says so in words.
 
@@ -72,10 +82,14 @@ shipped that claim."
   attempts." (record 65).
 - The constraint: "Constraint: outbound retries must be capped at 3 attempts
   with jitter; unbounded retries caused the 2026-08 outage." (record 66). Demo
-  fixture memory: 7 operator-seeded records (`research/README.md`, "Memory").
+  fixture memory: 7 records (`docs/evaluation.md` §6, "Same demo store as §5
+  (7 records)", and §6.3, "each run retrieved all 7 records of the store"),
+  operator-seeded demo memories (`research/README.md`, "Memory").
 - "A single agent would have shipped that claim": the Proposer's first call
-  sees no memory, and "a single Proposer call would have shipped at least one
-  claim the stored records contradict" (`docs/evaluation.md` §5.3, §5.4).
+  sees no memory (`docs/evaluation.md` §2, I01, and §5.4, H01: "it never sees
+  memory"; in F03's log the proposal, record 65, precedes the retrievals,
+  records 66 to 72), and "a single Proposer call would have shipped at least
+  one claim the stored records contradict" (§5.3).
 
 ---
 
@@ -101,7 +115,8 @@ recorded request id, latency, input and output tokens) and "Totals over the
 recorded model calls" (0:40–0:55). Then Showcase → M04: the header's
 "The run failed" box, "A model document broke the deliberation protocol and
 was refused. Stage evaluate, code evaluation_contract." (0:55–1:15). Caption
-changes from the F03 label to the M04 label at the cut.
+changes from the F03 label to the M04 label at the cut, at 0:55 (SRT cue 16):
+the protocol 1.3 sentence is said over M04, which ran under protocol 1.3.
 
 **Narration (90 words).**
 "Here is how the Meta API is used. This run made six calls, each recorded with
@@ -173,9 +188,14 @@ unsupported claims and one duplicate-charge risk."
   (record 83; `item-19` is the duplicate-charge risk).
 - The Decision tab also shows "Earlier-round objections never re-judged: 5."
   (F03 ran under protocol 1.2; `research/README.md`). Keep it in frame; it is
-  not narrated for lack of time, and the caption of `shot-list.md` 4b names it.
+  neither narrated nor captioned, for lack of time: the portal's own line says
+  it.
 - Keep `claim-15` out of a close-up (it restates the seeded record that
   misdescribes the fixture test; `docs/evaluation.md`, Corrections item 3).
+  The caption "One cited record misdescribes the fixture test
+  (docs/evaluation.md, Corrections 3)" is on screen from 1:30 to 1:45, the
+  whole F03 half of this beat, including "all 5 claims were corroborated"
+  (SRT cues 25 to 28).
 
 ---
 
@@ -210,11 +230,18 @@ operator; anyone can re-check the chain."
 chain → "Chain checks out", the five "matches" lines and the limits paragraph
 under them.
 
-**Narration (49 words).**
+**Narration (50 words).**
 "Every record is hash-chained. This browser just downloaded the archived log
 and recomputed every hash: all 189 records check out, and the file matches the
-digest pinned in the archive's manifest. The log is unsigned, so this shows
-nothing changed since pinning, not that anything in it is true."
+digest pinned in the archive's manifest. The log is unsigned: this shows the
+bytes match that pinned digest, not that anything in it is true."
+
+The claim stays within the UI's own: the log and the manifest come from the
+same server, and the limits paragraph says a log rewritten and re-hashed as a
+whole would check out too unless a digest obtained earlier says otherwise. The
+narration therefore claims a match with the digest, not "nothing changed"; the
+same digest is in `research/MANIFEST.json` and `research/SHA256SUMS` of the
+committed repository, where anyone can compare it.
 
 **Figures (on screen; checked against the real archive file in the Playwright
 image on 2026-10-31).**
@@ -230,7 +257,7 @@ image on 2026-10-31).**
 
 ---
 
-## Beat 7 · 2:30–2:50 · A person decides
+## Beat 7 · 2:30–2:47 · A person decides
 
 **Screen.** The guided run of beat 4 (from My runs) → Decision tab: the outcome
 with "Evidence: SIMULATED", the scope line, "Your decision" with the notice;
@@ -253,19 +280,21 @@ type no note.
 
 ---
 
-## Beat 8 · 2:50–3:00 · Close
+## Beat 8 · 2:47–3:00 · Close (end card 3:00–3:06)
 
 **Screen.** Overview header ("Verifiable multi-agent reasoning and decision
-accountability"), then the end card.
+accountability") under the narration, 2:47–3:00; then the end card alone,
+silent, 3:00–3:06, long enough to read its four lines.
 
-**Narration (28 words).**
+**Narration (30 words).**
 "Hyphae Consensus: agent recommendations you can inspect, check and hold to
 account before anyone acts. Its three roles run on Meta's muse-wonder-1.0; we
-built it with Muse Code."
+built it with Muse Code and Claude."
 
-**Figures.** `muse-wonder-1.0` in every recorded live run; Muse Code used in
-development (README, "AI assistance", which also names Anthropic's Claude; the
-end card names both).
+**Figures.** `muse-wonder-1.0` in every recorded live run; development used
+Meta's Muse Code and Anthropic's Claude (README, "AI assistance": "Meta's Muse
+Code (with Muse Wonder Full) and Anthropic's Claude"); the narration and the
+end card both name both.
 
 **End card text.**
 - "Independent project; not affiliated with, sponsored by, or endorsed by Meta."
@@ -279,14 +308,15 @@ end card names both).
 
 ## Word count
 
-| Beat | Slot | Words |
-|---|---|---|
-| 1 | 0:00–0:25 | 54 |
-| 2 | 0:25–0:40 | 38 |
-| 3 | 0:40–1:15 | 90 |
-| 4 | 1:15–1:45 | 68 |
-| 5 | 1:45–2:10 | 65 |
-| 6 | 2:10–2:30 | 49 |
-| 7 | 2:30–2:50 | 40 |
-| 8 | 2:50–3:00 | 28 |
-| Total | 3:00 | 432 |
+| Beat | Slot | Words | Words a minute |
+|---|---|---|---|
+| 1 | 0:00–0:25 | 54 | 130 |
+| 2 | 0:25–0:40 | 38 | 152 |
+| 3 | 0:40–1:15 | 90 | 154 |
+| 4 | 1:15–1:45 | 68 | 136 |
+| 5 | 1:45–2:10 | 65 | 156 |
+| 6 | 2:10–2:30 | 50 | 150 |
+| 7 | 2:30–2:47 | 40 | 141 |
+| 8 | 2:47–3:00 | 30 | 138 |
+| Total | 3:00 | 435 | 145 |
+| End card | 3:00–3:06 | none | — |

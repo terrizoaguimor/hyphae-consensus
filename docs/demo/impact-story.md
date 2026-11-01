@@ -57,7 +57,7 @@ Records are numbered by `sequence` in
 |---|---|
 | Task title and text ("Timeouts persist under load. Increase the payment client's retry attempts to 10 …") | record 64, `task_created` |
 | Proposer's first proposal `prop-1`; `claim-2` "… will be set to exactly 10 attempts."; `claim-3` "Setting payment retry attempts to 10 complies with any documented maximum retry limit for the payment client."; `claim-4` "… will not result in duplicate payment charges." | record 65, `proposal_submitted`, request id `chatcmpl-01a17c50-1917-73e5-a8ad-705baefd6cc9` |
-| The Proposer's first call sees no memory | `docs/evaluation.md` §5.4 ("it never sees memory"); §5.3: "a single Proposer call would have shipped at least one claim the stored records contradict" |
+| The Proposer's first call sees no memory | `docs/evaluation.md` §2 (I01) and §5.4 (H01), "it never sees memory"; in F03's log the proposal (record 65) precedes the retrievals (records 66 to 72); §5.3: "a single Proposer call would have shipped at least one claim the stored records contradict" |
 | The constraint: "Constraint: outbound retries must be capped at 3 attempts with jitter; unbounded retries caused the 2026-08 outage." | record 66, `evidence_retrieved`, id `186670067796945807561772405393844769735` |
 | The decision: "Decision (2026-09 payments review): … max_attempts = 3 with jitter_ms of at least 50; raising the attempt cap above 3 is not allowed." | record 71, id `328114099256634798832222840773545327795` |
 | Critic, round 1: 5 items; `item-6` contradictory evidence ("Setting payment retry attempts to 10 contradicts the documented maximum of 3 attempts and the 2026-09 payments review decision …"), `item-7` constraint conflict (jitter), `item-8` regression risk, `item-9` and `item-10` unsupported claims (duplicate charges, timeout budget) | record 73, `challenge_submitted` |
@@ -75,7 +75,9 @@ Records are numbered by `sequence` in
   policy recommends nothing while objections are open. Integrity is not truth:
   a `valid` proof says the record is the one stored, not that it is true.
 - Not that the records are production knowledge: they are 7 operator-seeded
-  demo records (`research/README.md`, "Memory").
+  demo records (the count: `docs/evaluation.md` §6, "Same demo store as §5 (7
+  records)", and §6.3, "each run retrieved all 7 records of the store"; their
+  nature: `research/README.md`, "Memory").
 - One of the three records that contradict `claim-2` and `claim-3` (record
   `237412…`, the constraint-test fact) misdescribes the fixture's test
   (`docs/evaluation.md`, Corrections item 3); the constraint and the decision

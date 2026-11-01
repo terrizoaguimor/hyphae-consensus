@@ -97,7 +97,10 @@ end of each take.
 **Take B · Overview (beats 2 and 8).**
 
 5. `http://127.0.0.1:8788/en/`. Hold on the title, then scroll slowly to "How a
-   deliberation works" and hold on the four cards for 15 s.
+   deliberation works" and hold on the four cards for 15 s. Stop scrolling
+   with the cards at the bottom of the frame: the "Provenance labels" legend
+   right below them draws a LIVE META badge and must stay out of frame (if it
+   enters, retake; it is a legend, not a run, but this cut shows no LIVE).
 
 **Take C · F03 (beats 1, 3, 4, 5, 6).** `http://127.0.0.1:8788/en/showcase/`.
 
@@ -166,12 +169,15 @@ Stop and report, do not record over it, if any of these appears:
       - M04: "Recorded run M04 · 30 Oct 2026 · from the research archive · not
         live";
       - beat 1c, second line: "Demo project · 7 seeded memory records";
-      - beat 4c while `prop-12`'s claims are in frame: "One cited record
-        misdescribes the fixture test (docs/evaluation.md, Corrections 3)".
+      - beat 4c, second line, for the whole F03 half of beat 4 (1:30–1:45):
+        "One cited record misdescribes the fixture test (docs/evaluation.md,
+        Corrections 3)".
+      The M04 caption starts at the cut to M04, 0:55.
 - [ ] **Speed.** Everything at normal speed. If a stretch of the guided
       Playback is shortened, it carries "sped up ×N" (N = recorded ÷ shown,
       rounded down) for the whole stretch, and no cut inside it hides a stage.
-- [ ] **Length.** Target 3:00 including the end card. The rules set no length;
+- [ ] **Length.** Target 3:00 of narration, then the end card alone and
+      silent for 6 s: about 3:06 in all (`script.md`, beat 8). The rules set no length;
       if the submission form, seen logged in, names a shorter limit, follow it
       (`script.md`, "Length").
 - [ ] **Subtitles.** `captions-en.srt` (and `captions-es.srt`) are timed to the
@@ -197,8 +203,8 @@ box means re-edit, not publish.
       rendered by the portal from the run on screen. Nothing is rounded or
       upgraded; no rate of any outcome is claimed.
 - [ ] "Integrity is not truth" is said (beat 5); the chain check is not
-      narrated as proving more than "no change since the manifest pinned the
-      digest" (beat 6).
+      narrated as proving more than that the file matches the digest the
+      committed manifest pins (beat 6); not as "nothing changed".
 - [ ] `supported` (guided run) is never shown without its scope line and
       "Evidence: SIMULATED".
 - [ ] The Meta API tabs are not narrated as showing attempts or cost.

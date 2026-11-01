@@ -1,0 +1,233 @@
+1
+00:00:00,000 --> 00:00:03,500
+[Recorded run F03 · 27 Oct 2026 · not live]
+Teams now let coding agents propose changes.
+
+2
+00:00:03,500 --> 00:00:06,000
+This run was recorded on 27 October.
+
+3
+00:00:06,000 --> 00:00:10,500
+Asked to raise payment retries to 10,
+Meta's model, as Proposer,
+
+4
+00:00:10,500 --> 00:00:14,500
+claimed that 10 attempts comply
+with any documented limit.
+
+5
+00:00:14,500 --> 00:00:18,500
+[Demo project · 7 seeded memory records]
+The demo project's memory says the opposite:
+
+6
+00:00:18,500 --> 00:00:21,500
+retries are capped at 3.
+
+7
+00:00:21,500 --> 00:00:25,000
+A single agent would have shipped that claim.
+
+8
+00:00:25,000 --> 00:00:29,500
+Hyphae Consensus gives that change three roles,
+all Meta's model:
+
+9
+00:00:29,500 --> 00:00:32,500
+a Proposer, a Critic
+and an Evidence Evaluator.
+
+10
+00:00:32,500 --> 00:00:36,500
+The runtime, not a model,
+fetches the records and checks their proofs.
+
+11
+00:00:36,500 --> 00:00:40,000
+A fixed policy recommends.
+Only a person decides.
+
+12
+00:00:40,000 --> 00:00:43,000
+[Recorded run F03 · not live]
+Here is how the Meta API is used.
+
+13
+00:00:43,000 --> 00:00:47,500
+This run made six calls, each recorded
+with Meta's request id,
+
+14
+00:00:47,500 --> 00:00:51,500
+its latency and its token counts:
+6,874 in, 31,910 out.
+
+15
+00:00:51,500 --> 00:00:55,000
+Every call sends a strict JSON schema for its role.
+
+16
+00:00:55,000 --> 00:00:59,500
+[Recorded run M04 · 30 Oct 2026 · not live]
+Under protocol 1.3 the Evaluator's schema
+is built per call,
+
+17
+00:00:59,500 --> 00:01:03,500
+one required key per claim
+and per open objection,
+
+18
+00:01:03,500 --> 00:01:06,500
+so nothing can be skipped in silence.
+And it fails closed.
+
+19
+00:01:06,500 --> 00:01:11,000
+In run M04, on 30 October,
+the Evaluator left a contradiction unjudged:
+
+20
+00:01:11,000 --> 00:01:15,000
+the runtime refused the answer
+and issued no recommendation.
+
+21
+00:01:15,000 --> 00:01:19,000
+[Guided example · scripted roles · SIMULATED evidence · no model call]
+To watch the steps, a guided example:
+
+22
+00:01:19,000 --> 00:01:22,000
+scripted roles, simulated evidence,
+no model called.
+
+23
+00:01:22,000 --> 00:01:26,500
+The Proposer claims, the Critic objects,
+the Evaluator judges each claim,
+
+24
+00:01:26,500 --> 00:01:30,000
+the Proposer revises,
+and the round runs again.
+
+25
+00:01:30,000 --> 00:01:34,500
+[Recorded run F03 · not live]
+In F03 the revision went back to 3 attempts
+with 50 millisecond jitter,
+
+26
+00:01:34,500 --> 00:01:37,500
+and all 5 claims were corroborated.
+
+27
+00:01:37,500 --> 00:01:41,000
+Still contested: 6 objections stay open,
+
+28
+00:01:41,000 --> 00:01:45,000
+three missing tests, two unsupported claims
+and one duplicate-charge risk.
+
+29
+00:01:45,000 --> 00:01:49,500
+Each claim is tied to the records
+that back it or contradict it.
+
+30
+00:01:49,500 --> 00:01:54,000
+Every record came with a Hyphae recall proof,
+verified at run time against a pinned anchor:
+
+31
+00:01:54,000 --> 00:01:57,000
+all six valid in the final round.
+
+32
+00:01:57,000 --> 00:02:00,500
+Valid means this is the record that was stored.
+
+33
+00:02:00,500 --> 00:02:03,000
+It does not mean the record is true.
+
+34
+00:02:03,000 --> 00:02:06,500
+The proof files stay with the operator;
+
+35
+00:02:06,500 --> 00:02:10,000
+anyone can re-check the chain.
+
+36
+00:02:10,000 --> 00:02:12,500
+Every record is hash-chained.
+
+37
+00:02:12,500 --> 00:02:17,000
+This browser just downloaded the archived log
+and recomputed every hash:
+
+38
+00:02:17,000 --> 00:02:19,500
+all 189 records check out,
+
+39
+00:02:19,500 --> 00:02:23,500
+and the file matches the digest
+pinned in the archive's manifest.
+
+40
+00:02:23,500 --> 00:02:27,000
+The log is unsigned: this shows
+the bytes match that pinned digest,
+
+41
+00:02:27,000 --> 00:02:30,000
+not that anything in it is true.
+
+42
+00:02:30,000 --> 00:02:33,000
+[Guided example · scripted roles · SIMULATED evidence · no model call]
+The run stops at a decision point.
+
+43
+00:02:33,000 --> 00:02:36,000
+Only a person approves or rejects,
+
+44
+00:02:36,000 --> 00:02:39,500
+and on this public portal
+the decision carries no authority:
+
+45
+00:02:39,500 --> 00:02:43,000
+approving records a choice
+and executes nothing.
+
+46
+00:02:43,000 --> 00:02:47,000
+This is the guided run;
+a recorded run is read-only.
+
+47
+00:02:47,000 --> 00:02:52,500
+Hyphae Consensus: agent recommendations
+you can inspect, check and hold to account
+
+48
+00:02:52,500 --> 00:02:54,000
+before anyone acts.
+
+49
+00:02:54,000 --> 00:02:57,500
+Its three roles run on Meta's muse-wonder-1.0;
+
+50
+00:02:57,500 --> 00:03:00,000
+we built it with Muse Code and Claude.

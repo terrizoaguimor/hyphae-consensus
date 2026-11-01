@@ -1,322 +1,322 @@
-# Video script (3 minutes)
+# Video script (3:00 of narration, 3:06 with the end card)
 
-Written 2026-10-29 against `bc3b262`. Nothing has been recorded. Screens per beat
-are in [`shot-list.md`](shot-list.md); prerequisites and the checks before
-publishing are in [`recording-checklist.md`](recording-checklist.md).
+Rewritten 2026-10-31 against `a657531`, the frozen UI (monochrome, brushed
+glass, Quorum logo), for a **local recording**: Mission Control served by
+`consensus-api serve-public` on the recording machine, a guided run started in
+the recording session, and two recorded runs of the research showcase. No live
+Meta call is made or shown. Screens per beat are in
+[`shot-list.md`](shot-list.md); the setup, window, theme and the order of
+clicks are in [`recording-checklist.md`](recording-checklist.md); the captions
+are [`captions-en.srt`](captions-en.srt) and [`captions-es.srt`](captions-es.srt).
+The story of beat 1 is [`impact-story.md`](impact-story.md).
 
-## How to read this script
+**Length.** The hackathon rules set no video length (owner research of
+2026-10-31: "minute" appears on none of the event's pages; the Demo criterion
+only scores "the quality of the demo video"). 3:00 of narration is our own
+target, chosen to cover the four judging criteria without padding; the end
+card follows it on its own, silent, for 6 s (3:00–3:06), so the export runs
+about 3:06. If the submission form, once
+the owner is logged in, names a shorter limit, that limit wins: cut beat 4's
+guided half first, then beat 7's last sentence.
 
-- **Figures.** Every number a beat says or shows is listed under "Figures" with
-  its source: a run label of `research/` (labels as in `research/MANIFEST.json`)
-  or a section of `docs/evaluation.md`. They are stated as recorded. Where the
-  portal renders a figure from the run on screen (the trace, the counts, the
-  Meta API rows), the narration reads what the screen shows; the value written
-  here is what the recorded data holds and is a check, not a line to say over a
-  different screen.
-- **Markers.** **[PENDING: …]** marks a beat that depends on work not yet done.
-  Each such beat has a **Fallback** that needs none of it.
-- **No lucky outcomes.** The live run of beats 3–5 may end in any outcome, or
-  fail. Beat 4 has one narration per outcome; the cut is assembled after the
-  run, from what its Decision tab shows. Nothing is re-run to get a better
-  outcome (as in `docs/evaluation.md` §2: "the battery was not re-run to hide
-  the timeouts").
-- **Narration pace.** About 150 words a minute; each beat's narration fits its
-  slot at that pace.
+## Rules for every beat
 
-## Dependencies
+- **Labels.** Every sequence is labelled on screen as the UI labels it, and the
+  burned-in caption says the same in plain words:
+  - the guided run: header badges SCRIPTED · SIMULATED · THIS SERVER and a
+    delivery badge (REPLAY in the reference shots), never LIVE;
+    caption "Guided example · scripted roles · SIMULATED evidence · no model
+    call";
+  - F03: header badges META MODEL · HYPHAE RECALL · RECORDED · MODE UNDECLARED;
+    caption "Recorded run F03 · 27 Oct 2026 · from the research archive · not
+    live";
+  - M04: header badges META MODEL · HYPHAE RECALL · RECORDED; caption
+    "Recorded run M04 · 30 Oct 2026 · from the research archive · not live".
+  No sequence is called live, in narration, caption or title. No run on
+  screen is labelled LIVE in this cut (nothing here is a live run). The one
+  place the portal draws a LIVE META badge outside a run, the Overview's
+  "Provenance labels" legend, is kept out of frame (`shot-list.md`, 2a).
+  The label lines of the SRT files are short forms of these captions (they
+  drop "from the research archive" and, after the first cue of a run, the
+  date); the burned-in caption is always the full label above.
+- **Figures.** Each beat lists the numbers on its screen and what the
+  narration says, with the source. The value written here is what the archive
+  holds; the portal renders it from the run. If the screen shows a different
+  value, stop and report it: do not record over it, and do not "correct" the
+  narration to a number the archive does not hold.
+- **Pace.** About 145 words a minute on average (435 words in 3:00). Beats
+  run between about 130 and 156 words a minute (table at the end); the
+  fastest are beats 3 and 5, at about 155, a brisk but normal narration pace.
+  Do a timed read before the session: a beat that overruns its slot is cut in
+  words, not sped up. The captions use the same words.
+- **Integrity is not truth.** A `valid` proof says the record is the one that
+  was stored, not that it is true; beat 5 says so in words.
 
-| Marker | Work | Status on 2026-10-29 |
-|---|---|---|
-| STAGING | Access-protected staging deployment with live mode on (`docs/deployment/runbook.md` §8) | pending |
-| SNAPSHOT | Sealed Hyphae snapshot capture; live mode cannot start without it (`docs/deployment/runbook.md` §4.1, `CONSENSUS_SNAPSHOT_DIR`) | captured 2026-10-29 (`b0375df`); boots with `0515f29` (merged as `7e26866`); not on the server |
-| BATTERY-1.3 | Counted protocol 1.3 battery on `prompt-freeze-2` (`docs/evaluation.md` §6); the public presets repeat battery tasks, and no 1.3 figure may be shown before it is in §6 | done on 2026-10-30 (M01–M04, `docs/evaluation.md` §6.3; not run on 2026-10-29, when the development machine had no Meta key); a 1.3 figure may be shown only as §6.3 states it |
-| STAGING-REC | The live preset runs recorded on staging (`recording-checklist.md` §2) | pending; needs STAGING, SNAPSHOT, BATTERY-1.3 |
-| CHAIN-BROWSER | The in-browser chain check (merged with web lane W2 at `bc3b262`) passes its review | review running |
+## The runs on screen
 
-**Fallback cut, as a whole:** guided mode (SIMULATED) +
-the research showcase (RECORDED) + a battery replay labelled "replay". In this
-script the "battery replay" is the recorded run F03 opened from the showcase
-with a burned-in caption "REPLAY · recorded run F03, 27 Oct 2026 · not live".
-The portal itself labels it RECORDED; it has no stream and no LIVE word
-(`apps/web/src/components/run/useRecordedRun.ts`).
+| Label | Run id | What it is | Source |
+|---|---|---|---|
+| Guided | the id the server gives the run started in the session | scenario "Reference: retry budget" (`retry`): scripted doubles, SIMULATED evidence, ends `supported` for revised proposal `prop-2`; 14 records awaiting the decision, 15 after it | `contracts/api-v1/fixtures/run-detail-retry.json`, `scenarios.json` |
+| F03 | `run-d6f28bca-0a10-4fcf-9257-4cfb7374280c` | final battery of 27 Oct 2026, task "Raise payment retry attempts to 10", `contested` | `research/2026-10-27/live-battery-2026-10-27-final.jsonl`, records 64 to 91; `docs/evaluation.md` §5.3 |
+| M04 | `run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451` | protocol 1.3 battery of 30 Oct 2026, task "Remove the retry cap from the payment client", failed at `evaluate`, `evaluation_contract` | `research/2026-10-30/live-battery-2026-10-30-p13/runs/run-c912672a-….jsonl`; §6.3 |
 
 ---
 
-## Beat 1 · 0:00–0:25 · Impact first
+## Beat 1 · 0:00–0:25 · The problem, and what a single agent would have shipped
 
-**Screen.** Research showcase → F03, Evidence tab: the first proposal's claim
-"set to exactly 10 attempts" next to the stored constraint.
+**Screen.** Research showcase → F03 → Explorer, the first proposal `prop-1`
+with its claims; then Evidence, `claim-2`/`claim-3` marked contradicted next to
+the constraint record. Caption: the F03 label.
 
-**Narration (about 65 words).**
-"On 27 October 2026 we ran Meta's muse-wonder-1.0 six times against a demo
-project's seeded memory, whose proofs verified. In every run, the first
-proposal contained claims that the stored records contradict, and none was
-recommended. Here the task asked to raise payment retries to 10. The demo
-project's stored constraint says retries are capped at 3 attempts with jitter."
-
-Burned-in caption while the Evidence tab is on screen: "Demo-repo fixture ·
-7 seeded records".
+**Narration (54 words).**
+"Teams now let coding agents propose changes. This run was recorded on 27
+October. Asked to raise payment retries to 10, Meta's model, as Proposer,
+claimed that 10 attempts comply with any documented limit. The demo project's
+memory says the opposite: retries are capped at 3. A single agent would have
+shipped that claim."
 
 **Figures.**
-- Final battery F01–F06: 6 runs, every first proposal had 1–3 claims
-  contradicted by stored records, none supported, all 6 `contested`
-  (`docs/evaluation.md` §5.3).
-- F03 first proposal, claim 2: "The payment client's retry attempts
-  configuration will be set to exactly 10 attempts." (F03, proposal `prop-1`
-  in `research/2026-10-27/live-battery-2026-10-27-final.jsonl`).
-- Stored constraint, as retrieved in F03: "Constraint: outbound retries must be
-  capped at 3 attempts with jitter; unbounded retries caused the 2026-08
-  outage." (same log, F03's retrieved evidence).
-- The memory: a fresh demo store of 7 operator-seeded demo-repo records
-  (`docs/evaluation.md` §5).
-- F03 round 1: 0/4 corroborated, 5 open items, 2 claims contradicted
-  (`docs/evaluation.md` §5.3); the two contradicted claims (claims 2 and 3) are
-  each contradicted by the constraint, the 2026-09 decision and the
-  constraint-test fact (F03's first evaluation in the log).
-
-**Say only if the test fact is on screen.** Frame the shot on the constraint
-and the decision. If the constraint-test fact (seeded record 5) is in frame
-anyway, add: "One of these records, the test fact, misdescribes the fixture's
-test; the constraint and the decision contradict the claim on their own."
-(`docs/evaluation.md`, Corrections item 3.)
-
-**Depends on.** Nothing pending: the showcase serves `research/` today.
+- Task "Raise payment retry attempts to 10" (record 64).
+- `claim-3`: "Setting payment retry attempts to 10 complies with any documented
+  maximum retry limit for the payment client." `claim-2`: "… set to exactly 10
+  attempts." (record 65).
+- The constraint: "Constraint: outbound retries must be capped at 3 attempts
+  with jitter; unbounded retries caused the 2026-08 outage." (record 66). Demo
+  fixture memory: 7 records (`docs/evaluation.md` §6, "Same demo store as §5
+  (7 records)", and §6.3, "each run retrieved all 7 records of the store"),
+  operator-seeded demo memories (`research/README.md`, "Memory").
+- "A single agent would have shipped that claim": the Proposer's first call
+  sees no memory (`docs/evaluation.md` §2, I01, and §5.4, H01: "it never sees
+  memory"; in F03's log the proposal, record 65, precedes the retrievals,
+  records 66 to 72), and "a single Proposer call would have shipped at least
+  one claim the stored records contradict" (§5.3).
 
 ---
 
-## Beat 2 · 0:25–0:55 · Architecture
+## Beat 2 · 0:25–0:40 · How it works
 
-**Screen.** Overview, "How a deliberation works" (four steps), then the
-provenance labels legend; one second on Docs → "Verified evidence".
+**Screen.** Overview, "How a deliberation works", the four numbered cards.
 
-**Narration (about 75 words).**
-"Three roles, all Meta's model: a Proposer turns the task into explicit
-claims, a Critic challenges them, an Evidence Evaluator judges each claim
-against the evidence. The runtime, not a model, retrieves the records from
-Hyphae Agent Memory and verifies their integrity proofs. A fixed policy turns
-judgments and proof statuses into a recommendation. Only a person approves,
-and approving executes nothing. A valid proof means the record is the one
-that was stored. It does not mean the record is true."
+**Narration (38 words).**
+"Hyphae Consensus gives that change three roles, all Meta's model: a Proposer,
+a Critic and an Evidence Evaluator. The runtime, not a model, fetches the
+records and checks their proofs. A fixed policy recommends. Only a person
+decides."
 
-**Figures.** None. The wording follows the Overview's flow texts
-(`apps/web/messages/en.json`, `Overview.flow`) and `research/README.md`
-("Truth": a valid proof "establishes that a record matches its anchored
-snapshot, not that its content is true").
-
-**Depends on.** Nothing pending.
+**Figures.** None. Wording from the Overview cards (`Overview.flow.*` in
+`apps/web/messages/en.json`).
 
 ---
 
-## Beat 3 · 0:55–1:45 · A live preset run
+## Beat 3 · 0:40–1:15 · How the Meta API is used
 
-**[PENDING: STAGING-REC, which needs STAGING, SNAPSHOT and BATTERY-1.3]**
+**Screen.** F03 → Meta API tab: six rows (role, `muse-wonder-1.0 via meta`,
+recorded request id, latency, input and output tokens) and "Totals over the
+recorded model calls" (0:40–0:55). Then Showcase → M04: the header's
+"The run failed" box, "A model document broke the deliberation protocol and
+was refused. Stage evaluate, code evaluation_contract." (0:55–1:15). Caption
+changes from the F03 label to the M04 label at the cut, at 0:55 (SRT cue 16):
+the protocol 1.3 sentence is said over M04, which ran under protocol 1.3.
 
-**Screen (planned cut).** New deliberation → Live presets → "Raise payment
-retry attempts to 10" → attestation and Turnstile → Start live run → run
-workspace, Live tab, shown as a time-lapse with a burned-in caption
-"Recorded on staging, <date> · time-lapse ×N". Then the Evidence tab on a
-contradicted claim, then the Proof inspector on the record that contradicts it.
-
-**Narration (planned cut; about 110 words; adapt the bracketed parts to the
-run).**
-"This is a live run on our staging server, sped up [N] times. The Proposer
-answers the task as asked. The Critic [raises a constraint conflict: the cap is
-3]. [The Evaluator records the claim as contradicted by a stored record.] The
-evidence comes from a sealed Hyphae snapshot, and the runtime re-verifies its
-proofs for every run: [valid]. The Proposer revises; the Critic and the
-Evaluator run again on the revision. Every model call goes to Meta's API on the
-owner's key; visitors choose a preset and can never send free text to the
-model."
-
-- Say a Critic objection kind, a contradiction or a proof status only if it
-  is on screen in this run. If the run has no `constraint_conflict`, name the
-  kinds the Critic did raise. If no claim is contradicted, show the Evidence tab
-  as it is and drop that sentence.
-- If the run fails (for example a transport failure, as K02 in
-  `docs/evaluation.md` §6.1), show the failure sentence in the header, say
-  "the run failed safely: no recommendation, nothing approved, the reason
-  recorded", and use the fallback for the rest of beats 3–5.
-- N is the recorded duration divided by the on-screen duration, rounded down
-  to a whole number, and the caption shows it for the whole sped-up stretch.
-  Runs of this task took 205.5 s (K03, protocol 1.3 smoke) and 234.4 s (F03)
-  of model latency (`docs/evaluation.md` §6.2, §5.3).
-
-**Figures.** Only what the run on screen shows. No figure from
-BATTERY-1.3 unless it is already in `docs/evaluation.md` §6.
-
-**Fallback (about 50 s).**
-1. 0:55–1:10. New deliberation → Guided examples → "Reference: retry
-   budget" → Run. The run workspace's Playback tab, paced ("simulated · paced
-   for readability"). Narration: "First, a guided example: scripted roles and
-   SIMULATED evidence, no model called. It shows the steps: proposal, critique,
-   evaluation, revision."
-2. 1:10–1:45. Showcase → F03 (RECORDED), caption "REPLAY · recorded run F03,
-   27 Oct 2026 · not live". Explorer tab scrolled from the first proposal to
-   the first evaluation, then the Evidence tab on claim 2, then the Proof
-   inspector on the constraint record. Narration: "Now a real run, recorded on
-   27 October and replayed from the archive. The Critic raised a constraint
-   conflict. The Evaluator recorded two claims as contradicted by stored
-   records. Each record's proof was verified at run time: valid. The proof
-   files stay with the operator, so you can re-check the chain, not the
-   proofs. The Proposer then revised."
-
-**Fallback figures.**
-- Guided "Reference: retry budget" reaches `supported` on SIMULATED evidence
-  (`crates/consensus-api/src/guided.rs`, `info`); a scripted outcome, never to
-  be described as a model result.
-- F03 round 1: the Critic raised 5 items, among them a `constraint_conflict`
-  (F03's first challenge in the log); 2 claims contradicted
-  (`docs/evaluation.md` §5.3); 6 valid in the final round, all 91 verification
-  records of the final battery `valid` (§5.3).
-- The proof artifacts are held by the operator; the public can re-verify the
-  event chain, not the proofs (`apps/web/messages/en.json`,
-  `proofs.recordedAccepted`; `research/README.md`, "What cannot be verified").
-
----
-
-## Beat 4 · 1:45–2:20 · Decision center
-
-**[PENDING for the first half: STAGING-REC. The R06 half has no dependency.]**
-
-**Screen (planned cut).** The live run's Decision tab: the outcome badge with
-its evidence label, the scope line when the recommendation is for a revision,
-"Why the policy recommends this" with the counts rendered from the trace, the
-open objections. Then Showcase → R06 (RECORDED), Decision tab.
-
-**Narration, first half (about 40 words): read the line that matches the
-screen.**
-- `contested`: "Contested. [k of n] claims corroborated, [m] objections still
-  open, [most of them missing tests]. The policy does not recommend a change
-  while objections are open."
-- `supported` for a revised proposal: "Supported, but read the line under it:
-  for the revised proposal, which [no longer does what the task asked]. The
-  runtime does not judge that; the person does." (The K03 precedent:
-  `docs/evaluation.md` §6.2.)
-- `insufficient_evidence` or `abstained`: "[Insufficient evidence / The
-  Evaluator abstained]: the evidence does not back every claim, so nothing is
-  recommended."
-- Failed: covered in beat 3; use the fallback.
-
-**Narration, second half (about 55 words).**
-"In the first live battery, one run reached supported: R06, on 27 October. Its
-trace shows seven earlier-round objections never judged again, and our
-evaluation's corrections record that one record it cites misdescribes a test.
-A valid proof cannot catch that: integrity is not truth. Protocol 1.3 carries
-every objection forward; its counted battery ran on 30 October."
-
-Burned-in caption for as long as R06's Decision tab is on screen: "Cited
-record 5 misdescribes the fixture test: docs/evaluation.md, Corrections 3".
-The portal does not show this caveat, so the caption carries it.
+**Narration (90 words).**
+"Here is how the Meta API is used. This run made six calls, each recorded with
+Meta's request id, its latency and its token counts: 6,874 in, 31,910 out.
+Every call sends a strict JSON schema for its role. Under protocol 1.3 the
+Evaluator's schema is built per call, one required key per claim and per open
+objection, so nothing can be skipped in silence. And it fails closed. In run
+M04, on 30 October, the Evaluator left a contradiction unjudged: the runtime
+refused the answer and issued no recommendation."
 
 **Figures.**
-- Live run: only what its Decision tab renders.
-- R06: `supported` after 1 revision; Critic 7 → 0; Evaluator 0/3, 7 open, 2
-  contradicted → 3/3, 0 open; 6 valid (`docs/evaluation.md` §5.2).
-- R06: 7 earlier-round objections never re-judged (`research/README.md`,
-  "Earlier-round objections never re-judged"; `docs/evaluation.md`,
-  Corrections item 4). The portal renders this line for runs before protocol
-  1.3 ("Earlier-round objections never re-judged: 7.").
-- R06's claim 3 (`claim-16`) cites seeded record 5, which misdescribes the
-  fixture test; R06's `supported` does not depend on it (`docs/evaluation.md`,
-  Corrections item 3; `research/README.md`). Say "one record it cites
-  misdescribes a test", never "R06 was wrong".
-- Protocol 1.3 carries open items and contradicted records forward and requires
-  an explicit verdict per item (`docs/evaluation.md`, Corrections item 4;
-  ADR-0010). Do not claim what 1.3 does to outcomes beyond the smoke runs,
-  which are not counted as validation (§6.1, §6.2).
+- F03: 6 model invocations, 3 roles (Proposer twice, Critic twice, Evidence
+  Evaluator twice); request ids `chatcmpl-01a17c50-1917-…` to
+  `chatcmpl-01a17c53-61f8-…` (`showcase-entry-F03.json`; §"Request ids
+  (2026-10-27)"). Totals on screen: latency 234,395 ms, input 6,874, output
+  31,910 (each "reported by 6 of 6 calls"); reasoning tokens and attempts
+  "0 (reported by 0 of 6 calls)", because schema 1.2 recorded neither (§5.3;
+  computed from the six invocations of records 65, 73, 74, 82, 83, 84). Read
+  6,874 and 31,910 only; do not read the zeros as values.
+- Strict schemas: four call kinds (proposal, challenge, evaluation, revision),
+  each with its own schema sent with `strict: true`, every list field required
+  since `3d50baf` (F03 ran on that commit); the Evaluator's schema keyed by id
+  per call since tag `prompt-freeze-2` (README, "How this project uses Meta's
+  API"; §6.2). F03 predates the keyed schema, so the narration says "under
+  protocol 1.3" for it. M04's two Evaluator calls sent different schemas
+  (`schema_sha256` `782d909b…` and `3534b6ea…`, records 15 and 29 of its log),
+  as designed; the public surface does not publish digests, so they are not on
+  screen and not said.
+- M04: failed at `evaluate`, `evaluation_contract`; verbatim reason in the log
+  "evaluate output refused by the protocol 1.3 contract:
+  carried_contradiction_judged: "328114099256634798832222840773545327795",
+  contradicted in an earlier round, is neither listed as contradicting again
+  nor cleared" (record 29); no recommendation, authorization `pending` (§6.3).
+  On screen: Outcome "None: the run failed", 29 records. Its Meta API tab, if
+  shown: 6 invocations, the last on the failure record; totals 9,849 input /
+  22,544 output / 19,030 reasoning tokens, 167,627 ms.
+- Do not say "attempts" or "retries" over either Meta API tab: the public
+  surface does not publish attempt counts (`Run.meta.operatorOnly`). No cost is
+  shown or said.
 
-**Fallback, first half.** Showcase → F03, Decision tab. Narration:
-"Contested. After the revision the Evaluator corroborated all five claims
-against records whose proofs verified; corroborated is not true. Six
-objections stayed open: three missing tests, two unsupported claims, one
-security risk. The policy does not recommend a change while objections are
-open."
+---
 
-**Fallback figures (F03).**
-- Final round: 5/5 corroborated, 6 open, 6 valid (`docs/evaluation.md` §5.3);
-  recorded rationale "Contested: 5/5 claims corroborated; proofs: 6 valid, 0
-  invalid, 0 unavailable/error; 6 unresolved challenges." (F03's
-  recommendation in the log).
+## Beat 4 · 1:15–1:45 · The deliberation
+
+**Screen.** 1:15–1:30: New deliberation → Guided examples → "Reference: retry
+budget" → Run; the run workspace's Playback tab with "simulated · paced for
+readability", the three role columns filling in. Caption: the guided label.
+1:30–1:45: F03 → Decision tab: "contested", Evidence: HYPHAE RECALL, the scope
+line, "Why the policy recommends this", "Open objections". Caption: the F03
+label.
+
+**Narration (68 words).**
+"To watch the steps, a guided example: scripted roles, simulated evidence, no
+model called. The Proposer claims, the Critic objects, the Evaluator judges
+each claim, the Proposer revises, and the round runs again. In F03 the revision
+went back to 3 attempts with 50 millisecond jitter, and all 5 claims were
+corroborated. Still contested: 6 objections stay open, three missing tests, two
+unsupported claims and one duplicate-charge risk."
+
+**Figures.**
+- Guided: whatever its header and Playback show; it ends `supported` on
+  SIMULATED evidence, which is a scripted outcome and is never described as a
+  model result (do not say its outcome).
+- F03 revision `prop-12`: "max_attempts = 3 with jitter_ms = 50" (record 82).
+- F03 final round: 5/5 corroborated, 6 open (§5.3); rationale on screen
+  "Contested: 5/5 claims corroborated; proofs: 6 valid, 0 invalid, 0
+  unavailable/error; 6 unresolved challenges." (record 91).
 - The 6 open items: 3 `missing_test`, 2 `unsupported_claim`, 1 `security_risk`
-  (F03's second challenge and second evaluation in the log; counted for this
-  script from the archived events).
-- One of the five corroborated claims, `claim-15`, restates seeded record 5
-  (the constraint-test fact), which misdescribes the fixture test; the
-  Evaluator corroborated it with that record (F03's revision and second
-  evaluation in the log; `docs/evaluation.md`, Corrections item 3). Keep
-  `claim-15` off screen in this shot, or add the caption of the R06 half for
+  (record 83; `item-19` is the duplicate-charge risk).
+- The Decision tab also shows "Earlier-round objections never re-judged: 5."
+  (F03 ran under protocol 1.2; `research/README.md`). Keep it in frame; it is
+  neither narrated nor captioned, for lack of time: the portal's own line says
   it.
-- 5 earlier-round objections never re-judged (`research/README.md`); the
-  portal shows that line for F03 too. If there is time, read it.
+- Keep `claim-15` out of a close-up (it restates the seeded record that
+  misdescribes the fixture test; `docs/evaluation.md`, Corrections item 3).
+  The caption "One cited record misdescribes the fixture test
+  (docs/evaluation.md, Corrections 3)" is on screen from 1:30 to 1:45, the
+  whole F03 half of this beat, including "all 5 claims were corroborated"
+  (SRT cues 25 to 28).
 
 ---
 
-## Beat 5 · 2:20–2:45 · Audit trail and the Meta API
+## Beat 5 · 1:45–2:10 · The evidence and the proofs
 
-**[PENDING: CHAIN-BROWSER for the in-browser check; STAGING-REC for the live
-run's Meta API rows]**
+**Screen.** F03 → Evidence tab (records with integrity and the Evaluator's
+reading per round), then Proof inspector: the plain reading of a valid proof
+and the sentence "… the artifacts are held privately by the operator
+(witnesses contain the full store), so the public can re-verify the event
+chain, not these proofs." in full.
 
-**Screen.** R06 (RECORDED), Audit trail → "Check the chain" → "Chain checks
-out". Then the live run's Meta API tab (fallback: R06's Meta API tab). Planned
-cut only: the live run's Decision tab, Approve, the recorded decision with the
-notice that public decisions carry no operational authority.
-
-**Narration (about 60 words).**
-"Every record is hash-chained. This browser downloaded the archived log and
-recomputed every hash: the chain checks out and matches the digest pinned in
-the archive's manifest, so nothing changed since pinning. The log is unsigned;
-this says nothing about whether the records are true. The Meta API panel lists
-every call: request id, latency, tokens. [And a person decides: approving
-executes nothing.]"
-
-Do not say "attempts": the public surface does not publish the attempt count
-(`crates/consensus-api/src/public_view.rs`, `operator_only`;
-`Run.meta.operatorOnly` in `apps/web/messages/en.json`), and R06 (schema 1.2)
-recorded none; attempts are recorded from protocol 1.3 on (`docs/evaluation.md`
-§6).
+**Narration (65 words).**
+"Each claim is tied to the records that back it or contradict it. Every record
+came with a Hyphae recall proof, verified at run time against a pinned anchor:
+all six valid in the final round. Valid means this is the record that was
+stored. It does not mean the record is true. The proof files stay with the
+operator; anyone can re-check the chain."
 
 **Figures.**
-- R06's log is `research/2026-10-27/live-battery-2026-10-27.jsonl` (181 records,
-  R01–R08; R06 is 28 of them), so the check covers the whole file
-  (`research/README.md`: "checking one run needs the file from its first
-  line"). Read the count the screen shows.
-- What the check shows: the chain is unsigned, so a log rewritten and
-  re-hashed as a whole would also check out, unless an earlier digest says
-  otherwise; the comparison with the digest `research/MANIFEST.json` pins is
-  what shows no change since pinning (`Run.chain.limits` and
-  `Run.chain.sha256` in `apps/web/messages/en.json`; `research/README.md`,
-  "What cannot be verified from these files", Authenticity).
-- R06's Meta API tab: 6 calls, 6,382 input / 25,685 output tokens
-  (`docs/evaluation.md` §5.2; request ids under "Request ids (2026-10-27)").
-- The Meta API tab shows no cost: the contract publishes no prices
-  (`apps/web/src/components/run/MetaTab.tsx`). Do not say a cost over it. The
-  live budget in US dollars is visible on New deliberation (beat 3).
-
-**Why the chain check uses a recorded run.** The public surface does not
-publish the verbatim log of a live run ("a live model's records may quote
-upstream text"; `Run.audit.logUnavailable`), so the in-browser check runs on
-recorded and guided runs only.
-
-**Fallback (if CHAIN-BROWSER is not cleared).** A terminal, cropped to the
-command and its output:
-`consensus-api verify research/2026-10-27/live-battery-2026-10-27.jsonl --run run-d4d214a4-0532-4b44-9a98-715bd29d81da`
-(read-only; README, "Setup and verification"). Same narration, "this command"
-for "this browser". Approve on the guided run of beat 3 instead of a live run.
+- F03: 7 records retrieved; final round 6 valid (§5.3 "6 valid"; records 85 to
+  90); every verification of F03 `valid`, verifier `hyphae proof verify`,
+  anchor `d91ac10d…` (`research/README.md`, "Proofs, 2026-10-27 runs").
+- "Valid … not true": `research/README.md` ("Truth"); the Overview's provenance
+  note ("A valid proof shows that Hyphae can reproduce the sealed recall a
+  record came from, not that the record is true …").
 
 ---
 
-## Beat 6 · 2:45–3:00 · Close
+## Beat 6 · 2:10–2:30 · The chain check, in this browser
 
-**Screen.** Overview, the project name and tagline; end card with the
-non-affiliation line and the repository link.
+**Screen.** F03 → Audit trail → "Check the chain in this browser" → Check the
+chain → "Chain checks out", the five "matches" lines and the limits paragraph
+under them.
 
-**Narration (about 25 words).**
-"Hyphae Consensus makes agent recommendations inspectable, evidence-aware, and
-accountable before a human authorizes anything."
+**Narration (50 words).**
+"Every record is hash-chained. This browser just downloaded the archived log
+and recomputed every hash: all 189 records check out, and the file matches the
+digest pinned in the archive's manifest. The log is unsigned: this shows the
+bytes match that pinned digest, not that anything in it is true."
 
-**End card text.** "Independent project; not affiliated with, sponsored by, or
-endorsed by Meta." (README). Add "Footage: [live run recorded on staging,
-<date>, time-lapse] / [guided run: SIMULATED] / [recorded runs F03, R06: 27 Oct
-2026]" for whatever the cut contains.
+The claim stays within the UI's own: the log and the manifest come from the
+same server, and the limits paragraph says a log rewritten and re-hashed as a
+whole would check out too unless a digest obtained earlier says otherwise. The
+narration therefore claims a match with the digest, not "nothing changed"; the
+same digest is in `research/MANIFEST.json` and `research/SHA256SUMS` of the
+committed repository, where anyone can compare it.
 
-**Depends on.** Nothing pending.
+**Figures (on screen; checked against the real archive file in the Playwright
+image on 2026-10-31).**
+- "All 189 records hash and link as recorded, and this run's segment matches
+  what the views hold." (`research/MANIFEST.json`: the file holds 189 events.)
+- "File SHA-256 3d647ed975654be2d9fa2feccfdc6059f28e3f16ad72969740e27809f6f68c76
+  (292,322 bytes), against the digest the archive's manifest pins."
+- "189 records of the file checked …"; "This run's records in the file:
+  sequences 64 to 91 (28 records) …"; the head
+  `629a2fb5923350e5…`; "Record count against the receipt's (28)."
+- The limits paragraph ("… The chain is unsigned: a log rewritten and re-hashed
+  as a whole would check out too, …") stays in frame.
+
+---
+
+## Beat 7 · 2:30–2:47 · A person decides
+
+**Screen.** The guided run of beat 4 (from My runs) → Decision tab: the outcome
+with "Evidence: SIMULATED", the scope line, "Your decision" with the notice;
+click Approve; "Decision recorded: approved by visitor:… on …" and "This
+decision carries no operational authority: it records a visitor's choice on a
+simulated run." Caption: the guided label.
+
+**Narration (40 words).**
+"The run stops at a decision point. Only a person approves or rejects, and on
+this public portal the decision carries no authority: approving records a
+choice and executes nothing. This is the guided run; a recorded run is
+read-only."
+
+**Figures.** On screen only: the guided run's records go from 14 to 15 with the
+decision. The notice text is `Run.decision.publicDemo` in
+`apps/web/messages/en.json`: "Decisions on this public portal carry no
+operational authority: approving or rejecting records your choice on this run
+and executes nothing." The pseudonym `visitor:<16 hex>` is not personal data;
+type no note.
+
+---
+
+## Beat 8 · 2:47–3:00 · Close (end card 3:00–3:06)
+
+**Screen.** Overview header ("Verifiable multi-agent reasoning and decision
+accountability") under the narration, 2:47–3:00; then the end card alone,
+silent, 3:00–3:06, long enough to read its four lines.
+
+**Narration (30 words).**
+"Hyphae Consensus: agent recommendations you can inspect, check and hold to
+account before anyone acts. Its three roles run on Meta's muse-wonder-1.0; we
+built it with Muse Code and Claude."
+
+**Figures.** `muse-wonder-1.0` in every recorded live run; development used
+Meta's Muse Code and Anthropic's Claude (README, "AI assistance": "Meta's Muse
+Code (with Muse Wonder Full) and Anthropic's Claude"); the narration and the
+end card both name both.
+
+**End card text.**
+- "Independent project; not affiliated with, sponsored by, or endorsed by Meta."
+- "Footage: Mission Control on a local server. Guided example: scripted roles,
+  SIMULATED evidence. Recorded runs F03 (27 Oct 2026) and M04 (30 Oct 2026)
+  from the research archive. No live run is shown."
+- "Built with Meta's Muse Code and Anthropic's Claude as coding assistants;
+  inside the product, only Meta's Model API."
+- The commit sha the export was built from, and the repository link once it is
+  public.
+
+## Word count
+
+| Beat | Slot | Words | Words a minute |
+|---|---|---|---|
+| 1 | 0:00–0:25 | 54 | 130 |
+| 2 | 0:25–0:40 | 38 | 152 |
+| 3 | 0:40–1:15 | 90 | 154 |
+| 4 | 1:15–1:45 | 68 | 136 |
+| 5 | 1:45–2:10 | 65 | 156 |
+| 6 | 2:10–2:30 | 50 | 150 |
+| 7 | 2:30–2:47 | 40 | 141 |
+| 8 | 2:47–3:00 | 30 | 138 |
+| Total | 3:00 | 435 | 145 |
+| End card | 3:00–3:06 | none | — |

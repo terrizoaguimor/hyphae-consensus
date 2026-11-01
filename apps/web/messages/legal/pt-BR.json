@@ -91,6 +91,7 @@
           "heading": "Por quanto tempo",
           "items": {
             "runs": "Arquivos das execuções: excluídos por inteiro 7 dias depois da execução. Duas coisas sobrevivem a eles: uma entrada de uma linha no índice de execuções (identificador, hora e hash final) e a entrada de custo da execução no livro de orçamento do modo ao vivo. Nenhuma das duas contém o texto da execução.",
+            "sessions": "Registros de sessão: o hash SHA-256 do identificador da sua sessão, com quando a sessão começou e quando termina, guardado no disco do servidor até a sessão terminar (no máximo 24 horas), para que uma reinicialização do servidor não a encerre. O próprio identificador nunca é gravado em disco.",
             "addresses": "Hashes com chave dos endereços de rede: só em memória, em tabelas de tamanho limitado; não são gravados em disco e desaparecem quando o servidor reinicia ou a tabela os descarta.",
             "logs": "Logs de solicitações do servidor, logs do túnel cloudflared e logs do sistema da máquina hospedeira: seguem a rotação de logs da máquina hospedeira.",
             "operator": "O log detalhado do operador, indexado por identificador de solicitação, que guarda os detalhes das falhas para diagnóstico: fica com o operador e não é publicado."
@@ -144,6 +145,10 @@
         "outcomes": {
           "heading": "Contestação e abstenção são resultados normais",
           "body": "Uma execução que termina contestada ou em abstenção é o sistema relatando com honestidade objeções abertas, contradições ou lacunas, em vez de transformar a incerteza em confiança."
+        },
+        "liveFailures": {
+          "heading": "Uma execução ao vivo pode falhar",
+          "body": "Uma execução ao vivo pode falhar: o serviço da Meta pode esgotar o tempo ou devolver uma resposta que o protocolo recusa. Uma execução que falha não decide nada, informa onde parou e você pode iniciar outra."
         },
         "labels": {
           "heading": "Execuções simuladas e gravadas são identificadas",

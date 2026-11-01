@@ -129,7 +129,16 @@ fn env_lookup(map: HashMap<String, String>) -> impl Fn(&str) -> Option<String> {
 /// Builds the public server over a temporary store. `overrides` are
 /// environment variables on top of the test defaults.
 pub fn public_server(overrides: &[(&str, &str)], opts: BuildOptions) -> TestServer {
-    let dir = TempDir::new("public");
+    public_server_in(TempDir::new("public"), overrides, opts)
+}
+
+/// [`public_server`] over an existing directory: a test restarts a server
+/// by building a new one over the directory of one it dropped.
+pub fn public_server_in(
+    dir: TempDir,
+    overrides: &[(&str, &str)],
+    opts: BuildOptions,
+) -> TestServer {
     let web = write_web_root(dir.path());
     let mut env: HashMap<String, String> = [
         ("CONSENSUS_PUBLIC_BIND", "127.0.0.1:8788".to_string()),

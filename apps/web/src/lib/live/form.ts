@@ -131,3 +131,30 @@ export function parseUsd(value: string): number | null {
   const amount = Number(`${match[1] ?? "0"}.${cents}`);
   return Number.isFinite(amount) ? amount : null;
 }
+
+/**
+ * The preset a link asks the form to preselect (`?preset=<id>`, the failure
+ * panel's "Start another live run"), or "" (nothing chosen) when the query
+ * names none or a preset the server does not list. Only the preset is ever
+ * taken from the address: the attestation, the Turnstile token and the
+ * invite code are always the visitor's to give.
+ */
+export function presetFromQuery(search: string, live: LiveCapabilitiesV1): string {
+  const requested = new URLSearchParams(search).get("preset");
+  if (requested === null) {
+    return "";
+  }
+  return live.presets.some((preset) => preset.id === requested) ? requested : "";
+}
+
+/**
+ * The figures of the daily rule (`NewDeliberation.live.quota.rule`): the
+ * live runs one network and one invite code may start per UTC day, as the
+ * server publishes them; null when it publishes neither figure (a server
+ * that predates them): the rule is then not stated, never guessed.
+ */
+export function quotaRuleValues(live: LiveCapabilitiesV1): { clientDaily: number; codeDaily: number } | null {
+  const clientDaily = live.client_daily ?? null;
+  const codeDaily = live.invite_code_daily ?? null;
+  return clientDaily === null || codeDaily === null ? null : { clientDaily, codeDaily };
+}

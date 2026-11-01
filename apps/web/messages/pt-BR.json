@@ -72,7 +72,7 @@
       "csrf_rejected": "O servidor recusou a origem da solicitação.",
       "host_not_allowed": "O servidor não responde por este nome de host.",
       "client_unidentified": "O servidor não conseguiu identificar este cliente.",
-      "session_required": "Primeiro é preciso uma sessão; ela começa quando você executa um exemplo guiado.",
+      "session_required": "Primeiro é preciso uma sessão; ela começa quando você executa um exemplo guiado ou inicia uma execução ao vivo.",
       "unauthorized": "Esta rota precisa das credenciais do operador.",
       "not_found": "Nada existe neste endereço, ou a execução pertence a outra sessão.",
       "method_not_allowed": "O servidor não permite este método nesta rota.",
@@ -240,7 +240,8 @@
         "availableNow": "Disponível agora",
         "dailyRemaining": "Resta hoje (UTC)",
         "lifetimeRemaining": "Resta no total",
-        "note": "Em dólares americanos, como o livro de orçamento do servidor os informa. Cada execução ao vivo reserva o seu custo máximo antes de começar, então uma execução pode ser recusada mesmo com algum orçamento restante."
+        "note": "Em dólares americanos, como o livro de orçamento do servidor os informa. Cada execução ao vivo reserva o seu custo máximo antes de começar, então uma execução pode ser recusada mesmo com algum orçamento restante.",
+        "noteFailed": "Uma execução que falha ainda gasta o que suas chamadas custaram antes de parar; o restante da reserva é devolvido."
       },
       "attest": "Confirmo que tenho 18 anos ou mais e que não uso o modo ao vivo a partir de um território restrito.",
       "attestDescription": "O modo ao vivo chama o modelo da Meta com a chave do proprietário; o servidor só inicia uma execução ao vivo com esta confirmação.",
@@ -275,7 +276,11 @@
         "inconsistent": "Os registros do livro não batem, então ele parou sozinho.",
         "other": "O livro parou sozinho (código {code})."
       },
-      "wait": "Tente de novo em {time}"
+      "wait": "Tente de novo em {time}",
+      "failNote": "Uma execução ao vivo pode falhar: o serviço da Meta pode esgotar o tempo ou devolver uma resposta que o protocolo recusa. Uma execução que falha não decide nada, informa onde parou e você pode iniciar outra.",
+      "quota": {
+        "rule": "Cada rede pode iniciar {clientDaily, plural, =0 {nenhuma execução ao vivo} one {# execução ao vivo} other {# execuções ao vivo}} por dia (UTC), e cada código de convite {codeDaily, number}. Uma execução que falha por causa do modelo ou do serviço da Meta não é contada (até 2 por dia)."
+      }
     }
   },
   "Runs": {
@@ -286,7 +291,7 @@
       "expiry": "manter cada execução acessível por 24 horas e excluir seus arquivos após 7 dias;",
       "status": "mostrar se uma execução ainda está deliberando, aguardando sua decisão ou já terminou."
     },
-    "noSession": "Este navegador não tem sessão, então não há nada para listar. Uma sessão começa quando você executa um exemplo guiado.",
+    "noSession": "Este navegador não tem sessão, então não há nada para listar. Uma sessão começa quando você executa um exemplo guiado ou inicia uma execução ao vivo.",
     "empty": "Nenhuma execução nesta sessão ainda.",
     "startOne": "Iniciar uma deliberação",
     "refresh": "Atualizar",
@@ -446,7 +451,9 @@
       "recommendation": "Recomendação",
       "noRecommendation": "Nenhuma recomendação emitida ainda.",
       "noRecommendationFailed": "Nenhuma recomendação foi emitida: a execução falhou.",
-      "model": "{model} via {provider}"
+      "model": "{model} via {provider}",
+      "failedHere": "A chamada deste papel falhou aqui; veja a falha acima.",
+      "notReached": "Não alcançado: a execução parou antes deste papel."
     },
     "explorer": {
       "heading": "Linha do tempo de eventos",
@@ -598,7 +605,53 @@
         "meta_transport": "A conexão com a Model API da Meta falhou.",
         "meta_config": "A configuração da Model API do servidor não pôde ser usada.",
         "model_output_truncated": "A saída do modelo chegou ao seu limite de tamanho antes de o documento ficar completo.",
-        "model_refusal": "O modelo se recusou a produzir o documento."
+        "model_refusal": "O modelo se recusou a produzir o documento.",
+        "model_no_claims": "O modelo respondeu com uma proposta sem afirmações, então ela foi recusada.",
+        "model_content_filtered": "O filtro de conteúdo do provedor reteve a resposta do modelo, então nenhum documento voltou.",
+        "model_unexpected_finish": "O modelo parou antes de terminar o documento, por um motivo que o runtime não aceita, então a resposta foi recusada.",
+        "adapter_schema_error": "O servidor não conseguiu montar a requisição para o modelo, então nenhuma chamada foi feita.",
+        "meta_bad_envelope": "A Model API da Meta respondeu com algo que não é uma resposta do modelo.",
+        "run_deadline_reached": "Restava pouco tempo da execução para a próxima chamada ao modelo, então ela não foi feita."
+      },
+      "technical": "Detalhes técnicos",
+      "where": "Ela parou na etapa de {stageName} ({role}).",
+      "nothingDecided": "Nada foi decidido: nenhuma recomendação foi emitida, nenhuma decisão pode ser registrada nesta execução e nada foi alterado em lugar nenhum.",
+      "next": {
+        "transient": "Esse tipo de falha costuma ser temporário: o mesmo preset pode dar certo em uma nova execução.",
+        "protocol": "O protocolo interrompeu a execução de propósito em vez de continuar com um documento recusado. Uma nova execução do mesmo preset é independente desta.",
+        "closed": "Começar de novo pode não funcionar agora; a página de presets ao vivo informa se o modo ao vivo está aberto.",
+        "cancelled": "A execução foi cancelada, então parou onde estava. Uma nova execução começa do início.",
+        "deadline": "A execução esgotou o tempo limite antes de terminar. Uma nova execução tem o próprio tempo limite."
+      },
+      "stageNames": {
+        "propose": "proposta",
+        "critique": "crítica",
+        "evaluate": "avaliação das evidências",
+        "revise": "revisão",
+        "token_budget": "verificação do orçamento de tokens",
+        "deadline": "prazo",
+        "shutdown": "desligamento"
+      },
+      "subjects": {
+        "proposer": "O Proponente",
+        "critic": "O Crítico",
+        "evaluator": "O Avaliador de evidências",
+        "runtime": "O ambiente de execução"
+      },
+      "roleCodes": {
+        "model_malformed_output": "{role} respondeu, mas o documento não tinha o formato que o runtime exige (por exemplo, uma proposta sem afirmações), então o runtime o recusou em vez de adivinhar.",
+        "model_no_claims": "{role} respondeu com uma proposta sem afirmações, então o runtime a recusou em vez de adivinhar.",
+        "model_content_filtered": "{role} não entregou nenhum documento: o filtro de conteúdo do provedor reteve a resposta, então o runtime não tinha nada para verificar.",
+        "model_unexpected_finish": "{role} parou antes de terminar o documento, por um motivo que o runtime não aceita, então o runtime recusou a resposta em vez de adivinhar."
+      },
+      "quota": {
+        "notCounted": "Uma falha desse tipo não é contada nas execuções ao vivo de hoje (até 2 por dia)."
+      },
+      "again": {
+        "live": "Iniciar outra execução ao vivo",
+        "guided": "Executar outro exemplo guiado",
+        "note": "Uma nova execução é independente desta; esta execução que falhou fica em Minhas execuções {hours, plural, =0 {até ser excluída} one {por # hora} other {por # horas}}.",
+        "noteShort": "Uma nova execução é independente desta; esta execução que falhou fica em Minhas execuções."
       }
     },
     "unavailable": {
@@ -869,7 +922,8 @@
       "total": "{sum} (informado por {reported, number} de {calls, plural, =0 {nenhuma chamada} one {# chamada} many {# de chamadas} other {# chamadas}})",
       "requestIds": "Os ids de solicitação são os que o ambiente de execução registrou para a API da Meta; os logs não são assinados, então mostram o que foi registrado, não que a Meta o devolveu.",
       "operatorOnly": "Nenhuma linha traz o limite de saída, o número de tentativas nem os resumos do esquema e do prompt: a superfície pública não os publica.",
-      "noCost": "Nenhum custo é mostrado: a API não publica preços."
+      "noCost": "Nenhum custo é mostrado: a API não publica preços.",
+      "noCostLive": "O custo desta execução não é mostrado aqui; o que suas chamadas à Meta custaram é contado no orçamento público ao vivo, inclusive execuções que falharam."
     },
     "explain": {
       "heading": "Por que a política recomenda isto",
@@ -1070,7 +1124,8 @@
         "eventCount": "Eventos: o recibo conta {receipt}, a execução {run}.",
         "body": "O servidor monta o recibo a partir dos registros da execução, então os dois deveriam coincidir. Leia o recibo de novo; se continuarem sem coincidir, trate os dois com cuidado."
       }
-    }
+    },
+    "restartHint": "Se o servidor reiniciou depois que você a iniciou, a sessão deste navegador pode ter terminado com ele."
   },
   "Showcase": {
     "lead": "Execuções gravadas, roteirizadas ou com o modelo da Meta, lidas a partir de um arquivo que as preserva sem alterações.",

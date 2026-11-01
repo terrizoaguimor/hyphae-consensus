@@ -72,7 +72,7 @@
       "csrf_rejected": "The server refused the request's origin.",
       "host_not_allowed": "The server does not answer for this host name.",
       "client_unidentified": "The server could not identify this client.",
-      "session_required": "A session is needed first; it starts when you run a guided example.",
+      "session_required": "A session is needed first; it starts when you run a guided example or start a live run.",
       "unauthorized": "This route needs the operator's credentials.",
       "not_found": "Nothing exists at this address, or the run belongs to another session.",
       "method_not_allowed": "The server does not allow this method on this route.",
@@ -240,7 +240,8 @@
         "availableNow": "Available now",
         "dailyRemaining": "Left today (UTC)",
         "lifetimeRemaining": "Left in total",
-        "note": "In US dollars, as the server’s budget ledger reports them. Each live run reserves its worst-case cost before it starts, so a run can be refused while some budget is left."
+        "note": "In US dollars, as the server’s budget ledger reports them. Each live run reserves its worst-case cost before it starts, so a run can be refused while some budget is left.",
+        "noteFailed": "A run that fails still spends what its calls cost before it stopped; the rest of its reservation is returned."
       },
       "attest": "I confirm that I am 18 or older and that I am not using live mode from a restricted territory.",
       "attestDescription": "Live mode calls Meta’s model on the owner’s key; the server starts a live run only with this confirmation.",
@@ -275,7 +276,11 @@
         "inconsistent": "The ledger’s records disagree, so it stopped itself.",
         "other": "The ledger stopped itself (code {code})."
       },
-      "wait": "Try again in {time}"
+      "wait": "Try again in {time}",
+      "failNote": "A live run can fail: Meta’s service can time out or return an answer the protocol refuses. A failed run decides nothing, says where it stopped, and you can start another.",
+      "quota": {
+        "rule": "Each network can start {clientDaily, plural, =0 {no live run} one {# live run} other {# live runs}} a day (UTC), and each invite code {codeDaily, number}. A run that fails because of the model or Meta’s service is not counted (up to 2 a day)."
+      }
     }
   },
   "Runs": {
@@ -286,7 +291,7 @@
       "expiry": "keep each run reachable for 24 hours and delete its files after 7 days;",
       "status": "show whether a run is still deliberating, awaiting your decision or finished."
     },
-    "noSession": "This browser has no session, so there is nothing to list. A session starts when you run a guided example.",
+    "noSession": "This browser has no session, so there is nothing to list. A session starts when you run a guided example or start a live run.",
     "empty": "No runs in this session yet.",
     "startOne": "Start a deliberation",
     "refresh": "Refresh",
@@ -446,7 +451,9 @@
       "recommendation": "Recommendation",
       "noRecommendation": "No recommendation issued yet.",
       "noRecommendationFailed": "No recommendation was issued: the run failed.",
-      "model": "{model} via {provider}"
+      "model": "{model} via {provider}",
+      "failedHere": "This role’s call failed here; see the failure above.",
+      "notReached": "Not reached: the run stopped before this role."
     },
     "explorer": {
       "heading": "Event timeline",
@@ -598,7 +605,53 @@
         "meta_transport": "The connection to Meta’s Model API failed.",
         "meta_config": "The server’s Model API configuration could not be used.",
         "model_output_truncated": "The model’s output reached its length limit before the document was complete.",
-        "model_refusal": "The model declined to produce the document."
+        "model_refusal": "The model declined to produce the document.",
+        "model_no_claims": "The model answered with a proposal that had no claims, so it was refused.",
+        "model_content_filtered": "The provider’s content filter withheld the model’s answer, so no document came back.",
+        "model_unexpected_finish": "The model stopped before finishing its document, for a reason the runtime does not accept, so the answer was refused.",
+        "adapter_schema_error": "The server could not build the request for the model, so no call was made.",
+        "meta_bad_envelope": "Meta’s Model API answered with something that is not a model answer.",
+        "run_deadline_reached": "Too little of the run’s time was left for the next model call, so it was not made."
+      },
+      "technical": "Technical details",
+      "where": "It stopped at the {stageName} step ({role}).",
+      "nothingDecided": "Nothing was decided: no recommendation was issued, no decision can be recorded on this run, and nothing was changed anywhere.",
+      "next": {
+        "transient": "This kind of failure is usually temporary: the same preset can succeed on a new run.",
+        "protocol": "The protocol stopped the run on purpose rather than continue on a document it refused. A new run of the same preset is independent of this one.",
+        "closed": "Starting again may not work right now; the Live presets page says whether live mode is open.",
+        "cancelled": "The run was cancelled, so it stopped where it was. A new run starts from the beginning.",
+        "deadline": "The run used up its time limit before it finished. A new run gets a time limit of its own."
+      },
+      "stageNames": {
+        "propose": "proposal",
+        "critique": "critique",
+        "evaluate": "evidence evaluation",
+        "revise": "revision",
+        "token_budget": "token budget check",
+        "deadline": "deadline",
+        "shutdown": "shutdown"
+      },
+      "subjects": {
+        "proposer": "The Proposer",
+        "critic": "The Critic",
+        "evaluator": "The Evidence Evaluator",
+        "runtime": "The runtime"
+      },
+      "roleCodes": {
+        "model_malformed_output": "{role} answered, but its document did not have the form the runtime requires (for example, a proposal without claims), so the runtime refused it rather than guess.",
+        "model_no_claims": "{role} answered with a proposal that had no claims, so the runtime refused it rather than guess.",
+        "model_content_filtered": "{role} produced no document: the provider’s content filter withheld its answer, so the runtime had nothing to check.",
+        "model_unexpected_finish": "{role} stopped before finishing its document, for a reason the runtime does not accept, so the runtime refused the answer rather than guess."
+      },
+      "quota": {
+        "notCounted": "A failure of this kind is not counted toward today’s live runs (up to 2 a day)."
+      },
+      "again": {
+        "live": "Start another live run",
+        "guided": "Run another guided example",
+        "note": "A new run is independent of this one; this failed run stays in My runs {hours, plural, =0 {until it is deleted} one {for # hour} other {for # hours}}.",
+        "noteShort": "A new run is independent of this one; this failed run stays in My runs."
       }
     },
     "unavailable": {
@@ -869,7 +922,8 @@
       "total": "{sum} (reported by {reported, number} of {calls, plural, =0 {no call} one {# call} other {# calls}})",
       "requestIds": "Request ids are the ones the runtime recorded for Meta’s API; the logs are unsigned, so they show what was recorded, not that Meta returned it.",
       "operatorOnly": "No row carries the output bound, the attempt count or the schema and prompt digests: the public surface does not publish them.",
-      "noCost": "No cost is shown: the API publishes no prices."
+      "noCost": "No cost is shown: the API publishes no prices.",
+      "noCostLive": "The cost of this run is not shown here; what its Meta calls cost is counted in the public live budget, failed runs included."
     },
     "explain": {
       "heading": "Why the policy recommends this",
@@ -1070,7 +1124,8 @@
         "eventCount": "Events: the receipt counts {receipt}, the run {run}.",
         "body": "The server builds the receipt from the run’s records, so the two should agree. Read the receipt again; if they still disagree, treat both with care."
       }
-    }
+    },
+    "restartHint": "If the server restarted since you started it, this browser’s session may have ended with it."
   },
   "Showcase": {
     "lead": "Recorded runs, scripted ones and runs of Meta’s model, read from a verbatim archive.",

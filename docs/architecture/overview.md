@@ -503,6 +503,14 @@ schema (`api/contract.rs::contract_sha256_of`). At `bc3b262`:
 465f4117d8a12365ed06bc594f5972f19160d3016b085bcb5836e75786ad760e
 ```
 
+Round 8 (2026-11-01) added the optional `client_daily` and `invite_code_daily` fields to
+`LiveCapabilitiesV1` (an API contract change, not a protocol change; docs/evaluation.md
+section 7); the digest since then:
+
+```text
+b16942c8ad40315a7a802ddc3ac5c40cbba3ba7bcf840b6a8740110f3d29cbb6
+```
+
 `GET /api/v1/health` reports it as `contract_sha256`, next to `schema_version` (`1.3`),
 `policy_version` (`1.2`) and `executor` (`disabled`). `cargo test -p consensus-api --test
 api_contract` fails on drift; `cargo run -p consensus-api --example export_contract`

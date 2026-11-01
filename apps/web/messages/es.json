@@ -72,7 +72,7 @@
       "csrf_rejected": "El servidor rechazó el origen de la solicitud.",
       "host_not_allowed": "El servidor no responde para este nombre de host.",
       "client_unidentified": "El servidor no pudo identificar a este cliente.",
-      "session_required": "Primero hace falta una sesión; empieza cuando ejecutas un ejemplo guiado.",
+      "session_required": "Primero hace falta una sesión; empieza cuando ejecutas un ejemplo guiado o inicias una ejecución en vivo.",
       "unauthorized": "Esta ruta necesita las credenciales del operador.",
       "not_found": "No existe nada en esta dirección, o la ejecución pertenece a otra sesión.",
       "method_not_allowed": "El servidor no permite este método en esta ruta.",
@@ -240,7 +240,8 @@
         "availableNow": "Disponible ahora",
         "dailyRemaining": "Queda hoy (UTC)",
         "lifetimeRemaining": "Queda en total",
-        "note": "En dólares estadounidenses, tal como los informa el libro de presupuesto del servidor. Cada ejecución en vivo reserva su costo máximo antes de empezar, así que puede rechazarse aunque quede algo de presupuesto."
+        "note": "En dólares estadounidenses, tal como los informa el libro de presupuesto del servidor. Cada ejecución en vivo reserva su costo máximo antes de empezar, así que puede rechazarse aunque quede algo de presupuesto.",
+        "noteFailed": "Una ejecución que falla gasta igualmente lo que costaron sus llamadas antes de detenerse; el resto de su reserva se devuelve."
       },
       "attest": "Confirmo que tengo 18 años o más y que no uso el modo en vivo desde un territorio restringido.",
       "attestDescription": "El modo en vivo llama al modelo de Meta con la clave del propietario; el servidor solo inicia una ejecución en vivo con esta confirmación.",
@@ -275,7 +276,11 @@
         "inconsistent": "Los registros del libro no coinciden, así que se detuvo solo.",
         "other": "El libro se detuvo solo (código {code})."
       },
-      "wait": "Reintenta en {time}"
+      "wait": "Reintenta en {time}",
+      "failNote": "Una ejecución en vivo puede fallar: el servicio de Meta puede agotar el tiempo o devolver una respuesta que el protocolo rechaza. Una ejecución fallida no decide nada, indica dónde se detuvo y puedes iniciar otra.",
+      "quota": {
+        "rule": "Cada red puede iniciar {clientDaily, plural, =0 {ninguna ejecución en vivo} one {# ejecución en vivo} other {# ejecuciones en vivo}} al día (UTC), y cada código de invitación {codeDaily, number}. Una ejecución que falla por el modelo o por el servicio de Meta no cuenta (hasta 2 al día)."
+      }
     }
   },
   "Runs": {
@@ -286,7 +291,7 @@
       "expiry": "mantendrá cada ejecución accesible durante 24 horas y eliminará sus archivos después de 7 días;",
       "status": "mostrará si una ejecución sigue deliberando, espera tu decisión o ya terminó."
     },
-    "noSession": "Este navegador no tiene sesión, así que no hay nada que listar. Una sesión empieza cuando ejecutas un ejemplo guiado.",
+    "noSession": "Este navegador no tiene sesión, así que no hay nada que listar. Una sesión empieza cuando ejecutas un ejemplo guiado o inicias una ejecución en vivo.",
     "empty": "Todavía no hay ejecuciones en esta sesión.",
     "startOne": "Iniciar una deliberación",
     "refresh": "Actualizar",
@@ -446,7 +451,9 @@
       "recommendation": "Recomendación",
       "noRecommendation": "Todavía no se emitió ninguna recomendación.",
       "noRecommendationFailed": "No se emitió ninguna recomendación: la ejecución falló.",
-      "model": "{model} vía {provider}"
+      "model": "{model} vía {provider}",
+      "failedHere": "La llamada de este rol falló aquí; consulta el fallo más arriba.",
+      "notReached": "No se llegó: la ejecución se detuvo antes de este rol."
     },
     "explorer": {
       "heading": "Línea de tiempo de eventos",
@@ -598,7 +605,53 @@
         "meta_transport": "Falló la conexión con la Model API de Meta.",
         "meta_config": "No se pudo usar la configuración de la Model API del servidor.",
         "model_output_truncated": "La salida del modelo llegó a su límite de longitud antes de completar el documento.",
-        "model_refusal": "El modelo se negó a producir el documento."
+        "model_refusal": "El modelo se negó a producir el documento.",
+        "model_no_claims": "El modelo respondió con una propuesta sin afirmaciones, así que fue rechazada.",
+        "model_content_filtered": "El filtro de contenido del proveedor retuvo la respuesta del modelo, así que no llegó ningún documento.",
+        "model_unexpected_finish": "El modelo se detuvo antes de terminar su documento, por un motivo que el runtime no acepta, así que la respuesta fue rechazada.",
+        "adapter_schema_error": "El servidor no pudo construir la solicitud para el modelo, así que no se hizo ninguna llamada.",
+        "meta_bad_envelope": "La Model API de Meta respondió con algo que no es una respuesta del modelo.",
+        "run_deadline_reached": "Quedaba muy poco tiempo de la ejecución para la siguiente llamada al modelo, así que no se hizo."
+      },
+      "technical": "Detalles técnicos",
+      "where": "Se detuvo en el paso de {stageName} ({role}).",
+      "nothingDecided": "No se decidió nada: no se emitió ninguna recomendación, no se puede registrar ninguna decisión sobre esta ejecución y no se cambió nada en ningún lugar.",
+      "next": {
+        "transient": "Este tipo de fallo suele ser temporal: el mismo preset puede salir bien en una nueva ejecución.",
+        "protocol": "El protocolo detuvo la ejecución a propósito en lugar de continuar con un documento que rechazó. Una nueva ejecución del mismo preset es independiente de esta.",
+        "closed": "Puede que volver a empezar no funcione ahora; la página de presets en vivo indica si el modo en vivo está abierto.",
+        "cancelled": "La ejecución se canceló, así que se detuvo donde estaba. Una nueva ejecución empieza desde el principio.",
+        "deadline": "La ejecución agotó su tiempo límite antes de terminar. Una nueva ejecución tiene su propio tiempo límite."
+      },
+      "stageNames": {
+        "propose": "propuesta",
+        "critique": "crítica",
+        "evaluate": "evaluación de la evidencia",
+        "revise": "revisión",
+        "token_budget": "control del presupuesto de tokens",
+        "deadline": "plazo",
+        "shutdown": "apagado"
+      },
+      "subjects": {
+        "proposer": "El Proponente",
+        "critic": "El Crítico",
+        "evaluator": "El Evaluador de evidencia",
+        "runtime": "El entorno de ejecución"
+      },
+      "roleCodes": {
+        "model_malformed_output": "{role} respondió, pero su documento no tenía la forma que exige el runtime (por ejemplo, una propuesta sin afirmaciones), así que el runtime lo rechazó en lugar de adivinar.",
+        "model_no_claims": "{role} respondió con una propuesta sin afirmaciones, así que el runtime la rechazó en lugar de adivinar.",
+        "model_content_filtered": "{role} no entregó ningún documento: el filtro de contenido del proveedor retuvo su respuesta, así que el runtime no tenía nada que comprobar.",
+        "model_unexpected_finish": "{role} se detuvo antes de terminar su documento, por un motivo que el runtime no acepta, así que el runtime rechazó la respuesta en lugar de adivinar."
+      },
+      "quota": {
+        "notCounted": "Un fallo de este tipo no cuenta en las ejecuciones en vivo de hoy (hasta 2 al día)."
+      },
+      "again": {
+        "live": "Iniciar otra ejecución en vivo",
+        "guided": "Ejecutar otro ejemplo guiado",
+        "note": "Una nueva ejecución es independiente de esta; esta ejecución fallida queda en Mis ejecuciones {hours, plural, =0 {hasta que se elimine} one {durante # hora} other {durante # horas}}.",
+        "noteShort": "Una nueva ejecución es independiente de esta; esta ejecución fallida queda en Mis ejecuciones."
       }
     },
     "unavailable": {
@@ -869,7 +922,8 @@
       "total": "{sum} (informado por {reported, number} de {calls, plural, =0 {ninguna llamada} one {# llamada} many {# de llamadas} other {# llamadas}})",
       "requestIds": "Los id de solicitud son los que el entorno de ejecución registró para la API de Meta; los logs no están firmados, así que muestran lo que se registró, no que Meta lo haya devuelto.",
       "operatorOnly": "Ninguna fila contiene el límite de salida, el número de intentos ni los resúmenes del esquema y del prompt: la superficie pública no los publica.",
-      "noCost": "No se muestra ningún costo: la API no publica precios."
+      "noCost": "No se muestra ningún costo: la API no publica precios.",
+      "noCostLive": "El costo de esta ejecución no se muestra aquí; lo que costaron sus llamadas a Meta se cuenta en el presupuesto público en vivo, incluidas las ejecuciones fallidas."
     },
     "explain": {
       "heading": "Por qué la política recomienda esto",
@@ -1070,7 +1124,8 @@
         "eventCount": "Eventos: el recibo cuenta {receipt}, la ejecución {run}.",
         "body": "El servidor construye el recibo a partir de los registros de la ejecución, así que ambos deberían coincidir. Vuelve a leer el recibo; si siguen sin coincidir, trata ambos con cuidado."
       }
-    }
+    },
+    "restartHint": "Si el servidor se reinició después de que la iniciaste, la sesión de este navegador puede haber terminado con él."
   },
   "Showcase": {
     "lead": "Ejecuciones grabadas, con guion o con el modelo de Meta, leídas desde un archivo que las conserva sin cambios.",

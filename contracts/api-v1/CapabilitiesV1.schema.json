@@ -198,6 +198,24 @@
           ],
           "description": "The visitor-safe budget. Absent when the ledger could not be read: no run can be admitted until it can (`/ready` then reports `live.ledger_ok: false`), and no figure is invented in its place."
         },
+        "client_daily": {
+          "description": "Public-lane live runs one network (client key) may start per UTC day (`CONSENSUS_LIVE_CLIENT_DAILY`). A run that Meta or the model ended before any recommendation is given back, up to 2 a day. Absent from servers that predate it.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "invite_code_daily": {
+          "description": "Live runs one invite code may start per UTC day (`CONSENSUS_LIVE_JUDGE_CODE_DAILY`), with the same give-back. Absent from servers that predate it.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "presets": {
           "items": {
             "$ref": "#/definitions/PresetV1"

@@ -27,9 +27,19 @@ for (const locale of locales) {
       await expect(page.locator("main").getByText(expected, { exact: true })).toBeVisible();
       shown.push(expected);
     }
-    // Limitations changed on a day Terms, Privacy and About did not.
-    expect(shown[2]).not.toBe(shown[0]);
-    expect(shown[0]).toBe(shown[1]);
-    expect(shown[0]).toBe(shown[3]);
+    // Two pages show the same day exactly when their texts changed on the
+    // same day (tests/legal-dates.test.ts pins which day that is): the
+    // Terms, Privacy and Limitations changed on 2026-11-01, About on
+    // 2026-10-27. (The earlier fixed pairs here went stale when the Terms
+    // and the Privacy notice were re-dated on 2026-11-01.)
+    for (let a = 0; a < documents.length; a += 1) {
+      for (let b = a + 1; b < documents.length; b += 1) {
+        const sameDay =
+          LEGAL_TEXT_CHANGED[documents[a] ?? "terms"].getTime() ===
+          LEGAL_TEXT_CHANGED[documents[b] ?? "terms"].getTime();
+        expect(shown[a] === shown[b], `${documents[a]} and ${documents[b]}`).toBe(sameDay);
+      }
+    }
+    expect(shown[3]).not.toBe(shown[0]);
   });
 }

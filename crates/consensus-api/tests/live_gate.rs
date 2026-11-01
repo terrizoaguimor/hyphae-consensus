@@ -1687,3 +1687,379 @@ fn the_snapshot_factory_is_absent_without_its_directory_and_fails_closed_without
     assert!(!err.contains(&only_dir), "no path: {err}");
     assert!(!err.contains(TEST_KEY));
 }
+
+// ---------------------------------------------------------------------
+// A failed run's daily count, and the `[live]` journal lines
+// ---------------------------------------------------------------------
+
+/// Meta's service answering 503 to every attempt: the run fails at its
+/// first call with `meta_unavailable`.
+fn meta_down() -> Reply {
+    Reply::json(503, r#"{"error":{"message":"overloaded"}}"#)
+}
+
+/// A proposal with no claims: the adapter refuses it (the first public
+/// live run's failure, 2026-11-01).
+const DRAFT_NO_CLAIMS: &str = r#"{"summary":"Keep retries capped","plan_steps":["add jitter"],"claims":[],"assumptions":[],"uncertainties":[]}"#;
+
+/// The codes an empty proposal fails with: the generic one, or the
+/// dedicated code of the model-robustness lane once it is merged.
+fn is_no_claims_code(code: &str) -> bool {
+    matches!(code, "model_malformed_output" | "model_no_claims")
+}
+
+/// Starts a public run for the harness visitor and brings it to rest.
+async fn public_run_to_rest(h: &LiveHarness, cookie: &str) -> Value {
+    let (status, created, _) = h
+        .server
+        .json(submit(cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = run_id_of(&created);
+    let detail = h.server.wait_resting(cookie, &run_id).await;
+    h.server.wait_released(&run_id).await;
+    detail
+}
+
+/// The sum of every settlement the ledger recorded, in USD.
+fn settled_total(h: &LiveHarness) -> Usd {
+    h.ledger_records("settlement")
+        .iter()
+        .map(|s| Usd::parse(s["charged_usd"].as_str().unwrap()).unwrap())
+        .fold(Usd::ZERO, |sum, charge| sum.saturating_add(charge))
+}
+
+/// (a) and (e): a public run that Meta's outage ended gives its daily count
+/// back (the next run of the day is admitted with a quota of one), and the
+/// ledger keeps what the failed calls were settled at.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_meta_failed_gives_its_daily_count_back_but_never_its_cost() {
+    let meta = serve(vec![meta_down()]);
+    let h = live_server(
+        LiveOptions {
+            live_env: vec![(vars::CLIENT_DAILY, "1".into())],
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    let visitor_key = client_key(VISITOR_IP);
+    let cookie = h.session().await;
+    let before = h.gate.client_admissions_today(visitor_key);
+    assert_eq!(before, 0);
+
+    let detail = public_run_to_rest(&h, &cookie).await;
+    assert_eq!(detail["summary"]["state"], "failed", "{detail}");
+    assert_eq!(detail["summary"]["failure"]["code"], "meta_unavailable");
+    assert_eq!(detail["summary"]["failure"]["stage"], "propose");
+    assert_eq!(
+        h.gate.client_admissions_today(visitor_key),
+        before,
+        "the count is back to its value before the admission"
+    );
+    let given: Vec<String> = h
+        .journal_lines()
+        .into_iter()
+        .filter(|l| l.starts_with("[live-gate] daily count given back"))
+        .collect();
+    assert_eq!(
+        given,
+        ["[live-gate] daily count given back for a run that failed with meta_unavailable"]
+    );
+
+    // (e) The money stays spent: every failed attempt is settled, the
+    // ledger's spend is exactly their sum, and nothing was refunded.
+    let settlements = h.ledger_records("settlement");
+    assert!(!settlements.is_empty(), "the failed attempts were settled");
+    let spent = h.ledger.snapshot().unwrap().lifetime_spent;
+    assert!(spent > Usd::ZERO, "a failed run still costs its calls");
+    assert_eq!(spent, settled_total(&h));
+    assert_eq!(h.ledger.snapshot().unwrap().unsettled_reservations, 0);
+
+    // With a quota of one, the given-back count admits the next run.
+    let (status, created, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = run_id_of(&created);
+    h.server.wait_resting(&cookie, &run_id).await;
+    h.server.wait_released(&run_id).await;
+    assert_eq!(
+        h.ledger.snapshot().unwrap().lifetime_spent,
+        settled_total(&h),
+        "the ledger keeps every settled charge"
+    );
+}
+
+/// (b) A run its owner cancelled keeps its count: the visitor ended it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancelled_run_keeps_its_daily_count() {
+    let meta = serve(one_run(Duration::from_millis(1_500)));
+    let h = live_server(LiveOptions::default(), meta_config(&meta.base_url));
+    let visitor_key = client_key(VISITOR_IP);
+    let cookie = h.session().await;
+    let (status, created, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = run_id_of(&created);
+    let (status, body, _) = h
+        .server
+        .json(visitor(
+            Req::post(&format!("/api/v1/runs/{run_id}/cancel")),
+            &cookie,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    let detail = h.server.wait_resting(&cookie, &run_id).await;
+    h.server.wait_released(&run_id).await;
+    assert_eq!(detail["summary"]["state"], "failed", "{detail}");
+    assert_eq!(detail["summary"]["failure"]["code"], "cancelled");
+    assert_eq!(h.gate.client_admissions_today(visitor_key), 1, "kept");
+    assert!(
+        !h.journal_lines()
+            .iter()
+            .any(|l| l.contains("daily count given back")),
+        "{:?}",
+        h.journal_lines()
+    );
+}
+
+/// (c) At most two give-backs per key and day: the third run Meta's outage
+/// ends the same day keeps its count.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_third_provider_failure_the_same_day_keeps_its_count() {
+    let meta = serve(vec![meta_down()]);
+    let h = live_server(
+        LiveOptions {
+            live_env: vec![(vars::CLIENT_DAILY, live_defaults::CLIENT_DAILY.into())],
+            server_env: vec![("CONSENSUS_RATE_RUNS_PER_MIN", "60".into())],
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    let visitor_key = client_key(VISITOR_IP);
+    let cookie = h.session().await;
+    for expected in [0, 0, 1] {
+        let detail = public_run_to_rest(&h, &cookie).await;
+        assert_eq!(detail["summary"]["failure"]["code"], "meta_unavailable");
+        assert_eq!(h.gate.client_admissions_today(visitor_key), expected);
+    }
+    let given = h
+        .journal_lines()
+        .iter()
+        .filter(|l| l.starts_with("[live-gate] daily count given back"))
+        .count();
+    assert_eq!(given, 2);
+}
+
+/// (d) A judge run the model ended (a proposal without claims) gives the
+/// code's count back; the public table is untouched.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_judge_run_with_no_claims_gives_the_code_its_count_back() {
+    let mut replies = one_run(Duration::ZERO);
+    replies.push(Reply::ok(envelope(DRAFT_NO_CLAIMS)));
+    let meta = serve(replies);
+    let h = live_server(
+        LiveOptions {
+            live_env: vec![(vars::JUDGE_CODE_DAILY, "1".into())],
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    let visitor_key = client_key(VISITOR_IP);
+    let cookie = h.session().await;
+    // One public run reaches its decision point: the client table counts 1.
+    let detail = public_run_to_rest(&h, &cookie).await;
+    assert_eq!(detail["summary"]["state"], "awaiting_human_approval");
+    assert_eq!(h.gate.client_admissions_today(visitor_key), 1);
+
+    let (status, created, _) = h
+        .server
+        .json(submit(
+            &cookie,
+            &live_body(true, Some(JUDGE_CODE)),
+            Some(TOKEN),
+        ))
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = run_id_of(&created);
+    let detail = h.server.wait_resting(&cookie, &run_id).await;
+    h.server.wait_released(&run_id).await;
+    assert_eq!(detail["summary"]["state"], "failed", "{detail}");
+    let code = detail["summary"]["failure"]["code"].as_str().unwrap();
+    assert!(is_no_claims_code(code), "{detail}");
+    assert_eq!(h.gate.judge_code_admissions_today(JUDGE_CODE), 0);
+    assert_eq!(
+        h.gate.client_admissions_today(visitor_key),
+        1,
+        "the client table is untouched"
+    );
+    assert_eq!(h.ledger_records("reservation").len(), 2);
+    assert_eq!(
+        h.ledger.snapshot().unwrap().lifetime_spent,
+        settled_total(&h)
+    );
+}
+
+/// C4: a live run whose model answers an empty proposal leaves exactly one
+/// `[live] run=<id> ... code=` line, its end, with the stage, the code, the
+/// request id, the attempts, the charge and the wall time; its admission
+/// line names the lane, the preset and the reservation. No journal line
+/// carries the key (the canary scan's pattern), the client address, the
+/// session, the pseudonym, the token or a judge code.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_live_run_leaves_one_end_line_with_its_code_and_no_secret() {
+    let meta = serve(vec![Reply::ok(envelope(DRAFT_NO_CLAIMS))]);
+    let h = live_server(LiveOptions::default(), meta_config(&meta.base_url));
+    let (status, session, headers) = h
+        .server
+        .json(Req::post("/api/v1/session").header("cf-connecting-ip", VISITOR_IP))
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let pseudonym = session["pseudonym"].as_str().unwrap().to_string();
+    let cookie = common::cookie_value(&headers).expect("session cookie");
+    let detail = public_run_to_rest(&h, &cookie).await;
+    let run_id = detail["summary"]["run_id"].as_str().unwrap().to_string();
+    let code = detail["summary"]["failure"]["code"].as_str().unwrap();
+    assert!(is_no_claims_code(code), "{detail}");
+
+    let lines = h.journal_lines();
+    let own: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with(&format!("[live] run={run_id} ")))
+        .collect();
+    let with_code: Vec<&&String> = own.iter().filter(|l| l.contains(" code=")).collect();
+    assert_eq!(with_code.len(), 1, "{lines:?}");
+    let end = with_code[0];
+    assert!(
+        end.starts_with(&format!(
+            "[live] run={run_id} ended state=failed stage=propose code={code} request_id=chatcmpl-test-1 attempts=1 charged="
+        )),
+        "{end}"
+    );
+    // 100 tokens in at $4/M, 50 out at $20/M.
+    assert!(end.contains(" charged=0.001400 wall="), "{end}");
+    assert!(end.ends_with('s'), "{end}");
+    let admitted: Vec<&&String> = own.iter().filter(|l| l.contains(" admitted ")).collect();
+    assert_eq!(
+        admitted.iter().map(|l| l.as_str()).collect::<Vec<_>>(),
+        [
+            format!("[live] run={run_id} lane=public preset={PRESET} admitted reserve=2.280000")
+                .as_str()
+        ]
+    );
+    assert_eq!(own.len(), 2, "{lines:?}");
+
+    // The canary: nothing secret or identifying in any journal line.
+    let journal = lines.join("\n");
+    let looks_like_a_key = journal.match_indices("LLM_").any(|(at, _)| {
+        let rest = &journal[at + 4..];
+        let digits = rest.chars().take_while(char::is_ascii_digit).count();
+        digits > 0 && rest[digits..].starts_with('_')
+    });
+    assert!(!looks_like_a_key, "{journal}");
+    for secret in [
+        TEST_KEY,
+        "test-key-not-a-secret",
+        VISITOR_IP,
+        cookie.as_str(),
+        pseudonym.as_str(),
+        TOKEN,
+        JUDGE_CODE,
+        SECOND_JUDGE_CODE,
+    ] {
+        assert!(!journal.contains(secret), "{secret} in {journal}");
+    }
+    // The refused answer's text is not echoed either.
+    assert!(!journal.contains("Keep retries capped"), "{journal}");
+}
+
+/// The live form states the daily rule with the server's own figures:
+/// `/capabilities` publishes both quotas (and still nothing named after the
+/// judge lane).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn capabilities_publish_the_daily_quotas() {
+    let meta = serve(one_run(Duration::ZERO));
+    let h = live_server(
+        LiveOptions {
+            live_env: vec![
+                (vars::CLIENT_DAILY, "5".into()),
+                (vars::JUDGE_CODE_DAILY, "2".into()),
+            ],
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    let (status, caps, _) = h.server.json(Req::get("/api/v1/capabilities")).await;
+    assert_eq!(status, StatusCode::OK, "{caps}");
+    assert_eq!(caps["live"]["client_daily"], 5);
+    assert_eq!(caps["live"]["invite_code_daily"], 2);
+    let live = caps["live"].to_string().to_ascii_lowercase();
+    assert!(!live.contains("judge"), "{live}");
+}
+
+/// C4: every refusal at admission (the ledger's, the quota's) leaves one
+/// `[live] refused` line with the lane, the preset and the answered code,
+/// and nothing about the visitor.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn admission_refusals_leave_one_refused_line_each() {
+    let meta = serve(one_run(Duration::ZERO));
+    let h = live_server(
+        LiveOptions {
+            live_env: vec![(vars::CLIENT_DAILY, "1".into())],
+            ..LiveOptions::default()
+        },
+        meta_config(&meta.base_url),
+    );
+    let cookie = h.session().await;
+    let refused_lines = |h: &LiveHarness| -> Vec<String> {
+        h.journal_lines()
+            .into_iter()
+            .filter(|l| l.starts_with("[live] refused"))
+            .collect()
+    };
+
+    // The ledger: the day's budget held by four reservations made outside
+    // the gate.
+    let held: Vec<_> = (0..4)
+        .map(|_| h.ledger.reserve(Lane::Public).unwrap())
+        .collect();
+    let (status, body, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "live_budget_daily");
+    for r in held {
+        h.ledger.release(&r).unwrap();
+    }
+    assert_eq!(
+        refused_lines(&h),
+        [format!(
+            "[live] refused lane=public preset={PRESET} code=live_budget_daily"
+        )]
+    );
+
+    // The quota: the network's one run of the day reached its decision
+    // point (no give-back), so the next request is refused.
+    let detail = public_run_to_rest(&h, &cookie).await;
+    assert_eq!(detail["summary"]["state"], "awaiting_human_approval");
+    let (status, body, _) = h
+        .server
+        .json(submit(&cookie, &live_body(true, None), Some(TOKEN)))
+        .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert_eq!(body["code"], "live_client_quota");
+    let refused = refused_lines(&h);
+    assert_eq!(refused.len(), 2, "{refused:?}");
+    assert_eq!(
+        refused[1],
+        format!("[live] refused lane=public preset={PRESET} code=live_client_quota")
+    );
+    let journal = h.journal_lines().join("\n");
+    assert!(!journal.contains(VISITOR_IP), "{journal}");
+    assert!(!journal.contains(&cookie), "{journal}");
+    assert!(!journal.contains(TOKEN), "{journal}");
+}

@@ -52,7 +52,14 @@
 //!    with the judge lane's own daily refusal (`429
 //!    live_budget_judge_daily`), so a code's holder learns nothing new. The
 //!    judge lane is exempt from the client quota. Both tables reset at a
-//!    restart;
+//!    restart. A run that Meta or the model ended (a code of
+//!    [`GIVE_BACK_CODES`]: a provider timeout, outage or unreadable answer,
+//!    a refused model document, an interruption, a shutdown) before any
+//!    recommendation gives its count back when it ends, at most
+//!    [`GIVE_BACKS_PER_DAY`] times per key and UTC day, to the table it was
+//!    counted in; a cancellation, the run deadline, a protocol (`*_contract`),
+//!    budget or token-budget code never does. Money is never given back: the
+//!    ledger keeps what the run's calls were settled at;
 //! 8. the reservation ([`Ledger::reserve`], through [`MeteredReservation`]):
 //!    a refusal is answered with a stable code ([`refusal_code`]), `429` and
 //!    `Retry-After` when the ledger gives a hint, `503` otherwise, and a
@@ -115,6 +122,21 @@
 //! counting it at its worst case until an operator reconciles it with
 //! [`Ledger::release_by_id`]. The Turnstile token spent on a failed start
 //! cannot be refunded: the visitor solves a new challenge.
+//!
+//! **Journal lines.** Every metered run writes one `[live]` line when its
+//! task is created and one when its deliberation ends, and every ledger or
+//! quota refusal at admission writes one, so a failed live run can be read
+//! from the journal alone:
+//!
+//! - `[live] run=<id> lane=<lane> preset=<id> admitted reserve=<usd>`;
+//! - `[live] run=<id> ended state=<state> stage=<stage> code=<code>
+//!   request_id=<id> attempts=<n> charged=<usd> wall=<s>s`;
+//! - `[live] refused lane=<lane> preset=<id> code=<code>`.
+//!
+//! They name the run, its lane and preset, the stable codes and the Meta
+//! request id of the call the run ended on, never a client key, a judge
+//! code, a token, a pseudonym or a reason text (`-` stands for a field the
+//! run has no value for).
 
 use super::budget::{
     until_midnight, Lane, Ledger, Refusal, Reservation, ReservationId, ReservationMeter, Snapshot,
@@ -123,6 +145,7 @@ use super::budget::{
 use super::config::LiveConfig;
 use super::geo::{GeoDecision, GeoPolicy, Surface as GeoSurface};
 use super::judge::{JudgeCodeId, JudgeCodes};
+use super::money::Usd;
 use super::presets::{PresetId as LivePresetId, PRESETS};
 use super::turnstile::Siteverify;
 use crate::api::error::{ApiError, ErrorCode};
@@ -137,11 +160,13 @@ use crate::limits::{ClientKey, DailyCounts};
 use crate::meta::MetaModelClient;
 use crate::runs::Deliberation;
 use chrono::NaiveDate;
-use consensus_domain::{EvidenceMode, ModelMode, RunId, RunOrigin, Task, TaskMode};
+use consensus_domain::{
+    EventPayload, EvidenceMode, ModelMode, RunId, RunOrigin, RunState, Task, TaskMode,
+};
 use consensus_runtime::orchestrator::OrchestratorError;
 use consensus_runtime::{RunAggregate, RunControl, RunLimits, SharedRunLog, TaskInput};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 /// The variable the sealed-snapshot client is configured by
@@ -174,6 +199,57 @@ pub const CLIENT_QUOTA_TABLE_MAX: usize = 10_000;
 /// at once with `503 turnstile_unavailable` and a short Retry-After, before
 /// Siteverify sees its token (so a genuine token stays usable).
 pub const SITEVERIFY_MAX_IN_FLIGHT: usize = 8;
+
+/// The failure codes a visitor did not cause: Meta's service or the model
+/// ended the run (a timeout, an outage, a rate limit, an unreadable
+/// envelope, a model document the adapter refused, a refusal, a truncated
+/// or filtered answer), or the server did (an interruption, a shutdown, the
+/// run deadline reached before a call could be made). A run that ends with
+/// one of them before any recommendation gives its daily count back (at
+/// most [`GIVE_BACKS_PER_DAY`] times per key and UTC day). The web client's
+/// "transient" class (apps/web/src/lib/run/failure.ts) is the same list.
+/// Never in it: `cancelled` (the owner's own act), `deadline`, every
+/// `*_contract` code (the protocol refused a document on purpose), the
+/// budget and token-budget codes, and the closed codes (a refused key,
+/// billing, configuration, persistence, a panic).
+pub const GIVE_BACK_CODES: &[&str] = &[
+    "meta_timeout",
+    "meta_unavailable",
+    "meta_transport",
+    "meta_rate_limited",
+    "meta_bad_envelope",
+    "model_timeout",
+    "model_unavailable",
+    "model_malformed_output",
+    "model_no_claims",
+    "model_output_truncated",
+    "model_refusal",
+    "model_content_filtered",
+    "model_unexpected_finish",
+    "interrupted",
+    "shutdown",
+    "run_deadline_reached",
+];
+
+/// Daily counts one client key or judge code gets back per UTC day after
+/// runs that ended with a [`GIVE_BACK_CODES`] code; the next such run that
+/// day keeps its count.
+pub const GIVE_BACKS_PER_DAY: u32 = 2;
+
+/// Whether a run that failed with `code` (and reached no recommendation)
+/// gives its daily count back.
+pub fn gives_back(code: &str) -> bool {
+    GIVE_BACK_CODES.contains(&code)
+}
+
+/// Where the `[live]` journal lines (and the gate's give-back line) go:
+/// stderr, which systemd keeps in the journal. A test adds a sink of its
+/// own with [`LiveGate::with_journal`].
+pub type JournalSink = Arc<dyn Fn(&str) + Send + Sync>;
+
+fn stderr_journal() -> JournalSink {
+    Arc::new(|line: &str| eprintln!("{line}"))
+}
 
 // ---------------------------------------------------------------------
 // The deliberation factory (the seam for the sealed snapshot client)
@@ -348,7 +424,11 @@ pub enum ReleaseOutcome {
 pub struct ReservationHolder {
     ledger: Ledger,
     id: ReservationId,
+    lane: Lane,
+    worst_case: Usd,
     slot: Mutex<Option<Reservation>>,
+    /// What the run spent for sure, once its release is durable.
+    spent: Mutex<Option<Usd>>,
 }
 
 impl std::fmt::Debug for ReservationHolder {
@@ -365,12 +445,32 @@ impl ReservationHolder {
         Self {
             ledger,
             id: reservation.id().clone(),
+            lane: reservation.lane(),
+            worst_case: reservation.worst_case(),
             slot: Mutex::new(Some(reservation)),
+            spent: Mutex::new(None),
         }
     }
 
     pub fn id(&self) -> &ReservationId {
         &self.id
+    }
+
+    /// The lane the reservation was made on.
+    pub fn lane(&self) -> Lane {
+        self.lane
+    }
+
+    /// What the ledger holds for the run until it is released.
+    pub fn worst_case(&self) -> Usd {
+        self.worst_case
+    }
+
+    /// What the run spent for sure (settled charges plus unsettled draws),
+    /// once this holder's release is durable; `None` before, or when the
+    /// release failed.
+    pub fn spent(&self) -> Option<Usd> {
+        *self.spent.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// True until a release was attempted (successfully or not).
@@ -394,7 +494,10 @@ impl ReservationHolder {
         let mut waits = backoff.iter();
         loop {
             match self.ledger.release(&reservation) {
-                Ok(_) => return ReleaseOutcome::Released,
+                Ok(released) => {
+                    *self.spent.lock().unwrap_or_else(|e| e.into_inner()) = Some(released.spent);
+                    return ReleaseOutcome::Released;
+                }
                 Err(e) => match waits.next() {
                     Some(wait) => {
                         eprintln!(
@@ -417,20 +520,152 @@ impl ReservationHolder {
     }
 }
 
+/// Gives a run's daily count back after a failure Meta or the model caused,
+/// within the per-key cap; says whether it did.
+pub type GiveBack = Box<dyn FnOnce() -> bool + Send>;
+
+/// How one metered run ended, as its own records say (for the journal and
+/// the give-back): no reason text, no model text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunEnd {
+    pub state: String,
+    /// The `RunFailed` stage and code; `-` when the run did not fail.
+    pub stage: String,
+    pub code: String,
+    /// The Meta request id and HTTP attempts of the call the run ended on
+    /// (the refused call of a failure, the last call of a run that reached
+    /// its decision point); `-` when there is none.
+    pub request_id: String,
+    pub attempts: String,
+    pub failed: bool,
+    pub recommended: bool,
+}
+
+impl RunEnd {
+    /// Reads the end of the run from its log. `errored`: the deliberation
+    /// returned an error, so the run manager records `internal` next.
+    pub fn read(sink: &SharedRunLog, errored: bool) -> Self {
+        let dash = || "-".to_string();
+        let agg = sink.aggregate().ok();
+        let state = agg
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a.state).ok())
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(dash);
+        let recommended = agg.as_ref().is_some_and(|a| a.recommendation.is_some());
+        let last = sink
+            .read(|log| log.all_events().last().map(|e| e.payload.clone()))
+            .ok()
+            .flatten();
+        let mut end = RunEnd {
+            state,
+            stage: dash(),
+            code: dash(),
+            request_id: dash(),
+            attempts: dash(),
+            failed: agg.as_ref().is_some_and(|a| a.state == RunState::Failed),
+            recommended,
+        };
+        match last {
+            Some(EventPayload::RunFailed {
+                stage,
+                code,
+                invocation,
+                ..
+            }) => {
+                end.stage = stage;
+                end.code = code.unwrap_or_else(dash);
+                if let Some(call) = invocation {
+                    end.request_id = call.request_id.unwrap_or_else(dash);
+                    end.attempts = call.attempts.map_or_else(dash, |n| n.to_string());
+                }
+            }
+            _ if errored => {
+                end.state = "error".into();
+                end.code = "internal".into();
+            }
+            _ => {
+                if let Some(call) = agg.as_ref().and_then(|a| a.invocations.last()) {
+                    end.request_id = call.request_id.clone().unwrap_or_else(dash);
+                    end.attempts = call.attempts.map_or_else(dash, |n| n.to_string());
+                }
+            }
+        }
+        end
+    }
+
+    /// A failure Meta or the model caused, before any recommendation.
+    pub fn gives_back(&self) -> bool {
+        self.failed && !self.recommended && gives_back(&self.code)
+    }
+}
+
 /// A deliberation that releases its run's reservation when it ends,
-/// however it ends (see the module doc).
+/// however it ends, writes the run's `[live]` journal lines, and gives the
+/// daily count back after a failure Meta or the model caused (see the
+/// module doc).
 pub struct MeteredDeliberation {
     inner: Box<dyn Deliberation>,
     holder: Arc<ReservationHolder>,
+    preset: Option<String>,
+    journal: JournalSink,
+    give_back: Option<GiveBack>,
+    /// The run and when its task was created, once it was.
+    started: Option<(RunId, Instant)>,
+    ended: bool,
 }
 
 impl MeteredDeliberation {
     pub fn new(inner: Box<dyn Deliberation>, holder: Arc<ReservationHolder>) -> Self {
-        Self { inner, holder }
+        Self {
+            inner,
+            holder,
+            preset: None,
+            journal: stderr_journal(),
+            give_back: None,
+            started: None,
+            ended: false,
+        }
+    }
+
+    /// The preset the run's journal lines name.
+    pub fn with_preset(mut self, preset: impl Into<String>) -> Self {
+        self.preset = Some(preset.into());
+        self
+    }
+
+    /// Where the run's journal lines go (stderr by default).
+    pub fn with_journal(mut self, journal: JournalSink) -> Self {
+        self.journal = journal;
+        self
+    }
+
+    /// The give-back of the run's daily count, called at most once, after a
+    /// failure [`RunEnd::gives_back`] accepts.
+    pub fn with_give_back(mut self, give_back: GiveBack) -> Self {
+        self.give_back = Some(give_back);
+        self
     }
 
     pub fn holder(&self) -> &Arc<ReservationHolder> {
         &self.holder
+    }
+
+    fn ended_line(&self, end: &RunEnd) -> Option<String> {
+        let (run_id, started) = self.started.as_ref()?;
+        let charged = self
+            .holder
+            .spent()
+            .map_or_else(|| "unknown".to_string(), Usd::to_fixed);
+        Some(format!(
+            "[live] run={run_id} ended state={} stage={} code={} request_id={} attempts={} charged={charged} wall={:.1}s",
+            end.state,
+            end.stage,
+            end.code,
+            end.request_id,
+            end.attempts,
+            started.elapsed().as_secs_f64()
+        ))
     }
 }
 
@@ -441,7 +676,15 @@ impl Deliberation for MeteredDeliberation {
         run_id: RunId,
         input: TaskInput,
     ) -> Result<(RunAggregate, Task), OrchestratorError> {
-        self.inner.create_task(sink, run_id, input)
+        let created = self.inner.create_task(sink, run_id.clone(), input)?;
+        (self.journal)(&format!(
+            "[live] run={run_id} lane={} preset={} admitted reserve={}",
+            self.holder.lane().as_str(),
+            self.preset.as_deref().unwrap_or("-"),
+            self.holder.worst_case().to_fixed()
+        ));
+        self.started = Some((run_id, Instant::now()));
+        Ok(created)
     }
 
     fn deliberate(
@@ -454,6 +697,23 @@ impl Deliberation for MeteredDeliberation {
         let result = self.inner.deliberate(sink, agg, task, control);
         // Finished, failed or cancelled: the run spends nothing more.
         self.holder.release(&RELEASE_BACKOFF, "the run ended");
+        let end = RunEnd::read(sink, result.is_err());
+        // The daily count, never the money: what the calls were settled at
+        // stays spent.
+        if end.gives_back() {
+            if let Some(give_back) = self.give_back.take() {
+                if give_back() {
+                    (self.journal)(&format!(
+                        "[live-gate] daily count given back for a run that failed with {}",
+                        end.code
+                    ));
+                }
+            }
+        }
+        if let Some(line) = self.ended_line(&end) {
+            (self.journal)(&line);
+        }
+        self.ended = true;
         result
     }
 }
@@ -466,13 +726,28 @@ impl Drop for MeteredDeliberation {
         // was never started still ends with its reservation released (with
         // the usual retries) or logged as unreleased with its id. Nothing
         // to do when `deliberate` already released it.
-        if !self.holder.is_held() {
-            return;
+        if self.holder.is_held() {
+            blocking_section(|| {
+                self.holder
+                    .release(&RELEASE_BACKOFF, "the deliberation was dropped")
+            });
         }
-        blocking_section(|| {
-            self.holder
-                .release(&RELEASE_BACKOFF, "the deliberation was dropped")
-        });
+        // A run whose deliberation never returned (a caught panic) still
+        // gets its end line; its record says why.
+        if !self.ended {
+            let dropped = RunEnd {
+                state: "dropped".into(),
+                stage: "-".into(),
+                code: "-".into(),
+                request_id: "-".into(),
+                attempts: "-".into(),
+                failed: false,
+                recommended: false,
+            };
+            if let Some(line) = self.ended_line(&dropped) {
+                (self.journal)(&line);
+            }
+        }
     }
 }
 
@@ -555,10 +830,13 @@ enum QuotaKey {
     JudgeCode(JudgeCodeId),
 }
 
-/// The gate's process-local daily quotas (see the module doc, step 7).
+/// The gate's process-local daily quotas (see the module doc, step 7), and
+/// the give-backs each key had today after failures it did not cause.
 struct Quotas {
     clients: DailyCounts<ClientKey>,
     judge_codes: DailyCounts<JudgeCodeId>,
+    clients_given_back: DailyCounts<ClientKey>,
+    judge_codes_given_back: DailyCounts<JudgeCodeId>,
 }
 
 impl Quotas {
@@ -568,7 +846,23 @@ impl Quotas {
             // One entry per code at most: only a code the file knows is
             // ever counted.
             judge_codes: DailyCounts::new(config.judge_code_daily, judge_codes.len().max(1)),
+            clients_given_back: DailyCounts::new(GIVE_BACKS_PER_DAY, CLIENT_QUOTA_TABLE_MAX),
+            judge_codes_given_back: DailyCounts::new(GIVE_BACKS_PER_DAY, judge_codes.len().max(1)),
         }
+    }
+
+    /// Gives the count of a run that failed for a reason the visitor did not
+    /// cause back, unless the key had [`GIVE_BACKS_PER_DAY`] already that
+    /// day; says whether it did.
+    fn give_back_after_failure(&self, key: QuotaKey, day: NaiveDate) -> bool {
+        let allowed = match key {
+            QuotaKey::Client(client) => self.clients_given_back.take(&client, day),
+            QuotaKey::JudgeCode(code) => self.judge_codes_given_back.take(&code, day),
+        };
+        if allowed {
+            self.give_back(key, day);
+        }
+        allowed
     }
 
     fn take(&self, key: QuotaKey, day: NaiveDate) -> bool {
@@ -597,12 +891,20 @@ struct CountedAdmission {
 }
 
 impl CountedAdmission {
-    /// The count stays; the returned closure gives it back (the refund of
-    /// a start that fails after the grant).
-    fn keep(mut self) -> impl FnOnce() + Send {
+    /// The count stays. The first closure gives it back (the refund of a
+    /// start that fails after the grant); the second gives it back after a
+    /// failure the visitor did not cause, within the daily cap of
+    /// give-backs.
+    fn keep(mut self) -> (impl FnOnce() + Send, GiveBack) {
         self.kept = true;
         let (inner, key, day) = (self.inner.clone(), self.key, self.day);
-        move || inner.quotas.give_back(key, day)
+        let refund = {
+            let inner = inner.clone();
+            move || inner.quotas.give_back(key, day)
+        };
+        let after_failure: GiveBack =
+            Box::new(move || inner.quotas.give_back_after_failure(key, day));
+        (refund, after_failure)
     }
 }
 
@@ -662,6 +964,8 @@ struct Inner {
     quotas: Quotas,
     /// [`SITEVERIFY_MAX_IN_FLIGHT`] permits, one per Siteverify call.
     siteverify_in_flight: tokio::sync::Semaphore,
+    /// Where the `[live]` lines go.
+    journal: JournalSink,
 }
 
 /// The production [`crate::api::LiveGate`]; see the module doc.
@@ -695,8 +999,35 @@ impl LiveGate {
                 run_limits: parts.run_limits,
                 factory: parts.factory,
                 siteverify_in_flight: tokio::sync::Semaphore::new(SITEVERIFY_MAX_IN_FLIGHT),
+                journal: stderr_journal(),
             }),
         }
+    }
+
+    /// The gate with its `[live]` journal lines also handed to `sink` (they
+    /// still go to stderr): a test reads them there. Call it on the gate
+    /// [`LiveGate::new`] returned, before it is cloned; a clone keeps the
+    /// journal it was made with.
+    pub fn with_journal(mut self, sink: JournalSink) -> Self {
+        let journal: JournalSink = Arc::new(move |line: &str| {
+            eprintln!("{line}");
+            sink(line);
+        });
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.journal = journal;
+        }
+        self
+    }
+
+    /// Judge-lane admissions counted for the judge code `code` on the
+    /// ledger's current UTC day (tests and diagnostics); 0 for a code the
+    /// file does not know.
+    pub fn judge_code_admissions_today(&self, code: &str) -> u32 {
+        let day = self.inner.ledger.now().date_naive();
+        self.inner
+            .judge_codes
+            .lookup(code)
+            .map_or(0, |id| self.inner.quotas.judge_codes.count(&id, day))
     }
 
     /// Public-lane admissions counted for `client` on the ledger's current
@@ -858,7 +1189,7 @@ impl Inner {
             });
         }
         let retry_after = until_midnight(now);
-        Err(match verified.quota {
+        let refused = match verified.quota {
             QuotaKey::Client(_) => {
                 // Never the client's address: the line says what happened.
                 eprintln!(
@@ -880,7 +1211,23 @@ impl Inner {
                 );
                 refusal_error(&Refusal::JudgeDaily { retry_after })
             }
-        })
+        };
+        self.journal_refusal(verified, refused.code);
+        Err(refused)
+    }
+
+    /// The `[live] refused` line of an admission the quota or the ledger
+    /// refused: the lane, the preset and the answered code, nothing else.
+    fn journal_refusal(&self, verified: &Verified, code: ErrorCode) {
+        let code = serde_json::to_value(code)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(|| "-".into());
+        (self.journal)(&format!(
+            "[live] refused lane={} preset={} code={code}",
+            verified.lane.as_str(),
+            verified.preset_id.as_str()
+        ));
     }
 
     /// Phase two, on a blocking thread, with the route's live slot held:
@@ -900,7 +1247,9 @@ impl Inner {
                 "[live-gate] the ledger refused a {} run: {refusal}",
                 lane.as_str()
             );
-            refusal_error(&refusal)
+            let error = refusal_error(&refusal);
+            self.journal_refusal(&verified, error.code);
+            error
         })?;
 
         // (h) This run's model client: the session pseudonym identifies
@@ -931,7 +1280,15 @@ impl Inner {
                 return Err(unavailable());
             }
         };
-        let deliberation = metered.wrap(inner);
+        // The count stays from here on: given back by the refund below when
+        // the start fails, or by the deliberation when the run fails for a
+        // reason the visitor did not cause.
+        let (give_back, after_failure) = counted.keep();
+        let deliberation = metered
+            .wrap(inner)
+            .with_preset(verified.preset_id.as_str())
+            .with_journal(self.journal.clone())
+            .with_give_back(after_failure);
 
         // (j) The grant: the canned task declared with what will actually
         // run, and the refund for a start that fails after this point.
@@ -943,7 +1300,6 @@ impl Inner {
             preset: Some(verified.preset_id.as_str().to_string()),
         });
         let refund = metered.holder().clone();
-        let give_back = counted.keep();
         Ok(LiveGrant {
             input,
             deliberation: Box::new(deliberation),
@@ -1055,6 +1411,8 @@ impl crate::api::LiveGate for LiveGate {
             budget: self.inner.public_budget(),
             requires_turnstile: true,
             requires_adult_attestation: true,
+            client_daily: Some(self.inner.quotas.clients.limit()),
+            invite_code_daily: Some(self.inner.quotas.judge_codes.limit()),
         })
     }
 
@@ -1219,6 +1577,59 @@ mod tests {
             evidence_provenance(EvidenceMode::SealedSnapshot),
             EvidenceProvenance::HyphaeSnapshot
         );
+    }
+
+    #[test]
+    fn only_failures_the_visitor_did_not_cause_give_the_count_back() {
+        for code in GIVE_BACK_CODES {
+            assert!(gives_back(code), "{code}");
+        }
+        // The owner's own act, the run deadline, the protocol's refusals,
+        // the budget, and every closed code keep the count.
+        for code in [
+            "cancelled",
+            "deadline",
+            "evaluation_contract",
+            "challenge_contract",
+            "proposal_contract",
+            "budget_refused",
+            "budget_unsettled",
+            "token_budget_exceeded",
+            "token_usage_missing",
+            "meta_unauthorized",
+            "meta_billing",
+            "meta_forbidden",
+            "meta_bad_request",
+            "meta_config",
+            "adapter_schema_error",
+            "persistence",
+            "panic",
+            "internal",
+            "-",
+            "",
+        ] {
+            assert!(!gives_back(code), "{code}");
+        }
+        let failed = |code: &str, recommended: bool| RunEnd {
+            state: "failed".into(),
+            stage: "propose".into(),
+            code: code.into(),
+            request_id: "-".into(),
+            attempts: "-".into(),
+            failed: true,
+            recommended,
+        };
+        assert!(failed("meta_unavailable", false).gives_back());
+        assert!(failed("model_no_claims", false).gives_back());
+        assert!(
+            !failed("meta_unavailable", true).gives_back(),
+            "a recommendation was reached"
+        );
+        assert!(!failed("evaluation_contract", false).gives_back());
+        assert!(!failed("cancelled", false).gives_back());
+        let mut rested = failed("meta_unavailable", false);
+        rested.failed = false;
+        assert!(!rested.gives_back(), "only a failed run");
     }
 
     /// A deliberation that never runs: the holder's behaviour is what is

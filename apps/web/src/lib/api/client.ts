@@ -158,6 +158,45 @@ export function isRunId(value: string | null | undefined): value is string {
   return typeof value === "string" && RUN_ID.test(value);
 }
 
+/**
+ * The localStorage key of the session flag: "1" once this browser holds a
+ * session (a POST or GET /session succeeded), removed on DELETE /session or
+ * any 401. It is not a secret and not the session (the cookie is HttpOnly):
+ * it only lets My runs say "no session" without asking the server, so a
+ * visitor without one never sees a 401 in the console.
+ */
+export const SESSION_FLAG_KEY = "hc.session";
+
+function sessionStorageArea(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function setSessionFlag(on: boolean): void {
+  const storage = sessionStorageArea();
+  try {
+    if (on) {
+      storage?.setItem(SESSION_FLAG_KEY, "1");
+    } else {
+      storage?.removeItem(SESSION_FLAG_KEY);
+    }
+  } catch {
+    // Storage full or refused: the flag is only a hint.
+  }
+}
+
+/** Whether this browser held a session the last time the server was asked. */
+export function hasSessionFlag(): boolean {
+  try {
+    return sessionStorageArea()?.getItem(SESSION_FLAG_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 function summarizeIssues(error: z.ZodError): string {
   return error.issues
     .slice(0, 3)
@@ -211,6 +250,10 @@ export function createApiClient(options: ApiClientOptions = {}) {
     }
 
     if (!response.ok) {
+      // Any 401: the cookie no longer names a session.
+      if (response.status === 401) {
+        setSessionFlag(false);
+      }
       const body = apiErrorBodySchema.safeParse(json);
       if (body.success) {
         throw new ApiError({
@@ -255,37 +298,50 @@ export function createApiClient(options: ApiClientOptions = {}) {
 
     scenarios: (): Promise<ScenariosV1> => request("/scenarios", scenariosSchema),
 
-    /** The current session, or null when the server says there is none. */
+    /**
+     * The current session, or null when the server says there is none (the
+     * session flag is then cleared; a session it finds sets it).
+     */
     getSession: async (): Promise<SessionV1 | null> => {
       try {
-        return await request("/session", sessionSchema);
+        const session = await request("/session", sessionSchema);
+        setSessionFlag(true);
+        return session;
       } catch (error) {
         if (
           isApiError(error) &&
           (error.code === "session_required" || error.status === 401)
         ) {
+          setSessionFlag(false);
           return null;
         }
         throw error;
       }
     },
 
-    createSession: (): Promise<SessionV1> =>
-      request("/session", sessionSchema, { method: "POST" }),
+    createSession: async (): Promise<SessionV1> => {
+      const session = await request("/session", sessionSchema, { method: "POST" });
+      setSessionFlag(true);
+      return session;
+    },
 
     /** Ends the session; the server answers with no contract body. */
     deleteSession: async (): Promise<void> => {
-      await request("/session", acceptAnything, { method: "DELETE" });
+      try {
+        await request("/session", acceptAnything, { method: "DELETE" });
+      } finally {
+        setSessionFlag(false);
+      }
     },
 
     /**
-     * The session to act under: the existing one when GET says there is
-     * one, else a freshly minted one. Only POSTs when needed, so a visitor
-     * keeps the session (and the runs) they already have.
+     * The session to act under: one POST /session, which keeps the session
+     * a valid cookie names (200, no new cookie, no rate spent) and mints one
+     * otherwise (201). No GET first, so a visitor without a session never
+     * sees a 401 in the console.
      */
     ensureSession: async function ensureSession(): Promise<SessionV1> {
-      const existing = await this.getSession();
-      return existing ?? (await this.createSession());
+      return this.createSession();
     },
 
     listRuns: (query: { cursor?: string; limit?: number } = {}): Promise<RunListV1> => {

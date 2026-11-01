@@ -45,6 +45,87 @@ fn expected_of(detail: &Value) -> Value {
 // Sessions and request security
 // ---------------------------------------------------------------------
 
+/// C9: visitor sessions survive a restart. A server rebuilt over the same
+/// store directory still knows the cookie: the visitor's run is reachable
+/// and listed, the session is the same one (its pseudonym), and the
+/// sessions file holds the id's hash only, never the id.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restart_keeps_the_visitors_session_and_runs() {
+    let server = public_server(&[], BuildOptions::default());
+    let (status, first, headers) = server.json(Req::post("/api/v1/session")).await;
+    assert_eq!(status, StatusCode::CREATED, "{first}");
+    let cookie = cookie_value(&headers).expect("Set-Cookie");
+    let (status, created) = server.create_guided(&cookie, "retry").await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{created}");
+    let run_id = created["run"]["run_id"].as_str().unwrap().to_string();
+    server.wait_resting(&cookie, &run_id).await;
+    server.wait_released(&run_id).await;
+    let store = server.store_dir();
+    let file = std::fs::read_to_string(store.join("sessions.json")).expect("the sessions file");
+    assert!(!file.contains(&cookie), "the raw id never touches the disk");
+
+    // The process ends: the server is dropped, its directory kept.
+    let common::TestServer { dir, .. } = server;
+    let restarted = common::public_server_in(dir, &[], BuildOptions::default());
+    let (status, body, _) = restarted
+        .json(Req::get(&format!("/api/v1/runs/{run_id}")).cookie(&cookie))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["summary"]["run_id"], run_id.as_str());
+    let (status, list, _) = restarted
+        .json(Req::get("/api/v1/runs").cookie(&cookie))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list["runs"].as_array().unwrap().len(), 1);
+    let (status, session, headers) = restarted
+        .json(Req::post("/api/v1/session").cookie(&cookie))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    assert_eq!(session["created"], false);
+    assert_eq!(session["pseudonym"], first["pseudonym"]);
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    // A session ended by its visitor stays ended after the next restart.
+    let response = restarted
+        .send(Req::delete("/api/v1/session").cookie(&cookie))
+        .await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let common::TestServer { dir, .. } = restarted;
+    let again = common::public_server_in(dir, &[], BuildOptions::default());
+    let (status, _, _) = again
+        .json(Req::get("/api/v1/session").cookie(&cookie))
+        .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// The web client's `ensureSession` is a POST only (no GET first, so no
+/// console 401 for a visitor without a session): with a valid cookie the
+/// POST answers 200 with the same session (its pseudonym), sets no cookie
+/// and spends nothing of the session rate, however often it is repeated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn posting_a_session_with_a_valid_cookie_keeps_it_without_a_new_cookie() {
+    let server = public_server(
+        &[("CONSENSUS_RATE_SESSION_PER_MIN", "1")],
+        BuildOptions::default(),
+    );
+    let (status, first, headers) = server.json(Req::post("/api/v1/session")).await;
+    assert_eq!(status, StatusCode::CREATED, "{first}");
+    let cookie = cookie_value(&headers).expect("Set-Cookie");
+    for _ in 0..5 {
+        let (status, body, headers) = server
+            .json(Req::post("/api/v1/session").cookie(&cookie))
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["created"], false);
+        assert_eq!(body["pseudonym"], first["pseudonym"], "the same session");
+        assert_eq!(body["expires_at"], first["expires_at"]);
+        assert!(headers.get(header::SET_COOKIE).is_none());
+    }
+    // A new session is still rate-limited: the repeats spent nothing, the
+    // first mint spent the one allowed this minute.
+    let (status, body, _) = server.json(Req::post("/api/v1/session")).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sessions_are_minted_by_post_only_and_carry_the_right_attributes() {
     let server = public_server(&[], BuildOptions::default());

@@ -736,12 +736,17 @@ export const publicBudgetSchema = z.looseObject({
 /**
  * The live section of the capabilities (`LiveCapabilitiesV1`). `budget` is
  * absent when the ledger could not be read: no run can be admitted then.
+ * `client_daily` and `invite_code_daily` are the daily quotas the live form
+ * states (absent from a server that predates them: the form then states no
+ * figure).
  */
 export const liveCapabilitiesSchema = z.looseObject({
   presets: z.array(presetSchema),
   budget: publicBudgetSchema.nullable().optional(),
   requires_turnstile: z.boolean(),
   requires_adult_attestation: z.boolean(),
+  client_daily: optionalCount,
+  invite_code_daily: optionalCount,
 }) satisfies z.ZodType<T.LiveCapabilitiesV1>;
 
 export const capabilitiesSchema = z.looseObject({

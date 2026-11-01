@@ -91,6 +91,7 @@
           "heading": "How long",
           "items": {
             "runs": "Run files: deleted whole 7 days after the run. Two things outlive them: a one-line entry in the run index (run id, time and final hash) and the run’s cost entry in the live-mode budget ledger. Neither holds the run’s text.",
+            "sessions": "Session records: the SHA-256 hash of your session’s identifier, with when the session started and when it ends, kept on the server’s disk until the session ends (24 hours at most), so that a restart of the server does not end it. The identifier itself is never written to disk.",
             "addresses": "Keyed hashes of network addresses: in memory only, in bounded tables; they are not written to disk and go when the server restarts or the table evicts them.",
             "logs": "Request logs of the server, logs of the cloudflared tunnel and the host’s system logs: they follow the host’s log rotation.",
             "operator": "The operator’s detail log, keyed by request id, which holds the detail of failures for diagnosis: kept by the operator and not published."
@@ -144,6 +145,10 @@
         "outcomes": {
           "heading": "Contested and abstained are normal outcomes",
           "body": "A run that ends contested or abstained is the system reporting open objections, contradictions or gaps honestly, instead of turning uncertainty into confidence."
+        },
+        "liveFailures": {
+          "heading": "A live run can fail",
+          "body": "A live run can fail: Meta’s service can time out or return an answer the protocol refuses. A failed run decides nothing, says where it stopped, and you can start another."
         },
         "labels": {
           "heading": "Simulated and recorded runs are labeled",

@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+import { IntlMessageFormat } from "intl-messageformat";
 import { describe, expect, it } from "vitest";
 
 import { contractDir } from "../scripts/gen-api-types.mjs";
@@ -19,6 +20,8 @@ import {
   isTripCode,
   liveClosedReason,
   parseUsd,
+  presetFromQuery,
+  quotaRuleValues,
   startBlocker,
   startNativelyDisabled,
   type StartInput,
@@ -187,5 +190,77 @@ describe("budget amounts and trip codes", () => {
     expect(isTripCode("kill_switch")).toBe(true);
     expect(isTripCode("a_new_reason")).toBe(false);
     expect(isTripCode(null)).toBe(false);
+  });
+});
+
+// Round 8 (lane C): the daily rule with the server's own figures (C3), the
+// cost of a failed run (C6), the expectation that a live run can fail (C8),
+// and the preset a failed run's "Start another live run" link preselects (C2).
+const withQuotas: LiveCapabilitiesV1 = { ...live, client_daily: 5, invite_code_daily: 7 };
+
+type Catalog = { [key: string]: string | Catalog };
+
+function message(locale: string, key: string): string {
+  let node: string | Catalog | undefined = JSON.parse(
+    readFileSync(new URL(`../messages/${locale}.json`, import.meta.url), "utf8"),
+  ) as Catalog;
+  for (const part of key.split(".")) {
+    node = typeof node === "object" ? node[part] : undefined;
+  }
+  if (typeof node !== "string") {
+    throw new Error(`no message ${key} in ${locale}`);
+  }
+  return node;
+}
+
+describe("the live form's round 8 rules", () => {
+  it("parses capabilities that publish the daily quotas, and those that do not", () => {
+    const base = JSON.parse(
+      readFileSync(path.join(contractDir(), "fixtures", "capabilities-public.json"), "utf8"),
+    ) as Record<string, unknown>;
+    const parsed = capabilitiesSchema.safeParse({ ...base, live_enabled: true, live: withQuotas });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.live?.client_daily).toBe(5);
+    expect(parsed.data?.live?.invite_code_daily).toBe(7);
+  });
+
+  it("states the daily rule only with both figures the server publishes", () => {
+    expect(quotaRuleValues(withQuotas)).toEqual({ clientDaily: 5, codeDaily: 7 });
+    expect(quotaRuleValues(live)).toBeNull();
+    expect(quotaRuleValues({ ...live, client_daily: 3 })).toBeNull();
+    expect(quotaRuleValues({ ...live, client_daily: 3, invite_code_daily: null })).toBeNull();
+  });
+
+  it("preselects only a preset the server lists, and nothing else from the address", () => {
+    expect(presetFromQuery("?preset=R01-reference", live)).toBe("R01-reference");
+    expect(presetFromQuery("?preset=R09-unknown", live)).toBe("");
+    expect(presetFromQuery("?preset=", live)).toBe("");
+    expect(presetFromQuery("", live)).toBe("");
+    expect(presetFromQuery("?attest_adult=true&judge_code=x", live)).toBe("");
+    expect(presetFromQuery("?preset=R01-reference", { ...live, presets: [] })).toBe("");
+  });
+});
+
+describe.each(["en", "es", "fr", "pt-BR"])("the live form's copy (%s)", (locale) => {
+  const format = (key: string, values: Record<string, string | number> = {}) =>
+    String(new IntlMessageFormat(message(locale, key), locale).format(values));
+
+  it("renders the daily rule with the capability figures", () => {
+    const values = quotaRuleValues(withQuotas);
+    expect(values).not.toBeNull();
+    const rule = format("NewDeliberation.live.quota.rule", values ?? {});
+    expect(rule).toContain("5");
+    expect(rule).toContain("7");
+    expect(rule).toContain("UTC");
+    expect(rule).not.toContain("{");
+    const one = format("NewDeliberation.live.quota.rule", { clientDaily: 1, codeDaily: 1 });
+    expect(one).not.toBe(rule);
+  });
+
+  it("says what a failed run costs, and that a live run can fail", () => {
+    expect(message(locale, "NewDeliberation.live.budget.noteFailed").trim()).not.toBe("");
+    expect(message(locale, "NewDeliberation.live.failNote").trim()).not.toBe("");
+    // The note says the rest of the reservation is returned, never that the cost is.
+    expect(format("NewDeliberation.live.budget.noteFailed")).not.toContain("{");
   });
 });

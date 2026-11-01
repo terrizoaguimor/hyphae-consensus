@@ -6,7 +6,8 @@
 // (the frames as one text/event-stream body), the decision and the cancel.
 // Every call is recorded so a spec can assert headers and bodies. The
 // variants derived here (a run awaiting its decision, a live-model run, a run
-// whose provenance is inconsistent, a run in progress, a failed run) are
+// whose provenance is inconsistent, a run in progress, a failed run, a live
+// run refused at its propose call) are
 // built from the fixtures, never typed in. The live section of the
 // capabilities has the contract's shape (LiveCapabilitiesV1, as
 // crates/consensus-api/src/live/gate.rs publishes it) and the whole
@@ -20,6 +21,7 @@ import path from "node:path";
 
 import type { Page, Request } from "@playwright/test";
 
+import { SESSION_FLAG_KEY } from "../src/lib/api/client";
 import { capabilitiesSchema, receiptSchema, runDetailSchema, showcaseSchema } from "../src/lib/api/schemas";
 import type { LiveCapabilitiesV1, PresetV1, PublicBudgetV1 } from "../src/lib/api/types";
 import { recordHash } from "../src/lib/chain/verify";
@@ -49,6 +51,12 @@ export type MockRun = {
 export type ApiMockOptions = {
   /** GET /session answers 200 (true) or 401 session_required (false). */
   session?: boolean;
+  /**
+   * The browser's session flag (localStorage `hc.session`, src/lib/api/
+   * client.ts SESSION_FLAG_KEY) when the page first loads: set (true) as a
+   * browser that holds a session has it, or absent. Default: `session`.
+   */
+  sessionFlag?: boolean;
   liveEnabled?: boolean;
   /** Replaces the live section's presets (default: the live R01 fixture's task). */
   livePresets?: PresetV1[];
@@ -56,6 +64,8 @@ export type ApiMockOptions = {
   liveBudget?: PublicBudgetV1 | null;
   liveRequiresTurnstile?: boolean;
   liveRequiresAttestation?: boolean;
+  /** The daily quotas the live section publishes (default: none, as a server before them). */
+  liveDaily?: { client: number; inviteCode: number };
   /** Overrides of the capabilities fixture (e.g. guided_enabled). */
   capabilities?: Json;
   /** Overrides of the health fixture (e.g. contract_sha256). */
@@ -451,11 +461,15 @@ export function inProgressLiveRun(upTo: number): { detail: Json; frames: Json[] 
  * records, then a run_failed record carrying the server's English message
  * (which the UI must never show) and the code it must translate.
  */
-export function failedDetail(code: string | null, message: string): { detail: Json; frames: Json[] } {
+export function failedDetail(
+  code: string | null,
+  message: string,
+  stage = "evaluate",
+): { detail: Json; frames: Json[] } {
   const detail = clone(fixture<Json>("run-detail-retry.json"));
   const kept = (detail.events as Json[]).filter((e) => (e.sequence as number) <= 4);
   const previous = kept[kept.length - 1] as Json;
-  const failure: Json = { kind: "failed", stage: "evaluate", message };
+  const failure: Json = { kind: "failed", stage, message };
   if (code !== null) {
     failure.code = code;
   }
@@ -468,7 +482,7 @@ export function failedDetail(code: string | null, message: string): { detail: Js
     occurred_at: previous.occurred_at,
     prev_hash: previous.hash,
     hash: "f".repeat(64),
-    payload: { type: "run_failed", stage: "evaluate", ...(code === null ? {} : { code }), message },
+    payload: { type: "run_failed", stage, ...(code === null ? {} : { code }), message },
   };
   detail.events = [...kept, failed];
   const proposal = kept.find((e) => (e.payload as Json).type === "proposal_submitted");
@@ -548,6 +562,59 @@ export function liveR01Run(): MockRun {
   return { detail, frames };
 }
 
+/**
+ * The live R01 run as it ends when Meta's model answers the propose call
+ * with a document the adapter refuses (the first public live run,
+ * 2026-11-01): its task, then a run_failed record at `stage` with `code`
+ * carrying the refused call's invocation (test values in the record format)
+ * and the server's English message, which the UI must never show. Built
+ * from the live R01 fixture.
+ */
+export function failedLiveRun(stage: string, code: string, message: string): MockRun {
+  const detail = clone(fixture<Json>("run-detail-live-R01-reference.json"));
+  const events = detail.events as Json[];
+  const previous = events[events.length - 1] as Json;
+  const invocation: Json = {
+    provider: "meta",
+    model: "muse-wonder-1.0",
+    request_id: "chatcmpl-fixture-failed-1",
+    latency_ms: 41000,
+    input_tokens: 281,
+    output_tokens: 2695,
+    reasoning_tokens: 2500,
+    finish_reason: "stop",
+    scripted: false,
+  };
+  const failed: Json = {
+    sequence: 2,
+    event_id: "evt-fixture-live-failed",
+    run_id: previous.run_id,
+    schema_version: previous.schema_version,
+    actor: { kind: "runtime" },
+    occurred_at: "2026-10-26T09:00:42Z",
+    prev_hash: previous.hash,
+    hash: "e".repeat(64),
+    payload: { type: "run_failed", stage, code, message, invocation },
+  };
+  detail.events = [...events, failed];
+  detail.model_invocations = [invocation];
+  const summary = detail.summary as Json;
+  summary.state = "failed";
+  summary.active = false;
+  summary.last_sequence = 2;
+  summary.event_count = 2;
+  summary.updated_at = failed.occurred_at;
+  summary.failure = { kind: "failed", stage, code, message };
+  const provenance = summary.provenance as Json;
+  provenance.model = "live_meta";
+  provenance.meta_request_ids = [invocation.request_id];
+  const chain = detail.chain as Json;
+  chain.last_sequence = 2;
+  chain.head_hash = failed.hash;
+  runDetailSchema.parse(detail);
+  return storedRun(detail);
+}
+
 /** The live section the gate publishes, from the live R01 fixture's task. */
 export function liveSection(options: ApiMockOptions = {}): LiveCapabilitiesV1 {
   const task = fixture<{ task: { title: string; description: string; project_id: string; mode: { preset: string } } }>(
@@ -576,6 +643,10 @@ export function liveSection(options: ApiMockOptions = {}): LiveCapabilitiesV1 {
   };
   if (options.liveBudget !== null) {
     live.budget = options.liveBudget ?? budget;
+  }
+  if (options.liveDaily !== undefined) {
+    live.client_daily = options.liveDaily.client;
+    live.invite_code_daily = options.liveDaily.inviteCode;
   }
   return live;
 }
@@ -633,6 +704,17 @@ export async function mockApi(page: Page, options: ApiMockOptions = {}) {
   }
   // The mock answers only what the client's own mirror of the contract accepts.
   capabilitiesSchema.parse(capabilities);
+  // A browser that holds a session has its flag, from the first page on;
+  // set once per tab, so what the app does with it later (a 401 clears it)
+  // is not undone by the next navigation.
+  if (options.sessionFlag ?? options.session ?? true) {
+    await page.addInitScript((key: string) => {
+      if (window.sessionStorage.getItem("hc-mock-session-flag") === null) {
+        window.sessionStorage.setItem("hc-mock-session-flag", "set");
+        window.localStorage.setItem(key, "1");
+      }
+    }, SESSION_FLAG_KEY);
+  }
   const health = { ...fixture<Json>("health.json"), ...options.health };
   const created = fixture<Json>("run-created-retry.json");
   const runsById = new Map<string, MockRun>();

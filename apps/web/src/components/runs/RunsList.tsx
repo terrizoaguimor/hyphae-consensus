@@ -1,8 +1,11 @@
 "use client";
 // SPDX-License-Identifier: Apache-2.0
 //
-// The session's runs. GET /session first: without a session there is nothing
-// to list and no count is shown. With one, GET /runs (newest first, cursor
+// The session's runs. Without the browser's session flag (set once a POST or
+// GET /session succeeded, cleared by DELETE /session or a 401) there is no
+// session: nothing is asked, nothing listed, no count shown. With it, GET
+// /session first (a 401 there clears the flag and lists nothing). With a
+// session, GET /runs (newest first, cursor
 // pagination) and GET /capabilities for the retention limits, from which each
 // run's "access ends" and "deleted after" dates are derived. Every number and
 // label comes from the run data.
@@ -13,7 +16,7 @@ import { useFormatter, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
 import type { Locale } from "@/i18n/routing";
-import { api, ApiError, isApiError } from "@/lib/api/client";
+import { api, ApiError, hasSessionFlag, isApiError } from "@/lib/api/client";
 import type { Capabilities } from "@/lib/api/schemas";
 import type { RunSummaryV1 } from "@/lib/api/types";
 import { OUTCOME_ICONS, RECOMMENDATION_VARIANTS } from "@/lib/provenance";
@@ -70,6 +73,15 @@ export function RunsList({ locale }: RunsListProps) {
         setState(next);
       }
     };
+    // Without the session flag this browser holds no session (src/lib/api/
+    // client.ts SESSION_FLAG_KEY): nothing to list, and nothing to ask, so
+    // no 401 reaches the console.
+    if (!hasSessionFlag()) {
+      apply({ status: "no-session" });
+      return () => {
+        cancelled = true;
+      };
+    }
     api
       .getSession()
       .then((session) => {

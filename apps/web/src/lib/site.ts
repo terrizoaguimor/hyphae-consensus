@@ -62,8 +62,8 @@ export const LEGAL_TEXT_STATUS: "draft" | "final" = "draft";
  * text, so a text change without a new date fails.
  */
 export const LEGAL_TEXT_CHANGED: Readonly<Record<LegalPage | "about", Date>> = {
-  terms: new Date("2026-10-27T00:00:00Z"),
-  privacy: new Date("2026-10-27T00:00:00Z"),
+  terms: new Date("2026-11-01T00:00:00Z"),
+  privacy: new Date("2026-11-01T00:00:00Z"),
   limitations: new Date("2026-10-29T00:00:00Z"),
   about: new Date("2026-10-27T00:00:00Z"),
 };
@@ -78,16 +78,16 @@ export const LEGAL_TEXT_CHANGED: Readonly<Record<LegalPage | "about", Date>> = {
 
 /**
  * Public contact for the privacy notice and the terms (the data controller is
- * named in the texts). Placeholder until the owner provides the address; the
- * angle brackets mark it as such on the page.
+ * named in the texts): an alias that Cloudflare Email Routing forwards to the
+ * owner (set 2026-11-01).
  */
-export const CONTACT_EMAIL = "<pending: owner to provide>";
+export const CONTACT_EMAIL = "consensus@terrizoaguimor.dev";
 
 /**
  * Country of the owner's hosting provider, named in the privacy notice.
- * Placeholder until the owner confirms it.
+ * The VPS is a Vultr instance in Atlanta (set 2026-11-01).
  */
-export const HOSTING_COUNTRY = "<pending: owner to confirm>";
+export const HOSTING_COUNTRY = "United States";
 
 /** External pages the texts link to (checked by the e2e crawler's allowlist). */
 export const externalLinks = {

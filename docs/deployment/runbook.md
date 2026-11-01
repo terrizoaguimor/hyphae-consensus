@@ -68,8 +68,8 @@ against the production lifetime cap, so production starts on an empty ledger.
 
 ## 1. Prerequisites and owner actions
 
-Day numbers are the approved plan's (`docs/reviews/2026-10-27-independent-audit.md`
-§7 and `docs/journal.md`, 2026-10-27 night): Day 0 is the plan's approval day.
+Day numbers are the approved plan's (the 2026-10-27 audit's plan, an internal
+document): Day 0 is the plan's approval day.
 
 | Day | Owner action | Output this runbook consumes |
 |---|---|---|
@@ -1023,7 +1023,7 @@ waits up to `grace-period` (default `30s`) for in-flight ones `[CF-5]`.
 
 ## 7. Cloudflare dashboard checklist for `<hostname>`
 
-Work through the list before go-live and record the result in `docs/reviews/`
+Work through the list before go-live and record the result in the owner's release record (outside the repository)
 (gate G10 asks for the owner's sign-off). The zone is Free; limits quoted below are
 the Free plan's.
 
@@ -1205,7 +1205,7 @@ Obfuscation, Fonts, Rocket Loader, Disable Zaraz and Disable Real User Monitorin
 Order: staging phase on `staging.<hostname>` behind Access: sections 8.1–8.6 with live
 mode off, then on; then the G11 rehearsal of 8.8 (it trips the staging ledger); then
 the ledger retirement of section 4.5; then go-live (8.7); then 8.1, 8.3 and 8.4 again
-against `<hostname>`. Record every result with its date in `docs/reviews/` (gates G1,
+against `<hostname>`. Record every result with its date in the owner's release record (gates G1,
 G2, G4, G6, G9, G11 ask for evidence).
 
 Every `https://` request below runs on the **owner machine** (section 2.4 explains why
@@ -1524,7 +1524,7 @@ policy, `contract_sha256`, `executor: disabled` (`api/types.rs`).
    which `kill-switch.sh status` on the server shows the production ledger's first
    records and `tripped: false`.
 5. Delete the staging service token (7.9) unless staging stays in use, and record the
-   go-live time (UTC) in `docs/journal.md`.
+   go-live time (UTC) in the owner's release record.
 
 ### 8.8 Gate G11: shutdown, recovery, kill switch, export (staging rehearsal)
 
@@ -1736,7 +1736,7 @@ Suspected key exposure, unexpected spend, or a compromised host:
    (9.4), a new Turnstile secret (Turnstile → widget → Settings), a new tunnel credentials
    file (`cloudflared tunnel delete` and `create` from the owner machine, which holds
    `cert.pem` `[CF-9]`), then re-run sections 8.1–8.4.
-6. Write the incident up in `docs/reviews/` with the ledger figures.
+6. Write the incident up in the owner's release record with the ledger figures.
 
 ### 9.7 Post-judging teardown (about 2026-11-10)
 
@@ -1878,7 +1878,6 @@ Hyphae:
 This repository: `docs/adr/0006-public-api-sessions-listener-split.md`,
 `docs/adr/0007-public-live-mode-owner-key.md`, `docs/adr/0008-public-evidence-sealed-snapshot.md`,
 `docs/security/release-checklist.md`, `docs/threat-model.md`,
-`docs/reviews/2026-10-27-independent-audit.md` (§7, the plan's owner actions),
 `crates/consensus-api/src/public_config.rs`, `crates/consensus-api/src/live/config.rs`,
 `crates/consensus-api/src/live/geo.rs`, `crates/consensus-api/src/live/budget.rs`,
 `crates/consensus-api/src/live/judge.rs`, `crates/consensus-api/src/live/turnstile.rs`,

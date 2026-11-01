@@ -10,8 +10,7 @@ Nothing is deployed. The public portal stays unexposed until every release gate 
 (`docs/security/release-checklist.md`) reads PASS; the one exception under discussion, a
 replay-only portal for the judges, needs a recorded owner decision first (see "Remaining
 for tomorrow"). Dates below are the commit dates of
-the git history (the operator's local time, UTC−05:00) or the dated entries of
-`docs/journal.md`; the architecture is described in `docs/architecture/overview.md`.
+the git history (the operator's local time, UTC−05:00); the architecture is described in `docs/architecture/overview.md`.
 
 ## Done
 
@@ -19,13 +18,13 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 
 | What | Commits | Source |
 |---|---|---|
-| M1: four-crate workspace, typed contracts and JSON Schemas, deterministic state machine, crash-safe JSONL event log, recommendation policy, ports and fakes, scripted demo | `adbbb66` | journal 2026-10-26 |
-| M2: Meta Model API adapter (structured output, timeouts, bounded retries); live Meta test passed (`muse-wonder-1.0`) | `adbbb66` | journal, ADR-0002 |
-| M3: Hyphae MCP read-only adapter and `hyphae proof verify` integration | `adbbb66` | journal, ADR-0003 |
+| M1: four-crate workspace, typed contracts and JSON Schemas, deterministic state machine, crash-safe JSONL event log, recommendation policy, ports and fakes, scripted demo | `adbbb66` | ADR-0001 |
+| M2: Meta Model API adapter (structured output, timeouts, bounded retries); live Meta test passed (`muse-wonder-1.0`) | `adbbb66` | ADR-0002 |
+| M3: Hyphae MCP read-only adapter and `hyphae proof verify` integration | `adbbb66` | ADR-0003 |
 | Operator console (Axum, SSE replay) and the synthetic `demo-repo/` fixture | `adbbb66` | ADR-0004 |
-| First Mission Control dashboard, replacing the operator console's page; since superseded | `83e71fb`, merged `c3ba8a1` | `docs/mission-control.md` (superseded) |
-| Hyphae's pinned Linux build in a local Docker container, because the Windows build's Agent Memory surface does not start on the development machine | `371113f` | journal 2026-10-26 evening |
-| Independent audit and fix round: schema 1.1 (hash chain, policy order, per-item challenge ids) | `4faa6af` (dated 2026-10-27) | journal 2026-10-26 night, `docs/reviews/2026-10-26-claude-fix-report.md` |
+| First Mission Control dashboard, replacing the operator console's page; since superseded | `83e71fb`, merged `c3ba8a1` | `apps/web/README.md` (its successor) |
+| Hyphae's pinned Linux build in a local Docker container, because the Windows build's Agent Memory surface does not start on the development machine | `371113f` | `scripts/hyphae-container/README.md` |
+| Independent audit and fix round: schema 1.1 (hash chain, policy order, per-item challenge ids) | `4faa6af` (dated 2026-10-27) | ADR-0001 (2026-10-26 amendment) |
 | Live battery of 12 Meta + Hyphae runs: 9 `blocked`, 1 `abstained`, 2 failed safely on 60 s timeouts, 0 `supported`. The blocks came from proofs reported invalid by an infrastructure fault, not corrupt evidence (the daemon's socket inside its data directory; later the store outgrew the 4 MiB MCP response), fixed on 2026-10-27 | `89b03ca` (dated 2026-10-27) | `docs/evaluation.md` §2, §5 |
 
 ### 2026-10-27 — live proofs, schema 1.2, the audit, protocol 1.3, the public API
@@ -35,7 +34,7 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 | Hyphae proofs verify live (socket moved out of the data directory; store kept under the 4 MiB response cap); policy 1.2; per-run token cap | `addd4a8`, `a721955` | ADR-0001 (1.2 amendment), ADR-0003 |
 | Strict structured output; missing draft fields fail closed; a confirmed objection stays unresolved | `3d50baf`, `a1db715` | ADR-0002 |
 | 18 live runs with every proof `valid`: one counted `supported` (R06, whose 7 round-1 objections were never re-judged and whose claim 3 cites a seeded record that misdescribes the fixture test; `docs/evaluation.md` Corrections 3 and 4), the final battery F01–F06 all `contested` | `e513176` (code `a1db715`, `3d50baf`) | `docs/evaluation.md` §5 |
-| Independent read-only audit of `72e422a` (91 findings, two fail-open paths MA-1 and RT-1) | `e4ef201` | `docs/reviews/2026-10-27-independent-audit.md` |
+| Independent read-only audit of `72e422a` (91 findings, two fail-open paths MA-1 and RT-1) | `e4ef201` | `docs/threat-model.md` section 4 (status of every finding) |
 | Apache-2.0 license, SPDX headers, `NOTICE` | `35297e7`, `e4ef201` | README, "License" |
 | Byte-identical research archive with `MANIFEST.json` and replay tests | `ff0d2fb` | `research/README.md` |
 | `EventSink`, `create_task` / `deliberate` split, `RunControl` checkpoints | `e1304f2` | ADR-0005 |
@@ -92,7 +91,7 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 | Round 5, the redesign (owner direction 2026-10-31): monochrome foundation (true greys only; status by fill, frame, hatch and icon), brushed glass, hue-free status tags, square-first shapes and the segmented theme control, the Quorum logo, favicons and Open Graph image | merges `888c618`, `48851f9`, `3c2d516`, `4436188`, `79a9214`; follow-ups to `a657531` | `apps/web/README.md` ("Monochrome", "Brushed glass", "Logo (Quorum)") |
 | UI frozen at `a657531` for the submission: no visual or layout change unless a gate fails | — | owner direction 2026-10-31 |
 | Tests at `a657531` on Windows: `cargo test --workspace --locked` 603 passed / 0 failed / 2 ignored; scripted conformance check 10/10; demo crate 2 passed; `pnpm check` passes (Vitest 42 files, 904 passed / 16 skipped); Playwright 501 tests, 500 passed in the full run, the 1 failure (a browser-context teardown past the 120 s timeout under load) passed on re-running `a11y.spec.ts` (19/19); axe 340 scans, 0 violations | — | README, "Status" |
-| Judge-facing documents: the README's "For judges" block and status, `docs/pitch.md`, `docs/submission-draft.md`, this roadmap | branch `docs/r6-judges-readme` | — |
+| Judge-facing documents: the README's "For judges" block and status, this roadmap | branch `docs/r6-judges-readme` | — |
 
 ## Remaining for tomorrow (2026-11-01)
 
@@ -105,9 +104,9 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
   2026-10-31) naming the gates that still apply to that replay-only surface; the
   hackathon-rules analysis of 2026-10-31 (outside the repository) proposes at least the edge gates G1, G3, G6 and G8, and G2 and G7
   also concern the public surface. Only after go-live or that recorded decision does the
-  URL replace `[DEMO_URL]` in the README and the submission draft; otherwise the
+  URL replace `[DEMO_URL]` in the README and the submission form; otherwise the
   placeholder is removed.
-- **Video** (owner records and approves; the package is `docs/demo/`). Recorded on the
+- **Video** (owner records and approves). Recorded on the
   frozen UI; every figure rendered from the run on screen or taken from
   `docs/evaluation.md`; scripted runs never presented as live, recorded runs captioned as
   recorded. The link then replaces `[VIDEO_URL]`.
@@ -120,7 +119,7 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 
 - Merge, tag and make the repository public; after the deadline the repository is not
   touched (a change after the deadline marks the entry late).
-- Fill in and submit the form from `docs/submission-draft.md` (target 2026-11-03; hard
+- Fill in and submit the submission form (target 2026-11-03; hard
   limit 2026-11-04 21:00 ET), with the video and demo links in place.
 - The owner's sign-off of the legal texts (G10) before any page that shows them is
   published or recorded.
@@ -158,11 +157,11 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
   runs with live mode off.
 - **Deliverables, as of 2026-10-31.** Done: the README section on how the project uses
   Meta's API; the third-party notices with the web packages, fonts and icons
-  (`THIRD_PARTY_NOTICES.md`); the demo package (`docs/demo/`; `docs/demo-script.md` now
-  only points there); the judge-facing README block. Still open: the final engineering
+  (`THIRD_PARTY_NOTICES.md`); the video-production package (kept outside the repository
+  since 2026-11-01); the judge-facing README block. Still open: the final engineering
   report (implemented, tested, passed, failed, incomplete, simulated, live), unless the
   owner decides the README's "For judges" block and "Status" replace it (proposed on
-  2026-10-31, not decided); re-checking the demo script and shot list against the
+  2026-10-31, not decided); re-checking the video script against the
   round 5 UI (its own lane); a Mission Control design specification in the repository
   (the design sources named in `apps/web/README.md` are outside it).
 - **Optional:** a single-model baseline battery (one Meta call per final-battery task on

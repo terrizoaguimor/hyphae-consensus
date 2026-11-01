@@ -10,7 +10,7 @@ decision's lanes were still landing.
 
 ## Context
 
-The prototype the independent audit examined (`docs/reviews/2026-10-27-independent-audit.md`)
+The prototype the independent audit of 2026-10-27 examined (`72e422a`; `docs/threat-model.md` section 4)
 kept every run of a server in one event log behind one `std::sync::Mutex` that the
 orchestrator held for the whole deliberation (87–407 s live), inside async handlers;
 `POST /api/runs` answered only when the run had finished, past Cloudflare's 125 s read

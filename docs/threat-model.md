@@ -8,7 +8,7 @@ Companions: ADR-0005 (per-run logs, asynchronous runs, live SSE), ADR-0006 (publ
 API v1, sessions, listener split), ADR-0007 (public live mode on the owner's key),
 ADR-0008 (sealed Hyphae snapshot), ADR-0009 (frontend), ADR-0010 (protocol 1.3),
 ADR-0002 and ADR-0003 with their 2026-10-27 notes; the independent audit of `72e422a`
-(`docs/reviews/2026-10-27-independent-audit.md`); the security release checklist
+(section 4 tracks the status of its findings); the security release checklist
 (`docs/security/release-checklist.md`, gates G1–G12); the sealed-snapshot architecture
 (`docs/architecture/sealed-snapshot.md`); the deployment runbook and its templates
 (`docs/deployment/runbook.md`, `deploy/`).
@@ -1276,8 +1276,9 @@ lint and Vitest has the network and writes `apps/web/out/`, including
 `cargo deny check` and `pnpm audit --prod` were last reported clean on 2026-10-27 and were
 not re-run for this document; the workflow has not run on GitHub yet (the repository is
 private and only the owner pushes); there is no secret scanner (gitleaks) or push
-protection; `docs/reviews/` names operational details (where credentials are stored,
-container paths, digests; no secret value) that become public with the repository; the
+protection; the internal review documents, which name operational details (where
+credentials are stored, container paths, digests; no secret value), left the tree on
+2026-11-01 but remain in the git history, which becomes public with the repository; the
 Linux fresh-clone run is still owed (G8).
 
 ### 3.8 Deployment (templates in the repository; nothing deployed)
@@ -1463,7 +1464,7 @@ anywhere in the tree.
 | TC-12 | Batteries not tied to code or configuration; replay can modify | partly: read-only `verify`, `prompt_sha256`/`schema_sha256` per invocation, `Task.mode`; the battery driver now drives the v1 operator API (`be10c71`); no run-start record of commit and configuration | `verify_cli.rs`, `meta.rs::Role::prompt_sha256`, `scripts/live_battery.py`; `prompt_hashes_identify_the_template_never_the_input`, `read_only_open_never_changes_an_archived_log` |
 | DOC-1 | No license | closed | `35297e7`, `e4ef201` (`LICENSE`, `NOTICE`, SPDX headers, README) |
 | DOC-2 | Docs said to delete `demo-run/` | closed: the docs and the archive (`ff0d2fb`, `e4ef201`) and the code (`0e8479e`: the scripted demo logs to `scripted-demo/events.jsonl`, refuses to run inside `demo-run/` or `research/`, and an unknown argument prints the usage instead of running it) | `crates/consensus-api/src/main.rs`; `the_scripted_demo_never_writes_below_the_research_directories` |
-| DOC-3 | Overclaim about corroborated claims | closed | `e4ef201` (README, pitch, evaluation; errata in `docs/reviews/README.md`) |
+| DOC-3 | Overclaim about corroborated claims | closed | `e4ef201` (README; `docs/evaluation.md`, Corrections) |
 | DOC-4 | Field-drift fail-open misattributed | closed | `e4ef201` |
 | DOC-5 | `.gitignore` gaps; no secret scanning | closed for the ignore rules and the `.env.example` entries; open for gitleaks and push protection | `.gitignore`, `.env.example`; `35297e7`, `4cb7529` |
 | DOC-6 | Raw error bodies in the log | closed | as MA-4; ADR-0002 note |
@@ -1471,14 +1472,14 @@ anywhere in the tree.
 | DOC-8 | Seeded fact 5 misdescribes the test | closed (correction notes; fixture comments) | `4cb7529`, `e4ef201` |
 | DOC-9 | `head_hash` documented as the chain head | closed (the docs in `e4ef201`; the code comments and the schema description in `40b6d06`) | `receipt.rs`, `event_log.rs::head_hash`, `schemas/run-receipt.schema.json` |
 | DOC-10 | Stale statements across ADRs, docs, env template | closed for the docs and scripts and the missing `.env.example` entries (`e4ef201`, `4cb7529`); and, after `e915b6d`, for `.env.example` (`0c473a6`: the dead `CONSENSUS_BIND` and `CONSENSUS_EVENT_LOG` replaced by the operator server's variables) and `ports.rs` (its module doc no longer promises an async M2 adapter) | `crates/consensus-runtime/src/ports.rs`, `.env.example` |
-| DOC-11 | Historical briefs carry superseded instructions | closed | `docs/reviews/README.md` (banners, errata) |
+| DOC-11 | Historical briefs carry superseded instructions | closed | the historical briefs were taken out of the repository on 2026-11-01 |
 | DOC-12 | Personal email in history; "mario" in demo defaults | accepted (history kept; neutral identities have no work item) | `main.rs`, `scenarios.rs` |
 | DOC-13 | Promised submission artifacts missing | open (the video and the submission checklist; the deployment runbook now exists but was not part of this finding) | — |
 | DOC-14 | Crates lacked `publish = false` | closed | `35297e7` |
 
 The audit also names FEAS-1 to FEAS-10, JUDGE-1, JUDGE-2 and DELIV-1 (delivery and
 judging-fit issues of the plan). They are not security findings, are not referenced
-outside `docs/reviews/` at `e915b6d`, and are outside this document.
+elsewhere in the repository, and are outside this document.
 
 ## 5. Known gaps and open decisions at `e915b6d`
 
@@ -1593,7 +1594,7 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
     assets carry public cache lifetimes; T21); only the edge rule covers them.
 22. **The live-hardening code was not independently reviewed** at the time of writing
     (`561c25e`, `e915b6d`); this document describes it as committed.
-23. **Open owner decisions** (`docs/journal.md`, 2026-10-27 night, and the runbook's open
+23. **Open owner decisions** (the runbook's open
     questions): the judge lane's daily cap (default: the whole $15 slice, so a day's
     exposure is $25); the ring's eviction of in-window visitor runs under load; the public
     contact email; the legal texts in four languages; the Day-2 items (hostname, named

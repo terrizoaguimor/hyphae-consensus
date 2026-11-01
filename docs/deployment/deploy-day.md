@@ -383,8 +383,8 @@ deliberation → a guided scenario runs to "awaiting human approval" with SIMULA
 labelled; the Showcase lists the recorded runs (RECORDED, never LIVE) and one opens with its
 receipt; a scripted console run (C01, C02 or C05) shows its scripted-model and SIMULATED proof
 labels, never a real-model or valid-looking proof; the browser console shows no CSP violation. Record the date, the hostname, the
-commit (`dist/consensus-api.commit`) and the results in `docs/reviews/` and the go-live time
-(UTC) in `docs/journal.md`.
+commit (`dist/consensus-api.commit`) and the results, and the go-live time
+(UTC), in the owner's release record (outside the repository).
 
 ### A12. Rollback (mode A)
 

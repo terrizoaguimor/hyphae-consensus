@@ -88,8 +88,8 @@ Date: 2026-10-26 · Status: accepted · Scope: milestone M3
 Every proven recall had answered `{category: "corruption", message: "native
 durable state is invalid", retry: "after-recovery"}` while plain recall
 worked. With owner authorization, recovery and diagnostics ran inside the
-container only (procedure and every mutating command in
-`docs/reviews/2026-10-27-claude-fix-report-2.md`). `hyphae agent doctor`
+container only (the procedure and its findings:
+`scripts/hyphae-container/README.md`). `hyphae agent doctor`
 reported the store **healthy**: it was not corrupt. Reading Hyphae's source
 at the pinned commit (read-only) showed that `corruption` is the generic code
 for *any* proof-generation failure and for an oversized response. Two causes

@@ -83,7 +83,7 @@ model or Hyphae dependency.
 
 ## Amendment — 2026-10-26 audit-fix round (schema 1.1)
 
-An independent audit (`docs/reviews/2026-10-26-claude-opus-review.md`) found
+An independent audit of 2026-10-26 found
 gaps in decisions 2, 3, and 5. Changes, each covered by tests:
 
 - **Decision 2, stated precisely.** Models never *write* the outcome field,
@@ -158,7 +158,7 @@ identically.
 ## Amendment — 2026-10-27 independent audit (corrections; no code change)
 
 The independent audit of `72e422a`
-(`docs/reviews/2026-10-27-independent-audit.md`) found statements in this ADR
+(`docs/threat-model.md` section 4 tracks the status of its findings) found statements in this ADR
 that do not match the code. They are corrected here; the decisions above are
 kept as written.
 

@@ -53,7 +53,7 @@ container (debian:trixie-slim, `/bin/sh` is dash, `hyphae 4.0.0` at
   so the host-side `check` compares the value to the response and nothing else. The bindings
   that can be recomputed are the sha256 digests the session records (section 6).
 - `hyphae agent setup --no-service` is the flag that created the demo and lab stores on
-  2026-10-27 (`scripts/hyphae-container/README.md`, `docs/reviews/2026-10-27-claude-fix-report-2.md`).
+  2026-10-27 (`scripts/hyphae-container/README.md`).
   The script records `hyphae agent setup --help` in `capture.log` at the start of the session so
   the flag is evidenced in the artifact itself.
 

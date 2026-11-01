@@ -12,7 +12,7 @@ sessions) are written after their lanes land; the numbering is not chronological
 
 ## Context
 
-The independent audit of 2026-10-27 (`docs/reviews/2026-10-27-independent-audit.md`)
+The independent audit of 2026-10-27 (findings MA-1 and RT-1, `docs/threat-model.md` section 4)
 found two paths by which a run could reach `supported` without anyone judging the
 objections that stood against it:
 

@@ -768,7 +768,7 @@ added with the archive in `a6cef95`).
 ## Corrections (2026-10-27, independent audit)
 
 The independent audit of commit `72e422a`
-(`docs/reviews/2026-10-27-independent-audit.md`) recomputed every hash link of
+(`docs/threat-model.md` section 4 tracks the status of its findings) recomputed every hash link of
 the five battery logs, re-derived the policy for all 33 recorded runs, and
 matched every table cell of §2, §3 and §5 against the logs and receipts: the
 numbers above are right. The corrections below concern descriptions,
@@ -783,9 +783,9 @@ corrections are marked "corrected 2026-10-27". Item 10 is a later erratum
    evidence), and H01's final round corroborated 4 of 4 claims while 2 of them
    had contradicting evidence, so H01 was contested by those contradictions as
    well as by the open objections. The summaries that extended the statement to
-   all 8 final-code runs (README, `docs/pitch.md`, fix report 2) were wrong.
-   README and pitch are corrected; fix report 2 has an erratum in
-   `docs/reviews/README.md`.
+   all 8 final-code runs (README, the technical pitch, fix report 2) were wrong.
+   The README is corrected; the pitch and the fix reports were internal documents
+   and are no longer in the repository.
 
 2. **The field-name drift predates this round (DOC-4).** §5 says both defects
    were in "this round's own changes". The first Evaluator wording (§5.1) was;
@@ -869,7 +869,7 @@ corrections are marked "corrected 2026-10-27". Item 10 is a later erratum
 7. **Commit attribution and anchor pinning (TC-12).** §5.2 attributes battery 1
    to commit `a1db715`. Battery 1's events span 06:54:56–07:19:48 UTC, before
    `a1db715`'s commit time (07:31:54 UTC): the history was rebuilt afterwards
-   into crates-only commits with an identical crates tree (fix report 2;
+   into crates-only commits with an identical crates tree (check:
    `git diff --stat 705ffc4 a1db715 -- crates` is empty). The code is the code
    that ran, but the commit did not exist yet. Likewise, "every live run below
    pinned the proof anchor" (§5) can be checked only indirectly: a successful

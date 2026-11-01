@@ -116,7 +116,7 @@ recorded in `docs/evaluation.md`.
 ## Note — 2026-10-27 independent audit
 
 The independent audit of `72e422a`
-(`docs/reviews/2026-10-27-independent-audit.md`) qualifies several decisions
+(`docs/threat-model.md` section 4 tracks the status of its findings) qualifies several decisions
 above. The decisions are kept as written; this note records what the audit
 found.
 

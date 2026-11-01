@@ -492,6 +492,9 @@ pub fn build_live_gate(
     meta: MetaConfig,
     factory: Option<Arc<dyn DeliberationFactory>>,
 ) -> Result<Arc<dyn LiveGate>, String> {
+    // A Critic on another model needs explicit ledger prices.
+    live.require_prices_for_models(&meta)
+        .map_err(|e| format!("public live mode: {e}"))?;
     let factory = factory.ok_or_else(|| {
         format!(
             "public live mode requires the sealed snapshot ({SNAPSHOT_DIR_VAR}): the evidence factory is not wired while that variable is unset; set it (with CONSENSUS_HYPHAE_EXPECTED_ANCHOR) or set {} to false",
@@ -609,6 +612,11 @@ where
         let enabled = live.clone();
         let (gate, status) = tokio::task::spawn_blocking(move || {
             let meta = public_meta_config()?;
+            // Before the snapshot boots: a mixed-model Critic without
+            // explicit ledger prices never gets that far.
+            enabled
+                .require_prices_for_models(&meta)
+                .map_err(|e| format!("public live mode: {e}"))?;
             let factory = evidence()?;
             let status = factory.as_ref().map(|f| f.status());
             Ok::<_, String>((build_live_gate(&enabled, meta, factory)?, status))
@@ -748,6 +756,45 @@ pub fn operator_ledger(env: &dyn EnvSource) -> Result<Option<Ledger>, String> {
     crate::ledger_cli::open_configured(&cfg)
 }
 
+/// `serve-operator`'s price guard: with the live ledger configured
+/// (`CONSENSUS_LIVE_LEDGER_DIR`) and a Meta configuration whose Critic runs
+/// on another model (`CONSENSUS_MODEL_CRITIC`), both ledger prices must be
+/// set explicitly ([`LiveConfig::require_prices_for_models`]), or the
+/// server refuses to start. Without a ledger (unmetered runs) or without a
+/// Meta configuration there is nothing to price.
+pub fn require_operator_prices(
+    env: &dyn EnvSource,
+    meta: Option<&MetaConfig>,
+) -> Result<(), String> {
+    let Some(meta) = meta else {
+        return Ok(());
+    };
+    let cfg = LiveConfig::load_credential_free(env).map_err(|e| e.to_string())?;
+    if cfg.ledger_dir.is_none() {
+        return Ok(());
+    }
+    cfg.require_prices_for_models(meta)
+        .map_err(|e| format!("operator ledger: {e}"))
+}
+
+/// What `serve-operator` does with the ledger at boot: opens it
+/// ([`operator_ledger`]) and, when one is configured, applies the price
+/// guard ([`require_operator_prices`]) to the Meta configuration `meta`
+/// returns (the process environment's, on the server). An unusable or
+/// absent Meta configuration is reported per run, as before (`meta` then
+/// returns `None`); only a usable mixed-model one is priced here, and
+/// `meta` is called only when a ledger is configured.
+pub fn operator_boot_ledger(
+    env: &dyn EnvSource,
+    meta: impl FnOnce() -> Option<MetaConfig>,
+) -> Result<Option<Ledger>, String> {
+    let ledger = operator_ledger(env)?;
+    if ledger.is_some() {
+        require_operator_prices(env, meta().as_ref())?;
+    }
+    Ok(ledger)
+}
+
 /// The one line `serve-operator` prints about the metering of its
 /// `model=meta` runs.
 pub fn operator_metering_line(ledger: Option<&Ledger>) -> String {
@@ -774,9 +821,13 @@ pub async fn serve_operator() -> Result<(), Box<dyn std::error::Error>> {
     let (token, generated) = operator_token(&cfg)?;
     // The ledger's files are read and written under its lock: off the
     // async workers.
-    let ledger = tokio::task::spawn_blocking(|| operator_ledger(&crate::live::config::ProcessEnv))
-        .await
-        .map_err(|e| format!("operator ledger setup: {e}"))??;
+    let ledger = tokio::task::spawn_blocking(|| {
+        operator_boot_ledger(&crate::live::config::ProcessEnv, || {
+            MetaConfig::try_from_env().ok().flatten()
+        })
+    })
+    .await
+    .map_err(|e| format!("operator ledger setup: {e}"))??;
     let metering = operator_metering_line(ledger.as_ref());
     let built = build_operator(
         &cfg,

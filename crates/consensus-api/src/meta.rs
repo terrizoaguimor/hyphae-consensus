@@ -1943,8 +1943,12 @@ impl MetaModelClient {
         // same serialization of the same document.
         let schema_text = serde_json::to_string(&schema)
             .map_err(|e| ModelError::malformed(format!("schema build: {e}")))?;
+        // The role's model (`CONSENSUS_MODEL_CRITIC` for the Critic): sent,
+        // and recorded when the API echoes none. Neither the prompt nor the
+        // schema depends on it.
+        let model = self.cfg.model_for(role).to_string();
         let request = ChatRequest {
-            model: &self.cfg.model,
+            model: &model,
             messages: [
                 ChatMessage {
                     role: "system",
@@ -1972,7 +1976,7 @@ impl MetaModelClient {
         drop(request);
         let base = ModelInvocation {
             provider: "meta".into(),
-            model: self.cfg.model.clone(),
+            model: model.clone(),
             request_id: None,
             latency_ms: None,
             input_tokens: None,
@@ -2049,8 +2053,7 @@ impl MetaModelClient {
         let request_id = api_identifier(parsed.id, ID_MAX_CHARS);
         let invocation = ModelInvocation {
             // Exact identity: prefer the model string echoed by the API.
-            model: api_identifier(parsed.model, ID_MAX_CHARS)
-                .unwrap_or_else(|| self.cfg.model.clone()),
+            model: api_identifier(parsed.model, ID_MAX_CHARS).unwrap_or(model),
             request_id: request_id.clone(),
             input_tokens: usage.and_then(|u| u.prompt_tokens),
             output_tokens: usage.and_then(|u| u.completion_tokens),

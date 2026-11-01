@@ -18,7 +18,9 @@ use consensus_api::config::MetaConfig;
 use consensus_api::live::budget::{Ledger, LedgerOptions};
 use consensus_api::live::config::vars;
 use consensus_api::runs::RunKind;
-use consensus_api::server::{operator_ledger, operator_metering_line, BuildOptions};
+use consensus_api::server::{
+    operator_boot_ledger, operator_ledger, operator_metering_line, BuildOptions,
+};
 use consensus_api::static_files::csp_hash;
 use consensus_domain::RunOrigin;
 use consensus_runtime::event_log::verify_bytes;
@@ -715,4 +717,48 @@ fn serve_operator_opens_an_existing_live_ledger_with_the_server_caps_and_no_cred
     env.insert(vars::DAILY_USD, "ten".into());
     let err = operator_ledger(&env).unwrap_err();
     assert!(err.contains(vars::DAILY_USD), "{err}");
+}
+
+/// `serve-operator`'s boot step ([`operator_boot_ledger`], the one
+/// `serve_operator` runs): with the ledger configured, a Critic on another
+/// model (`CONSENSUS_MODEL_CRITIC`) on the default prices stops startup
+/// naming the variables; explicit prices, one model, no usable Meta
+/// configuration or no ledger start. Without a ledger the Meta
+/// configuration is not even read.
+#[test]
+fn serve_operator_boot_refuses_a_mixed_model_critic_on_default_prices() {
+    let meta = |critic: &str| {
+        let mut cfg = MetaConfig::from_parts(
+            consensus_api::config::DEFAULT_META_BASE_URL,
+            consensus_api::config::ApiKey::new("LLM_1000_not-a-secret"),
+            "muse-wonder-1.0",
+        )
+        .unwrap();
+        cfg.critic_model = critic.into();
+        cfg.validate().unwrap();
+        cfg
+    };
+    // No ledger: unmetered, and the Meta configuration is never read.
+    let none = operator_boot_ledger(&BTreeMap::new(), || {
+        panic!("the Meta configuration is read only with a ledger")
+    })
+    .unwrap();
+    assert!(none.is_none());
+
+    let scratch = TempDir::new("operator-boot-critic");
+    let dir = scratch.path().join("ledger").join("public");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut env = BTreeMap::from([(vars::LEDGER_DIR, dir.display().to_string())]);
+    let err = operator_boot_ledger(&env, || Some(meta("muse-spark-1.3"))).unwrap_err();
+    assert!(err.contains("CONSENSUS_MODEL_CRITIC"), "{err}");
+    assert!(err.contains(vars::PRICE_INPUT_PER_M), "{err}");
+    assert!(err.contains(vars::PRICE_OUTPUT_PER_M), "{err}");
+    for usable in [None, Some(meta("muse-wonder-1.0"))] {
+        let ledger = operator_boot_ledger(&env, || usable).unwrap();
+        assert_eq!(ledger.expect("the ledger").dir(), dir.as_path());
+    }
+    env.insert(vars::PRICE_INPUT_PER_M, "4.00".into());
+    env.insert(vars::PRICE_OUTPUT_PER_M, "20.00".into());
+    let ledger = operator_boot_ledger(&env, || Some(meta("muse-spark-1.3"))).unwrap();
+    assert_eq!(ledger.expect("the ledger").dir(), dir.as_path());
 }

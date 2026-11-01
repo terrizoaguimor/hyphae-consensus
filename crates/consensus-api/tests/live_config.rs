@@ -2,9 +2,11 @@
 //! Live configuration tests: defaults, every invalid value names its
 //! variable, required-when-enabled, cross-checks, secrets and test keys.
 
+use consensus_api::config::{ApiKey, MetaConfig, DEFAULT_META_BASE_URL};
 use consensus_api::live::config::{vars, ConfigError, Exposure, LiveConfig};
 use consensus_api::live::judge::JudgeCodes;
 use consensus_api::live::money::Usd;
+use consensus_api::server::{build_live_gate, require_operator_prices};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -462,4 +464,118 @@ fn geo_lists_and_booleans_accept_the_documented_forms() {
             var: vars::LEDGER_DIR
         })
     ));
+}
+
+// ---------------------------------------------------------------------
+// CONSENSUS_MODEL_CRITIC and the ledger's one price table
+// ---------------------------------------------------------------------
+
+/// A Meta configuration for the guard (never used to call anything):
+/// every role on `model`, the Critic on `critic`.
+fn meta_config(model: &str, critic: &str) -> MetaConfig {
+    let mut cfg = MetaConfig::from_parts(
+        DEFAULT_META_BASE_URL,
+        ApiKey::new("LLM_1000_not-a-secret"),
+        model,
+    )
+    .unwrap();
+    cfg.critic_model = critic.into();
+    cfg.validate().unwrap();
+    cfg
+}
+
+#[test]
+fn a_critic_on_another_model_needs_both_ledger_prices_set_explicitly() {
+    let dir = TempDir::new("critic-prices");
+    let one = meta_config("muse-wonder-1.0", "muse-wonder-1.0");
+    let mixed = meta_config("muse-wonder-1.0", "muse-spark-1.3");
+
+    // Defaults: one model passes, a mixed one is refused naming the
+    // override and both price variables.
+    let cfg = load(Exposure::Public, &enabled_env(&dir)).unwrap();
+    assert!(!cfg.prices_explicit);
+    cfg.require_prices_for_models(&one).unwrap();
+    let err = cfg.require_prices_for_models(&mixed).unwrap_err();
+    assert_eq!(
+        err.vars(),
+        vec![
+            "CONSENSUS_MODEL_CRITIC",
+            vars::PRICE_INPUT_PER_M,
+            vars::PRICE_OUTPUT_PER_M
+        ]
+    );
+    let text = err.to_string();
+    assert!(
+        text.contains("muse-spark-1.3") && text.contains("muse-wonder-1.0"),
+        "{text}"
+    );
+
+    // One price explicit is not enough.
+    for var in [vars::PRICE_INPUT_PER_M, vars::PRICE_OUTPUT_PER_M] {
+        let mut e = enabled_env(&dir);
+        e.insert(var, "4.00".into());
+        let cfg = load(Exposure::Public, &e).unwrap();
+        assert!(!cfg.prices_explicit, "{var}");
+        assert!(cfg.require_prices_for_models(&mixed).is_err(), "{var}");
+    }
+
+    // Both explicit (even at the default values): the owner priced it.
+    let mut e = enabled_env(&dir);
+    e.insert(vars::PRICE_INPUT_PER_M, "4.00".into());
+    e.insert(vars::PRICE_OUTPUT_PER_M, "20.00".into());
+    let cfg = load(Exposure::Public, &e).unwrap();
+    assert!(cfg.prices_explicit);
+    cfg.require_prices_for_models(&mixed).unwrap();
+    cfg.require_prices_for_models(&one).unwrap();
+}
+
+#[test]
+fn the_public_server_refuses_to_start_a_mixed_model_critic_on_default_prices() {
+    let dir = TempDir::new("critic-gate");
+    let mixed = meta_config("muse-wonder-1.0", "muse-spark-1.3");
+    let cfg = load(Exposure::Public, &enabled_env(&dir)).unwrap();
+    // The price guard runs before anything else is assembled.
+    let err = match build_live_gate(&cfg, mixed.clone(), None) {
+        Err(e) => e,
+        Ok(_) => panic!("a mixed-model Critic on default prices must not start"),
+    };
+    assert!(err.contains("CONSENSUS_MODEL_CRITIC"), "{err}");
+    assert!(err.contains(vars::PRICE_OUTPUT_PER_M), "{err}");
+    // With explicit prices, or one model, the guard passes: what stops
+    // these is the next check (no evidence factory wired here).
+    let mut e = enabled_env(&dir);
+    e.insert(vars::PRICE_INPUT_PER_M, "4.00".into());
+    e.insert(vars::PRICE_OUTPUT_PER_M, "20.00".into());
+    let priced = load(Exposure::Public, &e).unwrap();
+    for (live, meta) in [
+        (&priced, mixed),
+        (&cfg, meta_config("muse-wonder-1.0", "muse-wonder-1.0")),
+    ] {
+        let err = match build_live_gate(live, meta, None) {
+            Err(e) => e,
+            Ok(_) => panic!("no factory: startup must fail"),
+        };
+        assert!(!err.contains("CONSENSUS_MODEL_CRITIC"), "{err}");
+        assert!(err.contains("CONSENSUS_SNAPSHOT_DIR"), "{err}");
+    }
+}
+
+#[test]
+fn the_operator_server_prices_a_mixed_model_critic_only_with_a_ledger() {
+    let dir = TempDir::new("critic-operator");
+    let mixed = meta_config("muse-wonder-1.0", "muse-spark-1.3");
+    // No ledger: unmetered runs, nothing to price.
+    require_operator_prices(&Env::new(), Some(&mixed)).unwrap();
+    let ledger = dir.path().join("ledger");
+    std::fs::create_dir_all(&ledger).unwrap();
+    let mut e = env(&[]);
+    e.insert(vars::LEDGER_DIR, ledger.display().to_string());
+    // No Meta configuration, or one model: nothing to refuse.
+    require_operator_prices(&e, None).unwrap();
+    require_operator_prices(&e, Some(&meta_config("m-1", "m-1"))).unwrap();
+    let err = require_operator_prices(&e, Some(&mixed)).unwrap_err();
+    assert!(err.contains("CONSENSUS_MODEL_CRITIC"), "{err}");
+    e.insert(vars::PRICE_INPUT_PER_M, "4.00".into());
+    e.insert(vars::PRICE_OUTPUT_PER_M, "20.00".into());
+    require_operator_prices(&e, Some(&mixed)).unwrap();
 }

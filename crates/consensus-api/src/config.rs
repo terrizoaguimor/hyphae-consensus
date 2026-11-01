@@ -11,6 +11,7 @@
 //! | `CONSENSUS_META_API_KEY`, else `MODEL_API_KEY`, else `META_API_KEY` | (required for Meta) | Meta Model API key |
 //! | `CONSENSUS_META_BASE_URL` | `https://api.meta.ai/v1` | API base (https, or http on a loopback host) |
 //! | `CONSENSUS_MODEL` | `muse-wonder-1.0` | model id |
+//! | `CONSENSUS_MODEL_CRITIC` | the resolved `CONSENSUS_MODEL` | optional model id of the Critic's calls only (`DraftChallenge`); Proposer, Revise and Evaluator keep `CONSENSUS_MODEL`. With the live ledger, a Critic model other than `CONSENSUS_MODEL` requires both ledger prices set explicitly ([`crate::live::config::LiveConfig::require_prices_for_models`]) |
 //! | `CONSENSUS_MODEL_TIMEOUT_SECS` | 120 | budget of one model call: every attempt, wait and body read |
 //! | `CONSENSUS_META_MAX_COMPLETION_TOKENS` | 16000 | `max_completion_tokens` sent with every call |
 //! | `CONSENSUS_META_REASONING_EFFORT` | not sent | `reasoning_effort` (`minimal` .. `max`) |
@@ -91,6 +92,11 @@ pub const DEFAULT_MAX_ATTEMPTS: u32 = 3;
 pub const DEFAULT_RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
 pub const DEFAULT_META_BASE_URL: &str = "https://api.meta.ai/v1";
 pub const DEFAULT_META_MODEL: &str = "muse-wonder-1.0";
+/// The model id of every role's calls.
+pub const MODEL_VARIABLE: &str = "CONSENSUS_MODEL";
+/// The optional model id of the Critic's calls only; unset, the Critic
+/// uses the resolved [`MODEL_VARIABLE`].
+pub const CRITIC_MODEL_VARIABLE: &str = "CONSENSUS_MODEL_CRITIC";
 /// The key file read before any key variable: the public server gets its
 /// dedicated key as a credential file (systemd `LoadCredential`), never
 /// through the environment.
@@ -229,8 +235,15 @@ pub struct MetaConfig {
     pub base_url: String,
     /// In-memory only, zeroized on drop; `Debug` redacts it.
     pub api_key: ApiKey,
-    /// Exact Model API identity; recorded verbatim in receipts.
+    /// Exact Model API identity of the Proposer's, Revise's and
+    /// Evaluator's calls (and the Critic's unless
+    /// [`critic_model`](Self::critic_model) differs); every call records
+    /// its own model in its invocation.
     pub model: String,
+    /// Model id of the Critic's calls only (`CONSENSUS_MODEL_CRITIC`,
+    /// falling back to [`model`](Self::model)). The prompt and schema of
+    /// the role do not depend on it, so neither do their digests.
+    pub critic_model: String,
     /// Budget of one model call: every attempt, every wait between
     /// attempts and the response body read share it.
     pub timeout: Duration,
@@ -275,6 +288,7 @@ impl std::fmt::Debug for MetaConfig {
             .field("base_url", &self.base_url)
             .field("api_key", &"<redacted>")
             .field("model", &self.model)
+            .field("critic_model", &self.critic_model)
             .field("timeout", &self.timeout)
             .field("max_attempts", &self.max_attempts)
             .field("retry_transport_once", &self.retry_transport_once)
@@ -360,10 +374,12 @@ impl MetaConfig {
         api_key: ApiKey,
         model: impl Into<String>,
     ) -> Result<Self, ConfigError> {
+        let model = model.into().trim().to_string();
         let cfg = Self {
             base_url: base_url.into().trim().trim_end_matches('/').to_string(),
             api_key,
-            model: model.into().trim().to_string(),
+            critic_model: model.clone(),
+            model,
             timeout: Duration::from_secs(DEFAULT_MODEL_TIMEOUT_SECS),
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             retry_transport_once: true,
@@ -428,11 +444,21 @@ impl MetaConfig {
     fn settings_from(get: Lookup<'_>, api_key: ApiKey) -> Result<Self, ConfigError> {
         let base_url =
             get("CONSENSUS_META_BASE_URL")?.unwrap_or_else(|| DEFAULT_META_BASE_URL.into());
-        let model = get("CONSENSUS_MODEL")?.unwrap_or_else(|| DEFAULT_META_MODEL.into());
+        let model = get(MODEL_VARIABLE)?
+            .unwrap_or_else(|| DEFAULT_META_MODEL.into())
+            .trim()
+            .to_string();
+        // The Critic falls back to the resolved model id, never straight to
+        // the default: without the override every role runs on one model.
+        let critic_model = match get(CRITIC_MODEL_VARIABLE)? {
+            Some(value) => value.trim().to_string(),
+            None => model.clone(),
+        };
         let mut cfg = Self {
             base_url: base_url.trim().trim_end_matches('/').to_string(),
             api_key,
-            model: model.trim().to_string(),
+            model,
+            critic_model,
             timeout: parse_model_timeout(get("CONSENSUS_MODEL_TIMEOUT_SECS")?.as_deref()),
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             retry_transport_once: true,
@@ -465,7 +491,8 @@ impl MetaConfig {
         cfg.validate().map_err(|e| match e.setting {
             // Name the variable a field-level check came from.
             "base_url" => ConfigError::new("CONSENSUS_META_BASE_URL", e.message),
-            "model" => ConfigError::new("CONSENSUS_MODEL", e.message),
+            "model" => ConfigError::new(MODEL_VARIABLE, e.message),
+            "critic_model" => ConfigError::new(CRITIC_MODEL_VARIABLE, e.message),
             "timeout" => ConfigError::new("CONSENSUS_MODEL_TIMEOUT_SECS", e.message),
             "reasoning_effort" => ConfigError::new("CONSENSUS_META_REASONING_EFFORT", e.message),
             "debug_dir" => ConfigError::new("CONSENSUS_META_DEBUG_DIR", e.message),
@@ -502,14 +529,14 @@ impl MetaConfig {
                 "must not carry credentials, a query or a fragment",
             ));
         }
-        if self.model.is_empty()
-            || self.model.len() > 128
-            || !self.model.chars().all(|c| c.is_ascii_graphic())
-        {
-            return Err(ConfigError::new(
-                "model",
-                "must be 1 to 128 printable ASCII characters",
-            ));
+        for (setting, model) in [("model", &self.model), ("critic_model", &self.critic_model)] {
+            if model.is_empty() || model.len() > 128 || !model.chars().all(|c| c.is_ascii_graphic())
+            {
+                return Err(ConfigError::new(
+                    setting,
+                    "must be 1 to 128 printable ASCII characters",
+                ));
+            }
         }
         if self.timeout.is_zero() || self.timeout > Duration::from_secs(3600) {
             return Err(ConfigError::new(
@@ -558,6 +585,25 @@ impl MetaConfig {
             ));
         }
         Ok(())
+    }
+
+    /// The model id `role`'s calls are sent to: the Critic's
+    /// [`critic_model`](Self::critic_model), every other role's
+    /// [`model`](Self::model).
+    pub fn model_for(&self, role: crate::meta::Role) -> &str {
+        use crate::meta::Role;
+        match role {
+            Role::Critique => &self.critic_model,
+            Role::Propose | Role::Evaluate | Role::Revise => &self.model,
+        }
+    }
+
+    /// True when the Critic runs on another model than the other roles:
+    /// the live ledger, which has one price table, then needs its prices
+    /// set explicitly
+    /// ([`crate::live::config::LiveConfig::require_prices_for_models`]).
+    pub fn mixes_models(&self) -> bool {
+        self.critic_model != self.model
     }
 }
 
@@ -1036,6 +1082,117 @@ mod tests {
                 "{local}"
             );
         }
+    }
+
+    #[test]
+    fn the_critic_model_falls_back_to_the_model_then_to_the_default() {
+        use crate::meta::Role;
+        // Neither set: every role on muse-wonder-1.0.
+        let cfg = meta(&[("MODEL_API_KEY", KEY)]).unwrap().unwrap();
+        assert_eq!(cfg.critic_model, "muse-wonder-1.0");
+        assert!(!cfg.mixes_models());
+        for role in Role::ALL {
+            assert_eq!(cfg.model_for(role), "muse-wonder-1.0", "{role:?}");
+        }
+        // CONSENSUS_MODEL only: every role on it, the Critic included.
+        let cfg = meta(&[("MODEL_API_KEY", KEY), ("CONSENSUS_MODEL", " muse-x-2 ")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(cfg.critic_model, "muse-x-2");
+        assert!(!cfg.mixes_models());
+        for role in Role::ALL {
+            assert_eq!(cfg.model_for(role), "muse-x-2", "{role:?}");
+        }
+        // CONSENSUS_MODEL_CRITIC changes the Critic's calls only, with or
+        // without CONSENSUS_MODEL.
+        for (pairs, others) in [
+            (
+                vec![
+                    ("MODEL_API_KEY", KEY),
+                    ("CONSENSUS_MODEL_CRITIC", " muse-spark-1.3\n"),
+                ],
+                "muse-wonder-1.0",
+            ),
+            (
+                vec![
+                    ("MODEL_API_KEY", KEY),
+                    ("CONSENSUS_MODEL", "muse-x-2"),
+                    ("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3"),
+                ],
+                "muse-x-2",
+            ),
+        ] {
+            let cfg = meta(&pairs).unwrap().unwrap();
+            assert_eq!(cfg.model, others);
+            assert_eq!(cfg.critic_model, "muse-spark-1.3");
+            assert!(cfg.mixes_models());
+            assert_eq!(cfg.model_for(Role::Critique), "muse-spark-1.3");
+            for role in [Role::Propose, Role::Evaluate, Role::Revise] {
+                assert_eq!(cfg.model_for(role), others, "{role:?}");
+            }
+        }
+        // An empty override is unset, like every other variable.
+        let cfg = meta(&[("MODEL_API_KEY", KEY), ("CONSENSUS_MODEL_CRITIC", "  ")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(cfg.critic_model, "muse-wonder-1.0");
+        // from_parts: one model for every role.
+        let cfg = MetaConfig::from_parts(DEFAULT_META_BASE_URL, ApiKey::new(KEY), " m-1 ").unwrap();
+        assert_eq!(
+            (cfg.model.as_str(), cfg.critic_model.as_str()),
+            ("m-1", "m-1")
+        );
+    }
+
+    #[test]
+    fn an_unusable_model_id_names_its_own_variable() {
+        let long = "m".repeat(129);
+        for value in ["has space", "\u{e9}t\u{e9}", long.as_str()] {
+            let err =
+                meta(&[("MODEL_API_KEY", KEY), ("CONSENSUS_MODEL_CRITIC", value)]).unwrap_err();
+            assert_eq!(err.setting, "CONSENSUS_MODEL_CRITIC", "{value:?}: {err}");
+            assert!(err.message.contains("printable ASCII"), "{err}");
+            let err = meta(&[("MODEL_API_KEY", KEY), ("CONSENSUS_MODEL", value)]).unwrap_err();
+            assert_eq!(err.setting, "CONSENSUS_MODEL", "{value:?}: {err}");
+        }
+        // A good CONSENSUS_MODEL does not hide a bad Critic override, nor
+        // the reverse.
+        let err = meta(&[
+            ("MODEL_API_KEY", KEY),
+            ("CONSENSUS_MODEL", "has space"),
+            ("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3"),
+        ])
+        .unwrap_err();
+        assert_eq!(err.setting, "CONSENSUS_MODEL");
+        assert!(meta(&[
+            ("MODEL_API_KEY", KEY),
+            ("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3")
+        ])
+        .is_ok());
+        // A field edited in code after the build is checked too.
+        let mut cfg =
+            MetaConfig::from_parts(DEFAULT_META_BASE_URL, ApiKey::new(KEY), DEFAULT_META_MODEL)
+                .unwrap();
+        cfg.critic_model = String::new();
+        assert_eq!(cfg.validate().unwrap_err().setting, "critic_model");
+    }
+
+    #[test]
+    fn debug_lists_both_models_and_still_redacts_the_key() {
+        let cfg = meta(&[
+            ("MODEL_API_KEY", KEY),
+            ("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3"),
+        ])
+        .unwrap()
+        .unwrap();
+        let printed = format!("{cfg:?}");
+        assert!(printed.contains(r#"model: "muse-wonder-1.0""#), "{printed}");
+        assert!(
+            printed.contains(r#"critic_model: "muse-spark-1.3""#),
+            "{printed}"
+        );
+        assert!(!printed.contains("nx9-test-secret"), "{printed}");
+        assert!(printed.contains("<redacted>"), "{printed}");
     }
 
     #[test]

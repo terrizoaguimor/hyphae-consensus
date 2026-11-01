@@ -193,6 +193,9 @@ startup_ok() {
 # asks for one; that changes nothing below).
 ADMIN=deployer
 DOC=/src/docs/deployment/deploy-day.md
+# The disconnect drops the container's own name from /etc/hosts; sudo then
+# warns "unable to resolve host" on every call. Map it to loopback.
+getent hosts "$(hostname)" >/dev/null || printf '127.0.1.1 %s\n' "$(hostname)" >> /etc/hosts
 useradd -m -s /bin/bash "$ADMIN"
 printf '%s ALL=(ALL) NOPASSWD: ALL\n' "$ADMIN" > /etc/sudoers.d/90-rehearsal && chmod 0440 /etc/sudoers.d/90-rehearsal
 as_admin() {

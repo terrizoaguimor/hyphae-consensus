@@ -619,19 +619,31 @@ Teardown after judging (about 2026-11-10): runbook 9.7.
 **How.** `bash scripts/deploy-rehearsal.sh --snapshot <main checkout>/snapshots/snap-2026-10-29-demo-repo
 --hyphae <the development copy of the hyphae 4.0.0 linux binary>` on the owner machine: a
 throwaway container from the `ubuntu:24.04` image `linux-gates.sh` pins (Ubuntu 24.04.5 LTS,
-glibc 2.39), the repository mounted read-only, `curl ca-certificates openssl python3 systemd`
-installed from the Ubuntu archive, then the network **disconnected** (only `lo` left) before
-anything of the project ran, so no request could reach Meta or Siteverify; the container is
-removed at the end. Inputs: `dist/consensus-api` from `sh scripts/linux-gates.sh --release`
-in this worktree at `d0745f5` (sha256 `b9594f79dfefaba8f7d39c440f86ffa99ed113e44130ba6f3d106642e01a60ab`;
-the Rust tree is `a657531`'s, the commit only adds the installer flags), `apps/web/out` from
+glibc 2.39), the repository mounted read-only, `curl ca-certificates openssl python3 systemd
+sudo` installed from the Ubuntu archive, then the network **disconnected** (only `lo` left, no
+route; checked without sending any request) before anything of the project ran, so no
+request could reach Meta or Siteverify; the container is removed at the end. The server
+blocks of A3 (install and verify), A4, A7 and B2 (the snapshot) and the checks of B3 are
+**read out of this document** and run as an unprivileged SSH user (`deployer`, `sudo`
+without a password) exactly as written, with `<hostname>` filled in; only the real
+`install.sh` line of A3 (it needs a running systemd: the rehearsal installs with
+`--no-systemd` as root) and the `canary-scan.sh` line of A7 (it needs `systemctl`) are left
+out. Inputs: `dist/consensus-api` from `sh scripts/linux-gates.sh --release` in the
+`docs/r6-deploy-ready-r` worktree at `ed879cc` (sha256
+`b9594f79dfefaba8f7d39c440f86ffa99ed113e44130ba6f3d106642e01a60ab`, the same bytes as the
+first rehearsal's build at `d0745f5`: the Rust tree is `a657531`'s), `apps/web/out` from
 `pnpm build` without `.env.production.local`, and `research/`.
 
-**Result: 192 checks passed, 0 failed** (fourth run; the first three found the defects in the
-script itself and the three documentation errors listed under "Findings"). The gates of the
-release build: fmt, clippy, test (604 passed, 0 failed, 2 ignored), demo crate (2 passed),
-evaluate (10/10, 0 unauthorized executions), manifest self-test (38 checks), capture
-self-test (29 passed). A first gates run on the same tree had one failure,
+**Result: 240 checks passed, 0 failed** (run of the review round; the first round's fourth
+run had 192 checks, its first three found the defects in the script itself and the
+documentation errors listed under "Findings"). A mutation run on the same build, with the old
+A4 line `[ -d /var/lib/consensus/web ] && ...`, the old A7 `stat` without `sudo` and the old
+template (both Turnstile lines active), failed 19 checks, among them the nested export
+(`web/web.new`), every page `404`, the socket `stat` refused and the template's active
+Turnstile lines: the rehearsal now catches each of those. The gates of the release build:
+fmt, clippy, test (604 passed, 0 failed, 2 ignored), demo crate (2 passed), evaluate (10/10,
+0 unauthorized executions), manifest self-test (38 checks), capture self-test (29 passed).
+In the first round, a first gates run on the same tree had one failure,
 `api_public::a_damaged_stored_run_is_reported_never_served_as_if_whole` (a tampered stored
 run answered 200 instead of 500 on its first read); the re-run on the same commit passed, so
 it is recorded as an intermittent test failure to look at, not as a deployment blocker. If
@@ -641,14 +653,15 @@ What passed, by step:
 
 | Step | Checked |
 |---|---|
-| A3 | `sha256sum -c` of the copied binary; `install.sh --dry-run` exits 0, prints 33 changes and changes nothing; a wrong `--sha256` is refused; `install.sh --no-systemd` then a second run (idempotent; `public.env` left as is); every path of runbook 2.3 with its mode and owner (20 paths); `cloudflared` in `consensus-sock` only; `/run/consensus` `2750 consensus:consensus-sock` both by hand and from `deploy/tmpfiles.d/consensus.conf` through `systemd-tmpfiles --create`; `systemd-analyze verify` of both units: no output, exit 0 |
-| A4 | the web export (512 files, 11 MB packed) and `research/` (53 files) packed and unpacked with the runbook commands, `sha256sum -c` on the "server" side; `csp-manifest.json` in place |
-| A5, A6 | the canary key, the placeholder Turnstile file, the operator token; no `<placeholder>` on an active line; the ten active lines of A6 |
-| A7 | startup lines as listed in A7, no `[snapshot]` line; socket `srw-rw---- consensus:consensus-sock`; health 200 (`executor: disabled`, schema 1.3, policy 1.2, contract `465f4117…ad760e`); `451` without `CF-IPCountry` and from `UA`; `421` for a foreign `Host`; `400 client_unidentified` for a session without `CF-Connecting-IP`; `/ready` `"ready":true`, showcase 48 entries; `/capabilities` `"live_enabled":false`; the five scenarios listed; `/`, `/en/`, `/es/`, `/pt-BR/`, `/fr/`, `/en/showcase/`, `/en/runs/` 200 with CSP, `nosniff`, `DENY`, `no-referrer`; G1 404s (`/api/runs`, `POST /api/v1/operator/runs`, unknown path; `/` is not the console); `POST /api/v1/live-runs` never 202; a guided run of each scenario to `awaiting_human_approval` (retry `supported`, offline `insufficient_evidence`, invalid_proof `blocked`, injection `insufficient_evidence`, abstain `abstained`), provenance scripted model with simulated or no evidence, receipt and `events.ndjson` 200; G2: another session gets 404 on detail, events, receipt and cancel and never sees the run listed, no session at all gets 401; SSE of a resting run: `: stream-start` ... `event: stream_end`; the cookie `__Host-hc_session` with `Secure` and `HttpOnly`; showcase list (48), detail and receipt 200, `source: research_archive`; `/research/MANIFEST.json` byte-equal to the archive; cloudflared reaches the socket and cannot read `public.env`, `operator.token`, `snapshots/`, `runs/`, `ledger/` or the credential copy; G4: the server's environment (13 variables) has no key and no key variable, only `CONSENSUS_META_API_KEY_FILE` as a path, and the canary is in no log, store file or response; the A7 snippets exactly as written; SIGTERM: exit 0, `[shutdown]` line, socket removed; after a restart the six runs are in the store, the old cookie is no session (sessions are in memory) and `/ready` is true |
-| A6 traps | each stops startup naming the variable: the Turnstile lines over an empty file (`the Turnstile secret is empty`), `CONSENSUS_TURNSTILE_HOSTNAME=<hostname>`, one Turnstile line without the other, an origin without `https://`, `CONSENSUS_ALLOWED_HOSTS` missing, live mode on with nothing else; and two that do not: a missing Meta key file with live mode off starts (never opened), and an unreplaced `<hostname>` in `CONSENSUS_ALLOWED_HOSTS` starts and then answers `421` to the real host (hence the `grep` of A6) |
-| B2 | `hyphae --version` as `consensus`: `hyphae 4.0.0`; the snapshot's `SHA256SUMS`; manifest digest, anchor and binary digest equal to the pins #20-#22; tree `700 consensus:consensus`, unreachable for cloudflared; `snapshot_manifest.py check --reverify /opt/hyphae/bin/hyphae` as `consensus`: `OK ... 2 captures, 22 file digests verified, 7 record ids ..., 2 captures re-verified with hyphae (fresh reports equal the captured ones)` |
+| A3 | as the SSH user, the A3 block: `sha256sum -c` of the copied binary, the unpack, `sudo install.sh --dry-run` exits 0, prints 35 changes, every status line reads "would", changes nothing; a wrong `--sha256` is refused; `install.sh --no-systemd` then a second run (idempotent; `public.env` left as is); a re-run dry run without `sudo` says it cannot see inside `/etc/consensus`, with `sudo` it sees `public.env`; the A3 verify block as the SSH user prints the six expected `stat` lines and `cloudflared consensus-sock`, no "Permission denied"; every path of runbook 2.3 with its mode and owner (20 paths); `cloudflared` in `consensus-sock` only; `/run/consensus` `2750 consensus:consensus-sock` both by hand and from `deploy/tmpfiles.d/consensus.conf` through `systemd-tmpfiles --create`; `systemd-analyze verify` of both units: no output, exit 0 |
+| A4 | the web export and `research/` (53 files) packed with the A0 commands; the A4 block as the SSH user over an existing (empty) `/var/lib/consensus/web`: `web export verified`, `csp manifest present`, `research archive verified`, no "Permission denied"; `csp-manifest.json` at the web root, no nested `web/web.new`, the old root moved to `web.old`, owners and modes `consensus` `0750`/`0640` |
+| A5, A6 | the template has no active `CONSENSUS_TURNSTILE_*` line; the canary key, the placeholder Turnstile file, the operator token; no `<placeholder>` on an active line; the ten active lines of A6 |
+| A7 | startup lines as listed in A7, no `[snapshot]` line; socket `srw-rw---- consensus:consensus-sock`; health 200 (`executor: disabled`, schema 1.3, policy 1.2, contract `465f4117…ad760e`); `451` without `CF-IPCountry` and from `UA`; `421` for a foreign `Host`; `400 client_unidentified` for a session without `CF-Connecting-IP`; `/ready` `"ready":true`, showcase 48 entries; `/capabilities` `"live_enabled":false`; the five scenarios listed; `/`, `/en/`, `/es/`, `/pt-BR/`, `/fr/`, `/en/showcase/`, `/en/runs/` 200 with CSP, `nosniff`, `DENY`, `no-referrer`; G1 404s (`/api/runs`, `POST /api/v1/operator/runs`, unknown path; `/` is not the console); `POST /api/v1/live-runs` never 202; a guided run of each scenario to `awaiting_human_approval` (retry `supported`, offline `insufficient_evidence`, invalid_proof `blocked`, injection `insufficient_evidence`, abstain `abstained`), provenance scripted model with simulated or no evidence, receipt and `events.ndjson` 200; G2: another session gets 404 on detail, events, receipt and cancel and never sees the run listed, no session at all gets 401; SSE of a resting run: `: stream-start` ... `event: stream_end`; the cookie `__Host-hc_session` with `Secure` and `HttpOnly`; showcase list (48), detail and receipt 200, `source: research_archive`; `/research/MANIFEST.json` byte-equal to the archive; cloudflared reaches the socket and cannot read `public.env`, `operator.token`, `snapshots/`, `runs/`, `ledger/` or the credential copy; G4: the server's environment (13 variables) has no key and no key variable, only `CONSENSUS_META_API_KEY_FILE` as a path, and the canary is in no log, store file or response; the A7 socket block as the SSH user, exactly as written (`sudo stat` of the socket, health, ready, capabilities, the headers, the G1 404, the guided run to `awaiting_human_approval`, its receipt, the 401, the showcase count 48 and a detail, the research manifest, cloudflared's 200 and its four refusals, no `LEAK`); SIGTERM: exit 0, `[shutdown]` line, socket removed; after a restart the six runs are in the store, the old cookie is no session (sessions are in memory) and `/ready` is true |
+| A6 traps | each stops startup naming the variable: the Turnstile lines over an empty file (`the Turnstile secret is empty`), `CONSENSUS_TURNSTILE_HOSTNAME=<hostname>`, one Turnstile line without the other, an origin without `https://`, `CONSENSUS_ALLOWED_HOSTS` missing, live mode on with nothing else; and three that do not: both Turnstile lines over the A5 placeholder secret start (a placeholder is accepted; the B3 checks print `STILL THE PLACEHOLDER` and `STILL THE CANARY` for the A5 files), a missing Meta key file with live mode off starts (never opened), and an unreplaced `<hostname>` in `CONSENSUS_ALLOWED_HOSTS` starts and then answers `421` to the real host (hence the `grep` of A6) |
+| B2 | `hyphae --version` as `consensus`: `hyphae 4.0.0`; the snapshot's `SHA256SUMS`; the B2 snapshot lines (from the move to the cloudflared check) as the SSH user: `snapshot verified`, the manifest pin printed, `witnesses: unreachable for cloudflared`, no "Permission denied"; manifest digest, anchor and binary digest equal to the pins #20-#22; top directory `700 consensus:consensus`, the snapshot directory `750`, files `0640`; `snapshot_manifest.py check --reverify /opt/hyphae/bin/hyphae` as `consensus`: `OK ... 2 captures, 22 file digests verified, 7 record ids ..., 2 captures re-verified with hyphae (fresh reports equal the captured ones)` |
 | B4 | `judge-codes.sh --count 2` (codes discarded unprinted): `640 root:consensus`, 2 digests; a second run without `--force` refused |
-| B5, B6 | exactly the nine lines of B5 change; the boot: `Sealed snapshot evidence: snap-2026-10-29-demo-repo (project demo-repo, 7 records, anchor 43a2dea9c48d…, manifest sha256 pinned b731346c8464…, verifier binary sha256 pinned 79025e8758ee…, captured 2026-10-29T17:16:12Z, proofs re-verified at boot ...)`, `Public live mode: enabled on the owner's key (daily cap 10.00, lifetime cap 60.00, 3 public runs per client a day, judge lane open, 5 runs per code a day)`, no unavailable line; `/ready` `"live":{"ledger_ok":true,"tripped":false,"evidence_ok":true}`; `/capabilities` `live_enabled` and `requires_turnstile` true; `consensus-api ledger status` (what `ledger.sh` runs) exit 0; a guided run still 202; SIGTERM exit 0. Refused at startup: live mode without the manifest pin, without the binary pin, without the Turnstile secret file. A wrong manifest pin keeps the portal up with `[snapshot] live evidence unavailable: manifest_pin_mismatch` and `/ready` `"evidence_ok":false` |
+| B3 | with a non-placeholder secret in `turnstile.secret` the check prints `turnstile.secret replaced` |
+| B5, B6 | exactly the eight lines of B5 change, the ledger stays `ledger/staging`; the boot: `Sealed snapshot evidence: snap-2026-10-29-demo-repo (project demo-repo, 7 records, anchor 43a2dea9c48d…, manifest sha256 pinned b731346c8464…, verifier binary sha256 pinned 79025e8758ee…, captured 2026-10-29T17:16:12Z, proofs re-verified at boot ...)`, `Public live mode: enabled on the owner's key (daily cap 10.00, lifetime cap 60.00, 3 public runs per client a day, judge lane open, 5 runs per code a day)`, no unavailable line; `/ready` `"live":{"ledger_ok":true,"tripped":false,"evidence_ok":true}`; `/capabilities` `live_enabled` and `requires_turnstile` true; `consensus-api ledger status` (what `ledger.sh` runs) exit 0; a guided run still 202; SIGTERM exit 0. Refused at startup: live mode without the manifest pin, without the binary pin, without the Turnstile secret file. A wrong manifest pin keeps the portal up with `[snapshot] live evidence unavailable: manifest_pin_mismatch`, `/ready` `"ready":false` with `"evidence_ok":false`, `/capabilities` `live_enabled` false, health 200 and a guided run still `202` |
 
 **Not rehearsed** (no systemd as PID 1, no network, no Cloudflare): `systemctl` itself and the
 unit's sandbox directives (`ProtectSystem=strict`, the system-call filter, ...; the server ran
@@ -656,8 +669,10 @@ as the service user with the same environment and credentials paths, not inside 
 `LoadCredential=` (emulated by copying the files to `/run/credentials/consensus-public.service/`
 readable by the service user), `sandbox-probe.sh` and `ledger.sh` (both need `systemd-run`),
 cloudflared, ufw, the Cloudflare dashboard, every check through the edge (A11), the Turnstile
-widget, a live run and the kill-switch rehearsal (B7), and the release tarball check of #23
-(the development copy of the binary was used: it hashes to #22).
+widget, a live run and the kill-switch rehearsal (B7), the retirement of the staging ledger
+(B7b: it needs `systemctl`), and the release tarball check of #23 (the development copy of
+the binary was used: it hashes to #22). The SSH user's `sudo` asked for no password; the
+VPS's will, which changes nothing in the commands.
 
 **Findings, and what changed** (`docs/r6-deploy-ready`):
 
@@ -686,3 +701,26 @@ widget, a live run and the kill-switch rehearsal (B7), and the release tarball c
 6. Recorded, not changed: an unreplaced `<hostname>` in `CONSENSUS_ALLOWED_HOSTS` is accepted
    at startup (`validate_host` refuses only `/`, spaces and `://`) and then refuses every real
    request with `421`; A6 greps for placeholders before the start.
+
+Review round (`docs/r6-deploy-ready-r`):
+
+7. Every check of A3, A4, A7 and B2 under a `0750` tree (`/etc/consensus`,
+   `/var/lib/consensus`, `/run/consensus`) ran as the SSH user without `sudo`, copied from
+   runbook 3.3, which had the same lines: `[ -d /var/lib/consensus/web ]` was false for the
+   SSH user, so the old web root was never moved aside and `mv web.new web` nested the export
+   at `web/web.new` (seen in the mutation run: the server then starts and answers `404` on
+   every page); `( cd ... && sudo sha256sum -c )` could not enter the directory; the `stat`
+   lines were refused. Every such line now runs under `sudo` (`sudo test`, `sudo sh -c 'cd
+   ... && sha256sum -c ...'`, `sudo stat`), in this document and in runbook 3.3, 3.4, 5.1 and
+   8 (the Hyphae-settings `grep` of `public.env` there printed "no Hyphae daemon settings"
+   after a refused read). The first rehearsal ran these lines as root with `sudo` dropped and
+   could not see it; it now runs them from this document as an unprivileged user.
+8. Mode B no longer runs B6 and B7 on the production ledger: B5 keeps `ledger/staging` and
+   the new step B7b retires it and switches to the empty `ledger/public` (runbook 4.5, gate
+   G11).
+9. `install.sh`: in a dry run every status line reads "would: ..."; a dry run without root
+   says that it cannot see inside `/etc/consensus` (A3 and runbook 3.4 now run it with
+   `sudo`); `--no-systemd` creates `/etc/tmpfiles.d` and `/etc/systemd/system` when missing
+   (probed in a bare `ubuntu:24.04` without the systemd package: exit 0, the layout in place).
+10. The research showcase is not all real-model runs: the console runs C01, C02 and C05 are
+    scripted with simulated proofs (`research/README.md`); the mode table, A7 and A11 say so.

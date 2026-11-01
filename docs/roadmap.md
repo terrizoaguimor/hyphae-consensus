@@ -1,9 +1,10 @@
 # Roadmap
 
-Date: 2026-10-29 · State of branch `feat/public-portal` at `bc3b262`, with the snapshot
-capture (`b0375df`) added the same day; its boot-check fix (`0515f29`) is merged (`7e26866`);
-updated 2026-10-30 for the counted protocol 1.3 battery only · Submission
-deadline: 2026-11-05T02:00Z (development window October 26 – November 4, 2026).
+Date: 2026-10-31 · State of branch `feat/public-portal` at `a657531` (first written
+2026-10-29 at `bc3b262`; updated 2026-10-30 for the counted protocol 1.3 battery and
+2026-10-31 for the redesign, the merges and the plan to the deadline) · Submission
+deadline: Wednesday 2026-11-04, 21:00 ET = 2026-11-05T02:00Z (development window
+October 26 – November 4, 2026).
 
 Nothing is deployed. The public portal stays unexposed until every release gate G1–G12
 (`docs/security/release-checklist.md`) reads PASS. Dates below are the commit dates of
@@ -78,34 +79,59 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 
 | What | Commits | Source |
 |---|---|---|
-| Counted protocol 1.3 battery, the last 4 of the 8 authorized live runs, through `consensus-api serve-operator` built at `f0f3815`, on the `prompt-freeze-2` prompts, against the re-seeded demo store (anchor `27943f61…f42347c`): M01 failed at critique on a call past the battery's 120 s budget (the smoke runs had 240 s) and M02 at critique on a Meta HTTP 500 (2 of 4 runs lost to provider errors); M03 `supported`, the battery's only one, for a revision that does not claim the exponential schedule the task asked for; M04 failed closed at evaluate (`evaluation_contract`: a contradiction carried from round 1 neither cited again nor cleared, ADR-0010). 25 Meta calls (23 answered, 0 retries recorded); all 41 verification records `valid`. No rate of any outcome is claimed | archive `a6cef95`, `825a4b0` (branch `research/battery-2026-10-30`, not yet merged) | `docs/evaluation.md` §6.3; `research/README.md`, "The 2026-10-30 battery" |
+| Counted protocol 1.3 battery, the last 4 of the 8 authorized live runs, through `consensus-api serve-operator` built at `f0f3815`, on the `prompt-freeze-2` prompts, against the re-seeded demo store (anchor `27943f61…f42347c`): M01 failed at critique on a call past the battery's 120 s budget (the smoke runs had 240 s) and M02 at critique on a Meta HTTP 500 (2 of 4 runs lost to provider errors); M03 `supported`, the battery's only one, for a revision that does not claim the exponential schedule the task asked for; M04 failed closed at evaluate (`evaluation_contract`: a contradiction carried from round 1 neither cited again nor cleared, ADR-0010). 25 Meta calls (23 answered, 0 retries recorded); all 41 verification records `valid`. No rate of any outcome is claimed | archive `a6cef95`, `825a4b0`; merged into `feat/public-portal` as `e4e4c73` | `docs/evaluation.md` §6.3; `research/README.md`, "The 2026-10-30 battery" |
+| The W2 review rounds (Evidence, Proof inspector, Audit trail, Meta API panel, explanations, revision view, showcase) | merged up to `f0f3815` | `apps/web/README.md`, W2 section |
 
-## In progress (2026-10-29)
+### 2026-10-31 — heuristic-evaluation fixes, the redesign, the UI freeze
 
-- An independent review of the W2 web views (`bc3b262`).
-- Documentation: this roadmap, the architecture overview and the other documents updated
-  on 2026-10-29.
+| What | Commits | Source |
+|---|---|---|
+| Round 4, heuristic-evaluation fixes: simulated never green (HE #1, #2, #16), no truncated outcome or evidence tag (HE #3, #24), decision prominence (HE #4, #12), integrity failures travel (HE #5, #7), guided cards SCRIPTED (HE #6), state copy and error headlines (HE #8, #18), phone width and contrast (HE #9, #10) | merges `e6cbbce` to `3b44b49` | `apps/web/README.md` (round 4) |
+| Round 5, the redesign (owner direction 2026-10-31): monochrome foundation (true greys only; status by fill, frame, hatch and icon), brushed glass, hue-free status tags, square-first shapes and the segmented theme control, the Quorum logo, favicons and Open Graph image | merges `888c618`, `48851f9`, `3c2d516`, `4436188`, `79a9214`; follow-ups to `a657531` | `apps/web/README.md` ("Monochrome", "Brushed glass", "Logo (Quorum)") |
+| UI frozen at `a657531` for the submission: no visual or layout change unless a gate fails | — | owner direction 2026-10-31 |
+| Tests at `a657531` on Windows: `cargo test --workspace --locked` 603 passed / 0 failed / 2 ignored; scripted conformance check 10/10; demo crate 2 passed; `pnpm check` passes (Vitest 42 files, 904 passed / 16 skipped); Playwright 501 tests, 500 passed in the full run, the 1 failure (a browser-context teardown past the 120 s timeout under load) passed on re-running `a11y.spec.ts` (19/19); axe 340 scans, 0 violations | — | README, "Status" |
+| Judge-facing documents: the README's "For judges" block and status, `docs/pitch.md`, `docs/submission-draft.md`, this roadmap | branch `docs/r6-judges-readme` | — |
 
-## Pending before submission
+## Remaining for tomorrow (2026-11-01)
 
-### Engineering
+- **Deploy** (owner; he provides the server and its variables). Per
+  `docs/deployment/runbook.md` and `deploy/`. The guided runs (SIMULATED) and the research
+  showcase (RECORDED) need no Meta key on the server; live mode stays off
+  (`CONSENSUS_LIVE_ENABLED=false`) unless every gate it depends on reads PASS. The URL then
+  replaces `[DEMO_URL]` in the README and the submission draft.
+- **Video** (owner records and approves; the package is `docs/demo/`). Recorded on the
+  frozen UI; every figure rendered from the run on screen or taken from
+  `docs/evaluation.md`; scripted runs never presented as live, recorded runs captioned as
+  recorded. The link then replaces `[VIDEO_URL]`.
+- **Push to GitHub with a CI run** (authorized by the owner on 2026-10-31; the integrator
+  pushes after the full-history secret scan). A green CI run is the evidence G12 still
+  lacks.
+
+## Before the deadline (2026-11-02 to 2026-11-04)
+
+- Merge, tag and make the repository public; after the deadline the repository is not
+  touched (a change after the deadline marks the entry late).
+- Fill in and submit the form from `docs/submission-draft.md` (target 2026-11-03; hard
+  limit 2026-11-04 21:00 ET), with the video and demo links in place.
+- The owner's sign-off of the legal texts (G10) before any page that shows them is
+  published or recorded.
+
+## Pending engineering (open, not needed for the submission)
 
 - **Sealed snapshot: what remains after the capture.** The capture session ran on
-  2026-10-29 (`b0375df`, see "Done") and the three digests are published in the README
-  ("Published snapshot digests"). Still owed: merging the boot fix `0515f29` into `feat/public-portal` (without
-  it the runtime refuses the real snapshot); comparing `hyphae-binary.sha256` with the
+  2026-10-29 (`b0375df`, see "Done"), the three digests are published in the README
+  ("Published snapshot digests"), and the boot fix `0515f29` is merged (`7e26866`). Still
+  owed: comparing `hyphae-binary.sha256` with the
   binary extracted from the release tarball checked against `cf92ed6d…` (runbook 3.2);
   the same three digests in the release tag; and the snapshot on the server (runbook 3.3,
   owner authorization). A fresh git checkout of the snapshot directory cannot boot
   (`checksums_incomplete`): the `.proof` and `.witness` files are git-ignored, so the
   server copy must come from the container or the main checkout, under a directory named
   `snap-2026-10-29-demo-repo`.
-- **Counted protocol 1.3 battery: done on 2026-10-30** (see "Done"; `docs/evaluation.md`
-  §6.3). It was not run on 2026-10-29, when `META_API_KEY` was not set on the development
-  machine (no Meta call was made then). The 8 authorized runs are spent. Still owed: merging
-  the archive branch `research/battery-2026-10-30` and this write-up into
-  `feat/public-portal`. With 2 of the 4 runs lost to provider errors, no rate of any outcome
-  under protocol 1.3 is claimed; any further live run needs the owner's authorization.
+- **Counted protocol 1.3 battery: done on 2026-10-30 and merged** (`e4e4c73`; see "Done";
+  `docs/evaluation.md` §6.3). The 8 authorized runs are spent. With 2 of the 4 runs lost
+  to provider errors, no rate of any outcome under protocol 1.3 is claimed; any further
+  live run needs the owner's authorization.
 - **Release gates.** G1–G7 and G9–G11 pending, G12 partly
   (`docs/security/release-checklist.md`): among them the fresh-clone G8 run before the
   tag, the deployed-ingress review and probe (G1), the two-browser isolation probe (G2),
@@ -116,16 +142,17 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
   Hyphae child runs as the same user and can read the key file at its credentials path
   (G4); no fuzzing harness exists (G5); no temp-directory sweep for the verifier exists,
   and the verbatim `/research` files carry 652 container paths (G9).
-- **Staging deployment** on the server behind Cloudflare Access, per
-  `docs/deployment/runbook.md`, then go-live once every gate G1–G12 reads PASS; live mode
-  may stay off (`CONSENSUS_LIVE_ENABLED=false`) at launch if the owner chooses.
-- **Deliverables still to write:** the Mission Control design specification, the demo
-  package and the rewritten demo script (`docs/demo-script.md` still describes the old
-  console), the README section on how the project uses Meta's API, third-party notices
-  for the npm packages and fonts, and the final engineering report (implemented, tested,
-  passed, failed, incomplete, simulated, live).
-- **Video** (3 minutes): every figure rendered from the run shown; recorded or sped-up
-  footage labelled on screen; scripted runs never presented as live.
+- **The public live mode** (owner's key, presets, $10/day and $60 lifetime caps,
+  Turnstile, judge codes) goes live only once every gate G1–G12 reads PASS; it is not
+  needed for the submission, which can show the guided and recorded runs with live mode
+  off.
+- **Deliverables, as of 2026-10-31.** Done: the README section on how the project uses
+  Meta's API; the third-party notices with the web packages, fonts and icons
+  (`THIRD_PARTY_NOTICES.md`); the demo package (`docs/demo/`; `docs/demo-script.md` now
+  only points there); the judge-facing README block, which replaces the planned final
+  engineering report. Still open: re-checking the demo script and shot list against the
+  round 5 UI (its own lane); a Mission Control design specification in the repository
+  (the design sources named in `apps/web/README.md` are outside it).
 - **Optional:** a single-model baseline battery (one Meta call per final-battery task on
   the same evidence), only with the owner's spend approval. Without it, no comparative
   claim beyond what the recorded runs show is made.

@@ -619,7 +619,8 @@
       "next": {
         "transient": "This kind of failure is usually temporary: the same preset can succeed on a new run.",
         "protocol": "The protocol stopped the run on purpose rather than continue on a document it refused. A new run of the same preset is independent of this one.",
-        "closed": "Starting again may not work right now; the Live presets page says whether live mode is open.",
+        "closed": "Starting again may not work right now: what stopped this run is on the server’s side, and a new run would likely meet it too.",
+        "closedLive": "Starting again may not work right now; the Live presets page says whether live mode is open.",
         "cancelled": "The run was cancelled, so it stopped where it was. A new run starts from the beginning.",
         "deadline": "The run used up its time limit before it finished. A new run gets a time limit of its own."
       },
@@ -629,8 +630,9 @@
         "evaluate": "evidence evaluation",
         "revise": "revision",
         "token_budget": "token budget check",
-        "deadline": "deadline",
-        "shutdown": "shutdown"
+        "deadline": "deadline check",
+        "shutdown": "server shutdown",
+        "interrupted": "server restart"
       },
       "subjects": {
         "proposer": "The Proposer",
@@ -639,7 +641,7 @@
         "runtime": "The runtime"
       },
       "roleCodes": {
-        "model_malformed_output": "{role} answered, but its document did not have the form the runtime requires (for example, a proposal without claims), so the runtime refused it rather than guess.",
+        "model_malformed_output": "{role} answered, but its document did not have the form the runtime requires, so the runtime refused it rather than guess.",
         "model_no_claims": "{role} answered with a proposal that had no claims, so the runtime refused it rather than guess.",
         "model_content_filtered": "{role} produced no document: the provider’s content filter withheld its answer, so the runtime had nothing to check.",
         "model_unexpected_finish": "{role} stopped before finishing its document, for a reason the runtime does not accept, so the runtime refused the answer rather than guess."
@@ -1125,7 +1127,7 @@
         "body": "The server builds the receipt from the run’s records, so the two should agree. Read the receipt again; if they still disagree, treat both with care."
       }
     },
-    "restartHint": "If the server restarted since you started it, this browser’s session may have ended with it."
+    "restartHint": "This browser’s session cannot see this run: it may belong to another browser or session, your session may have ended, or the run may have been deleted after its access window."
   },
   "Showcase": {
     "lead": "Recorded runs, scripted ones and runs of Meta’s model, read from a verbatim archive.",

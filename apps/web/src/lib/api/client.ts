@@ -197,6 +197,36 @@ export function hasSessionFlag(): boolean {
   }
 }
 
+/** The probe key `sessionFlag` writes once to learn whether the flag could have been set. */
+const SESSION_FLAG_PROBE_KEY = "hc.session.probe";
+
+/**
+ * What the session flag can tell: "set" (this browser held a session the
+ * last time the server was asked), "absent" (storage works and holds no
+ * flag: no session) or "unknown" (storage cannot be read or written, for
+ * example blocked by the browser's privacy settings or full, so the flag
+ * could never have been set). Only "absent" lets My runs skip GET /session;
+ * with "unknown" it asks the server as before the flag existed, so a valid
+ * HttpOnly cookie still lists its runs.
+ */
+export function sessionFlag(): "set" | "absent" | "unknown" {
+  const storage = sessionStorageArea();
+  if (storage === null) {
+    return "unknown";
+  }
+  try {
+    if (storage.getItem(SESSION_FLAG_KEY) === "1") {
+      return "set";
+    }
+    // A storage that refuses a write could not have kept the flag either.
+    storage.setItem(SESSION_FLAG_PROBE_KEY, "1");
+    storage.removeItem(SESSION_FLAG_PROBE_KEY);
+    return "absent";
+  } catch {
+    return "unknown";
+  }
+}
+
 function summarizeIssues(error: z.ZodError): string {
   return error.issues
     .slice(0, 3)

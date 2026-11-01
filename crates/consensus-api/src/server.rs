@@ -448,8 +448,13 @@ where
             }
         }
     });
-    serve.await?;
+    let served = serve.await;
     purge.abort();
+    // The sessions changed since the writer's last rewrite reach the disk
+    // before the process ends (crate::session, "Persistence").
+    let sessions = state.sessions.clone();
+    let _ = tokio::task::spawn_blocking(move || sessions.flush()).await;
+    served?;
     Ok(())
 }
 

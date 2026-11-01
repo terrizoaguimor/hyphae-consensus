@@ -3160,7 +3160,23 @@ test("a session flag the server no longer honours is cleared after one 401", asy
   expect(mock.calls.filter((c) => c.path === "/api/v1/session")).toHaveLength(1);
 });
 
-test("a run this browser cannot reach says a restart may have ended its session", async ({ page, pageProblems }) => {
+test("My runs still asks the server when the browser cannot keep the session flag", async ({ page, pageProblems }) => {
+  // A session cookie, but a storage that refuses every write (full, or
+  // blocked by privacy settings): the flag's absence says nothing.
+  const mock = await mockApi(page, { session: true, sessionFlag: false });
+  await page.addInitScript(() => {
+    Storage.prototype.setItem = () => {
+      throw new DOMException("refused", "QuotaExceededError");
+    };
+  });
+  await page.goto("/en/runs/");
+  await hydrated(page);
+  await expect(page.locator("[data-runs='list']")).toBeVisible();
+  expect(mock.calls.filter((c) => c.path === "/api/v1/session").map((c) => c.method)).toEqual(["GET"]);
+  expect(pageProblems).toEqual([]);
+});
+
+test("a run this browser cannot reach names the causes that remain possible", async ({ page, pageProblems }) => {
   await mockApi(page);
   // No such run on the mock: GET /runs/{id} and its stream answer 404 not_found.
   await page.goto(runPath("en", "run-00000000-0000-4000-8000-0000000000ff"));

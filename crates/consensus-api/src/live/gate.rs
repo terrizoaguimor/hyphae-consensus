@@ -855,14 +855,14 @@ impl Quotas {
     /// cause back, unless the key had [`GIVE_BACKS_PER_DAY`] already that
     /// day; says whether it did.
     fn give_back_after_failure(&self, key: QuotaKey, day: NaiveDate) -> bool {
-        let allowed = match key {
-            QuotaKey::Client(client) => self.clients_given_back.take(&client, day),
-            QuotaKey::JudgeCode(code) => self.judge_codes_given_back.take(&code, day),
-        };
-        if allowed {
-            self.give_back(key, day);
+        match key {
+            QuotaKey::Client(client) => {
+                give_back_within_cap(&self.clients, &self.clients_given_back, &client, day)
+            }
+            QuotaKey::JudgeCode(code) => {
+                give_back_within_cap(&self.judge_codes, &self.judge_codes_given_back, &code, day)
+            }
         }
-        allowed
     }
 
     fn take(&self, key: QuotaKey, day: NaiveDate) -> bool {
@@ -878,6 +878,29 @@ impl Quotas {
             QuotaKey::JudgeCode(code) => self.judge_codes.give_back(&code, day),
         }
     }
+}
+
+/// Gives back one of `key`'s counts of `day` in `counts` after a failure
+/// the visitor did not cause, within the daily cap of give-backs
+/// (`given_back`); says whether it did. Nothing happens, and no give-back
+/// slot is used, when `counts` holds nothing for `key` on `day` any more: a
+/// run admitted before midnight that fails after it, once the key's count
+/// started again on the new day (or the entry was evicted). Taking the slot
+/// on the admission day could otherwise reset the new day's give-backs.
+fn give_back_within_cap<K: std::hash::Hash + Eq + Clone>(
+    counts: &DailyCounts<K>,
+    given_back: &DailyCounts<K>,
+    key: &K,
+    day: NaiveDate,
+) -> bool {
+    if counts.count(key, day) == 0 {
+        return false;
+    }
+    if !given_back.take(key, day) {
+        return false;
+    }
+    counts.give_back(key, day);
+    true
 }
 
 /// One admission's count, taken just before the reservation and given back
@@ -1576,6 +1599,39 @@ mod tests {
         assert_eq!(
             evidence_provenance(EvidenceMode::SealedSnapshot),
             EvidenceProvenance::HyphaeSnapshot
+        );
+    }
+
+    #[test]
+    fn a_failure_after_midnight_neither_resets_nor_exceeds_the_new_days_give_backs() {
+        let counts: DailyCounts<&str> = DailyCounts::new(3, 16);
+        let given_back: DailyCounts<&str> = DailyCounts::new(GIVE_BACKS_PER_DAY, 16);
+        let monday = NaiveDate::from_ymd_opt(2026, 11, 2).unwrap();
+        let tuesday = monday.succ_opt().unwrap();
+        // A run admitted on Monday is still running at midnight.
+        assert!(counts.take(&"key", monday));
+        // On Tuesday the key runs and fails twice: both counts come back.
+        for _ in 0..GIVE_BACKS_PER_DAY {
+            assert!(counts.take(&"key", tuesday));
+            assert!(give_back_within_cap(&counts, &given_back, &"key", tuesday));
+        }
+        assert_eq!(given_back.count(&"key", tuesday), GIVE_BACKS_PER_DAY);
+        // The Monday run now fails: its count is of another day, so nothing
+        // is given back and Tuesday's give-backs are untouched.
+        assert!(!give_back_within_cap(&counts, &given_back, &"key", monday));
+        assert_eq!(given_back.count(&"key", tuesday), GIVE_BACKS_PER_DAY);
+        // A third Tuesday failure keeps its count, as the cap says.
+        assert!(counts.take(&"key", tuesday));
+        assert!(!give_back_within_cap(&counts, &given_back, &"key", tuesday));
+        assert_eq!(counts.count(&"key", tuesday), 1);
+        // Within one day, a count already given back is not given back twice.
+        let other: DailyCounts<&str> = DailyCounts::new(3, 16);
+        let other_back: DailyCounts<&str> = DailyCounts::new(GIVE_BACKS_PER_DAY, 16);
+        assert!(!give_back_within_cap(&other, &other_back, &"key", tuesday));
+        assert_eq!(
+            other_back.count(&"key", tuesday),
+            0,
+            "no slot used for nothing"
         );
     }
 

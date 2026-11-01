@@ -236,6 +236,19 @@ describe("the failure panel's classes, stages and roles", () => {
     expect(failurePanel({ stage: "critique", code: "a_new_code" }, true).next).toBeNull();
   });
 
+  it("points a closed failure to the Live presets page only on a live run", () => {
+    expect(failurePanel({ stage: "panic", code: "panic" }, true).nextKey).toBe("next.closedLive");
+    expect(failurePanel({ stage: "panic", code: "persistence" }, false).nextKey).toBe("next.closed");
+    expect(failurePanel({ stage: "propose", code: "model_malformed_output" }, false).nextKey).toBe("next.transient");
+    expect(failurePanel({ stage: "critique", code: "a_new_code" }, true).nextKey).toBeNull();
+  });
+
+  it("names the stage of a run a restart interrupted", () => {
+    expect(stageNameKey("interrupted")).toBe("stageNames.interrupted");
+    const interrupted = failurePanel({ stage: "interrupted", code: "interrupted" }, true);
+    expect(interrupted.where).toEqual({ stageName: "stageNames.interrupted", stage: "interrupted", role: "runtime" });
+  });
+
   it("links a failed live run to the live form with its preset, and a guided one to the guided examples", () => {
     const live = {
       source: "this_server" as const,
@@ -274,6 +287,7 @@ describe.each(routing.locales)("%s failure panel copy", (locale) => {
       "failure.next.transient",
       "failure.next.protocol",
       "failure.next.closed",
+      "failure.next.closedLive",
       "failure.next.cancelled",
       "failure.next.deadline",
       "failure.quota.notCounted",
@@ -317,5 +331,21 @@ describe.each(routing.locales)("%s failure panel copy", (locale) => {
     expect(where).toContain(lookup(run, "stage.proposer"));
     expect(where).not.toContain("propose");
     expect(format("failure.again.note", { hours: 24 })).toContain("24");
+  });
+
+  it("describes a malformed document without calling it a proposal, whichever role wrote it", () => {
+    // The Critic's and the Evaluator's documents are not proposals; the
+    // proposal without claims has its own code (model_no_claims).
+    const sentence = lookup(run, "failure.roleCodes.model_malformed_output").toLowerCase();
+    expect(sentence).not.toContain(lookup(run, "failure.stageNames.propose").toLowerCase());
+    expect(lookup(run, "failure.roleCodes.model_no_claims").toLowerCase()).toContain(
+      lookup(run, "failure.stageNames.propose").toLowerCase(),
+    );
+  });
+
+  it("keeps the Live presets page out of the neutral closed sentence", () => {
+    const liveWord = /\b(live|en vivo|ao vivo|en direct)\b/iu;
+    expect(lookup(run, "failure.next.closed")).not.toMatch(liveWord);
+    expect(lookup(run, "failure.next.closedLive")).toMatch(liveWord);
   });
 });

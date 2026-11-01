@@ -22,6 +22,7 @@ import {
   newIdempotencyKey,
   parseRetryAfter,
   SESSION_FLAG_KEY,
+  sessionFlag,
   TURNSTILE_HEADER,
 } from "../src/lib/api/client";
 
@@ -320,6 +321,54 @@ describe("the session flag", () => {
     expect(hasSessionFlag()).toBe(false);
     const { client } = server([{ body: fixtureText("session.json") }]);
     await expect(client.ensureSession()).resolves.toMatchObject({ created: true });
+  });
+
+  it("says absent only when the storage works, and unknown when it cannot hold the flag", () => {
+    // No window (or no storage): nothing can be told.
+    expect(sessionFlag()).toBe("unknown");
+    const items = withStorage();
+    expect(sessionFlag()).toBe("absent");
+    expect(items.size).toBe(0);
+    items.set(SESSION_FLAG_KEY, "1");
+    expect(sessionFlag()).toBe("set");
+    vi.unstubAllGlobals();
+
+    // Storage blocked by the browser: reading throws.
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: () => {
+          throw new Error("SecurityError");
+        },
+        setItem: () => {
+          throw new Error("SecurityError");
+        },
+        removeItem: () => undefined,
+      },
+    });
+    expect(sessionFlag()).toBe("unknown");
+    expect(hasSessionFlag()).toBe(false);
+    vi.unstubAllGlobals();
+
+    // Storage readable but refusing writes (full): the flag could never have been set.
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("QuotaExceededError");
+        },
+        removeItem: () => undefined,
+      },
+    });
+    expect(sessionFlag()).toBe("unknown");
+    vi.unstubAllGlobals();
+
+    // Accessing localStorage itself throws.
+    vi.stubGlobal("window", {
+      get localStorage(): Storage {
+        throw new Error("SecurityError");
+      },
+    });
+    expect(sessionFlag()).toBe("unknown");
   });
 });
 

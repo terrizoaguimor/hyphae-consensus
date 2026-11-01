@@ -619,7 +619,8 @@
       "next": {
         "transient": "Esse tipo de falha costuma ser temporário: o mesmo preset pode dar certo em uma nova execução.",
         "protocol": "O protocolo interrompeu a execução de propósito em vez de continuar com um documento recusado. Uma nova execução do mesmo preset é independente desta.",
-        "closed": "Começar de novo pode não funcionar agora; a página de presets ao vivo informa se o modo ao vivo está aberto.",
+        "closed": "Começar de novo pode não funcionar agora: o que interrompeu esta execução está do lado do servidor, e uma nova execução provavelmente encontraria o mesmo problema.",
+        "closedLive": "Começar de novo pode não funcionar agora; a página de presets ao vivo informa se o modo ao vivo está aberto.",
         "cancelled": "A execução foi cancelada, então parou onde estava. Uma nova execução começa do início.",
         "deadline": "A execução esgotou o tempo limite antes de terminar. Uma nova execução tem o próprio tempo limite."
       },
@@ -629,8 +630,9 @@
         "evaluate": "avaliação das evidências",
         "revise": "revisão",
         "token_budget": "verificação do orçamento de tokens",
-        "deadline": "prazo",
-        "shutdown": "desligamento"
+        "deadline": "controle do prazo",
+        "shutdown": "desligamento do servidor",
+        "interrupted": "reinício do servidor"
       },
       "subjects": {
         "proposer": "O Proponente",
@@ -639,7 +641,7 @@
         "runtime": "O ambiente de execução"
       },
       "roleCodes": {
-        "model_malformed_output": "{role} respondeu, mas o documento não tinha o formato que o runtime exige (por exemplo, uma proposta sem afirmações), então o runtime o recusou em vez de adivinhar.",
+        "model_malformed_output": "{role} respondeu, mas o documento não tinha o formato que o runtime exige, então o runtime o recusou em vez de adivinhar.",
         "model_no_claims": "{role} respondeu com uma proposta sem afirmações, então o runtime a recusou em vez de adivinhar.",
         "model_content_filtered": "{role} não entregou nenhum documento: o filtro de conteúdo do provedor reteve a resposta, então o runtime não tinha nada para verificar.",
         "model_unexpected_finish": "{role} parou antes de terminar o documento, por um motivo que o runtime não aceita, então o runtime recusou a resposta em vez de adivinhar."
@@ -1125,7 +1127,7 @@
         "body": "O servidor monta o recibo a partir dos registros da execução, então os dois deveriam coincidir. Leia o recibo de novo; se continuarem sem coincidir, trate os dois com cuidado."
       }
     },
-    "restartHint": "Se o servidor reiniciou depois que você a iniciou, a sessão deste navegador pode ter terminado com ele."
+    "restartHint": "A sessão deste navegador não consegue ver esta execução: ela pode pertencer a outro navegador ou a outra sessão, sua sessão pode ter terminado, ou a execução pode ter sido excluída depois do período de acesso."
   },
   "Showcase": {
     "lead": "Execuções gravadas, roteirizadas ou com o modelo da Meta, lidas a partir de um arquivo que as preserva sem alterações.",

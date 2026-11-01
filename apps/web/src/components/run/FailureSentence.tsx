@@ -99,6 +99,7 @@ export function FailureSentence({
   const code = failure.code ?? null;
   const panel = failurePanel(failure, own && live);
   const next = own ? panel.next : null;
+  const nextKey = own ? panel.nextKey : null;
   // A role-naming sentence takes the role as its subject, with its article.
   const values = panel.sentence.values as Record<string, string>;
   const role = values.role;
@@ -119,7 +120,7 @@ export function FailureSentence({
         </p>
       )}
       <p data-failure-nothing-decided>{t("nothingDecided")}</p>
-      {next === null ? null : <p data-failure-next={next}>{t(`next.${next}`)}</p>}
+      {next === null || nextKey === null ? null : <p data-failure-next={next}>{t(nextKey)}</p>}
       {panel.notCounted ? <p data-failure-not-counted>{t("quota.notCounted")}</p> : null}
       {again === null ? null : (
         <div className="hc-failure-again" data-failure-again={again.kind}>

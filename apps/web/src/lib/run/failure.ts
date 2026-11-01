@@ -138,6 +138,9 @@ export const FAILURE_STAGES = [
   "token_budget",
   "deadline",
   "shutdown",
+  // A run a server restart interrupted is closed as Failed{stage:
+  // "interrupted"} (consensus-runtime orchestrator.rs, recovery).
+  "interrupted",
 ] as const;
 
 export type FailureStage = (typeof FAILURE_STAGES)[number];
@@ -189,8 +192,14 @@ export type FailurePanel = {
     | { key: `roleCodes.${RoleCode}`; values: { role: FailureRole } };
   /** Where it stopped: the stage's own name (or null: the raw stage) and its role; null for a cancellation. */
   where: { stageName: `stageNames.${FailureStage}` | null; stage: string; role: FailureRole } | null;
-  /** The class of the code, for `next.<class>`; null for an unknown code. */
+  /** The class of the code; null for an unknown code. */
   next: FailureClass | null;
+  /**
+   * The next-step sentence of the class (`Run.failure.<nextKey>`): a closed
+   * failure of a live run points to the Live presets page (`next.closedLive`),
+   * any other closed failure keeps the neutral `next.closed`.
+   */
+  nextKey: `next.${Exclude<FailureClass, "closed">}` | "next.closed" | "next.closedLive" | null;
   /** The live gate gave (or may give) the daily count back. */
   notCounted: boolean;
 };
@@ -251,6 +260,7 @@ export function failurePanel(failure: { code?: string | null; stage: string }, l
         ? null
         : { stageName: stageNameKey(failure.stage), stage: failure.stage, role },
     next,
+    nextKey: next === null ? null : next === "closed" && live ? "next.closedLive" : `next.${next}`,
     notCounted: live && next === "transient",
   };
 }

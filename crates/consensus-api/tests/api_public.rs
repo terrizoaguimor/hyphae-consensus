@@ -60,11 +60,12 @@ async fn a_restart_keeps_the_visitors_session_and_runs() {
     let run_id = created["run"]["run_id"].as_str().unwrap().to_string();
     server.wait_resting(&cookie, &run_id).await;
     server.wait_released(&run_id).await;
+    // The process ends: the server writes the pending sessions as it stops
+    // (server.rs run_server), and its directory is kept.
+    server.state.sessions.flush();
     let store = server.store_dir();
     let file = std::fs::read_to_string(store.join("sessions.json")).expect("the sessions file");
     assert!(!file.contains(&cookie), "the raw id never touches the disk");
-
-    // The process ends: the server is dropped, its directory kept.
     let common::TestServer { dir, .. } = server;
     let restarted = common::public_server_in(dir, &[], BuildOptions::default());
     let (status, body, _) = restarted
@@ -89,6 +90,7 @@ async fn a_restart_keeps_the_visitors_session_and_runs() {
         .send(Req::delete("/api/v1/session").cookie(&cookie))
         .await;
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    restarted.state.sessions.flush();
     let common::TestServer { dir, .. } = restarted;
     let again = common::public_server_in(dir, &[], BuildOptions::default());
     let (status, _, _) = again

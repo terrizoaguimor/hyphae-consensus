@@ -619,7 +619,8 @@
       "next": {
         "transient": "Ce type d’échec est généralement temporaire : le même preset peut réussir lors d’une nouvelle exécution.",
         "protocol": "Le protocole a arrêté l’exécution volontairement plutôt que de continuer sur un document refusé. Une nouvelle exécution du même preset est indépendante de celle-ci.",
-        "closed": "Recommencer risque de ne pas fonctionner pour l’instant ; la page des presets en direct indique si le mode en direct est ouvert.",
+        "closed": "Recommencer risque de ne pas fonctionner pour l’instant : ce qui a arrêté cette exécution se situe du côté du serveur, et une nouvelle exécution le rencontrerait probablement aussi.",
+        "closedLive": "Recommencer risque de ne pas fonctionner pour l’instant ; la page des presets en direct indique si le mode en direct est ouvert.",
         "cancelled": "L’exécution a été annulée : elle s’est arrêtée là où elle en était. Une nouvelle exécution repart du début.",
         "deadline": "L’exécution a épuisé son temps imparti avant de se terminer. Une nouvelle exécution dispose de son propre temps imparti."
       },
@@ -629,8 +630,9 @@
         "evaluate": "évaluation des preuves",
         "revise": "révision",
         "token_budget": "contrôle du budget de jetons",
-        "deadline": "échéance",
-        "shutdown": "arrêt"
+        "deadline": "contrôle de l’échéance",
+        "shutdown": "arrêt du serveur",
+        "interrupted": "redémarrage du serveur"
       },
       "subjects": {
         "proposer": "Le Proposant",
@@ -639,7 +641,7 @@
         "runtime": "L’environnement d’exécution"
       },
       "roleCodes": {
-        "model_malformed_output": "{role} a répondu, mais son document n’avait pas la forme exigée par le runtime (par exemple, une proposition sans affirmations) : le runtime l’a refusé plutôt que de deviner.",
+        "model_malformed_output": "{role} a répondu, mais son document n’avait pas la forme exigée par le runtime : le runtime l’a refusé plutôt que de deviner.",
         "model_no_claims": "{role} a répondu par une proposition sans affirmations : le runtime l’a refusée plutôt que de deviner.",
         "model_content_filtered": "{role} n’a rendu aucun document : le filtre de contenu du fournisseur a retenu sa réponse, le runtime n’avait donc rien à vérifier.",
         "model_unexpected_finish": "{role} s’est arrêté avant d’avoir terminé son document, pour une raison que le runtime n’accepte pas : le runtime a refusé la réponse plutôt que de deviner."
@@ -1125,7 +1127,7 @@
         "body": "Le serveur construit le reçu à partir des enregistrements de l’exécution ; les deux devraient donc concorder. Relisez le reçu ; s’ils ne concordent toujours pas, traitez-les tous deux avec prudence."
       }
     },
-    "restartHint": "Si le serveur a redémarré depuis que vous l’avez lancée, la session de ce navigateur a pu se terminer avec lui."
+    "restartHint": "La session de ce navigateur ne peut pas voir cette exécution : elle appartient peut-être à un autre navigateur ou à une autre session, votre session a pu se terminer, ou l’exécution a pu être supprimée après sa période d’accès."
   },
   "Showcase": {
     "lead": "Des exécutions enregistrées, scénarisées ou menées avec le modèle de Meta, lues depuis une archive qui les conserve à l’identique.",

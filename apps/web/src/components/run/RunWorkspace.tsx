@@ -257,9 +257,11 @@ function Workspace({
       return (
         <div className="hc-section" data-run="error">
           <ApiErrorNotice error={detailError} onRetry={reloadDetail} />
-          {/* A session a restart ended (a server that keeps its sessions in
-              memory only) makes this browser's own run read as another
-              session's: the hint says so, without guessing which case it is. */}
+          {/* A not_found run is another browser's or session's, a run of a
+              session that expired or was evicted, or a run deleted after its
+              access window (sessions now survive a restart, crate::session
+              "Persistence"): the hint names those causes without guessing
+              which case it is. */}
           {!recorded && detailError.code === "not_found" ? (
             <p className="hc-supporting" data-run-restart-hint>
               {t("restartHint")}

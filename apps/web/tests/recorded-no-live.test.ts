@@ -122,6 +122,7 @@ const ALLOWED: Record<string, string> = {
   // live link only for a live run of the public surface, failure.ts
   // visitorRunKind), never for a recorded run.
   "Run.failure.next.closed": "own runs only: what comes next for this server's run",
+  "Run.failure.next.closedLive": "a live run of this server only (failure.ts nextKey)",
   "Run.failure.quota.notCounted": "a live run of this server only",
   "Run.failure.again.live": "a failed live run of this server only",
   // The Meta tab's cost sentence of a live run of this server's public

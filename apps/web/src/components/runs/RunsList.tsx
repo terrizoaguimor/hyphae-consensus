@@ -3,7 +3,8 @@
 //
 // The session's runs. Without the browser's session flag (set once a POST or
 // GET /session succeeded, cleared by DELETE /session or a 401) there is no
-// session: nothing is asked, nothing listed, no count shown. With it, GET
+// session: nothing is asked, nothing listed, no count shown. With it (or
+// when the browser's storage cannot hold it, so its absence says nothing), GET
 // /session first (a 401 there clears the flag and lists nothing). With a
 // session, GET /runs (newest first, cursor
 // pagination) and GET /capabilities for the retention limits, from which each
@@ -16,7 +17,7 @@ import { useFormatter, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
 import type { Locale } from "@/i18n/routing";
-import { api, ApiError, hasSessionFlag, isApiError } from "@/lib/api/client";
+import { api, ApiError, isApiError, sessionFlag } from "@/lib/api/client";
 import type { Capabilities } from "@/lib/api/schemas";
 import type { RunSummaryV1 } from "@/lib/api/types";
 import { OUTCOME_ICONS, RECOMMENDATION_VARIANTS } from "@/lib/provenance";
@@ -75,8 +76,9 @@ export function RunsList({ locale }: RunsListProps) {
     };
     // Without the session flag this browser holds no session (src/lib/api/
     // client.ts SESSION_FLAG_KEY): nothing to list, and nothing to ask, so
-    // no 401 reaches the console.
-    if (!hasSessionFlag()) {
+    // no 401 reaches the console. A storage that cannot be read or written
+    // tells nothing ("unknown"): the server is asked, as before the flag.
+    if (sessionFlag() === "absent") {
       apply({ status: "no-session" });
       return () => {
         cancelled = true;

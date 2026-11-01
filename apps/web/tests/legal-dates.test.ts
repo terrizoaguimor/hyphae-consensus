@@ -28,7 +28,7 @@ type LegalDocument = (typeof documents)[number];
 /** The day each document's text last changed, with the digest of that text. */
 const PINNED: Record<LegalDocument, { date: string; sha256: string }> = {
   terms: { date: "2026-11-01", sha256: "ca1fdd8749bab9c68d7a96d6099606a70e1e89d7830e43f48dc197ec46115077" },
-  privacy: { date: "2026-11-01", sha256: "daee5d3607864d8626e50c87d4769ec9b3c6c61a0bdb2a72b794e9d5673ef8ea" },
+  privacy: { date: "2026-11-01", sha256: "5907bbc9bcda846c045062547aaa4f0b08a59828bbb339a4fc87635819692714" },
   limitations: { date: "2026-11-01", sha256: "037af022534b02e8654ae1bc3ddf97dd7cf7c4e94de1d3b694dbdaae55b9cf5a" },
   about: { date: "2026-10-27", sha256: "31f3dedb6371401c7e439f34bd4a538ee9cd0b39f437c2c7537230fc93a3c5be" },
 };

@@ -758,7 +758,11 @@ fn structured_output_is_strict_and_every_list_is_required() {
     };
     assert!(required(schema).contains(&"assessments".to_string()));
     assert!(required(schema).contains(&"item_verdicts".to_string()));
-    assert!(required(schema).contains(&"cleared_contradictions".to_string()));
+    // Prompt-freeze-4 (M04): carried contradictions are judged by keyed
+    // verdicts, asked for only in a round that carries one; the free
+    // `cleared_contradictions` list is no longer the model's.
+    assert!(!required(schema).contains(&"cleared_contradictions".to_string()));
+    assert!(schema["properties"].get("contradiction_verdicts").is_none());
     assert!(required(schema).contains(&"abstain_reason".to_string()));
     let assessment = &schema["definitions"]["DraftAssessment"];
     for field in ["relevant_evidence", "contradicting_evidence", "note"] {
@@ -789,10 +793,7 @@ fn structured_output_is_strict_and_every_list_is_required() {
         .get("item_id")
         .is_none());
     // The new draft types are strict too, and a verdict is one of two words.
-    for (definition, fields) in [
-        ("DraftItemVerdict", &["status", "reason"][..]),
-        ("DraftClearedContradiction", &["evidence_id", "reason"][..]),
-    ] {
+    for (definition, fields) in [("DraftItemVerdict", &["status", "reason"][..])] {
         let d = &schema["definitions"][definition];
         assert_eq!(
             d["additionalProperties"],
@@ -890,8 +891,12 @@ fn draft_verdict(item: &str, status: &str, reason: &str) -> Entry {
     )
 }
 
-fn draft_cleared(evidence: &str, reason: &str) -> serde_json::Value {
-    serde_json::json!({"evidence_id": evidence, "reason": reason})
+/// A verdict on a carried contradiction, keyed by its record id.
+fn draft_contradiction(evidence: &str, status: &str, reason: &str) -> Entry {
+    (
+        evidence.to_string(),
+        serde_json::json!({"status": status, "reason": reason}),
+    )
 }
 
 /// `entries` as a JSON object in that order, a repeated key written twice
@@ -905,13 +910,17 @@ fn keyed(entries: &[Entry]) -> String {
     format!("{{{}}}", members.join(","))
 }
 
-fn evaluation_draft(
-    assessments: &[Entry],
-    verdicts: &[Entry],
-    cleared: serde_json::Value,
-) -> String {
+/// An evaluation draft; `contradictions` (the verdicts on carried
+/// contradictions) is written only when given, as the schema asks for it
+/// only in a round that carries one.
+fn evaluation_draft(assessments: &[Entry], verdicts: &[Entry], contradictions: &[Entry]) -> String {
+    let carried = if contradictions.is_empty() {
+        String::new()
+    } else {
+        format!(r#""contradiction_verdicts":{},"#, keyed(contradictions))
+    };
     format!(
-        r#"{{"assessments":{},"item_verdicts":{},"cleared_contradictions":{cleared},"abstain":false,"abstain_reason":null}}"#,
+        r#"{{"assessments":{},"item_verdicts":{},{carried}"abstain":false,"abstain_reason":null}}"#,
         keyed(assessments),
         keyed(verdicts)
     )
@@ -925,13 +934,20 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
     ctx.carried_contradictions = vec![EvidenceId::new("ev-1")];
     let ok = || draft_assessment("claim-1", true, &["ev-1"], &[]);
     let open = || vec![draft_verdict("item-5", "unresolved", "no test")];
-    let none = || serde_json::json!([]);
+    // The carried ev-1 judged, so each case below breaks one rule only.
+    let judged = || {
+        vec![draft_contradiction(
+            "ev-1",
+            "cleared",
+            "the claim was rewritten",
+        )]
+    };
     let cases: Vec<(String, &[&str])> = vec![
         (
             evaluation_draft(
                 &[draft_assessment("claim-9", true, &["ev-1"], &[])],
                 &open(),
-                none(),
+                &judged(),
             ),
             &["assessments", "\"claim-9\"", "not a claim"],
         ),
@@ -939,19 +955,19 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             evaluation_draft(
                 &[ok(), draft_assessment("claim-1", false, &[], &["ev-1"])],
                 &open(),
-                none(),
+                &judged(),
             ),
             &["assessments", "\"claim-1\"", "more than once"],
         ),
         (
-            evaluation_draft(&[], &open(), none()),
+            evaluation_draft(&[], &open(), &judged()),
             &["assessments", "no assessment", "\"claim-1\""],
         ),
         (
             evaluation_draft(
                 &[draft_assessment("claim-1", true, &["ev-1", "ev-1"], &[])],
                 &open(),
-                none(),
+                &judged(),
             ),
             &["relevant_evidence", "\"ev-1\"", "more than once"],
         ),
@@ -959,7 +975,7 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             evaluation_draft(
                 &[draft_assessment("claim-1", true, &["ev-1"], &["ev-9"])],
                 &open(),
-                none(),
+                &judged(),
             ),
             &[
                 "contradicting_evidence",
@@ -968,7 +984,7 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             ],
         ),
         (
-            evaluation_draft(&[ok()], &[], none()),
+            evaluation_draft(&[ok()], &[], &judged()),
             &["item_verdicts", "no verdict", "\"item-5\""],
         ),
         (
@@ -978,7 +994,7 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
                     draft_verdict("item-5", "unresolved", "no test"),
                     draft_verdict("item-5", "resolved", "a test exists"),
                 ],
-                none(),
+                &judged(),
             ),
             &["item_verdicts", "\"item-5\"", "more than one verdict"],
         ),
@@ -989,7 +1005,7 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
                     draft_verdict("item-5", "unresolved", "no test"),
                     draft_verdict("item-6", "resolved", "invented"),
                 ],
-                none(),
+                &judged(),
             ),
             &[
                 "item_verdicts",
@@ -1001,10 +1017,13 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             evaluation_draft(
                 &[ok()],
                 &open(),
-                serde_json::json!([draft_cleared("ev-9", "never carried")]),
+                &[
+                    draft_contradiction("ev-1", "cleared", "fixed"),
+                    draft_contradiction("ev-9", "cleared", "never carried"),
+                ],
             ),
             &[
-                "cleared_contradictions",
+                "contradiction_verdicts",
                 "\"ev-9\"",
                 "not a carried contradiction",
             ],
@@ -1013,12 +1032,38 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             evaluation_draft(
                 &[ok()],
                 &open(),
-                serde_json::json!([
-                    draft_cleared("ev-1", "fixed"),
-                    draft_cleared("ev-1", "again")
-                ]),
+                &[
+                    draft_contradiction("ev-1", "cleared", "fixed"),
+                    draft_contradiction("ev-1", "cleared", "again"),
+                ],
             ),
-            &["cleared_contradictions", "\"ev-1\"", "more than once"],
+            &[
+                "contradiction_verdicts",
+                "\"ev-1\"",
+                "more than one verdict",
+            ],
+        ),
+        // Live M04's shape: a carried contradiction left unjudged.
+        (
+            evaluation_draft(&[ok()], &open(), &[]),
+            &["contradiction_verdicts", "no verdict", "\"ev-1\""],
+        ),
+        // still_contradicts must be backed by the citation the policy reads.
+        (
+            evaluation_draft(
+                &[ok()],
+                &open(),
+                &[draft_contradiction(
+                    "ev-1",
+                    "still_contradicts",
+                    "still caps at 3",
+                )],
+            ),
+            &[
+                "contradiction_verdicts[\"ev-1\"]",
+                "still_contradicts",
+                "contradicting_evidence",
+            ],
         ),
     ];
     let server = serve(cases.iter().map(|(d, _)| (200, envelope(d))).collect());
@@ -1270,7 +1315,7 @@ fn ma1_evaluation(assessments: &[Entry], last: (&str, &str)) -> String {
             draft_verdict("item-4", "resolved", "ev-1 caps attempts, bounding latency"),
             draft_verdict(last.0, last.1, "judged"),
         ],
-        serde_json::json!([]),
+        &[],
     )
 }
 
@@ -1420,7 +1465,7 @@ fn rt1_drafts(second_evaluation: String) -> Vec<String> {
                 draft_verdict("item-4", "unresolved", "ev-cap caps retries at 3 attempts"),
                 draft_verdict("item-5", "unresolved", "no test yet"),
             ],
-            serde_json::json!([]),
+            &[],
         ),
         r#"{"summary":"Backoff only","plan_steps":["Set max attempts to 10","Use exponential backoff"],"primary_claim":{"statement":"Use exponential backoff with a 50 ms base"},"further_claims":[],"assumptions":[],"uncertainties":[],"addressed_items":[]}"#.into(),
         r#"{"items":[]}"#.into(),
@@ -1448,7 +1493,7 @@ fn rt1_round_two_silence_cannot_reach_supported_through_the_adapter() {
     let backoff = || vec![draft_assessment("claim-8", true, &["ev-backoff"], &[])];
 
     // Silent on the carried objections: no verdict is ever inferred.
-    let silent = evaluation_draft(&backoff(), &[], serde_json::json!([]));
+    let silent = evaluation_draft(&backoff(), &[], &[]);
     let (agg, log, calls) =
         deliberate_through_adapter("rt1-silent.jsonl", &rt1_drafts(silent), rt1_records());
     assert_eq!(calls, 6);
@@ -1468,15 +1513,19 @@ fn rt1_round_two_silence_cannot_reach_supported_through_the_adapter() {
         "the evaluate call the adapter refused is recorded"
     );
 
-    // Verdicts given, but silent on the round-1 contradiction: refused by
-    // the runtime contract, and the refused call stays on the record.
+    // Verdicts given, but silent on the round-1 contradiction (live M04's
+    // shape): since prompt-freeze-4 the round-2 schema requires a verdict
+    // keyed by ev-cap, so this answer could only come from an API that
+    // ignored strict mode; the adapter refuses it before the contract
+    // would (which still refuses it alone: protocol_1_3's rt1 test), and
+    // the refused call stays on the record.
     let verdicts_only = evaluation_draft(
         &backoff(),
         &[
             draft_verdict("item-4", "resolved", "claim-2 was dropped"),
             draft_verdict("item-5", "resolved", "backoff is documented"),
         ],
-        serde_json::json!([]),
+        &[],
     );
     let (agg, log, calls) = deliberate_through_adapter(
         "rt1-contradiction.jsonl",
@@ -1487,18 +1536,20 @@ fn rt1_round_two_silence_cannot_reach_supported_through_the_adapter() {
     let (stage, code, reason) = run_failure(&log);
     assert_eq!(
         (stage.as_str(), code.as_deref()),
-        ("evaluate", Some("evaluation_contract"))
+        ("evaluate", Some("model_malformed_output"))
     );
-    assert!(reason.contains("carried_contradiction_judged"), "{reason}");
-    assert!(reason.contains("\"ev-cap\""), "{reason}");
+    assert!(
+        reason.contains("contradiction_verdicts: no verdict for evidence_id \"ev-cap\""),
+        "{reason}"
+    );
     assert_eq!(
         agg.invocations.len(),
         6,
         "the refused evaluate call is recorded"
     );
-    // Live M04's failure (fail-closed by design): the judgment is refused
-    // by the runtime contract and never asked again, so exactly one
-    // round-2 evaluate request was made (the fake would answer a second).
+    // Fail-closed by design: the judgment is refused and never asked
+    // again, so exactly one round-2 evaluate request was made (the fake
+    // would answer a second).
     assert_eq!(calls, 6, "no re-ask of a judgment");
     assert!(agg.invocations[5].rejected_calls.is_none());
 
@@ -1509,10 +1560,11 @@ fn rt1_round_two_silence_cannot_reach_supported_through_the_adapter() {
             draft_verdict("item-4", "unresolved", "the plan still sets 10 attempts"),
             draft_verdict("item-5", "unresolved", "still no test"),
         ],
-        serde_json::json!([draft_cleared(
+        &[draft_contradiction(
             "ev-cap",
-            "claim-2 was dropped; item-4 keeps the plan-step conflict open"
-        )]),
+            "cleared",
+            "claim-2 was dropped; item-4 keeps the plan-step conflict open",
+        )],
     );
     let (agg, log, calls) =
         deliberate_through_adapter("rt1-judged.jsonl", &rt1_drafts(judged), rt1_records());
@@ -1594,10 +1646,11 @@ fn prompts_carry_open_objections_and_contradictions_across_rounds() {
             draft_verdict("item-10", "unresolved", "no test yet"),
             draft_verdict("item-4", "unresolved", "the plan still sets 10 attempts"),
         ],
-        serde_json::json!([draft_cleared(
+        &[draft_contradiction(
             "ev-cap",
-            "the claim raising attempts was dropped"
-        )]),
+            "cleared",
+            "the claim raising attempts was dropped",
+        )],
     );
     let server = serve(vec![(200, envelope(&draft))]);
     let mut c = client(server.base_url.clone());
@@ -1627,8 +1680,20 @@ fn prompts_carry_open_objections_and_contradictions_across_rounds() {
     assert!(prompt.contains("raised in round 1, still open"), "{prompt}");
     assert!(prompt.contains("raised this round"), "{prompt}");
     assert!(prompt.contains("Carried contradictions"), "{prompt}");
-    assert!(prompt.contains("- ev-cap"), "{prompt}");
-    assert!(prompt.contains("never leave one out"), "{prompt}");
+    // Prompt-freeze-4: each carried contradiction is its record's line,
+    // in an untrusted block, and is judged under its own key.
+    assert!(
+        prompt.contains("<UNTRUSTED_CONTRADICTIONS>\n{\"id\": \"ev-cap\", \"kind\": \"constraint\", \"integrity\": \"Valid\", \"content\": \"Constraint: outbound retries are capped at 3 attempts.\"}\n</UNTRUSTED_CONTRADICTIONS>"),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains("For each id under contradiction_verdicts answer still_contradicts (and cite it in contradicting_evidence of the claim it conflicts with) or cleared (with the change that removed the conflict)."),
+        "{prompt}"
+    );
+    assert_eq!(
+        schema["properties"]["contradiction_verdicts"]["required"],
+        serde_json::json!(["ev-cap"])
+    );
     stale(&prompt);
     // This round's objection targets a current claim, named as such.
     assert!(
@@ -1643,8 +1708,11 @@ fn prompts_carry_open_objections_and_contradictions_across_rounds() {
         .collect();
     assert_eq!(ids, ["item-4", "item-10"]);
     assert_eq!(
-        evaluation.cleared_contradictions[0].evidence_id,
-        EvidenceId::new("ev-cap")
+        evaluation.cleared_contradictions,
+        vec![ClearedContradiction {
+            evidence_id: EvidenceId::new("ev-cap"),
+            reason: "the claim raising attempts was dropped".into(),
+        }]
     );
 
     // The reviser sees every open objection, wherever it was raised, with
@@ -1927,7 +1995,7 @@ fn a_readable_judgment_or_a_terminal_stop_is_never_asked_again() {
     let unretrieved = evaluation_draft(
         &[draft_assessment("claim-1", true, &["ev-404"], &[])],
         &[draft_verdict("item-5", "unresolved", "no test")],
-        serde_json::json!([]),
+        &[],
     );
     let server = serve(vec![(200, envelope(&unretrieved)), (200, envelope("{}"))]);
     let mut c = client(server.base_url.clone());
@@ -1958,8 +2026,8 @@ fn a_readable_judgment_or_a_terminal_stop_is_never_asked_again() {
     // data (a repeated member, an invalid value) is a readable judgment:
     // never asked again, and its value is never quoted.
     for draft in [
-        r#"{"assessments":{"claim-1":{"corroborated":true,"note":"n","relevant_evidence":["ev-1"],"contradicting_evidence":[]}},"assessments":{},"item_verdicts":{"item-5":{"status":"unresolved","reason":"r"}},"cleared_contradictions":[],"abstain":false,"abstain_reason":null}"#,
-        r#"{"assessments":{"claim-1":{"corroborated":true,"note":"n","relevant_evidence":["ev-1"],"contradicting_evidence":[]}},"item_verdicts":{"item-5":{"status":"unresolved","reason":"r"}},"cleared_contradictions":[],"abstain":"SECRET-SENTINEL","abstain_reason":null}"#,
+        r#"{"assessments":{"claim-1":{"corroborated":true,"note":"n","relevant_evidence":["ev-1"],"contradicting_evidence":[]}},"assessments":{},"item_verdicts":{"item-5":{"status":"unresolved","reason":"r"}},"abstain":false,"abstain_reason":null}"#,
+        r#"{"assessments":{"claim-1":{"corroborated":true,"note":"n","relevant_evidence":["ev-1"],"contradicting_evidence":[]}},"item_verdicts":{"item-5":{"status":"unresolved","reason":"r"}},"abstain":"SECRET-SENTINEL","abstain_reason":null}"#,
     ] {
         let server = serve(vec![
             (200, envelope(draft)),
@@ -1968,7 +2036,7 @@ fn a_readable_judgment_or_a_terminal_stop_is_never_asked_again() {
                 envelope(&evaluation_draft(
                     &[draft_assessment("claim-1", true, &["ev-1"], &[])],
                     &[draft_verdict("item-5", "unresolved", "no test")],
-                    serde_json::json!([]),
+                    &[],
                 )),
             ),
         ]);
@@ -2017,7 +2085,7 @@ fn an_unreadable_evaluation_is_asked_again_once_and_then_judged() {
     let valid = evaluation_draft(
         &[draft_assessment("claim-1", true, &["ev-1"], &[])],
         &[draft_verdict("item-5", "unresolved", "no test")],
-        serde_json::json!([]),
+        &[],
     );
     let not_json = serde_json::json!({
         "id": "chatcmpl-unreadable", "model": "muse-wonder-1.0",
@@ -2219,4 +2287,314 @@ fn an_archived_1_3_invocation_round_trips_byte_identically() {
         }
     }
     assert!(seen >= 10, "{seen} archived invocations");
+}
+
+// ---------------------------------------------------------------------
+// Prompt-freeze-4 (phase 2): keyed contradiction verdicts (A6, live M04),
+// evidence-id enums (A7) and Critic schema hints (A8).
+// ---------------------------------------------------------------------
+
+/// `evaluation_inputs` with ev-1 carried as an earlier contradiction.
+fn carried_inputs() -> (Proposal, Challenge, RoleContext) {
+    let (proposal, challenge, mut ctx) = evaluation_inputs();
+    ctx.carried_contradictions = vec![EvidenceId::new("ev-1")];
+    (proposal, challenge, ctx)
+}
+
+#[test]
+fn a_cleared_verdict_becomes_the_domain_clearing_with_its_reason() {
+    let (proposal, challenge, ctx) = carried_inputs();
+    let draft = evaluation_draft(
+        &[draft_assessment("claim-1", true, &["ev-1"], &[])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[draft_contradiction(
+            "ev-1",
+            "cleared",
+            "the revision keeps 3 attempts",
+        )],
+    );
+    let server = serve(vec![(200, envelope(&draft))]);
+    let mut c = client(server.base_url.clone());
+    let (evaluation, _) = c.evaluate(&proposal, &challenge, &ctx).unwrap();
+    assert_eq!(
+        evaluation.cleared_contradictions,
+        vec![ClearedContradiction {
+            evidence_id: EvidenceId::new("ev-1"),
+            reason: "the revision keeps 3 attempts".into(),
+        }]
+    );
+    // The request keyed the verdicts by the carried id.
+    let body: serde_json::Value = serde_json::from_str(
+        server
+            .last_body
+            .lock()
+            .unwrap()
+            .split_once("\r\n\r\n")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    let schema = &body["response_format"]["json_schema"]["schema"];
+    assert_eq!(
+        schema["properties"]["contradiction_verdicts"]["required"],
+        serde_json::json!(["ev-1"])
+    );
+}
+
+#[test]
+fn still_contradicts_needs_a_citation_and_is_never_asked_again() {
+    let (proposal, challenge, ctx) = carried_inputs();
+    let uncited = evaluation_draft(
+        &[draft_assessment("claim-1", false, &[], &[])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[draft_contradiction(
+            "ev-1",
+            "still_contradicts",
+            "still conflicts",
+        )],
+    );
+    let server = serve(vec![(200, envelope(&uncited))]);
+    let mut c = client(server.base_url.clone());
+    let err = c.evaluate(&proposal, &challenge, &ctx).unwrap_err();
+    assert!(
+        err.to_string().contains(
+            "contradiction_verdicts[\"ev-1\"]: still_contradicts, but no assessment lists it in contradicting_evidence"
+        ),
+        "{err}"
+    );
+    assert_eq!(hits(&server), 1, "a judgment is never resampled");
+
+    let cited = evaluation_draft(
+        &[draft_assessment("claim-1", false, &[], &["ev-1"])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[draft_contradiction(
+            "ev-1",
+            "still_contradicts",
+            "still conflicts",
+        )],
+    );
+    let server = serve(vec![(200, envelope(&cited))]);
+    let mut c = client(server.base_url.clone());
+    let (evaluation, _) = c.evaluate(&proposal, &challenge, &ctx).unwrap();
+    assert!(evaluation.cleared_contradictions.is_empty());
+    assert_eq!(
+        evaluation.assessments[0].contradicting_evidence,
+        vec![EvidenceId::new("ev-1")]
+    );
+}
+
+#[test]
+fn a_citation_outside_the_enum_is_still_refused() {
+    // A7: the schema's enum names ev-1 only; an API that ignored it is
+    // still refused by the adapter, naming the value, after one request.
+    let (proposal, challenge, ctx) = evaluation_inputs();
+    let e3 = evaluation_draft(
+        &[draft_assessment("claim-1", true, &["e3"], &[])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[],
+    );
+    let server = serve(vec![(200, envelope(&e3))]);
+    let mut c = client(server.base_url.clone());
+    let err = c.evaluate(&proposal, &challenge, &ctx).unwrap_err();
+    assert!(
+        err.to_string().contains("\"e3\" is not a retrieved record"),
+        "{err}"
+    );
+    assert_eq!(hits(&server), 1);
+    let body: serde_json::Value = serde_json::from_str(
+        server
+            .last_body
+            .lock()
+            .unwrap()
+            .split_once("\r\n\r\n")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(
+        body["response_format"]["json_schema"]["schema"]["definitions"]["DraftAssessment"]
+            ["properties"]["relevant_evidence"]["items"],
+        serde_json::json!({"type": "string", "enum": ["ev-1"]})
+    );
+}
+
+#[test]
+fn an_unknown_critic_claim_id_is_still_dropped() {
+    // A8: the schema's enum names claim-1 only; an id outside it (an API
+    // that ignored the enum) is dropped, never trusted.
+    let draft = serde_json::json!({"items": [
+        {"kind": "missing_test", "claim_id": "claim-99",
+         "description": "No test covers the jitter requirement", "evidence_refs": ["ev-404"]}
+    ]})
+    .to_string();
+    let server = serve(vec![(200, envelope(&draft))]);
+    let mut c = client(server.base_url.clone());
+    let (challenge, _) = c
+        .critique(
+            &one_claim_proposal("Raise retries to 10"),
+            &RoleContext::default(),
+        )
+        .unwrap();
+    assert_eq!(challenge.items[0].claim_id, None);
+    assert!(challenge.items[0].evidence_refs.is_empty());
+    let body: serde_json::Value = serde_json::from_str(
+        server
+            .last_body
+            .lock()
+            .unwrap()
+            .split_once("\r\n\r\n")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(
+        body["response_format"]["json_schema"]["schema"]["definitions"]["DraftChallengeItem"]
+            ["properties"]["claim_id"],
+        serde_json::json!({"anyOf": [{"type": "string", "enum": ["claim-1"]}, {"type": "null"}]})
+    );
+}
+
+/// Live M04's round-2 evaluate inputs, rebuilt from its archived run log
+/// (`research/2026-10-30/live-battery-2026-10-30-p13/runs/`): the revised
+/// proposal, the round-2 challenge, every record retrieved so far with its
+/// latest integrity status, the objections left open and the carried
+/// contradictions, exactly as the orchestrator hands them to the Evaluator.
+fn m04_round_two() -> (Proposal, Challenge, RoleContext) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../research/2026-10-30/live-battery-2026-10-30-p13/runs/run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451.jsonl",
+    );
+    let events: Vec<ConsensusEvent> = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let last_challenge = events
+        .iter()
+        .rposition(|e| matches!(e.payload, EventPayload::ChallengeSubmitted { .. }))
+        .expect("a round-2 challenge");
+    let agg = consensus_api::public_view::aggregate_of(&events[..=last_challenge]).unwrap();
+    let mut proposal = None;
+    let mut challenge = None;
+    let mut integrity: Vec<(EvidenceId, IntegrityStatus)> = Vec::new();
+    for e in &events[..=last_challenge] {
+        match &e.payload {
+            EventPayload::ProposalSubmitted { proposal: p, .. } => proposal = Some(p.clone()),
+            EventPayload::RevisionSubmitted { revision, .. } => {
+                proposal = Some(revision.proposal.clone())
+            }
+            EventPayload::ChallengeSubmitted { challenge: c, .. } => challenge = Some(c.clone()),
+            EventPayload::EvidenceVerified { verification } => {
+                integrity.retain(|(id, _)| id != &verification.evidence_id);
+                integrity.push((
+                    verification.evidence_id.clone(),
+                    verification.integrity_status,
+                ));
+            }
+            _ => {}
+        }
+    }
+    let ctx = RoleContext {
+        evidence: agg.retrieved.clone(),
+        integrity,
+        open_items: agg.open_items.clone(),
+        carried_contradictions: agg.contradicted.clone(),
+    };
+    (proposal.unwrap(), challenge.unwrap(), ctx)
+}
+
+#[test]
+fn m04_round_two_replayed_offline_asks_for_a_verdict_on_every_carried_contradiction() {
+    let (proposal, challenge, ctx) = m04_round_two();
+    assert!(
+        !ctx.carried_contradictions.is_empty(),
+        "M04 carried a contradiction into round 2"
+    );
+    let carried: Vec<&str> = ctx
+        .carried_contradictions
+        .iter()
+        .map(EvidenceId::as_str)
+        .collect();
+    let assess = |contradicting: &[&str]| -> Vec<Entry> {
+        proposal
+            .claims
+            .iter()
+            .map(|c| draft_assessment(c.id.as_str(), false, &[], contradicting))
+            .collect()
+    };
+    let verdicts: Vec<Entry> = ctx
+        .open_items
+        .iter()
+        .map(|o| o.item.id.clone())
+        .chain(challenge.items.iter().map(|i| i.id.clone()))
+        .map(|id| draft_verdict(&id, "unresolved", "still open"))
+        .collect();
+
+    // M04's own answer shape: every claim and objection judged, the
+    // carried contradiction passed over. Refused, never asked again.
+    let silent = evaluation_draft(&assess(&[]), &verdicts, &[]);
+    let server = serve(vec![(200, envelope(&silent))]);
+    let mut c = client(server.base_url.clone());
+    let err = c.evaluate(&proposal, &challenge, &ctx).unwrap_err();
+    assert!(
+        err.to_string().contains(&format!(
+            "contradiction_verdicts: no verdict for evidence_id \"{}\"",
+            carried[0]
+        )),
+        "{err}"
+    );
+    assert_eq!(hits(&server), 1);
+    // The request asked for exactly those verdicts, showed each record's
+    // line and bounded every citation to the round's records.
+    let raw = server.last_body.lock().unwrap().clone();
+    let body: serde_json::Value =
+        serde_json::from_str(raw.split_once("\r\n\r\n").unwrap().1).unwrap();
+    let schema = &body["response_format"]["json_schema"]["schema"];
+    assert_eq!(
+        schema["properties"]["contradiction_verdicts"]["required"],
+        serde_json::json!(carried)
+    );
+    let retrieved: Vec<&str> = ctx.evidence.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(
+        schema["definitions"]["DraftAssessment"]["properties"]["contradicting_evidence"]["items"]
+            ["enum"],
+        serde_json::json!(retrieved)
+    );
+    let prompt = user_prompt(&raw);
+    assert!(prompt.contains("<UNTRUSTED_CONTRADICTIONS>"), "{prompt}");
+    for id in &carried {
+        assert!(
+            prompt.contains(&format!("{{\"id\": \"{id}\", \"kind\": ")),
+            "{prompt}"
+        );
+    }
+
+    // A judged answer passes the adapter and the runtime contract, either
+    // way the Evaluator judges the record.
+    let checks = |evaluation: &Evaluation| {
+        let contract = consensus_runtime::contract::EvaluationContext {
+            claims: proposal.claims.iter().map(|c| c.id.clone()).collect(),
+            expected_items: verdicts.iter().map(|(id, _)| id.clone()).collect(),
+            retrieved: ctx.evidence.iter().map(|e| e.id.clone()).collect(),
+            carried_contradictions: ctx.carried_contradictions.clone(),
+        };
+        consensus_runtime::contract::validate_evaluation(&contract, evaluation)
+    };
+    let cleared: Vec<Entry> = carried
+        .iter()
+        .map(|id| draft_contradiction(id, "cleared", "the revision removed the conflict"))
+        .collect();
+    let still: Vec<Entry> = carried
+        .iter()
+        .map(|id| draft_contradiction(id, "still_contradicts", "the cap is still removed"))
+        .collect();
+    for draft in [
+        evaluation_draft(&assess(&[]), &verdicts, &cleared),
+        evaluation_draft(&assess(&carried), &verdicts, &still),
+    ] {
+        let server = serve(vec![(200, envelope(&draft))]);
+        let mut c = client(server.base_url.clone());
+        let (evaluation, _) = c.evaluate(&proposal, &challenge, &ctx).unwrap();
+        checks(&evaluation).unwrap();
+    }
 }

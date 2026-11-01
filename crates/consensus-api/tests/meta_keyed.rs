@@ -284,10 +284,14 @@ fn the_evaluate_request_is_keyed_by_this_calls_claim_and_item_ids() {
     assert!(schema["definitions"]["DraftItemVerdict"]["properties"]
         .get("item_id")
         .is_none());
-    // Clearing a carried contradiction stays optional: still a list.
+    // Round 1 carries no contradiction: no contradiction verdict is asked
+    // for, and the free clearing list is gone (prompt-freeze-4).
+    assert!(schema["properties"].get("contradiction_verdicts").is_none());
+    assert!(schema["properties"].get("cleared_contradictions").is_none());
+    // A7: the retrieved records, in prompt order, are the only citable ids.
     assert_eq!(
-        schema["properties"]["cleared_contradictions"]["type"],
-        json!("array")
+        schema["definitions"]["DraftAssessment"]["properties"]["relevant_evidence"]["items"],
+        json!({"type": "string", "enum": ["ev-1", "ev-2"]})
     );
     // The per-call schema is still a strict schema everywhere.
     assert_strict(schema);
@@ -576,13 +580,9 @@ fn every_draft_schema_is_sent_in_its_explicit_order_and_requires_a_primary_claim
     assert!(propose["properties"].get("claims").is_none());
     assert_strict(&propose);
 
-    let evaluate_order = [
-        "assessments",
-        "item_verdicts",
-        "cleared_contradictions",
-        "abstain",
-        "abstain_reason",
-    ];
+    // Round 1 carries no contradiction, so no `contradiction_verdicts`
+    // (prompt-freeze-4); it would sit after `item_verdicts`.
+    let evaluate_order = ["assessments", "item_verdicts", "abstain", "abstain_reason"];
     let evaluate = body_of(&requests[2])["response_format"]["json_schema"]["schema"].clone();
     assert_eq!(required(&evaluate), evaluate_order);
     assert_eq!(
@@ -646,4 +646,82 @@ fn every_draft_schema_is_sent_in_its_explicit_order_and_requires_a_primary_claim
         revise_order
     );
     assert_strict(&revise);
+}
+
+#[test]
+fn carried_contradictions_are_keyed_verdicts_and_cited_ids_are_the_retrieved_records() {
+    // A6 (live M04 left a carried contradiction unjudged under the free
+    // clearing list): exactly the carried ids, required, none other.
+    let schema = consensus_api::meta::evaluation_schema(
+        &["claim-1"],
+        &["item-2"],
+        &["ev-a", "ev-b"],
+        &["e1", "e2"],
+    )
+    .unwrap()
+    .to_value();
+    let verdicts = &schema["properties"]["contradiction_verdicts"];
+    assert_eq!(required(verdicts), ["ev-a", "ev-b"]);
+    assert_eq!(verdicts["type"], json!("object"));
+    assert_eq!(verdicts["additionalProperties"], json!(false));
+    let verdict = &schema["definitions"]["DraftContradictionVerdict"];
+    assert_eq!(required(verdict), ["reason", "status"]);
+    assert_eq!(
+        schema["definitions"]["ContradictionStatus"]["enum"],
+        json!(["still_contradicts", "cleared"])
+    );
+    assert!(schema["properties"].get("cleared_contradictions").is_none());
+    // A7: both citation lists name only the retrieved records.
+    for field in ["relevant_evidence", "contradicting_evidence"] {
+        assert_eq!(
+            schema["definitions"]["DraftAssessment"]["properties"][field]["items"],
+            json!({"type": "string", "enum": ["e1", "e2"]}),
+            "{field}"
+        );
+    }
+    assert_strict(&schema);
+
+    // Nothing carried, nothing retrieved: no verdict object at all and
+    // plain strings, never an empty object or an empty enum.
+    let bare = consensus_api::meta::evaluation_schema(&["claim-1"], &[], &[], &[])
+        .unwrap()
+        .to_value();
+    assert!(bare["properties"].get("contradiction_verdicts").is_none());
+    assert!(!required(&bare).contains(&"contradiction_verdicts".to_string()));
+    assert!(bare["definitions"]
+        .get("DraftContradictionVerdict")
+        .is_none());
+    for field in ["relevant_evidence", "contradicting_evidence"] {
+        assert_eq!(
+            bare["definitions"]["DraftAssessment"]["properties"][field]["items"],
+            json!({"type": "string"}),
+            "{field}"
+        );
+    }
+    assert_strict(&bare);
+}
+
+#[test]
+fn the_critique_request_names_the_proposals_claim_ids() {
+    // A8: an objection's target is one of the proposal's claim ids or
+    // null, and the description is asked for as a full sentence.
+    let (_, _, server) = deliberate(
+        "critique-enum",
+        &[
+            proposal_draft(),
+            CRITIQUE.into(),
+            evaluation(&every_assessment(), &every_verdict()),
+        ],
+    );
+    let schema = body_of(&server.requests()[1])["response_format"]["json_schema"]["schema"].clone();
+    let item = &schema["definitions"]["DraftChallengeItem"]["properties"];
+    assert_eq!(
+        item["claim_id"],
+        json!({"anyOf": [{"type": "string", "enum": CLAIM_IDS}, {"type": "null"}]})
+    );
+    assert_eq!(
+        item["description"]["description"],
+        json!("One full sentence stating the specific objection.")
+    );
+    assert_strict(&schema);
 }

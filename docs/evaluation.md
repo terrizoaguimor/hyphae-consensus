@@ -874,6 +874,69 @@ deploy carry the freeze-3 digests, and a run that re-asked carries the extra fie
 summed tokens: they are not call-for-call comparable with the archived runs. The
 integrator tags the merge commit `prompt-freeze-3` locally.
 
+### 6.5 prompt-freeze-4 (2026-11-01, phase 2: keyed contradiction verdicts)
+
+**Why.** M04 (§6.3) failed fail-closed at its second evaluation: the Evaluator judged
+every claim and objection but passed over the contradiction carried from round 1, which the
+free `cleared_contradictions` list allowed it to leave out; the runtime contract then
+refused the document (`carried_contradiction_judged`). Phase 2 makes that omission
+structurally impossible in the schema, as `assessments` and `item_verdicts` already are.
+
+**What changed (later commits on the same branch; ADR-0010, "1.3 hardening").**
+- *Keyed contradiction verdicts.* In a round that carries a contradiction, the Evaluator's
+  schema requires `contradiction_verdicts`: an object whose properties are exactly the
+  carried record ids (in prompt order, none other allowed), each `{status:
+  still_contradicts | cleared, reason}`. In a round without one the property is absent
+  (never an empty object). `cleared_contradictions` is no longer in the model-facing
+  schema: the adapter derives the domain list, with the reasons, from the `cleared`
+  verdicts. `still_contradicts` is refused (never asked again) unless some assessment
+  cites the record in `contradicting_evidence`. A missing, unknown or repeated key is
+  refused as before for the other keyed objects. The runtime contract is unchanged and
+  still checks the derived evaluation.
+- *Prompt.* Each carried contradiction is shown as its record's JSON line
+  (`{"id","kind","integrity","content"}`) inside a new `<UNTRUSTED_CONTRADICTIONS>` block;
+  the contradicted claim's statement is not shown, because the round context the
+  orchestrator hands the adapter does not carry the earlier proposal. The rule now reads
+  "For each id under contradiction_verdicts answer still_contradicts (and cite it in
+  contradicting_evidence of the claim it conflicts with) or cleared (with the change that
+  removed the conflict)."
+- *Evidence-id enums.* With at least one retrieved record, the items of
+  `relevant_evidence` and `contradicting_evidence` are `{type: string, enum: [the round's
+  record ids in prompt order]}`; with none they stay plain strings (an empty `enum` is
+  never sent). The adapter keeps refusing an id that is not a retrieved record.
+- *Critic schema hints.* `DraftChallengeItem.description` is described as "One full
+  sentence stating the specific objection."; `claim_id` is `anyOf` [one of the proposal's
+  claim ids, null]. Unknown ids are still dropped, and the number dropped goes to the
+  operator log (`[meta] critique dropped unknown ids: claim_id N, evidence_refs M`).
+- *Offline check of M04.* A test rebuilds M04's round-2 inputs from its archived run log
+  and replays them through the adapter against the loopback fake: the request requires a
+  verdict for each carried record, shows its line and bounds every citation to the round's
+  records; M04's own answer shape is refused after one request; a `cleared` or a cited
+  `still_contradicts` answer passes the adapter and the runtime contract.
+
+**Digests** (same command as §6.4, which asserts these values in place of freeze-3's; the
+Critic's and the Evaluator's schemas are now both
+per call, shown for one claim `claim-1`, no objection, no carried contradiction and no
+record):
+
+| Role | `prompt_sha256` freeze-4 | `schema_sha256` freeze-4 |
+|---|---|---|
+| Proposer | unchanged from freeze-3 (`5d9d3593…`) | unchanged (`12d04b11…`) |
+| Critic | unchanged (`06447d5d…`) | per call (`f241325093b78d4cedad3d6f7e380e34e4087e0891d2f7e9fb49cb19de470226` for `claim-1`) |
+| Evaluator | `01d3164ef46648ffe991345ec89d5614f01ba7d924bf621d46926d021ffab68b` | per call (`0e85208a09ef36a6886a93385e3fe011db8848974e9517518871585bb20ede66` for `claim-1`) |
+| reviser | unchanged from freeze-3 (`b4e7d77d…`) | unchanged (`e4d33c93…`) |
+
+**Live risk.** The `enum` lists, the Critic's `anyOf` and the keyed `contradiction_verdicts`
+object have been exercised only against the loopback fake; a rejection by the live API
+would be an HTTP 4xx that fails the run, never a silent change. The owner's next smoke,
+including the round-7 Critic on `muse-spark-1.3`, must run on these schemas, and a round
+without objections still sends an empty `item_verdicts` object (`"properties": {}`), which
+has not been sent live either (`evaluation_schema` in `crates/consensus-api/src/meta.rs`;
+the A10 placeholder is held back until a smoke rejects it). Archives:
+as in §6.4, nothing under `research/` changed. If phase 2 merges together with phase 1,
+the integrator may tag the result `prompt-freeze-3` alone; the digests above are then the
+freeze-3 values for the Critic and the Evaluator.
+
 ## Corrections (2026-10-27, independent audit)
 
 The independent audit of commit `72e422a`

@@ -102,3 +102,39 @@ rules of schema 1.2 stay, and the inputs the rules see become complete.
 - Relabelling an entire run to 1.1/1.2 and re-hashing it still passes as an honest older
   run; only an outside anchor (a previously exported receipt head, the run index of
   ADR-0005, or signed receipts after the hackathon) detects that.
+
+## 1.3 hardening (2026-11-01, prompt-freeze-3 and prompt-freeze-4)
+
+After the first public live run ended at propose on a draft with no claims, and after M04
+(§6.3 of `docs/evaluation.md`) left a carried contradiction unjudged, the Meta adapter was
+hardened without changing protocol 1.3 itself: the domain documents, the events, the state
+machine, the runtime contract (`carried_contradiction_judged` included) and replay of every
+archived run are unchanged. Details and digests: `docs/evaluation.md` §6.4.
+
+- **Claims are required by the schema** (prompt-freeze-3): `primary_claim` plus
+  `further_claims`, merged by the adapter into `Proposal.claims`.
+- **Carried contradictions are keyed verdicts** (prompt-freeze-4). In a round that carries
+  any, the Evaluator's schema requires `contradiction_verdicts`, an object whose properties
+  are exactly the carried record ids, each `{status: still_contradicts | cleared,
+  reason}`; it is absent otherwise. The model no longer writes `cleared_contradictions`:
+  the adapter derives it from the `cleared` verdicts, and refuses `still_contradicts` for a
+  record no assessment cites in `contradicting_evidence`. The contract still checks the
+  derived evaluation, so a document that bypasses the adapter (a scripted client, a forged
+  record) fails exactly as before. Each carried contradiction is shown as its record's JSON
+  line; the contradicted claim's statement is not, because the round context does not
+  carry the earlier proposal.
+- **Cited ids and Critic targets are enums** (prompt-freeze-4): with at least one record
+  retrieved, `relevant_evidence` and `contradicting_evidence` items are an `enum` of the
+  round's record ids; the Critic's `claim_id` is one of the proposal's claim ids or null.
+  The adapter keeps every id check.
+- **One bounded re-ask, in the adapter**: a form defect (no usable claim, too many claims,
+  an empty statement) or an unreadable answer is asked again once with a fixed corrective
+  sentence; a judgment never is. The re-ask is recorded inside the call's
+  `ModelInvocation` (`rejected_calls`, `corrective_sha256`, summed tokens), an additive
+  optional field: no new event variant, so this is not a protocol change. The
+  orchestrator-level `model_output_rejected` event is the protocol 1.4 option after the
+  judging window.
+- **Live risk.** The `enum` lists, the `anyOf` of the Critic's `claim_id` and the inline
+  `primary_claim` object have been exercised only against the loopback fake. A rejection
+  by the live API would be loud (an HTTP 4xx fails the run), never silent; the owner's
+  next smoke (the round-7 Critic model included) must run on these schemas.

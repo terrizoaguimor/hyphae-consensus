@@ -19,22 +19,28 @@
 //!
 //! The Evaluator's ids decide the outcome, so `evaluate` never drops one
 //! (audit finding MA-1): every claim id, cited record id, item verdict
-//! id and cleared contradiction id must name, byte for byte, a claim of
+//! id and contradiction verdict id must name, byte for byte, a claim of
 //! the proposal, a record of the round context, an objection under
 //! evaluation or a carried contradiction, and none may repeat; a missing
 //! verdict, a missing assessment or a second assessment of one claim is
-//! malformed too. The error names the field and the value, quoted at most
+//! malformed too, and so is `still_contradicts` for a record no
+//! assessment cites as contradicting. The error names the field and the
+//! value, quoted at most
 //! [`MAX_QUOTED_CHARS`](consensus_runtime::contract::MAX_QUOTED_CHARS)
 //! characters long, since the message is persisted. Omission is made
 //! structurally impossible first: the Evaluator's strict schema is built
 //! per call ([`evaluation_schema`]), its `assessments` an object whose
-//! properties are exactly the proposal's claim ids and its `item_verdicts`
-//! one whose properties are exactly the objections under evaluation, every
-//! property required and no other allowed (live run R03 returned an empty
-//! `assessments` array under the list schema, and every claim was then
-//! completed as uncorroborated; nothing is completed any more). Ids no
-//! decision reads (the Critic's `claim_id`/`evidence_refs`, the reviser's
-//! `addressed_items`) are still filtered to known ids.
+//! properties are exactly the proposal's claim ids, its `item_verdicts`
+//! one whose properties are exactly the objections under evaluation and,
+//! in a round that carries a contradiction, its `contradiction_verdicts`
+//! one whose properties are exactly the carried records (live M04 passed
+//! one over under the former free clearing list), every property required
+//! and no other allowed (live run R03 returned an empty `assessments`
+//! array under the list schema, and every claim was then completed as
+//! uncorroborated; nothing is completed any more); cited ids are an
+//! `enum` of the round's records. Ids no decision reads (the Critic's
+//! `claim_id`, an `enum` of the proposal's claim ids, and `evidence_refs`;
+//! the reviser's `addressed_items`) are still filtered to known ids.
 //!
 //! Protocol 1.3 prompts carry the deliberation across rounds: the
 //! Evaluator is shown every objection still open (carried ones marked
@@ -240,7 +246,7 @@ If no record settles a claim, set corroborated=false for it: an unsettled claim 
 List in contradicting_evidence every record that conflicts with a claim. \
 Cite records only by the ids given in the evidence block, exactly as written. \
 In item_verdicts, give exactly one verdict for every objection listed above, by its ITEM id exactly as written: status unresolved when the objection still applies to the proposal as written, including objections the evidence confirms; status resolved only when the proposal already satisfies it or the retrieved evidence shows it is mistaken, with a reason naming the change or the record that settles it. \
-For every carried contradiction, either list the record again in contradicting_evidence of a claim it still conflicts with, or put it in cleared_contradictions with a reason naming the change that removed the conflict; never leave one out. \
+For each id under contradiction_verdicts answer still_contradicts (and cite it in contradicting_evidence of the claim it conflicts with) or cleared (with the change that removed the conflict). \
 Set abstain=true only when the evidence is too sparse or inconsistent to assess the claims at all, and say why in abstain_reason.";
 
 const PROPOSER_SYSTEM: &str = "You are the Proposer in a multi-agent engineering review.";
@@ -312,6 +318,7 @@ pub struct DraftChallenge {
 pub struct DraftChallengeItem {
     pub kind: ChallengeKind,
     pub claim_id: Option<String>,
+    /// One full sentence stating the specific objection.
     pub description: String,
     pub evidence_refs: Vec<String>,
 }
@@ -328,10 +335,36 @@ pub struct DraftEvaluation {
     pub assessments: Keyed<DraftAssessment>,
     /// One verdict per objection listed in the prompt, keyed by ITEM id.
     pub item_verdicts: Keyed<DraftItemVerdict>,
-    /// Carried contradictions this evaluation clears, with reasons.
-    pub cleared_contradictions: Vec<DraftClearedContradiction>,
+    /// One verdict per carried contradiction listed in the prompt, keyed by its record id.
+    pub contradiction_verdicts: Option<Keyed<DraftContradictionVerdict>>,
     pub abstain: bool,
     pub abstain_reason: Option<String>,
+}
+
+// Prompt-freeze-4 (live M04 left a carried contradiction unjudged under a
+// free `cleared_contradictions` list): `contradiction_verdicts` is keyed by
+// exactly the carried record ids (required, none other allowed) when the
+// round carries any, and absent from the schema otherwise (an absent value
+// reads as no verdict, which the adapter refuses when one is due). The
+// adapter derives the domain `cleared_contradictions` from the `cleared`
+// verdicts; `still_contradicts` must be backed by a citation in some
+// assessment's `contradicting_evidence`.
+
+/// A verdict on one carried contradiction; the record's id is the key it
+/// sits under in `contradiction_verdicts`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DraftContradictionVerdict {
+    pub status: ContradictionStatus,
+    pub reason: String,
+}
+
+/// Whether a carried contradiction still holds against the proposal as
+/// written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContradictionStatus {
+    StillContradicts,
+    Cleared,
 }
 
 /// A verdict on one objection; the objection's id is the key it sits
@@ -339,12 +372,6 @@ pub struct DraftEvaluation {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftItemVerdict {
     pub status: ItemStatus,
-    pub reason: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct DraftClearedContradiction {
-    pub evidence_id: String,
     pub reason: String,
 }
 
@@ -648,10 +675,12 @@ pub const REVISION_ORDER: [&str; 7] = [
 ];
 /// The Evaluator's property order, as sent: the judgments first, the
 /// abstention last.
+/// `contradiction_verdicts` is sent only in a round that carries a
+/// contradiction; the others keep their places without it.
 pub const EVALUATION_ORDER: [&str; 5] = [
     "assessments",
     "item_verdicts",
-    "cleared_contradictions",
+    "contradiction_verdicts",
     "abstain",
     "abstain_reason",
 ];
@@ -761,9 +790,15 @@ fn inline_definition(schema: &mut OrderedJson, field: &str) -> Result<(), String
 /// one whose properties are exactly `item_ids` (in that order, the
 /// prompt's), each value the entry type's schema, every property required
 /// and no other allowed (`key_property`). With no claims or no objections
-/// the object is empty, and still strict. `cleared_contradictions` stays a
-/// list: clearing is optional per record by design. A repeated id is an
-/// error: the ids are this adapter's, so one would be a bug here.
+/// the object is empty, and still strict. `contradiction_verdicts` is
+/// keyed the same way by exactly `carried_ids` (the round's carried
+/// contradictions, in prompt order) and left out of the schema when there
+/// are none (an empty object is never sent for it). With at least one
+/// retrieved record, every cited id (`relevant_evidence`,
+/// `contradicting_evidence`) is an `enum` of `evidence_ids` in prompt
+/// order; with none it stays a plain string (an empty `enum` is never
+/// sent). The adapter still checks every id. A repeated id is an error:
+/// the ids are this adapter's, so one would be a bug here.
 ///
 /// Two features of this schema have only been exercised against the fake
 /// server, never the live API: a `$ref` value directly under `properties`
@@ -773,11 +808,109 @@ fn inline_definition(schema: &mut OrderedJson, field: &str) -> Result<(), String
 /// implementations reject. Either rejection would be loud (a 4xx fails the
 /// run), never silent; the next live smoke battery must include a run
 /// whose critique raises no objection.
-pub fn evaluation_schema(claim_ids: &[&str], item_ids: &[&str]) -> Result<OrderedJson, String> {
+pub fn evaluation_schema(
+    claim_ids: &[&str],
+    item_ids: &[&str],
+    carried_ids: &[&str],
+    evidence_ids: &[&str],
+) -> Result<OrderedJson, String> {
     let mut schema = draft_schema::<DraftEvaluation>()?;
     key_property(&mut schema, "assessments", claim_ids)?;
     key_property(&mut schema, "item_verdicts", item_ids)?;
-    order_properties(&mut schema, &EVALUATION_ORDER)?;
+    let order: Vec<&str> = if carried_ids.is_empty() {
+        if let Some(properties) = schema.get_mut("properties") {
+            properties.remove("contradiction_verdicts");
+        }
+        if let Some(definitions) = schema.get_mut("definitions") {
+            definitions.remove("DraftContradictionVerdict");
+            definitions.remove("ContradictionStatus");
+        }
+        EVALUATION_ORDER
+            .iter()
+            .copied()
+            .filter(|p| *p != "contradiction_verdicts")
+            .collect()
+    } else {
+        key_property(&mut schema, "contradiction_verdicts", carried_ids)?;
+        // Required, never null, when a contradiction is carried.
+        if let Some(property) = schema
+            .get_mut("properties")
+            .and_then(|p| p.get_mut("contradiction_verdicts"))
+        {
+            property.set("type", OrderedJson::Scalar("object".into()));
+        }
+        EVALUATION_ORDER.to_vec()
+    };
+    if !evidence_ids.is_empty() {
+        let assessment = schema
+            .get_mut("definitions")
+            .and_then(|d| d.get_mut("DraftAssessment"))
+            .and_then(|a| a.get_mut("properties"))
+            .ok_or("DraftAssessment: no properties in the schema")?;
+        for field in ["relevant_evidence", "contradicting_evidence"] {
+            let list = assessment
+                .get_mut(field)
+                .ok_or_else(|| format!("DraftAssessment.{field}: no such property"))?;
+            list.set("items", string_enum(evidence_ids, field)?);
+        }
+    }
+    order_properties(&mut schema, &order)?;
+    Ok(schema)
+}
+
+/// `{"type": "string", "enum": values}`, the values in the order given;
+/// never empty, never repeated.
+fn string_enum(values: &[&str], what: &str) -> Result<OrderedJson, String> {
+    if values.is_empty() {
+        return Err(format!("{what}: an empty enum is never sent"));
+    }
+    for (n, value) in values.iter().enumerate() {
+        if values[..n].contains(value) {
+            return Err(format!("{what}: id {} repeats", quote(value)));
+        }
+    }
+    Ok(OrderedJson::Object(vec![
+        ("type".into(), OrderedJson::Scalar("string".into())),
+        (
+            "enum".into(),
+            OrderedJson::Array(
+                values
+                    .iter()
+                    .map(|v| OrderedJson::Scalar(serde_json::Value::String(v.to_string())))
+                    .collect(),
+            ),
+        ),
+    ]))
+}
+
+/// The Critic's strict schema for one call: [`draft_schema`] of
+/// [`DraftChallenge`] with each item's `claim_id` one of `claim_ids` (the
+/// proposal's, in proposal order) or null. Without claims it stays a
+/// nullable string (an empty `enum` is never sent). Unknown ids are still
+/// dropped by the adapter.
+pub fn critique_schema(claim_ids: &[&str]) -> Result<OrderedJson, String> {
+    let mut schema = draft_schema::<DraftChallenge>()?;
+    if claim_ids.is_empty() {
+        return Ok(schema);
+    }
+    let claim_id = schema
+        .get_mut("definitions")
+        .and_then(|d| d.get_mut("DraftChallengeItem"))
+        .and_then(|i| i.get_mut("properties"))
+        .and_then(|p| p.get_mut("claim_id"))
+        .ok_or("DraftChallengeItem.claim_id: no such property")?;
+    let mut rewritten = Vec::new();
+    if let Some(description) = claim_id.get("description").cloned() {
+        rewritten.push(("description".to_string(), description));
+    }
+    rewritten.push((
+        "anyOf".to_string(),
+        OrderedJson::Array(vec![
+            string_enum(claim_ids, "claim_id")?,
+            OrderedJson::Object(vec![("type".into(), OrderedJson::Scalar("null".into()))]),
+        ]),
+    ));
+    *claim_id = OrderedJson::Object(rewritten);
     Ok(schema)
 }
 
@@ -1049,26 +1182,50 @@ fn evidence_block(ctx: &RoleContext) -> String {
     let entries: Vec<String> = ctx
         .evidence
         .iter()
-        .map(|ev| {
-            let integrity = ctx
-                .integrity
-                .iter()
-                .find(|(id, _)| id == &ev.id)
-                .map(|(_, s)| format!("{s:?}"))
-                .unwrap_or_else(|| "NotChecked".into());
-            format!(
-                "{{\"id\": {}, \"kind\": {}, \"integrity\": {}, \"content\": {}}}",
-                json_string(ev.id.as_str()),
-                json_string(&truncate(&ev.kind, KIND_MAX_CHARS)),
-                json_string(&integrity),
-                json_string(&truncate(&ev.content, EVIDENCE_CONTENT_MAX_CHARS))
-            )
-        })
+        .map(|ev| evidence_entry(ctx, ev))
         .collect();
     block(
         "UNTRUSTED_EVIDENCE",
         &format!("[\n{}\n]", entries.join(",\n")),
     )
+}
+
+/// One record as a JSON object on one line: `{"id","kind","integrity",
+/// "content"}`.
+fn evidence_entry(ctx: &RoleContext, ev: &EvidenceReference) -> String {
+    let integrity = ctx
+        .integrity
+        .iter()
+        .find(|(id, _)| id == &ev.id)
+        .map(|(_, s)| format!("{s:?}"))
+        .unwrap_or_else(|| "NotChecked".into());
+    format!(
+        "{{\"id\": {}, \"kind\": {}, \"integrity\": {}, \"content\": {}}}",
+        json_string(ev.id.as_str()),
+        json_string(&truncate(&ev.kind, KIND_MAX_CHARS)),
+        json_string(&integrity),
+        json_string(&truncate(&ev.content, EVIDENCE_CONTENT_MAX_CHARS))
+    )
+}
+
+/// The round's carried contradictions, each as its record's JSON line
+/// (the id alone when the record is not in the round context), inside an
+/// untrusted block; `(none)` without any. The contradicted claim itself
+/// is not shown: claim ids are minted anew on every revision and the
+/// round context does not carry the earlier proposal's statements.
+fn contradictions_block(ctx: &RoleContext) -> String {
+    if ctx.carried_contradictions.is_empty() {
+        return "(none)".into();
+    }
+    let lines: Vec<String> = ctx
+        .carried_contradictions
+        .iter()
+        .map(|id| match ctx.evidence.iter().find(|ev| &ev.id == id) {
+            Some(ev) => evidence_entry(ctx, ev),
+            None => format!("{{\"id\": {}}}", json_string(id.as_str())),
+        })
+        .collect();
+    block("UNTRUSTED_CONTRADICTIONS", &lines.join("\n"))
 }
 
 /// One objection as a role sees it: id, kind, target claim, when it was
@@ -1186,7 +1343,7 @@ Assess these claims, one assessment each, keyed by claim id: {claim_ids}
 Objections to judge, one verdict each (this round's challenge document id={challenge_id}; a carried objection was raised in an earlier round and is still open):
 {objections}
 
-Carried contradictions (records an earlier evaluation found contradicting a claim; judge each again):
+Carried contradictions (records an earlier evaluation found contradicting a claim of an earlier proposal; one verdict each under contradiction_verdicts, keyed by the record id):
 {contradictions}
 
 Retrieved evidence with integrity status (integrity is about record tampering only; it does NOT make content true):
@@ -1258,11 +1415,6 @@ fn evaluate_prompt(proposal: &Proposal, challenge: &Challenge, ctx: &RoleContext
         .iter()
         .map(|(item, raised)| item_line(item, *raised, &proposal.claims))
         .collect();
-    let contradictions: Vec<String> = ctx
-        .carried_contradictions
-        .iter()
-        .map(|id| format!("- {}", untrusted_line(id.as_str(), ID_MAX_CHARS)))
-        .collect();
     fill(
         EVALUATE_TEMPLATE,
         &[
@@ -1280,14 +1432,7 @@ fn evaluate_prompt(proposal: &Proposal, challenge: &Challenge, ctx: &RoleContext
                 &untrusted_line(challenge.id.as_str(), ID_MAX_CHARS),
             ),
             ("objections", &objections_block(&items)),
-            (
-                "contradictions",
-                &if contradictions.is_empty() {
-                    "(none)".to_string()
-                } else {
-                    contradictions.join("\n")
-                },
-            ),
+            ("contradictions", &contradictions_block(ctx)),
             ("evidence", &evidence_block(ctx)),
             ("evaluation_rules", EVALUATION_RULES),
         ],
@@ -2994,7 +3139,11 @@ impl MetaModelClient {
     ) -> Result<Evaluation, ModelError> {
         let assessments = Self::assessments_from_draft(proposal, ctx, draft.assessments)?;
         let item_verdicts = Self::verdicts_from_draft(expected, draft.item_verdicts)?;
-        let cleared_contradictions = Self::cleared_from_draft(ctx, draft.cleared_contradictions)?;
+        let cleared_contradictions = Self::cleared_from_draft(
+            ctx,
+            &assessments,
+            draft.contradiction_verdicts.unwrap_or(Keyed(Vec::new())),
+        )?;
         // Derived, never asked for separately: exactly the open verdicts.
         let unresolved_items = item_verdicts
             .iter()
@@ -3015,39 +3164,68 @@ impl MetaModelClient {
         })
     }
 
-    /// Cleared contradictions as drafted. Only a carried contradiction can
-    /// be cleared, once; anything else is malformed. (The runtime contract
-    /// then checks each reason and that a cleared record is not also
-    /// listed as contradicting.)
+    /// The domain's cleared contradictions, from one verdict per carried
+    /// contradiction, in the order carried. A key that is not a carried
+    /// contradiction, one judged twice, or a carried one without a verdict
+    /// is malformed (the per-call schema requires exactly the carried
+    /// ids), and so is `still_contradicts` for a record no assessment lists
+    /// in `contradicting_evidence`: the verdict must be backed by the
+    /// citation the policy reads. `cleared` verdicts become the domain
+    /// list, with their reasons. None of these is ever asked again (it is
+    /// the Evaluator's judgment). The runtime contract then checks each
+    /// reason and that a cleared record is not also listed as
+    /// contradicting.
     fn cleared_from_draft(
         ctx: &RoleContext,
-        drafts: Vec<DraftClearedContradiction>,
+        assessments: &[ClaimAssessment],
+        drafts: Keyed<DraftContradictionVerdict>,
     ) -> Result<Vec<ClearedContradiction>, ModelError> {
-        for (n, c) in drafts.iter().enumerate() {
+        let drafts = drafts.0;
+        for (n, (evidence_id, _)) in drafts.iter().enumerate() {
             if !ctx
                 .carried_contradictions
                 .iter()
-                .any(|id| id.as_str() == c.evidence_id)
+                .any(|id| id.as_str() == evidence_id)
             {
                 return Err(ModelError::malformed(format!(
-                    "cleared_contradictions: evidence_id {} is not a carried contradiction",
-                    quote(&c.evidence_id)
+                    "contradiction_verdicts: evidence_id {} is not a carried contradiction",
+                    quote(evidence_id)
                 )));
             }
-            if drafts[..n].iter().any(|d| d.evidence_id == c.evidence_id) {
+            if drafts[..n].iter().any(|(other, _)| other == evidence_id) {
                 return Err(ModelError::malformed(format!(
-                    "cleared_contradictions: evidence_id {} is cleared more than once",
-                    quote(&c.evidence_id)
+                    "contradiction_verdicts: evidence_id {} has more than one verdict",
+                    quote(evidence_id)
                 )));
             }
         }
-        Ok(drafts
-            .into_iter()
-            .map(|c| ClearedContradiction {
-                evidence_id: EvidenceId::new(c.evidence_id),
-                reason: c.reason,
-            })
-            .collect())
+        let mut cleared = Vec::new();
+        for carried in &ctx.carried_contradictions {
+            let Some((_, verdict)) = drafts.iter().find(|(id, _)| id == carried.as_str()) else {
+                return Err(ModelError::malformed(format!(
+                    "contradiction_verdicts: no verdict for evidence_id {}",
+                    quote(carried.as_str())
+                )));
+            };
+            match verdict.status {
+                ContradictionStatus::Cleared => cleared.push(ClearedContradiction {
+                    evidence_id: carried.clone(),
+                    reason: verdict.reason.clone(),
+                }),
+                ContradictionStatus::StillContradicts => {
+                    if !assessments
+                        .iter()
+                        .any(|a| a.contradicting_evidence.contains(carried))
+                    {
+                        return Err(ModelError::malformed(format!(
+                            "contradiction_verdicts[{}]: still_contradicts, but no assessment lists it in contradicting_evidence",
+                            quote(carried.as_str())
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(cleared)
     }
 }
 
@@ -3075,7 +3253,8 @@ impl ModelClient for MetaModelClient {
         proposal: &Proposal,
         ctx: &RoleContext,
     ) -> Result<(Challenge, ModelInvocation), ModelError> {
-        let schema = draft_schema::<DraftChallenge>().map_err(schema_error)?;
+        let claim_ids: Vec<&str> = proposal.claims.iter().map(|c| c.id.as_str()).collect();
+        let schema = critique_schema(&claim_ids).map_err(schema_error)?;
         let user = critique_prompt(proposal, ctx);
         self.with_reask(Role::Critique, user, |s, user| {
             let (draft, inv, _) = s.call::<DraftChallenge>(Role::Critique, schema.clone(), user)?;
@@ -3095,7 +3274,14 @@ impl ModelClient for MetaModelClient {
         let expected = under_evaluation(ctx, challenge);
         let expected_ids: Vec<&str> = expected.iter().map(|(i, _)| i.id.as_str()).collect();
         let claim_ids: Vec<&str> = proposal.claims.iter().map(|c| c.id.as_str()).collect();
-        let schema = evaluation_schema(&claim_ids, &expected_ids).map_err(schema_error)?;
+        let carried_ids: Vec<&str> = ctx
+            .carried_contradictions
+            .iter()
+            .map(EvidenceId::as_str)
+            .collect();
+        let evidence_ids: Vec<&str> = ctx.evidence.iter().map(|e| e.id.as_str()).collect();
+        let schema = evaluation_schema(&claim_ids, &expected_ids, &carried_ids, &evidence_ids)
+            .map_err(schema_error)?;
         let user = evaluate_prompt(proposal, challenge, ctx);
         // Only an unreadable answer is asked again: every refusal of a
         // readable evaluation is a judgment, never resampled.
@@ -3188,26 +3374,40 @@ impl MetaModelClient {
         }
         let known_claims: Vec<&ClaimId> = proposal.claims.iter().map(|c| &c.id).collect();
         let known_evidence: Vec<&EvidenceId> = ctx.evidence.iter().map(|e| &e.id).collect();
-        let items = draft
-            .items
-            .into_iter()
-            .map(|i| ChallengeItem {
+        let (mut dropped_claims, mut dropped_refs) = (0usize, 0usize);
+        let mut items = Vec::with_capacity(draft.items.len());
+        for i in draft.items {
+            // Unknown ids are dropped, never trusted; only their count is
+            // logged (never the ids, which are model text).
+            let named_claim = i.claim_id.is_some();
+            let known_claim = i
+                .claim_id
+                .map(ClaimId::new)
+                .filter(|id| known_claims.contains(&id));
+            if named_claim && known_claim.is_none() {
+                dropped_claims += 1;
+            }
+            let refs = i.evidence_refs.len();
+            let evidence_refs: Vec<EvidenceId> = i
+                .evidence_refs
+                .into_iter()
+                .map(EvidenceId::new)
+                .filter(|id| known_evidence.contains(&id))
+                .collect();
+            dropped_refs += refs - evidence_refs.len();
+            items.push(ChallengeItem {
                 id: self.next_id("item"),
                 kind: i.kind,
-                // Unknown ids are dropped, never trusted.
-                claim_id: i
-                    .claim_id
-                    .map(ClaimId::new)
-                    .filter(|id| known_claims.contains(&id)),
+                claim_id: known_claim,
                 description: i.description,
-                evidence_refs: i
-                    .evidence_refs
-                    .into_iter()
-                    .map(EvidenceId::new)
-                    .filter(|id| known_evidence.contains(&id))
-                    .collect(),
-            })
-            .collect();
+                evidence_refs,
+            });
+        }
+        if dropped_claims + dropped_refs > 0 {
+            eprintln!(
+                "[meta] critique dropped unknown ids: claim_id {dropped_claims}, evidence_refs {dropped_refs}"
+            );
+        }
         Ok((
             Challenge {
                 schema_version: SCHEMA_VERSION.into(),
@@ -3455,7 +3655,7 @@ mod tests {
     fn the_evaluator_schema_is_keyed_by_the_calls_ids_in_their_order() {
         let claims = ["claim-14", "claim-9", "claim-15"];
         let items = ["item-3", "item-12"];
-        let schema = evaluation_schema(&claims, &items).unwrap();
+        let schema = evaluation_schema(&claims, &items, &[], &[]).unwrap();
         // Serialized in the order given: serde_json alone would sort
         // "claim-15" before "claim-9" and "item-12" before "item-3".
         let text = serde_json::to_string(&schema).unwrap();
@@ -3491,8 +3691,8 @@ mod tests {
                 "{id}"
             );
         }
-        // The entries carry no id field: the key is the id. Clearing a
-        // carried contradiction stays optional, so that is still a list.
+        // The entries carry no id field: the key is the id. A round that
+        // carries no contradiction asks for no contradiction verdict.
         let assessment = &value["definitions"]["DraftAssessment"];
         assert_eq!(
             assessment["required"],
@@ -3507,9 +3707,15 @@ mod tests {
             value["definitions"]["DraftItemVerdict"]["required"],
             json!(["reason", "status"])
         );
+        assert!(value["properties"].get("contradiction_verdicts").is_none());
+        assert!(value["properties"].get("cleared_contradictions").is_none());
+        assert!(value["definitions"]
+            .get("DraftContradictionVerdict")
+            .is_none());
+        // No record retrieved: cited ids stay plain strings (no empty enum).
         assert_eq!(
-            value["properties"]["cleared_contradictions"]["type"],
-            json!("array")
+            assessment["properties"]["relevant_evidence"]["items"],
+            json!({"type": "string"})
         );
         assert_eq!(
             value["properties"]["abstain_reason"]["type"],
@@ -3518,12 +3724,13 @@ mod tests {
         );
         // Prompt-freeze-3: the judgments first, the abstention last, in
         // `properties` as sent and in `required`.
-        assert_eq!(value["required"], json!(EVALUATION_ORDER));
-        assert_eq!(top_level_keys(&schema), EVALUATION_ORDER);
+        let round_one = ["assessments", "item_verdicts", "abstain", "abstain_reason"];
+        assert_eq!(value["required"], json!(round_one));
+        assert_eq!(top_level_keys(&schema), round_one);
         assert_strict(&value);
 
         // No claims and no objections: empty objects, still strict.
-        let empty = evaluation_schema(&[], &[]).unwrap().to_value();
+        let empty = evaluation_schema(&[], &[], &[], &[]).unwrap().to_value();
         for field in ["assessments", "item_verdicts"] {
             assert_eq!(empty["properties"][field]["properties"], json!({}));
             assert_eq!(empty["properties"][field]["required"], json!([]));
@@ -3535,14 +3742,19 @@ mod tests {
         assert_strict(&empty);
 
         // A repeated id would be this adapter's bug: refused, named.
-        let err = evaluation_schema(&["claim-1", "claim-2", "claim-1"], &[]).unwrap_err();
+        let err = evaluation_schema(&["claim-1", "claim-2", "claim-1"], &[], &[], &[]).unwrap_err();
         assert!(
             err.contains("assessments") && err.contains("\"claim-1\""),
             "{err}"
         );
-        let err = evaluation_schema(&["claim-1"], &["item-4", "item-4"]).unwrap_err();
+        let err = evaluation_schema(&["claim-1"], &["item-4", "item-4"], &[], &[]).unwrap_err();
         assert!(
             err.contains("item_verdicts") && err.contains("\"item-4\""),
+            "{err}"
+        );
+        let err = evaluation_schema(&["claim-1"], &[], &["ev-a", "ev-a"], &["ev-a"]).unwrap_err();
+        assert!(
+            err.contains("contradiction_verdicts") && err.contains("\"ev-a\""),
             "{err}"
         );
 
@@ -3615,15 +3827,82 @@ mod tests {
         assert!(err.contains("does not match"), "{err}");
     }
 
-    /// Prompt-freeze record (docs/evaluation.md section 6.4): the prompt
-    /// and schema digests per role, asserted, so a prompt or schema edit
-    /// fails here until the freeze record is updated with it. `cargo test
-    /// -p consensus-api --lib prompt_freeze_digests -- --nocapture` prints
-    /// them; the Evaluator's schema is per call, recorded for one claim
-    /// (`claim-1`) and no objection.
+    #[test]
+    fn carried_contradictions_and_retrieved_records_key_and_bound_the_evaluator_schema() {
+        let schema = evaluation_schema(
+            &["claim-1"],
+            &["item-2"],
+            &["ev-b", "ev-a"],
+            &["ev-a", "ev-b", "ev-c"],
+        )
+        .unwrap();
+        let value = schema.to_value();
+        // A6: exactly the carried ids, in prompt order, each a verdict.
+        let verdicts = &value["properties"]["contradiction_verdicts"];
+        assert_eq!(verdicts["type"], json!("object"));
+        assert_eq!(verdicts["required"], json!(["ev-b", "ev-a"]));
+        assert_eq!(verdicts["additionalProperties"], json!(false));
+        assert_eq!(
+            verdicts["properties"]["ev-b"],
+            json!({"$ref": "#/definitions/DraftContradictionVerdict"})
+        );
+        assert_eq!(
+            value["definitions"]["ContradictionStatus"]["enum"],
+            json!(["still_contradicts", "cleared"])
+        );
+        assert_eq!(
+            value["definitions"]["DraftContradictionVerdict"]["required"],
+            json!(["reason", "status"])
+        );
+        assert_eq!(value["required"], json!(EVALUATION_ORDER));
+        assert_eq!(top_level_keys(&schema), EVALUATION_ORDER);
+        // A7: cited ids are the retrieved records, in prompt order.
+        let assessment = &value["definitions"]["DraftAssessment"]["properties"];
+        for field in ["relevant_evidence", "contradicting_evidence"] {
+            assert_eq!(
+                assessment[field]["items"],
+                json!({"type": "string", "enum": ["ev-a", "ev-b", "ev-c"]}),
+                "{field}"
+            );
+        }
+        assert_strict(&value);
+        let text = serde_json::to_string(&schema).unwrap();
+        assert!(text.find("\"ev-b\":{").unwrap() < text.find("\"ev-a\":{").unwrap());
+        assert!(text.contains(r#""enum":["ev-a","ev-b","ev-c"]"#), "{text}");
+    }
+
+    #[test]
+    fn the_critic_schema_names_the_proposals_claim_ids_or_null() {
+        let schema = critique_schema(&["claim-3", "claim-2"]).unwrap();
+        let value = schema.to_value();
+        let item = &value["definitions"]["DraftChallengeItem"]["properties"];
+        assert_eq!(
+            item["claim_id"],
+            json!({"anyOf": [{"type": "string", "enum": ["claim-3", "claim-2"]}, {"type": "null"}]})
+        );
+        assert_eq!(
+            item["description"]["description"],
+            json!("One full sentence stating the specific objection.")
+        );
+        assert_strict(&value);
+        // Without claims, no empty enum: a nullable string as before.
+        let bare = critique_schema(&[]).unwrap().to_value();
+        assert_eq!(
+            bare["definitions"]["DraftChallengeItem"]["properties"]["claim_id"]["type"],
+            json!(["string", "null"])
+        );
+    }
+
+    /// Prompt-freeze record (docs/evaluation.md sections 6.4 and 6.5): the
+    /// prompt and schema digests per role, asserted, so a prompt or schema
+    /// edit fails here until the freeze record is updated with it. `cargo
+    /// test -p consensus-api --lib prompt_freeze_digests -- --nocapture`
+    /// prints them; the Critic's and the Evaluator's schemas are per call,
+    /// recorded for one claim (`claim-1`), no objection, no carried
+    /// contradiction and no record.
     #[test]
     fn prompt_freeze_digests() {
-        let evaluate = evaluation_schema(&["claim-1"], &[]).unwrap();
+        let evaluate = evaluation_schema(&["claim-1"], &[], &[], &[]).unwrap();
         // (role, schema, recorded prompt_sha256, recorded schema_sha256)
         for (role, schema, prompt_sha, schema_sha) in [
             (
@@ -3634,15 +3913,15 @@ mod tests {
             ),
             (
                 Role::Critique,
-                draft_schema::<DraftChallenge>().unwrap(),
+                critique_schema(&["claim-1"]).unwrap(),
                 "06447d5d97f118a38af1b0f3394f694eaf3dd3590dd1d8c9a460f02327670edb",
-                "b0d0715920223eb5823241670b853cda6f99c5d25719d41c635b858333f35cf9",
+                "f241325093b78d4cedad3d6f7e380e34e4087e0891d2f7e9fb49cb19de470226",
             ),
             (
                 Role::Evaluate,
                 evaluate,
-                "1a5e2b598f67bece56fc1991e9b9491305adf2104f6d5e874fc296e482f16770",
-                "1ccf6e2191a55b81a723da06c89d29b44772295acd9d5ff3b1792163f8771260",
+                "01d3164ef46648ffe991345ec89d5614f01ba7d924bf621d46926d021ffab68b",
+                "0e85208a09ef36a6886a93385e3fe011db8848974e9517518871585bb20ede66",
             ),
             (
                 Role::Revise,

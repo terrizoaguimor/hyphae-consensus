@@ -266,6 +266,8 @@ fn no_delimiter_variant_survives_in_any_untrusted_field() {
                     "UNTRUSTED_PROPOSAL",
                     "UNTRUSTED_EVIDENCE",
                     "UNTRUSTED_OBJECTIONS",
+                    // Prompt-freeze-4: the carried record's line.
+                    "UNTRUSTED_CONTRADICTIONS",
                 ][..],
             ),
             (
@@ -562,7 +564,8 @@ fn every_role_keeps_its_system_rules_and_protocol_instructions() {
         "Assess every claim exactly once, by its claim id.",
         "A record whose integrity is not Valid cannot corroborate anything.",
         "In item_verdicts, give exactly one verdict for every objection listed above, by its ITEM id exactly as written",
-        "For every carried contradiction, either list the record again in contradicting_evidence",
+        // Prompt-freeze-4 (M04): one keyed verdict per carried record.
+        "For each id under contradiction_verdicts answer still_contradicts (and cite it in contradicting_evidence of the claim it conflicts with) or cleared (with the change that removed the conflict).",
         "Set abstain=true only when the evidence is too sparse or inconsistent to assess the claims at all",
     ] {
         assert!(evaluate.contains(rule), "{rule}");

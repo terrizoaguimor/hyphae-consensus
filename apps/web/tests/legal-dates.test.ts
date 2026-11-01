@@ -27,8 +27,8 @@ type LegalDocument = (typeof documents)[number];
 
 /** The day each document's text last changed, with the digest of that text. */
 const PINNED: Record<LegalDocument, { date: string; sha256: string }> = {
-  terms: { date: "2026-10-27", sha256: "eea6b0f1328cae634a9ef5eb1afe83d52976820766164eff50ecf101686e934f" },
-  privacy: { date: "2026-10-27", sha256: "99368e85299ae9803a131c74244a515f53f0a674c50cf7e33f811d90a2b8a2f8" },
+  terms: { date: "2026-11-01", sha256: "ca1fdd8749bab9c68d7a96d6099606a70e1e89d7830e43f48dc197ec46115077" },
+  privacy: { date: "2026-11-01", sha256: "1f5811c7ee3572e316ddeee9daca60f676a3dc7b465e63711021d28a12b10707" },
   limitations: { date: "2026-10-29", sha256: "a7da1e402e9199b24c1073e4ed804646af57f3a9a17760ce6ec9c81de06d8368" },
   about: { date: "2026-10-27", sha256: "31f3dedb6371401c7e439f34bd4a538ee9cd0b39f437c2c7537230fc93a3c5be" },
 };
@@ -114,13 +114,15 @@ describe("legal page dates", () => {
     }
   });
 
-  it("does not re-date Terms and Privacy for a change to Limitations only", () => {
+  it("does not re-date the other documents for a change to one of them", () => {
     // 2026-10-28 (e0f0ebd) changed one line of Limitations and no other legal
     // text; 2026-10-29 (the W2 review's round 2, CRITIC-3) changed its
-    // showcase section only.
+    // showcase section only. 2026-11-01 set the contact address and the
+    // hosting country, which Terms and Privacy show (About and Limitations
+    // do not).
     expect(LEGAL_TEXT_CHANGED.limitations.toISOString().slice(0, 10)).toBe("2026-10-29");
-    expect(LEGAL_TEXT_CHANGED.terms.toISOString().slice(0, 10)).toBe("2026-10-27");
-    expect(LEGAL_TEXT_CHANGED.privacy.toISOString().slice(0, 10)).toBe("2026-10-27");
+    expect(LEGAL_TEXT_CHANGED.terms.toISOString().slice(0, 10)).toBe("2026-11-01");
+    expect(LEGAL_TEXT_CHANGED.privacy.toISOString().slice(0, 10)).toBe("2026-11-01");
     expect(LEGAL_TEXT_CHANGED.about.toISOString().slice(0, 10)).toBe("2026-10-27");
   });
 

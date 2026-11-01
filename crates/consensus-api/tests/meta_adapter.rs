@@ -213,9 +213,10 @@ fn malformed_content_is_malformed_output_error() {
 }
 
 #[test]
-fn persistent_503_retries_once_then_unavailable_and_500_is_never_retried() {
+fn persistent_503_retries_once_then_unavailable_and_500_is_retried_once() {
     // Meta's guidance: 503 is retryable. A 500 may follow a generation
-    // that was already billed, so it is never retried (audit MA-8).
+    // that was already billed, so it is retried once per call at most
+    // (live run M02 failed on one; the duplicate is bounded to one).
     let server = serve(vec![(503, "{\"error\":\"boom\"}".into())]);
     let mut c = client(server.base_url.clone());
     match c.propose(&task()) {
@@ -235,11 +236,12 @@ fn persistent_503_retries_once_then_unavailable_and_500_is_never_retried() {
             let msg = e.to_string();
             assert!(msg.contains("500"), "{msg}");
             assert!(!msg.contains("boom"), "the body is never quoted: {msg}");
+            assert!(msg.contains("after 2 attempt(s)"), "{msg}");
             assert_eq!(e.code(), Some("meta_unavailable"));
         }
         other => panic!("expected a meta_unavailable provider error, got {other:?}"),
     }
-    assert_eq!(server.hits.load(Ordering::SeqCst), 1, "never retried");
+    assert_eq!(server.hits.load(Ordering::SeqCst), 2, "1 initial + 1 retry");
 }
 
 #[test]
@@ -1773,7 +1775,7 @@ fn invocation_records_schema_name_attempts_and_finish_reason() {
         "usage": { "prompt_tokens": 10, "completion_tokens": 5 }
     })
     .to_string();
-    // A 503 is retried (a 500 no longer is: it may follow a billed call).
+    // A 503 is retried (a 500 once at most: it may follow a billed call).
     let server = serve(vec![(503, "{}".into()), (200, stopped)]);
     let mut c = client(server.base_url.clone());
     let (_, inv) = c.propose(&task()).unwrap();

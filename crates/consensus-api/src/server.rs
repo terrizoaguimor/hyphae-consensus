@@ -54,8 +54,8 @@ use crate::live::geo::GeoPolicy;
 use crate::live::snapshot_factory::{SnapshotFactory, UNUSED_NOTICE};
 use crate::live::turnstile::{Siteverify, TurnstileVerifier};
 use crate::public_config::{
-    operator_limits, OperatorConfig, ProcessEnv, PublicConfig, PublicListener, RuntimeConfig,
-    DEFAULT_OPERATOR_BIND,
+    operator_limits, public_shutdown_grace, required_stop_timeout, OperatorConfig, ProcessEnv,
+    PublicConfig, PublicListener, RuntimeConfig, DEFAULT_OPERATOR_BIND,
 };
 use crate::public_view::Surface;
 use crate::runs::{ManagerSettings, RunManager};
@@ -567,6 +567,106 @@ pub fn require_snapshot_pins(
     }
 }
 
+/// The Meta call limits the public live gate runs with, read from its
+/// validated [`MetaConfig`] without the key (for the boot line).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallLimits {
+    /// One call's budget (`CONSENSUS_MODEL_TIMEOUT_SECS`).
+    pub timeout: Duration,
+    /// The connect timeout inside it.
+    pub connect_timeout: Duration,
+    /// HTTP attempts per call (`CONSENSUS_META_MAX_ATTEMPTS`).
+    pub max_attempts: u32,
+    /// Whether `reasoning_effort` is sent (its value is not printed).
+    pub reasoning_effort_set: bool,
+}
+
+impl CallLimits {
+    pub fn of(meta: &MetaConfig) -> Self {
+        Self {
+            timeout: meta.timeout,
+            connect_timeout: crate::meta::connect_timeout(meta.timeout),
+            max_attempts: meta.max_attempts,
+            reasoning_effort_set: meta.reasoning_effort.is_some(),
+        }
+    }
+}
+
+/// `serve-public`'s boot line of its effective limits, printed to stderr
+/// (the journal): the Meta call limits when live mode is enabled (`call`),
+/// the output bound and run token cap the live gate applies, the run
+/// deadline, the shutdown grace, the live concurrency (the manager's slots
+/// and the ledger's), the burst fraction and the daily quotas. Only
+/// numbers and set/unset flags: never a key, a secret or a path.
+pub fn public_limits_line(
+    call: Option<&CallLimits>,
+    live: &LiveConfig,
+    rt: &RuntimeConfig,
+    shutdown_grace: Duration,
+) -> String {
+    let b = &live.budget;
+    let calls = match call {
+        Some(c) => format!(
+            "per-call timeout {} s, connect timeout {} s, max attempts {}, reasoning_effort {}",
+            c.timeout.as_secs(),
+            c.connect_timeout.as_secs(),
+            c.max_attempts,
+            if c.reasoning_effort_set {
+                "set"
+            } else {
+                "unset"
+            },
+        ),
+        None => "per-call timeout n/a (live mode disabled)".to_string(),
+    };
+    format!(
+        "[startup] limits: {calls}, max_completion_tokens {}, run deadline {} s, live run token cap {}, shutdown grace {} s (needs a stop timeout of at least {} s), live concurrency {} (ledger {}), burst fraction {} (${} at 00:00 UTC), client daily {}, judge code daily {}",
+        b.max_completion_tokens,
+        rt.run_deadline.as_secs(),
+        b.run_token_cap,
+        shutdown_grace.as_secs(),
+        required_stop_timeout(shutdown_grace).as_secs(),
+        rt.live_concurrency,
+        b.max_concurrent,
+        crate::live::money::Usd::from_micros(u64::from(b.burst_fraction.parts_per_million())),
+        b.burst(),
+        live.client_daily,
+        live.judge_code_daily,
+    )
+}
+
+/// Exactly what `serve-public` prints to stderr about its limits, in
+/// order: the [`public_limits_line`], then the [`timeout_warning`] of an
+/// enabled live mode whose call budget is too short for the output bound.
+pub fn startup_limit_lines(
+    call: Option<&CallLimits>,
+    live: &LiveConfig,
+    rt: &RuntimeConfig,
+    shutdown_grace: Duration,
+) -> Vec<String> {
+    let mut lines = vec![public_limits_line(call, live, rt, shutdown_grace)];
+    lines
+        .extend(call.and_then(|limits| timeout_warning(limits, live.budget.max_completion_tokens)));
+    lines
+}
+
+/// The boot WARNING when one call's budget cannot hold the output bound at
+/// [`crate::config::MIN_OUTPUT_TOKENS_PER_SEC`]: such a call can time out
+/// although it would have completed (live run M01). The server still
+/// starts.
+pub fn timeout_warning(call: &CallLimits, max_completion_tokens: u64) -> Option<String> {
+    if crate::config::timeout_holds_output(call.timeout, max_completion_tokens) {
+        return None;
+    }
+    Some(format!(
+        "[startup] WARNING: CONSENSUS_MODEL_TIMEOUT_SECS={} cannot hold max_completion_tokens={} at {} tokens/s (needs at least {} s): a long generation can time out and fail its run",
+        call.timeout.as_secs(),
+        max_completion_tokens,
+        crate::config::MIN_OUTPUT_TOKENS_PER_SEC,
+        max_completion_tokens.div_ceil(crate::config::MIN_OUTPUT_TOKENS_PER_SEC)
+    ))
+}
+
 /// `serve-public` over the sealed snapshot named by `CONSENSUS_SNAPSHOT_DIR`
 /// ([`SnapshotFactory::live_evidence_from_env`]), loaded only with live
 /// mode enabled; see [`serve_public_with`].
@@ -607,10 +707,12 @@ where
     let live = LiveConfig::from_env()?;
     // What the startup lines say about the evidence of an enabled live mode.
     let mut evidence_status = None;
+    // The Meta call limits of an enabled live mode (no key).
+    let mut call_limits: Option<CallLimits> = None;
     let live_gate = if live.enabled {
         require_snapshot_pins(&cfg.listener, |name| std::env::var(name).ok())?;
         let enabled = live.clone();
-        let (gate, status) = tokio::task::spawn_blocking(move || {
+        let (gate, status, limits) = tokio::task::spawn_blocking(move || {
             let meta = public_meta_config()?;
             // Before the snapshot boots: a mixed-model Critic without
             // explicit ledger prices never gets that far.
@@ -619,11 +721,13 @@ where
                 .map_err(|e| format!("public live mode: {e}"))?;
             let factory = evidence()?;
             let status = factory.as_ref().map(|f| f.status());
-            Ok::<_, String>((build_live_gate(&enabled, meta, factory)?, status))
+            let limits = CallLimits::of(&meta);
+            Ok::<_, String>((build_live_gate(&enabled, meta, factory)?, status, limits))
         })
         .await
         .map_err(|e| format!("public live mode setup: {e}"))??;
         evidence_status = status;
+        call_limits = Some(limits);
         Some(gate)
     } else {
         let snapshot_dir_set =
@@ -633,14 +737,24 @@ where
         }
         None
     };
+    // A live call in progress at the stop signal may take its whole
+    // budget: the grace covers it, then the call is abandoned and settled.
+    let shutdown_grace = match &call_limits {
+        Some(limits) => public_shutdown_grace(limits.timeout),
+        None => BuildOptions::default().shutdown_grace,
+    };
     let built = build_public(
         &cfg,
         BuildOptions {
             live_gate,
             geo: live.geo.clone(),
+            shutdown_grace,
             ..BuildOptions::default()
         },
     )?;
+    for line in startup_limit_lines(call_limits.as_ref(), &live, &cfg.runtime, shutdown_grace) {
+        eprintln!("{line}");
+    }
     for warning in &built.warnings {
         eprintln!("[startup] {warning}");
     }
@@ -904,5 +1018,132 @@ mod tests {
         // A development TCP bind may run unpinned.
         let none = vars(&[]);
         assert!(require_snapshot_pins(&tcp, |n| none.get(n).cloned()).is_ok());
+    }
+
+    /// A key of the documented shape that must never appear in output.
+    const CANARY: &str = "LLM_7739320002_canary-key-boot-line-never-leak-5c2e";
+
+    fn public_values() -> (MetaConfig, LiveConfig, RuntimeConfig) {
+        let meta_vars: BTreeMap<&str, &str> = [
+            ("CONSENSUS_META_API_KEY", CANARY),
+            ("CONSENSUS_MODEL_TIMEOUT_SECS", "240"),
+            ("CONSENSUS_META_REASONING_EFFORT", "low"),
+        ]
+        .into_iter()
+        .collect();
+        let meta = MetaConfig::from_vars(|n| meta_vars.get(n).map(|v| v.to_string()))
+            .unwrap()
+            .unwrap();
+        let live_vars: BTreeMap<&'static str, String> = [
+            (live_vars::RUN_TOKEN_CAP, "90000"),
+            (live_vars::BURST_FRACTION, "0.6"),
+            (live_vars::CLIENT_DAILY, "4"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k, v.to_string()))
+        .collect();
+        let live = LiveConfig::load(crate::live::config::Exposure::Public, &live_vars).unwrap();
+        let rt_vars: BTreeMap<String, String> = [
+            ("CONSENSUS_RUN_DEADLINE_SECS", "1200"),
+            ("CONSENSUS_LIVE_CONCURRENCY", "2"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let rt = RuntimeConfig::from_env(&|n: &str| rt_vars.get(n).cloned()).unwrap();
+        (meta, live, rt)
+    }
+
+    #[test]
+    fn the_boot_line_names_every_effective_limit_and_no_key() {
+        let (meta, live, rt) = public_values();
+        let limits = CallLimits::of(&meta);
+        let grace = public_shutdown_grace(limits.timeout);
+        let line = public_limits_line(Some(&limits), &live, &rt, grace);
+        for field in [
+            "per-call timeout 240 s",
+            "connect timeout 10 s",
+            "max attempts 3",
+            "max_completion_tokens 16000",
+            "reasoning_effort set",
+            "run deadline 1200 s",
+            "live run token cap 90000",
+            "shutdown grace 250 s",
+            "needs a stop timeout of at least 270 s",
+            "live concurrency 2 (ledger 1)",
+            "burst fraction 0.60 ($6.00 at 00:00 UTC)",
+            "client daily 4",
+            "judge code daily 5",
+        ] {
+            assert!(line.contains(field), "{field:?} missing from {line}");
+        }
+        // Set or unset only: the value of reasoning_effort is not printed.
+        assert!(!line.contains("low"), "{line}");
+        // No key material, whole or in part (the canary pattern).
+        assert!(!line.contains(CANARY), "{line}");
+        assert!(!line.contains("LLM_"), "{line}");
+        assert!(!line.contains("canary"), "{line}");
+        // A 240 s budget holds 16,000 tokens at 80/s: no warning.
+        assert_eq!(timeout_warning(&limits, 16_000), None);
+
+        let disabled = public_limits_line(None, &live, &rt, Duration::from_secs(60));
+        assert!(disabled.contains("live mode disabled"), "{disabled}");
+        assert!(disabled.contains("shutdown grace 60 s"), "{disabled}");
+        let unset = CallLimits {
+            reasoning_effort_set: false,
+            ..limits
+        };
+        assert!(
+            public_limits_line(Some(&unset), &live, &rt, grace).contains("reasoning_effort unset")
+        );
+    }
+
+    #[test]
+    fn a_timeout_too_short_for_the_output_bound_is_a_warning_naming_both() {
+        let (mut meta, _, _) = public_values();
+        meta.timeout = Duration::from_secs(120);
+        let warning = timeout_warning(&CallLimits::of(&meta), 16_000).expect("a warning");
+        assert!(warning.contains("WARNING"), "{warning}");
+        assert!(
+            warning.contains("CONSENSUS_MODEL_TIMEOUT_SECS=120"),
+            "{warning}"
+        );
+        assert!(warning.contains("max_completion_tokens=16000"), "{warning}");
+        assert!(warning.contains("200 s"), "{warning}");
+        assert!(!warning.contains(CANARY), "{warning}");
+    }
+
+    #[test]
+    fn serve_public_prints_the_limits_line_then_the_warning_and_no_key() {
+        // The lines serve_public_with writes to stderr, in order.
+        let (mut meta, live, rt) = public_values();
+        let limits = CallLimits::of(&meta);
+        let grace = public_shutdown_grace(limits.timeout);
+        let lines = startup_limit_lines(Some(&limits), &live, &rt, grace);
+        assert_eq!(
+            lines,
+            vec![public_limits_line(Some(&limits), &live, &rt, grace)],
+            "240 s holds the output bound: no warning"
+        );
+        meta.timeout = Duration::from_secs(120);
+        let short = CallLimits::of(&meta);
+        let grace = public_shutdown_grace(short.timeout);
+        let lines = startup_limit_lines(Some(&short), &live, &rt, grace);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].starts_with("[startup] limits:"), "{lines:?}");
+        assert!(lines[0].contains("shutdown grace 130 s"), "{lines:?}");
+        assert!(lines[0].contains("at least 150 s"), "{lines:?}");
+        assert!(lines[1].starts_with("[startup] WARNING:"), "{lines:?}");
+        // Live mode disabled: the limits line only.
+        let lines = startup_limit_lines(None, &live, &rt, Duration::from_secs(60));
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        for line in lines
+            .iter()
+            .chain(startup_limit_lines(Some(&short), &live, &rt, grace).iter())
+        {
+            assert!(!line.contains(CANARY), "{line}");
+            assert!(!line.contains("LLM_"), "{line}");
+            assert!(!line.contains("canary"), "{line}");
+        }
     }
 }

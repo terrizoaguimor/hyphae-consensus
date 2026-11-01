@@ -2329,4 +2329,96 @@ mod tests {
         let back: Record = serde_json::from_str(&json).unwrap();
         assert_eq!(serde_json::to_string(&back).unwrap(), json);
     }
+
+    /// The owner's money values with a `run_token_cap`-token run cap and
+    /// a `burst` fraction (round 8: 90,000 and 0.6 in public.env).
+    fn public_cfg(run_token_cap: u64, burst: &str) -> BudgetConfig {
+        BudgetConfig {
+            daily_cap: Usd::parse("10.00").unwrap(),
+            lifetime_cap: Usd::parse("60.00").unwrap(),
+            judge_slice: Usd::parse("15.00").unwrap(),
+            judge_daily_cap: Usd::parse("15.00").unwrap(),
+            max_concurrent: 1,
+            hourly_admissions: 6,
+            burst_fraction: Ppm::parse(burst).unwrap(),
+            run_token_cap,
+            max_completion_tokens: 16_000,
+            input_cap_tokens: 32_000,
+            price_input_per_m: Usd::parse("4.00").unwrap(),
+            price_output_per_m: Usd::parse("20.00").unwrap(),
+            kill_switch_file: None,
+        }
+    }
+
+    /// Up to three public runs at 00:30 UTC, each settled at $0.55 (two
+    /// attempts) and released before the next is reserved: the refusal
+    /// that ends the sequence, if any, and how many runs were admitted.
+    fn three_runs_after_midnight(name: &str, cfg: BudgetConfig) -> (usize, Option<Refusal>) {
+        let dir = std::env::temp_dir().join(format!(
+            "hyphae-consensus-budget-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let at = DateTime::parse_from_rfc3339("2026-11-02T00:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ledger =
+            Ledger::open_with(&dir, cfg, Arc::new(move || at), LedgerOptions::default()).unwrap();
+        let estimate = AttemptEstimate {
+            request_bytes: 1_000,
+            max_completion_tokens: 16_000,
+        };
+        let mut admitted = 0;
+        let mut refusal = None;
+        for _ in 0..3 {
+            let reservation = match ledger.reserve(Lane::Public) {
+                Ok(reservation) => reservation,
+                Err(e) => {
+                    refusal = Some(e);
+                    break;
+                }
+            };
+            admitted += 1;
+            // $0.274 + $0.276 = $0.55, each within its attempt's estimate.
+            for completion in [13_500, 13_600] {
+                let draw = ledger.draw(&reservation, estimate).unwrap();
+                let usage = Usage::from_chat_usage(1_000, completion, None);
+                let settled = ledger.settle(draw, Outcome::Success(usage)).unwrap();
+                assert!(settled.tripped.is_none());
+            }
+            let released = ledger.release(&reservation).unwrap();
+            assert_eq!(released.spent, Usd::parse("0.55").unwrap());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        (admitted, refusal)
+    }
+
+    #[test]
+    fn a_0_6_burst_admits_a_third_run_after_midnight_where_0_25_admits_none() {
+        // 00:30 UTC with a 0.6 burst: $6.00 + $10 × 1800/86400 = $6.21
+        // released; three runs need $1.10 spent + one $2.76 worst case.
+        let cfg = public_cfg(90_000, "0.6");
+        assert_eq!(cfg.run_worst_case(), Usd::parse("2.76").unwrap());
+        let (admitted, refusal) = three_runs_after_midnight("burst-0.6", cfg);
+        assert_eq!(admitted, 3, "{refusal:?}");
+        assert!(refusal.is_none(), "{refusal:?}");
+        // With 0.25 only $2.71 is released by 00:30: not even the first
+        // $2.76 worst case fits, the starvation finding PROD-02.
+        let (admitted, refusal) =
+            three_runs_after_midnight("burst-0.25", public_cfg(90_000, "0.25"));
+        assert_eq!(admitted, 0);
+        assert!(
+            matches!(refusal, Some(Refusal::DailyBudget { .. })),
+            "{refusal:?}"
+        );
+        // The deployed 70,000-token cap ($2.36) fared little better: one
+        // run, then DailyBudget.
+        let (admitted, refusal) =
+            three_runs_after_midnight("burst-0.25-70k", public_cfg(70_000, "0.25"));
+        assert_eq!(admitted, 1);
+        assert!(
+            matches!(refusal, Some(Refusal::DailyBudget { .. })),
+            "{refusal:?}"
+        );
+    }
 }

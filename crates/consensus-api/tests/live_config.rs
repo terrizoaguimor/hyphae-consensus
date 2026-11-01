@@ -579,3 +579,38 @@ fn the_operator_server_prices_a_mixed_model_critic_only_with_a_ledger() {
     e.insert(vars::PRICE_OUTPUT_PER_M, "20.00".into());
     require_operator_prices(&e, Some(&mixed)).unwrap();
 }
+
+/// Round 8 (lane D's public.env): a 90,000-token run cap and a 0.6 burst,
+/// every money value as `public.env.example` leaves it (the defaults: $10
+/// a day, $60 lifetime, a $15 judge slice whose daily cap is the slice).
+#[test]
+fn the_round_8_public_values_validate_and_still_fit_one_judge_run() {
+    let dir = TempDir::new("r8-public-values");
+    let mut e = enabled_env(&dir);
+    e.insert(vars::RUN_TOKEN_CAP, "90000".into());
+    e.insert(vars::BURST_FRACTION, "0.6".into());
+    let cfg = load(Exposure::Public, &e).unwrap();
+    let b = &cfg.budget;
+    b.validate().unwrap();
+    assert_eq!(b.run_token_cap, 90_000);
+    // (90,000 + 16,000 + 32,000) tokens × $20/M.
+    assert_eq!(b.run_worst_case().to_fixed(), "2.760000");
+    assert_eq!(b.burst(), Usd::parse("6.00").unwrap());
+    // The money caps are unchanged.
+    assert_eq!(b.daily_cap, Usd::parse("10.00").unwrap());
+    assert_eq!(b.lifetime_cap, Usd::parse("60.00").unwrap());
+    assert_eq!(b.judge_slice, Usd::parse("15.00").unwrap());
+    assert_eq!(b.judge_daily_cap, b.judge_slice, "the default");
+    // The judge lane still holds at least one worst case, on its slice and
+    // on its daily cap (5 of them: $13.80 of $15.00).
+    assert!(b.judge_slice >= b.run_worst_case());
+    assert!(b.judge_daily_cap >= b.run_worst_case());
+    assert_eq!(
+        b.judge_daily_cap.micros() / b.run_worst_case().micros(),
+        5,
+        "judge runs a day at the worst case"
+    );
+    // So does the public share and today's burst (2 at 00:00 UTC).
+    assert!(b.public_share() >= b.run_worst_case());
+    assert_eq!(b.burst().micros() / b.run_worst_case().micros(), 2);
+}

@@ -55,24 +55,40 @@
 //! `max_completion_tokens` and, when configured, `reasoning_effort` and the
 //! caller's `safety_identifier`. One call has one time budget
 //! ([`MetaConfig::timeout`]) shared by its attempts, the waits between
-//! them and the response body read. Only 429 and 503 are retried, after
-//! `Retry-After` (seconds or an HTTP date) when it fits within 30 s and
-//! leaves the retry at least a second of the remaining budget (else the
-//! call fails with that status at once, never with a timeout after a wait
-//! that could not pay off), else after a full-jitter exponential backoff
-//! from 500 ms; a connection that failed before the request was sent may
-//! be retried too. A connection that broke after the request was sent
-//! (reset, or closed before any answer; no HTTP status) is retried exactly
-//! once, within the same attempt budget, backoff and headroom rules, when
+//! them and the response body read. 429 and 503 are retried up to the
+//! attempt budget, after `Retry-After` (seconds or an HTTP date) when it
+//! fits within 30 s and leaves the retry at least a second of the remaining
+//! budget (else the call fails with that status at once, never with a
+//! timeout after a wait that could not pay off), else after a full-jitter
+//! exponential backoff from 500 ms; a connection that failed before the
+//! request was sent may be retried too. HTTP 500 and 502 are retried
+//! exactly once per call, under the same attempt budget, `Retry-After` and
+//! backoff rules (live run M02 failed on one HTTP 500 at critique), and
+//! only while [`status_retry_window`] (30 s at the production budgets) is
+//! left after the wait: a late 500 is not retried, since the retry could
+//! not finish a generation. The failed attempt may have been billed (it
+//! is settled at its full estimate, like every 5xx), so this retry can
+//! bill one duplicate generation, and no invocation records the lost one
+//! (the answering call shows its `attempts`). A connection that broke
+//! after the request was sent (reset, or closed before any answer; no
+//! HTTP status) is retried exactly once, within the headroom rule, when
 //! [`MetaConfig::retry_transport_once`] is set (the default): the lost
-//! generation may have been billed, so the duplicate is bounded to one
-//! (live run R06 failed on one such error). Nothing else is retried: a
-//! timeout or any other status could follow a generation that was already
-//! billed. `finish_reason` `length` is truncated output (code
-//! `model_output_truncated`); `message.refusal` is a refusal (code
-//! `model_refusal`); `content_filter` is `model_content_filtered` and any
-//! other finish reason but `stop` is `model_unexpected_finish`, both
-//! refused before the content is read.
+//! generation may have been billed too (live run R06 failed on one such
+//! error). The two retries are separate, so the bound is one possibly
+//! billed duplicate per retry class: at most two per call (a lost
+//! connection and a 500 in the same call, within the 3-attempt budget),
+//! each settled at its full estimate on the ledger. Nothing else is retried: a
+//! timeout, a 504 (the gateway gave up on a generation that may have
+//! completed upstream) or any 4xx but 429 could follow a generation that
+//! was already billed or would fail the same way again. `finish_reason`
+//! `length` is truncated output (code `model_output_truncated`);
+//! `message.refusal` is a refusal (code `model_refusal`); `content_filter`
+//! is `model_content_filtered` and any other finish reason but `stop` is
+//! `model_unexpected_finish`, both refused before the content is read.
+//! Pooled connections idle for more than [`POOL_IDLE_TIMEOUT`] are never
+//! reused, so a call minutes after the last one opens a fresh connection
+//! instead of writing into one a middlebox has silently dropped (smoke run
+//! K02).
 //!
 //! Re-ask (prompt-freeze-3, after live run R01 ended at propose on a draft
 //! with no claims): an answered call whose output is a *form defect* or
@@ -95,7 +111,9 @@
 //! fault (`adapter_schema_error`), a timeout, any HTTP failure and every
 //! runtime contract refusal end the run as before. One re-ask per role
 //! call and at most [`MAX_REASKS_PER_CLIENT`] per client (one client per
-//! run); the re-ask draws its own attempt on the meter. The accepted (or
+//! run); the re-ask draws its own attempt on the meter and is a call like
+//! any other (the status and transport retries above, the run deadline
+//! below). The accepted (or
 //! finally refused) call's invocation lists the refused one under
 //! `rejected_calls` and carries the corrective's digest, its token counts
 //! summed over both calls so the run's token budget charges both. A
@@ -109,6 +127,20 @@
 //! Refusal reasons never quote model text: a draft parse error names its
 //! serde category, line and column and the content's size and digest.
 //!
+//! Run deadline and shutdown: a client bound to its run
+//! ([`ModelClient::bind_run_control`], done by the server's run manager,
+//! or [`MetaModelClient::with_run_deadline`]) ends every call by the run's
+//! deadline at the latest: the call's budget is `min(started + timeout,
+//! run deadline)`, a timeout that the run deadline cut short has the code
+//! [`codes::RUN_DEADLINE_REACHED`], and a call with less than
+//! [`MIN_CALL_WINDOW`] left before the run deadline is refused with that
+//! code before anything is drawn or sent (it costs nothing). Once the run's
+//! [`RunControl::in_flight_aborted`] is set (the server's shutdown grace
+//! ran out), the call stops waiting at once: the attempt in progress is
+//! settled at its full estimate (the request may have been processed) and
+//! the call fails with [`codes::SHUTDOWN`], so the run's reservation is
+//! released before the process exits.
+//!
 //! Errors (MA-4, SEC-9): every failure carries a stable code ([`codes`])
 //! and a fixed short message for its class. No response body, and no URL,
 //! ever reaches an error, an event or a receipt; with
@@ -120,7 +152,8 @@
 //! HTTP attempt, retries included ([`AttemptMeter::draw`] with the request
 //! body length and `max_completion_tokens`), and settles each draw exactly
 //! once: a non-2xx status before any retry wait ([`Outcome::Status`]), a
-//! reqwest timeout ([`Outcome::Timeout`]), a connection that never opened
+//! reqwest timeout or an attempt abandoned at shutdown
+//! ([`Outcome::Timeout`]), a connection that never opened
 //! or a request that could not be built ([`Outcome::NotSent`], charged
 //! zero), a connection that broke after the request was sent
 //! ([`Outcome::TransportAfterSend`]); a 2xx is settled once its body is
@@ -202,6 +235,15 @@ pub mod codes {
     /// The live ledger could not record an attempt's settlement; the
     /// attempt stays counted at its estimate and the call fails closed.
     pub const BUDGET_UNSETTLED: &str = "budget_unsettled";
+    /// The run's deadline left less than
+    /// [`MIN_CALL_WINDOW`](super::MIN_CALL_WINDOW) for the call (refused
+    /// before anything was drawn or sent), or cut the call short (the
+    /// attempt in progress settled like a timeout).
+    pub const RUN_DEADLINE_REACHED: &str = "run_deadline_reached";
+    /// The server stopped waiting for the call during its shutdown (its
+    /// grace ran out): the attempt in progress was settled at its full
+    /// estimate. The same code a shutdown checkpoint records.
+    pub const SHUTDOWN: &str = "shutdown";
 }
 
 const ROLE_RULES: &str = "\
@@ -279,6 +321,30 @@ const MAX_RETRY_WAIT: Duration = Duration::from_secs(30);
 /// What a retry must have left of the call's budget after its wait: a
 /// wait that would consume the budget is never taken.
 const MIN_RETRY_HEADROOM: Duration = Duration::from_secs(1);
+/// What a call needs before its run's deadline to be made at all: less
+/// than this and it is refused before any draw or request (code
+/// [`codes::RUN_DEADLINE_REACHED`]): a call cut off by the run deadline
+/// moments after it was sent would be billed for nothing the run can use.
+pub const MIN_CALL_WINDOW: Duration = Duration::from_secs(30);
+
+/// What the one HTTP 500 or 502 retry must have left of the call's budget
+/// after its wait: [`MIN_CALL_WINDOW`], or a quarter of a shorter call
+/// budget (never less than [`MIN_RETRY_HEADROOM`]). A 500 that comes late
+/// in the budget is not retried: the retry could not finish a generation,
+/// yet it would be drawn, settled at its full estimate and maybe billed.
+pub fn status_retry_window(timeout: Duration) -> Duration {
+    MIN_CALL_WINDOW.min(timeout / 4).max(MIN_RETRY_HEADROOM)
+}
+/// Pooled connections idle longer than this are dropped, never reused.
+pub const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How often a call bound to its run looks at the run's abort flag while
+/// it waits for an answer, a body or a retry.
+const ABORT_POLL: Duration = Duration::from_millis(50);
+
+/// The connect timeout of a call whose budget is `timeout`: at most 10 s.
+pub fn connect_timeout(timeout: Duration) -> Duration {
+    timeout.min(Duration::from_secs(10))
+}
 
 // Every list field in these drafts is REQUIRED (no serde default): the
 // live model renames or drops optional fields (e.g. `refs` or
@@ -1863,18 +1929,61 @@ fn full_jitter(base: Duration, retry: u32) -> Duration {
     Duration::from_millis(random % (ceiling_ms + 1))
 }
 
+/// What came of waiting for a blocking operation run on its own thread.
+enum Waited<T> {
+    Done(T),
+    /// The deadline passed first.
+    TimedOut,
+    /// The run's abort flag was set first.
+    Aborted,
+    /// The thread ended without an answer.
+    Lost,
+}
+
+/// Waits for `rx` until `deadline`; with `abort`, gives up as soon as the
+/// run's [`RunControl::in_flight_aborted`] is set (looked at every
+/// [`ABORT_POLL`]).
+fn wait_for<T>(
+    rx: &std::sync::mpsc::Receiver<T>,
+    deadline: Instant,
+    abort: Option<&RunControl>,
+) -> Waited<T> {
+    use std::sync::mpsc::RecvTimeoutError;
+    loop {
+        if abort.is_some_and(RunControl::in_flight_aborted) {
+            return Waited::Aborted;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        let slice = match abort {
+            Some(_) => left.min(ABORT_POLL),
+            None => left,
+        };
+        match rx.recv_timeout(slice) {
+            Ok(value) => return Waited::Done(value),
+            Err(RecvTimeoutError::Disconnected) => return Waited::Lost,
+            Err(RecvTimeoutError::Timeout) if Instant::now() >= deadline => {
+                return Waited::TimedOut
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+    }
+}
+
 enum BodyFailure {
     Timeout,
     TooLarge,
     Read,
+    Aborted,
 }
 
 /// Reads at most `cap` bytes of `resp`, giving up at `deadline` (the
-/// reqwest timeout would restart for the body read; this one does not).
+/// reqwest timeout would restart for the body read; this one does not),
+/// or once `abort`'s in-flight abort is set.
 fn read_body(
     resp: reqwest::blocking::Response,
     cap: usize,
     deadline: Instant,
+    abort: Option<&RunControl>,
 ) -> Result<Vec<u8>, BodyFailure> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -1885,15 +1994,16 @@ fn read_body(
             .map(|_| buf);
         let _ = tx.send(read);
     });
-    match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-        Ok(Ok(buf)) if buf.len() > cap => Err(BodyFailure::TooLarge),
-        Ok(Ok(buf)) => Ok(buf),
+    match wait_for(&rx, deadline, abort) {
+        Waited::Done(Ok(buf)) if buf.len() > cap => Err(BodyFailure::TooLarge),
+        Waited::Done(Ok(buf)) => Ok(buf),
         // reqwest's own read timeout (it ends with the request's) can
         // fire just before this deadline does: the same timeout.
-        Ok(Err(e)) if is_read_timeout(&e) => Err(BodyFailure::Timeout),
-        Ok(Err(_)) => Err(BodyFailure::Read),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(BodyFailure::Timeout),
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(BodyFailure::Read),
+        Waited::Done(Err(e)) if is_read_timeout(&e) => Err(BodyFailure::Timeout),
+        Waited::Done(Err(_)) => Err(BodyFailure::Read),
+        Waited::TimedOut => Err(BodyFailure::Timeout),
+        Waited::Aborted => Err(BodyFailure::Aborted),
+        Waited::Lost => Err(BodyFailure::Read),
     }
 }
 
@@ -2198,9 +2308,26 @@ pub struct MetaModelClient {
     meter: Option<Arc<dyn AttemptMeter>>,
     /// Re-asks made so far ([`MAX_REASKS_PER_CLIENT`]; one client per run).
     reasks: u32,
-    /// The run's stop handle ([`ModelClient::observe_control`]): a re-ask
-    /// is skipped once it trips.
+    /// The run's deadline: no call outlives it, and none starts with less
+    /// than [`MIN_CALL_WINDOW`] left (see the module doc).
+    run_deadline: Option<Instant>,
+    /// The run's control, bound by the run manager
+    /// ([`ModelClient::bind_run_control`]) or handed over by the
+    /// orchestrator ([`ModelClient::observe_control`]); both hand over the
+    /// same run's handle. Its in-flight abort ends the wait for a call in
+    /// progress, and a re-ask is skipped once it trips.
     control: Option<RunControl>,
+}
+
+/// What one HTTP attempt came to.
+enum Sent {
+    Http(reqwest::Result<reqwest::blocking::Response>),
+    /// The call's deadline passed with no answer.
+    TimedOut,
+    /// The run's in-flight abort was set before an answer arrived.
+    Aborted,
+    /// The sending thread ended without an answer.
+    Lost,
 }
 
 impl MetaModelClient {
@@ -2219,7 +2346,10 @@ impl MetaModelClient {
         auth.set_sensitive(true);
         let http = reqwest::blocking::Client::builder()
             .timeout(cfg.timeout)
-            .connect_timeout(cfg.timeout.min(Duration::from_secs(10)))
+            .connect_timeout(connect_timeout(cfg.timeout))
+            // A connection idle for minutes (calls are that far apart) may
+            // have been dropped by a middlebox without a FIN: never reused.
+            .pool_idle_timeout(POOL_IDLE_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| {
@@ -2240,8 +2370,102 @@ impl MetaModelClient {
             failed: None,
             meter: None,
             reasks: 0,
+            run_deadline: None,
             control: None,
         })
+    }
+
+    /// Bounds every call of this client by `deadline` (the run's), as
+    /// [`ModelClient::bind_run_control`] does with the run's control: a
+    /// call ends by it at the latest, and a call with less than
+    /// [`MIN_CALL_WINDOW`] left is refused before anything is drawn or
+    /// sent (code [`codes::RUN_DEADLINE_REACHED`]). `None` removes it.
+    pub fn with_run_deadline(mut self, deadline: Option<Instant>) -> Self {
+        self.run_deadline = deadline;
+        self
+    }
+
+    /// The deadline of a call that starts at `started`: its own budget,
+    /// cut to the run's deadline. With less than [`MIN_CALL_WINDOW`] left
+    /// before the run's deadline, nothing is drawn or sent.
+    fn call_deadline(&self, started: Instant) -> Result<Instant, ModelError> {
+        let own = started + self.cfg.timeout;
+        let Some(run) = self.run_deadline else {
+            return Ok(own);
+        };
+        let left = run.saturating_duration_since(started);
+        if left < MIN_CALL_WINDOW {
+            return Err(provider(
+                codes::RUN_DEADLINE_REACHED,
+                format!(
+                    "the run deadline leaves {} s, less than the {} s a model call needs: the call was not made",
+                    left.as_secs(),
+                    MIN_CALL_WINDOW.as_secs()
+                ),
+            ));
+        }
+        Ok(own.min(run))
+    }
+
+    /// True when `deadline` is the run's, not the call's own budget.
+    fn cut_by_run(&self, deadline: Instant) -> bool {
+        self.run_deadline == Some(deadline)
+    }
+
+    /// The error of a call the server stopped waiting for at shutdown.
+    fn aborted(attempt: u32) -> ModelError {
+        provider(
+            codes::SHUTDOWN,
+            format!("the server stopped waiting for the Meta API call at shutdown (attempt {attempt}); the attempt is charged at its estimate"),
+        )
+    }
+
+    /// Waits `wait` before a retry; a bound run's in-flight abort ends the
+    /// wait, and the call, at once.
+    fn pause(&self, wait: Duration, attempt: u32) -> Result<(), ModelError> {
+        let Some(control) = &self.control else {
+            std::thread::sleep(wait);
+            return Ok(());
+        };
+        let end = Instant::now() + wait;
+        loop {
+            if control.in_flight_aborted() {
+                return Err(Self::aborted(attempt));
+            }
+            let left = end.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Ok(());
+            }
+            std::thread::sleep(left.min(ABORT_POLL));
+        }
+    }
+
+    /// One HTTP attempt with `remaining` of the call's budget. Unbound, it
+    /// blocks on the request; bound to a run, the request runs on its own
+    /// thread so that the run's in-flight abort can end the wait.
+    fn send_attempt(&self, body: &[u8], remaining: Duration, deadline: Instant) -> Sent {
+        let request = self
+            .http
+            .post(&self.url)
+            .header(AUTHORIZATION, self.auth.clone())
+            .header(CONTENT_TYPE, "application/json")
+            .body(body.to_vec())
+            .timeout(remaining);
+        let Some(control) = &self.control else {
+            return Sent::Http(request.send());
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(request.send());
+        });
+        // reqwest's own timeout ends the request at the deadline; the wait
+        // gives its classification a moment to arrive.
+        match wait_for(&rx, deadline + ABORT_POLL * 4, Some(control)) {
+            Waited::Done(sent) => Sent::Http(sent),
+            Waited::TimedOut => Sent::TimedOut,
+            Waited::Aborted => Sent::Aborted,
+            Waited::Lost => Sent::Lost,
+        }
     }
 
     /// Meters every HTTP attempt of this client against the live ledger
@@ -2373,7 +2597,7 @@ impl MetaModelClient {
         if self.cfg.public_mode || self.cfg.debug_dir.is_none() {
             return;
         }
-        if let Ok(body) = read_body(resp, MAX_ERROR_BODY_BYTES, deadline) {
+        if let Ok(body) = read_body(resp, MAX_ERROR_BODY_BYTES, deadline, self.control.as_ref()) {
             let text =
                 String::from_utf8_lossy(&body).replace(self.cfg.api_key.expose(), "<redacted>");
             self.keep_for_debug(label, text.as_bytes());
@@ -2399,34 +2623,70 @@ impl MetaModelClient {
         schema_name: &str,
         deadline: Instant,
     ) -> Result<(reqwest::blocking::Response, u32, Option<Draw>), ModelError> {
-        let timeout_secs = self.cfg.timeout.as_secs();
+        // A call cut short by the run's deadline says so (see the module
+        // doc); its own budget's timeout keeps the timeout code.
+        let (timeout_code, budget_text) = if self.cut_by_run(deadline) {
+            (codes::RUN_DEADLINE_REACHED, "the run deadline".to_string())
+        } else {
+            (
+                codes::TIMEOUT,
+                format!("its {} s budget", self.cfg.timeout.as_secs()),
+            )
+        };
         let timed_out = move |attempt: u32| {
             provider(
-                codes::TIMEOUT,
-                format!("the Meta API call did not complete within its {timeout_secs} s budget (attempt {attempt})"),
+                timeout_code,
+                format!(
+                    "the Meta API call did not complete within {budget_text} (attempt {attempt})"
+                ),
             )
         };
         let mut attempt = 0u32;
         // The one retry of a connection that broke after the request was
         // sent (see the module doc); the attempt budget bounds it too.
         let mut transport_retried = false;
+        // The one retry of an HTTP 500 or 502 (see the module doc): the
+        // failed attempt may have been billed, so the duplicate is bounded
+        // to one per call.
+        let mut status_retried = false;
         loop {
             attempt += 1;
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Err(timed_out(attempt.saturating_sub(1).max(1)));
             }
+            // Nothing was drawn for this attempt yet: a call the server
+            // stopped waiting for during a retry wait ends here.
+            if self
+                .control
+                .as_ref()
+                .is_some_and(RunControl::in_flight_aborted)
+            {
+                return Err(Self::aborted(attempt.saturating_sub(1).max(1)));
+            }
             // The ledger funds every attempt before it is sent, retries
             // included; a refusal sends nothing.
             let draw = self.draw_attempt(body, attempt)?;
-            let sent = self
-                .http
-                .post(&self.url)
-                .header(AUTHORIZATION, self.auth.clone())
-                .header(CONTENT_TYPE, "application/json")
-                .body(body.to_vec())
-                .timeout(remaining)
-                .send();
+            let sent = match self.send_attempt(body, remaining, deadline) {
+                Sent::Http(sent) => sent,
+                // Whether the request was processed is unknown: the full
+                // estimate, as for a timeout.
+                Sent::TimedOut => {
+                    self.settle_attempt(draw, Outcome::Timeout)?;
+                    return Err(timed_out(attempt));
+                }
+                Sent::Aborted => {
+                    self.settle_attempt(draw, Outcome::Timeout)?;
+                    return Err(Self::aborted(attempt));
+                }
+                Sent::Lost => {
+                    self.settle_attempt(draw, Outcome::TransportAfterSend)?;
+                    return Err(provider(
+                        codes::TRANSPORT,
+                        format!("the request to the Meta API was lost after it was sent; {attempt} attempt(s) made"),
+                    ));
+                }
+            };
             let can_retry = attempt < self.cfg.max_attempts;
             match sent {
                 Ok(resp) if resp.status().is_success() => return Ok((resp, attempt, draw)),
@@ -2435,10 +2695,28 @@ impl MetaModelClient {
                     // Settled before any retry wait: this attempt is over.
                     self.settle_attempt(draw, Outcome::Status(status))?;
                     let (code, message) = http_failure(status);
-                    if (status == 429 || status == 503) && can_retry {
-                        let left = deadline.saturating_duration_since(Instant::now());
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    // What the retry needs left after its wait: a useful
+                    // window for a 500 or 502 (it may bill a duplicate),
+                    // the headroom for a 429 or 503.
+                    let reserve = if matches!(status, 500 | 502) {
+                        status_retry_window(self.cfg.timeout)
+                    } else {
+                        MIN_RETRY_HEADROOM
+                    };
+                    // 429 and 503 up to the attempt budget; 500 and 502
+                    // once, and only when the retry has time to be answered.
+                    // 504 never: the generation may have completed upstream.
+                    let retry = match status {
+                        429 | 503 => can_retry,
+                        500 | 502 => {
+                            can_retry && !status_retried && left > reserve + MIN_RETRY_HEADROOM
+                        }
+                        _ => false,
+                    };
+                    if retry {
                         // The retry itself needs time after the wait.
-                        let budget = MAX_RETRY_WAIT.min(left.saturating_sub(MIN_RETRY_HEADROOM));
+                        let budget = MAX_RETRY_WAIT.min(left.saturating_sub(reserve));
                         let jitter = full_jitter(self.cfg.retry_base_delay, attempt);
                         let wait = match retry_after(&resp) {
                             // Honor Retry-After when it fits; never retry
@@ -2447,7 +2725,7 @@ impl MetaModelClient {
                                 return Err(provider(
                                     code,
                                     format!(
-                                        "{message}; it asked to retry after {} s, beyond the remaining retry budget of {} s",
+                                        "{message} after {attempt} attempt(s); it asked to retry after {} s, beyond the remaining retry budget of {} s",
                                         asked.as_secs(),
                                         budget.as_secs()
                                     ),
@@ -2456,13 +2734,16 @@ impl MetaModelClient {
                             Some(asked) => (asked + jitter).min(budget),
                             None => jitter.min(budget),
                         };
+                        if matches!(status, 500 | 502) {
+                            status_retried = true;
+                        }
                         drop(resp);
-                        std::thread::sleep(wait);
+                        self.pause(wait, attempt)?;
                         continue;
                     }
                     let label = format!("error-{status}-{schema_name}-{}", self.calls);
                     self.keep_error_body(&label, resp, deadline);
-                    let message = if status == 429 || status == 503 {
+                    let message = if matches!(status, 429 | 500 | 502 | 503) {
                         format!("{message} after {attempt} attempt(s)")
                     } else {
                         message
@@ -2473,7 +2754,10 @@ impl MetaModelClient {
                 Err(e) if e.is_connect() && can_retry => {
                     self.settle_attempt(draw, Outcome::NotSent)?;
                     let left = deadline.saturating_duration_since(Instant::now());
-                    std::thread::sleep(full_jitter(self.cfg.retry_base_delay, attempt).min(left));
+                    self.pause(
+                        full_jitter(self.cfg.retry_base_delay, attempt).min(left),
+                        attempt,
+                    )?;
                     continue;
                 }
                 Err(e) if e.is_connect() => {
@@ -2517,7 +2801,10 @@ impl MetaModelClient {
                     transport_retried = true;
                     let left = deadline.saturating_duration_since(Instant::now());
                     let budget = MAX_RETRY_WAIT.min(left.saturating_sub(MIN_RETRY_HEADROOM));
-                    std::thread::sleep(full_jitter(self.cfg.retry_base_delay, attempt).min(budget));
+                    self.pause(
+                        full_jitter(self.cfg.retry_base_delay, attempt).min(budget),
+                        attempt,
+                    )?;
                     continue;
                 }
                 // After the request may have been sent: not retried (again),
@@ -2628,14 +2915,19 @@ impl MetaModelClient {
             corrective_sha256: None,
         };
         let started = Instant::now();
-        let deadline = started + self.cfg.timeout;
+        let deadline = self.call_deadline(started)?;
         let (answered, attempts, draw) = self.send(&body, schema_name, deadline)?;
         // The API has answered: from here on the call is recorded,
         // whatever becomes of its output, and the answered attempt's draw
         // is settled exactly once below: with the reported usage, or at
         // its full estimate when no usage can be read (the generation was
         // billed either way).
-        let read = read_body(answered, MAX_RESPONSE_BYTES, deadline);
+        let read = read_body(
+            answered,
+            MAX_RESPONSE_BYTES,
+            deadline,
+            self.control.as_ref(),
+        );
         let call = ModelInvocation {
             latency_ms: Some(started.elapsed().as_millis() as u64),
             attempts: Some(attempts),
@@ -2646,14 +2938,28 @@ impl MetaModelClient {
             Err(BodyFailure::Timeout) => {
                 self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
                 self.failed = Some(call);
-                return Err(provider(
-                    codes::TIMEOUT,
-                    format!(
-                        "the Meta API answered but its response did not arrive within the {} s budget",
-                        self.cfg.timeout.as_secs()
-                    ),
-                )
-                .into());
+                let (code, message) = if self.cut_by_run(deadline) {
+                    (
+                        codes::RUN_DEADLINE_REACHED,
+                        "the Meta API answered but its response did not arrive before the run deadline".to_string(),
+                    )
+                } else {
+                    (
+                        codes::TIMEOUT,
+                        format!(
+                            "the Meta API answered but its response did not arrive within the {} s budget",
+                            self.cfg.timeout.as_secs()
+                        ),
+                    )
+                };
+                return Err(provider(code, message).into());
+            }
+            // Answered, so billed: kept on the record like a body that
+            // timed out.
+            Err(BodyFailure::Aborted) => {
+                self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
+                self.failed = Some(call);
+                return Err(Self::aborted(attempts).into());
             }
             Err(BodyFailure::TooLarge) => {
                 self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
@@ -3383,7 +3689,24 @@ impl ModelClient for MetaModelClient {
         self.failed.take()
     }
 
+    /// The orchestrator's hand-over of the run's stop handle, for the
+    /// re-ask check. A handle the run manager already bound
+    /// ([`bind_run_control`](ModelClient::bind_run_control), the same
+    /// run's) is kept; this one sets no deadline.
     fn observe_control(&mut self, control: &RunControl) {
+        if self.control.is_none() {
+            self.control = Some(control.clone());
+        }
+    }
+
+    /// Every call is then bounded by the run's deadline (the earlier one,
+    /// when [`MetaModelClient::with_run_deadline`] set one too) and ends
+    /// once the run's in-flight abort is set (see the module doc).
+    fn bind_run_control(&mut self, control: &RunControl) {
+        self.run_deadline = match (self.run_deadline, control.deadline()) {
+            (Some(own), Some(run)) => Some(own.min(run)),
+            (own, run) => own.or(run),
+        };
         self.control = Some(control.clone());
     }
 }

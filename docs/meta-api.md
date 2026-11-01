@@ -32,15 +32,29 @@ The [README](../README.md) has a summary of this page.
   Each invocation records the SHA-256 of the schema it sent and of its role's prompt
   template, `finish_reason`, the attempt count and the reasoning tokens.
 - **Request bounds and retries** (`meta.rs`, `config.rs`). `max_completion_tokens`
-  16,000 by default; one 120 s time budget per call (`CONSENSUS_MODEL_TIMEOUT_SECS`)
-  shared by up to 3 attempts. Only 429 and 503 are retried, after `Retry-After` when it
-  fits or after a full-jitter backoff from 500 ms; a connection that failed before the
-  request was sent may be retried too; a connection that broke after the request was sent
-  is retried exactly once (it may have been billed). Timeouts, 504 and other 4xx are never
-  retried. `finish_reason: length` (`model_output_truncated`), `refusal`
-  (`model_refusal`), `content_filter` (`model_content_filtered`) and any other finish
-  reason but `stop` (`model_unexpected_finish`) are recorded as failures with stable codes
-  before the content is read; no response body or URL reaches an error, event or receipt.
+  16,000 by default; one 120 s time budget per call (`CONSENSUS_MODEL_TIMEOUT_SECS`, a
+  whole number of seconds from 1 to 3600: any other value, `180s` say, stops the server
+  at boot naming the variable; the public server warns at boot when the budget is below
+  `max_completion_tokens / 80` seconds) shared by up to 3 attempts. 429 and 503 are
+  retried up to that budget, after `Retry-After` when it fits or after a full-jitter
+  backoff from 500 ms; a connection that failed before the request was sent may be retried
+  too. HTTP 500 and 502 are retried **once** per call (since 2026-11-01, after live run
+  M02's HTTP 500 at critique), under the same `Retry-After` and backoff rules, and only
+  when 30 s of the call budget are still left after the wait (a quarter of a budget
+  shorter than 120 s): a 500 late in the budget fails at once, since its retry could not
+  finish a generation. A connection that broke after the request was sent is retried
+  exactly once too. Both failed attempts may have been billed, so each of these retries
+  can bill one duplicate generation (at most two per call, one per retry class) that no
+  invocation records: the failed attempt is charged at its full
+  estimate on the live ledger, and the answering call records `attempts: 2` (an invocation
+  can now show `attempts: 2` after a 5xx). Timeouts, 504 (the gateway gave up on a
+  generation that may have completed upstream) and every other 4xx are never retried.
+  Pooled connections idle for more than 5 s are dropped, so a call never reuses a
+  connection a middlebox has silently closed (smoke run K02). `finish_reason: length`
+  (`model_output_truncated`), `refusal` (`model_refusal`), `content_filter`
+  (`model_content_filtered`) and any other finish reason but `stop`
+  (`model_unexpected_finish`) are recorded as failures with stable codes before the
+  content is read; no response body or URL reaches an error, event or receipt.
 - **One bounded re-ask** (`meta.rs` module doc; since `prompt-freeze-3`,
   [evaluation.md §6.4](evaluation.md)). An answered call is asked again **once**, with the
   same inputs plus one fixed corrective sentence (never model text), only when nothing
@@ -53,11 +67,30 @@ The [README](../README.md) has a summary of this page.
   fault (`adapter_schema_error`), timeout, HTTP failure and every runtime contract
   refusal ends the run. At most one re-ask per role call and **two per run**; the re-ask
   is a second billed generation with its own request id and its own ledger draw, and is
-  skipped once the run is cancelled or past its deadline. The accepted (or final) call's
+  skipped once the run is cancelled or past its deadline (it is a call like any other: the
+  retries above and the run deadline below apply to it). The accepted (or final) call's
   invocation lists the refused one under `rejected_calls` (request id, code, finish
   reason, latency, tokens, attempts) with `corrective_sha256`, and its token counts are
   summed over both calls; both fields are on the operator and the public receipt. A run
-  therefore makes at most 9 role calls plus 2 re-asks.
+  therefore makes at most 9 role calls plus 2 re-asks. The single-agent baseline's one
+  call shares this request path but is never asked again.
+- **Run deadline and shutdown** (`meta.rs`, `runs.rs`). The server's run manager binds each
+  run's model client to the run's control: a call's budget is cut to the run's deadline
+  (`CONSENSUS_RUN_DEADLINE_SECS`), a call with less than 30 s left before it is not made
+  (code **`run_deadline_reached`**, nothing drawn on the ledger or sent; a call the deadline
+  cuts short fails with the same code and is charged like a timeout), and at shutdown a
+  call still in progress when the grace runs out (the public server's grace is one call
+  budget plus 10 s, at least 60 s: 250 s at a 240 s budget) is abandoned, charged at its
+  estimate and fails its run with code `shutdown`, so the run's reservation is released
+  before the process exits. This only works when the service's stop timeout
+  (`TimeoutStopSec`) is longer than the grace plus the 10 s the aborted runs get to settle
+  (`ABORT_SETTLE_WAIT`) plus the HTTP drain: 280 s at a 240 s budget. With a shorter one,
+  systemd kills the process first and the reservation stays open until the next start's
+  recovery, so the timeout and the unit's stop timeout are deployed together. The public
+  server prints its effective limits at boot (one `[startup] limits:` line on stderr:
+  per-call and connect timeouts, attempts, output bound, `reasoning_effort` set or unset,
+  run deadline, run token cap, shutdown grace and the stop timeout it needs, live
+  concurrency, burst fraction, daily quotas; no key).
 - **Prompts.** Everything a role did not write itself sits in separate `<UNTRUSTED_*>`
   blocks; a mitigation, not a boundary (details in [verification.md](verification.md#safety-invariants-enforced-in-code-covered-by-tests)).
 - **The public live mode (on the owner's key; not deployed).** Decided in ADR-0007,

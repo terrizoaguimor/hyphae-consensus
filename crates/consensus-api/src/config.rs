@@ -43,14 +43,34 @@ use zeroize::Zeroizing;
 /// 2 of 12 live runs on 2026-10-26 hit the earlier 60 s default.
 pub const DEFAULT_MODEL_TIMEOUT_SECS: u64 = 120;
 
-/// `CONSENSUS_MODEL_TIMEOUT_SECS` in whole seconds; unset or unparseable
-/// values use the default.
-pub fn parse_model_timeout(value: Option<&str>) -> Duration {
-    Duration::from_secs(
-        value
-            .and_then(|v| v.trim().parse().ok())
-            .unwrap_or(DEFAULT_MODEL_TIMEOUT_SECS),
-    )
+/// The variable [`parse_model_timeout`] reads.
+pub const MODEL_TIMEOUT_VARIABLE: &str = "CONSENSUS_MODEL_TIMEOUT_SECS";
+/// Bounds of `CONSENSUS_MODEL_TIMEOUT_SECS`, in seconds.
+pub const MODEL_TIMEOUT_RANGE: std::ops::RangeInclusive<u64> = 1..=3600;
+/// The slowest output rate a call budget is sized for, in tokens per
+/// second: the slowest answered live call up to 2026-11-01 wrote about 81
+/// tokens a second (the median about 124), so a budget below
+/// `max_completion_tokens / 80` seconds can time out a call that would
+/// have completed.
+pub const MIN_OUTPUT_TOKENS_PER_SEC: u64 = 80;
+
+/// `CONSENSUS_MODEL_TIMEOUT_SECS` in whole seconds, 1 to 3600; unset uses
+/// the default. Anything else (`180s`, `0`, `soon`) is an error naming
+/// the variable: a typo never silently becomes the 120 s default.
+pub fn parse_model_timeout(value: Option<&str>) -> Result<Duration, ConfigError> {
+    match value {
+        None => Ok(Duration::from_secs(DEFAULT_MODEL_TIMEOUT_SECS)),
+        Some(v) => {
+            parse_bounded(MODEL_TIMEOUT_VARIABLE, v, MODEL_TIMEOUT_RANGE).map(Duration::from_secs)
+        }
+    }
+}
+
+/// True when a call budget of `timeout` can hold `max_completion_tokens`
+/// of output at [`MIN_OUTPUT_TOKENS_PER_SEC`]. The public server warns at
+/// boot when it cannot (it still starts).
+pub fn timeout_holds_output(timeout: Duration, max_completion_tokens: u64) -> bool {
+    timeout.as_secs().saturating_mul(MIN_OUTPUT_TOKENS_PER_SEC) >= max_completion_tokens
 }
 
 /// Per-run limits from `CONSENSUS_MAX_RUN_TOKENS` (positive integer).
@@ -459,7 +479,7 @@ impl MetaConfig {
             api_key,
             model,
             critic_model,
-            timeout: parse_model_timeout(get("CONSENSUS_MODEL_TIMEOUT_SECS")?.as_deref()),
+            timeout: parse_model_timeout(get("CONSENSUS_MODEL_TIMEOUT_SECS")?.as_deref())?,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             retry_transport_once: true,
             max_completion_tokens: DEFAULT_MAX_COMPLETION_TOKENS,
@@ -884,9 +904,52 @@ mod tests {
 
     #[test]
     fn model_timeout_defaults_to_120_seconds_and_keeps_the_override() {
-        assert_eq!(parse_model_timeout(None), Duration::from_secs(120));
-        assert_eq!(parse_model_timeout(Some("45")), Duration::from_secs(45));
-        assert_eq!(parse_model_timeout(Some("soon")), Duration::from_secs(120));
+        assert_eq!(parse_model_timeout(None), Ok(Duration::from_secs(120)));
+        assert_eq!(parse_model_timeout(Some("45")), Ok(Duration::from_secs(45)));
+        assert_eq!(
+            parse_model_timeout(Some(" 240 ")),
+            Ok(Duration::from_secs(240))
+        );
+        assert_eq!(
+            parse_model_timeout(Some("3600")),
+            Ok(Duration::from_secs(3600))
+        );
+    }
+
+    #[test]
+    fn an_unusable_model_timeout_is_an_error_naming_the_variable() {
+        // Before: "180s" silently fell back to the 120 s default.
+        for bad in ["180s", "0", "-5", "soon", "3601", "2.5"] {
+            let err = parse_model_timeout(Some(bad)).unwrap_err();
+            assert_eq!(err.setting, "CONSENSUS_MODEL_TIMEOUT_SECS", "{bad}");
+            assert!(err.message.contains("1 to 3600"), "{bad}: {err}");
+        }
+        // Through the whole configuration: the server refuses to boot.
+        let err = meta(&[
+            ("MODEL_API_KEY", KEY),
+            ("CONSENSUS_MODEL_TIMEOUT_SECS", "180s"),
+        ])
+        .unwrap_err();
+        assert_eq!(err.setting, "CONSENSUS_MODEL_TIMEOUT_SECS");
+        assert!(!err.to_string().contains("nx9-test-secret"), "{err}");
+        let cfg = meta(&[
+            ("MODEL_API_KEY", KEY),
+            ("CONSENSUS_MODEL_TIMEOUT_SECS", "240"),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(cfg.timeout, Duration::from_secs(240));
+        let cfg = meta(&[("MODEL_API_KEY", KEY)]).unwrap().unwrap();
+        assert_eq!(cfg.timeout, Duration::from_secs(120));
+    }
+
+    #[test]
+    fn the_timeout_must_hold_the_output_bound_at_80_tokens_a_second() {
+        // 16,000 tokens at 80/s need 200 s.
+        assert!(!timeout_holds_output(Duration::from_secs(120), 16_000));
+        assert!(!timeout_holds_output(Duration::from_secs(199), 16_000));
+        assert!(timeout_holds_output(Duration::from_secs(200), 16_000));
+        assert!(timeout_holds_output(Duration::from_secs(240), 16_000));
     }
 
     #[test]

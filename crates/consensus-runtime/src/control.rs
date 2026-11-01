@@ -63,6 +63,11 @@ impl Stop {
 pub struct RunControl {
     cancelled: Arc<OnceLock<CancelReason>>,
     deadline: Option<Instant>,
+    /// Set once nobody waits for the call in progress any more (a server
+    /// whose shutdown grace ran out): a client bound to this control
+    /// ([`crate::ports::ModelClient::bind_run_control`]) stops waiting for
+    /// its answer, settles the attempt and fails the call.
+    abort: Arc<OnceLock<()>>,
 }
 
 impl RunControl {
@@ -76,6 +81,7 @@ impl RunControl {
         Self {
             cancelled: Arc::default(),
             deadline: Some(deadline),
+            abort: Arc::default(),
         }
     }
 
@@ -93,6 +99,22 @@ impl RunControl {
     /// The cancellation request, if one was made.
     pub fn cancel_reason(&self) -> Option<CancelReason> {
         self.cancelled.get().copied()
+    }
+
+    /// Asks a model client bound to this control to give up the call in
+    /// progress now instead of waiting for its answer: the one exception
+    /// to "a call already in progress is not interrupted", for a process
+    /// about to exit, whose attempt nobody would wait for but which must
+    /// still be settled and its reservation released. Set once; every
+    /// clone sees it. It does not stop the run by itself: the caller
+    /// cancels it first.
+    pub fn abort_in_flight(&self) -> bool {
+        self.abort.set(()).is_ok()
+    }
+
+    /// True once [`abort_in_flight`](Self::abort_in_flight) was called.
+    pub fn in_flight_aborted(&self) -> bool {
+        self.abort.get().is_some()
     }
 
     /// The stop to record now, if any. A cancellation request outranks
@@ -124,6 +146,22 @@ mod tests {
         assert_eq!(control.cancel_reason(), Some(CancelReason::Shutdown));
         assert_eq!(control.check(), Some(Stop::Shutdown));
         assert_eq!(handle.check(), Some(Stop::Shutdown));
+    }
+
+    #[test]
+    fn the_in_flight_abort_is_shared_set_once_and_separate_from_the_stop() {
+        for control in [
+            RunControl::new(),
+            RunControl::with_deadline(Instant::now() + Duration::from_secs(3600)),
+        ] {
+            let handle = control.clone();
+            assert!(!control.in_flight_aborted());
+            assert!(handle.abort_in_flight());
+            assert!(!control.abort_in_flight(), "a second request");
+            assert!(control.in_flight_aborted());
+            // Aborting the call in progress is not a stop request.
+            assert_eq!(control.check(), None);
+        }
     }
 
     #[test]

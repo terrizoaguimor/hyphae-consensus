@@ -25,7 +25,12 @@
 //! `RunFailed{stage: "panic", code: "panic"}` through the run's own sink
 //! and poisons nothing but that run. A browser disconnect never reaches
 //! the manager; only `cancel` and shutdown trip a run's [`RunControl`],
-//! which the orchestrator honours at its next checkpoint.
+//! which the orchestrator honours at its next checkpoint. The run's model
+//! client is bound to the same control before the first call
+//! ([`ModelClient::bind_run_control`]): no call outlives the run's
+//! deadline, and a call still in progress when the shutdown grace runs
+//! out is abandoned, settled and the run's reservation released
+//! ([`RunManager::shutdown`]).
 //!
 //! While a run deliberates it is *active*: its writer is the only one,
 //! reads come from the writer's durable snapshot, and a decision is
@@ -93,6 +98,9 @@ where
         task: &Task,
         control: &RunControl,
     ) -> Result<RunAggregate, OrchestratorError> {
+        // The model bounds its calls by the run's deadline and gives one up
+        // when shutdown stops waiting for it (see `shutdown`).
+        self.model.bind_run_control(control);
         Orchestrator::deliberate(self, sink, agg, task, control)
     }
 }
@@ -862,7 +870,14 @@ impl RunManager {
     }
 
     /// Graceful shutdown: no new runs, every active run asked to stop,
-    /// then a bounded wait for them to reach a checkpoint.
+    /// then a bounded wait for them to reach a checkpoint (a model call in
+    /// progress is answered and recorded first). Runs still active once
+    /// [`ManagerSettings::shutdown_grace`] has passed have their call in
+    /// progress aborted ([`RunControl::abort_in_flight`]): the Meta adapter
+    /// stops waiting, settles the attempt at its estimate and fails the
+    /// run with code `shutdown`, and the run's end releases its live
+    /// reservation; this waits up to [`ABORT_SETTLE_WAIT`] more for that,
+    /// so nothing is left reserved when the server returns.
     pub async fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::SeqCst);
         {
@@ -872,8 +887,305 @@ impl RunManager {
             }
         }
         let deadline = Instant::now() + self.settings.shutdown_grace;
+        self.wait_idle(deadline).await;
+        let aborted: Vec<RunId> = {
+            let active = self.active_map();
+            active
+                .iter()
+                .filter(|(_, run)| run.control.abort_in_flight())
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        if aborted.is_empty() {
+            return;
+        }
+        for run_id in &aborted {
+            eprintln!(
+                "[shutdown] run {run_id} still deliberating after the {} s grace: its model call in progress is abandoned and settled at its estimate",
+                self.settings.shutdown_grace.as_secs()
+            );
+        }
+        self.wait_idle(Instant::now() + ABORT_SETTLE_WAIT).await;
+        let left = self.active_map().len();
+        if left > 0 {
+            eprintln!(
+                "[shutdown] {left} run(s) still active after the abort; recovery closes them at the next start (an unreleased live reservation is listed by `consensus-api ledger status`)"
+            );
+        }
+    }
+
+    /// Waits until no run is active or `deadline` passes.
+    async fn wait_idle(&self, deadline: Instant) {
         while !self.active_map().is_empty() && Instant::now() < deadline {
             let _ = tokio::time::timeout(Duration::from_millis(50), self.idle.notified()).await;
         }
+    }
+}
+
+/// How long [`RunManager::shutdown`] waits, after aborting the calls in
+/// progress, for the aborted runs to settle, record their failure and
+/// release their reservations. Inside the unit's stop timeout: grace plus
+/// this plus the HTTP drain stays below `TimeoutStopSec`.
+pub const ABORT_SETTLE_WAIT: Duration = Duration::from_secs(10);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{ApiKey, MetaConfig};
+    use crate::live::budget::{BudgetConfig, Lane, Ledger};
+    use crate::live::gate::MeteredReservation;
+    use crate::live::money::{Ppm, Usd};
+    use crate::meta::MetaModelClient;
+    use consensus_runtime::fakes::{FakeMemoryClient, FakeProofVerifier};
+    use consensus_runtime::{RunLimits, SequentialIdGen};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::path::PathBuf;
+
+    const PROPOSAL: &str = r#"{"summary":"Raise retries","plan_steps":["edit config"],"primary_claim":{"statement":"Timeouts come from too few retries"},"further_claims":[],"assumptions":[],"uncertainties":[]}"#;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "hyphae-consensus-runs-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A Chat Completions double that answers every request with one
+    /// proposal after `delay`; returns its base URL.
+    fn slow_meta(delay: Duration) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { continue };
+                std::thread::spawn(move || {
+                    let mut data = Vec::new();
+                    let mut buf = [0u8; 8192];
+                    // Headers and the whole body (the request is small).
+                    while let Ok(n) = s.read(&mut buf) {
+                        if n == 0 {
+                            return;
+                        }
+                        data.extend_from_slice(&buf[..n]);
+                        let text = String::from_utf8_lossy(&data);
+                        if let Some(end) = text.find("\r\n\r\n") {
+                            let length = text[..end]
+                                .lines()
+                                .find_map(|l| {
+                                    let (k, v) = l.split_once(':')?;
+                                    k.eq_ignore_ascii_case("content-length")
+                                        .then(|| v.trim().parse::<usize>().ok())
+                                        .flatten()
+                                })
+                                .unwrap_or(0);
+                            if data.len() >= end + 4 + length {
+                                break;
+                            }
+                        }
+                    }
+                    std::thread::sleep(delay);
+                    let body = serde_json::json!({
+                        "id": "chatcmpl-runs-1",
+                        "model": "muse-wonder-1.0",
+                        "choices": [{"message": {"role": "assistant", "content": PROPOSAL}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 100, "completion_tokens": 50}
+                    })
+                    .to_string();
+                    let _ = s.write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    );
+                });
+            }
+        });
+        format!("http://{addr}/v1")
+    }
+
+    fn ledger(dir: &std::path::Path) -> Ledger {
+        Ledger::open(
+            dir,
+            BudgetConfig {
+                daily_cap: Usd::parse("10.00").unwrap(),
+                lifetime_cap: Usd::parse("60.00").unwrap(),
+                judge_slice: Usd::parse("15.00").unwrap(),
+                judge_daily_cap: Usd::parse("15.00").unwrap(),
+                max_concurrent: 1,
+                hourly_admissions: 100,
+                burst_fraction: Ppm::ONE,
+                run_token_cap: 70_000,
+                max_completion_tokens: 16_000,
+                input_cap_tokens: 32_000,
+                price_input_per_m: Usd::parse("4.00").unwrap(),
+                price_output_per_m: Usd::parse("20.00").unwrap(),
+                kill_switch_file: None,
+            },
+        )
+        .unwrap()
+    }
+
+    /// Records of one `type` across the ledger's day files.
+    fn records(dir: &std::path::Path, kind: &str) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "jsonl") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                out.extend(
+                    text.lines()
+                        .filter(|l| !l.is_empty())
+                        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+                        .filter(|v| v["type"] == kind),
+                );
+            }
+        }
+        out
+    }
+
+    /// One metered live run against a Meta double answering after
+    /// `call`, started, then the manager shut down with `grace`. Returns
+    /// the run's last record, the ledger and its directory, and how long
+    /// the shutdown took.
+    async fn shut_down_during_a_call(
+        name: &str,
+        call: Duration,
+        grace: Duration,
+    ) -> (ConsensusEvent, Ledger, PathBuf, Duration) {
+        let root = temp_dir(name);
+        let ledger_dir = root.join("ledger");
+        let ledger = ledger(&ledger_dir);
+        let store = Arc::new(RunStore::open(root.join("store")).unwrap());
+        let manager = RunManager::new(
+            store,
+            Broadcasts::new(64),
+            ManagerSettings {
+                shutdown_grace: grace,
+                ..ManagerSettings::default()
+            },
+        );
+        let base_url = slow_meta(call);
+        let reserving = ledger.clone();
+        // reqwest's blocking client is built (and dropped) off the async
+        // workers, as the gate does.
+        let deliberation = tokio::task::spawn_blocking(move || {
+            let mut cfg = MetaConfig::from_parts(
+                base_url,
+                ApiKey::new("LLM_1000_test-key-not-a-secret"),
+                "muse-wonder-1.0",
+            )
+            .unwrap();
+            cfg.timeout = Duration::from_secs(60);
+            let metered = MeteredReservation::reserve(&reserving, Lane::Public).unwrap();
+            let model = metered.meter_model(MetaModelClient::new(cfg).unwrap());
+            let orchestrator = Orchestrator {
+                model,
+                memory: FakeMemoryClient::new(vec![consensus_runtime::scenarios::evidence(
+                    "ev-1",
+                    "demo-repo",
+                    "constraint",
+                    "Constraint: outbound retries must be capped at 3 attempts.",
+                )]),
+                verifier: FakeProofVerifier::all(IntegrityStatus::Valid),
+                clock: SystemClock,
+                ids: SequentialIdGen::new(),
+                limits: RunLimits::default(),
+            };
+            Box::new(metered.wrap(Box::new(orchestrator))) as Box<dyn Deliberation>
+        })
+        .await
+        .unwrap();
+        let started = manager
+            .start(StartRequest {
+                owner: Owner::Operator,
+                retention: Retention::Keep,
+                input: TaskInput {
+                    project_id: ProjectId::new("demo-repo"),
+                    title: "Fix payment retries".into(),
+                    description: "Retries burst under load.".into(),
+                    submitted_by: "test".into(),
+                    mode: None,
+                },
+                kind: RunKind::Live,
+                deliberation,
+            })
+            .await
+            .unwrap();
+        let run_id = started.meta.run_id.clone();
+        // The propose call is in flight once its attempt is drawn.
+        let wait_for_draw = Instant::now() + Duration::from_secs(10);
+        while records(&ledger_dir, "draw").is_empty() {
+            assert!(Instant::now() < wait_for_draw, "the call never started");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let stop = Instant::now();
+        manager.shutdown().await;
+        let took = stop.elapsed();
+        assert!(
+            !manager.is_active(&run_id),
+            "the run ended before shutdown returned"
+        );
+        let view = manager.snapshot(run_id.as_str(), &Owner::Operator).unwrap();
+        let last = view.events.last().cloned().unwrap();
+        (last, ledger, ledger_dir, took)
+    }
+
+    fn failure(event: &ConsensusEvent) -> (String, Option<String>) {
+        match &event.payload {
+            EventPayload::RunFailed { stage, code, .. } => (stage.clone(), code.clone()),
+            other => panic!("expected RunFailed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_call_answered_within_the_grace_is_recorded_and_the_run_stops_at_shutdown() {
+        let (last, ledger, dir, took) = shut_down_during_a_call(
+            "grace-holds",
+            Duration::from_secs(2),
+            Duration::from_secs(10),
+        )
+        .await;
+        assert_eq!(failure(&last), ("shutdown".into(), Some("shutdown".into())));
+        // Well inside the grace (wide margin for a loaded machine): the
+        // answer ended the wait, not the grace.
+        assert!(took < Duration::from_secs(9), "{took:?}");
+        let draws = records(&dir, "draw");
+        let settlements = records(&dir, "settlement");
+        assert_eq!(draws.len(), 1);
+        assert_eq!(settlements.len(), 1, "every draw settled");
+        assert_eq!(settlements[0]["outcome"]["kind"], "usage", "answered");
+        assert!(ledger.open_reservations().unwrap().is_empty(), "released");
+        assert_eq!(ledger.snapshot().unwrap().active_public, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_call_past_the_grace_is_aborted_settled_at_its_estimate_and_released() {
+        let (last, ledger, dir, took) = shut_down_during_a_call(
+            "grace-runs-out",
+            Duration::from_secs(40),
+            Duration::from_secs(2),
+        )
+        .await;
+        // The propose call was abandoned: the run failed at its stage with
+        // the shutdown code, long before the double would have answered
+        // (40 s): the abort is polled every 50 ms, so 5 s past the 2 s
+        // grace is a wide margin, and still well below the settle wait.
+        assert_eq!(failure(&last), ("propose".into(), Some("shutdown".into())));
+        assert!(took < Duration::from_secs(7), "{took:?}");
+        let draws = records(&dir, "draw");
+        let settlements = records(&dir, "settlement");
+        assert_eq!(draws.len(), 1);
+        assert_eq!(settlements.len(), 1, "the abandoned attempt is settled");
+        assert_eq!(
+            settlements[0]["charged_usd"], draws[0]["est_usd"],
+            "at its estimate"
+        );
+        assert!(ledger.open_reservations().unwrap().is_empty(), "released");
+        assert_eq!(ledger.snapshot().unwrap().active_public, 0);
     }
 }

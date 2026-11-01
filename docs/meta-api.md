@@ -31,10 +31,13 @@ The [README](../README.md) has a summary of this page.
   retried up to that budget, after `Retry-After` when it fits or after a full-jitter
   backoff from 500 ms; a connection that failed before the request was sent may be retried
   too. HTTP 500 and 502 are retried **once** per call (since 2026-11-01, after live run
-  M02's HTTP 500 at critique), under the same `Retry-After`, backoff and headroom rules;
-  a connection that broke after the request was sent is retried exactly once too. Both
-  failed attempts may have been billed, so each of these retries can bill one duplicate
-  generation that no invocation records: the failed attempt is charged at its full
+  M02's HTTP 500 at critique), under the same `Retry-After` and backoff rules, and only
+  when 30 s of the call budget are still left after the wait (a quarter of a budget
+  shorter than 120 s): a 500 late in the budget fails at once, since its retry could not
+  finish a generation. A connection that broke after the request was sent is retried
+  exactly once too. Both failed attempts may have been billed, so each of these retries
+  can bill one duplicate generation (at most two per call, one per retry class) that no
+  invocation records: the failed attempt is charged at its full
   estimate on the live ledger, and the answering call records `attempts: 2` (an invocation
   can now show `attempts: 2` after a 5xx). Timeouts, 504 (the gateway gave up on a
   generation that may have completed upstream) and every other 4xx are never retried.
@@ -50,10 +53,15 @@ The [README](../README.md) has a summary of this page.
   call still in progress when the grace runs out (the public server's grace is one call
   budget plus 10 s, at least 60 s: 250 s at a 240 s budget) is abandoned, charged at its
   estimate and fails its run with code `shutdown`, so the run's reservation is released
-  before the process exits. The public server prints its effective limits at boot (one
-  `[startup] limits:` line on stderr: per-call and connect timeouts, attempts, output
-  bound, `reasoning_effort` set or unset, run deadline, run token cap, shutdown grace,
-  live concurrency, burst fraction, daily quotas; no key).
+  before the process exits. This only works when the service's stop timeout
+  (`TimeoutStopSec`) is longer than the grace plus the 10 s the aborted runs get to settle
+  (`ABORT_SETTLE_WAIT`) plus the HTTP drain: 280 s at a 240 s budget. With a shorter one,
+  systemd kills the process first and the reservation stays open until the next start's
+  recovery, so the timeout and the unit's stop timeout are deployed together. The public
+  server prints its effective limits at boot (one `[startup] limits:` line on stderr:
+  per-call and connect timeouts, attempts, output bound, `reasoning_effort` set or unset,
+  run deadline, run token cap, shutdown grace and the stop timeout it needs, live
+  concurrency, burst fraction, daily quotas; no key).
 - **Prompts.** Everything a role did not write itself sits in separate `<UNTRUSTED_*>`
   blocks; a mitigation, not a boundary (details in [verification.md](verification.md#safety-invariants-enforced-in-code-covered-by-tests)).
 - **The public live mode (on the owner's key; not deployed).** Decided in ADR-0007,

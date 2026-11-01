@@ -879,7 +879,62 @@ mod r8_provider_budget {
             "{err}"
         );
         assert!(err.to_string().contains("retry after 40 s"), "{err}");
+        assert!(err.to_string().contains("after 1 attempt(s)"), "{err}");
         assert_eq!(server.hits(), 1);
+    }
+
+    #[test]
+    fn a_late_500_is_not_retried_when_the_retry_could_not_finish() {
+        // A production budget (240 s) and a run deadline 32 s away: the
+        // 500 arrives after 3 s with about 29 s left, under the 30 s a
+        // retry needs. One hit, one draw, no wait.
+        assert_eq!(
+            consensus_api::meta::status_retry_window(Duration::from_secs(240)),
+            Duration::from_secs(30)
+        );
+        let server = serve(vec![
+            Reply::json(500, "{}").delayed(Duration::from_secs(3)),
+            answer(),
+        ]);
+        let metered = Metered::new("late-500");
+        let mut cfg = config(&server.base_url);
+        cfg.timeout = Duration::from_secs(240);
+        cfg.max_attempts = 3;
+        let mut c = metered
+            .client(cfg)
+            .with_run_deadline(Some(Instant::now() + Duration::from_secs(32)));
+        let started = Instant::now();
+        let err = c.propose(&task()).unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(10), "no wait");
+        assert_eq!(err.code(), Some("meta_unavailable"));
+        assert!(err.to_string().contains("after 1 attempt(s)"), "{err}");
+        assert_eq!(server.hits(), 1);
+        assert_eq!(metered.draws(), 1, "no second draw");
+        let outcomes: Vec<Outcome> = metered.settled().into_iter().map(|s| s.0).collect();
+        assert_eq!(outcomes, vec![Outcome::Status(500)]);
+
+        // The same budget with 60 s of run left: the retry has its window.
+        let server = serve(vec![Reply::json(500, "{}"), answer()]);
+        let metered = Metered::new("early-500");
+        let mut cfg = config(&server.base_url);
+        cfg.timeout = Duration::from_secs(240);
+        cfg.max_attempts = 3;
+        let mut c = metered
+            .client(cfg)
+            .with_run_deadline(Some(Instant::now() + Duration::from_secs(60)));
+        let (_, inv) = c.propose(&task()).unwrap();
+        assert_eq!(inv.attempts, Some(2));
+        assert_eq!(metered.draws(), 2);
+    }
+
+    #[test]
+    fn the_status_retry_window_is_thirty_seconds_or_a_quarter_of_a_short_budget() {
+        use consensus_api::meta::status_retry_window as window;
+        assert_eq!(window(Duration::from_secs(120)), Duration::from_secs(30));
+        assert_eq!(window(Duration::from_secs(3600)), Duration::from_secs(30));
+        assert_eq!(window(Duration::from_secs(40)), Duration::from_secs(10));
+        // Never below the 1 s headroom.
+        assert_eq!(window(Duration::from_secs(2)), Duration::from_secs(1));
     }
 
     #[test]
@@ -939,10 +994,12 @@ mod r8_provider_budget {
 
     #[test]
     fn a_slow_answer_inside_the_budget_succeeds_and_one_past_it_times_out_once() {
-        let slow = || answer().delayed(Duration::from_millis(1_500));
+        // Wide margins (2 s each way and 1 s) so a loaded machine stays
+        // on the right side of both budgets.
+        let slow = || answer().delayed(Duration::from_secs(2));
         let server = serve(vec![slow()]);
         let mut cfg = config(&server.base_url);
-        cfg.timeout = Duration::from_secs(2);
+        cfg.timeout = Duration::from_secs(4);
         let mut c = MetaModelClient::new(cfg).unwrap();
         let (_, inv) = c.propose(&task()).unwrap();
         assert_eq!(inv.attempts, Some(1));

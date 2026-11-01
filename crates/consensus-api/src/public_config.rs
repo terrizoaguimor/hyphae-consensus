@@ -85,6 +85,23 @@ pub fn public_shutdown_grace(model_timeout: Duration) -> Duration {
         .max(SHUTDOWN_GRACE_FLOOR)
 }
 
+/// What the HTTP drain and the process exit may take after the aborted
+/// runs have settled.
+pub const STOP_DRAIN_MARGIN: Duration = Duration::from_secs(10);
+
+/// The shortest service stop timeout (`TimeoutStopSec`) under which a
+/// shutdown with `grace` still settles and releases every call in
+/// progress: the grace, [`crate::runs::ABORT_SETTLE_WAIT`] and
+/// [`STOP_DRAIN_MARGIN`] (270 s at the 250 s public grace; the unit sets
+/// 280 s). A shorter one lets systemd kill the process before the abort
+/// runs, and the reservation stays open until the next start's recovery.
+/// The boot line prints it.
+pub fn required_stop_timeout(grace: Duration) -> Duration {
+    grace
+        .saturating_add(crate::runs::ABORT_SETTLE_WAIT)
+        .saturating_add(STOP_DRAIN_MARGIN)
+}
+
 /// Where `serve-public` listens.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublicListener {
@@ -633,5 +650,16 @@ mod tests {
         assert_eq!(public_shutdown_grace(secs(51)), secs(61));
         // Grace, the abort's settle wait and a margin fit the unit's 280 s.
         assert!(public_shutdown_grace(secs(240)) + crate::runs::ABORT_SETTLE_WAIT < secs(280));
+        // The stop timeout the boot line asks for: 270 s at 240 s, inside
+        // the unit's 280 s; the VPS's current 90 s is too short even at
+        // the default 120 s budget (130 s grace, 150 s needed).
+        let needed = required_stop_timeout(public_shutdown_grace(secs(240)));
+        assert_eq!(needed, secs(270));
+        assert!(needed < secs(280));
+        assert_eq!(
+            required_stop_timeout(public_shutdown_grace(secs(120))),
+            secs(150)
+        );
+        assert!(required_stop_timeout(public_shutdown_grace(secs(120))) > secs(90));
     }
 }

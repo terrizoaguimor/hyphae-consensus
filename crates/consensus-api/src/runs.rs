@@ -1146,12 +1146,14 @@ mod tests {
     async fn a_call_answered_within_the_grace_is_recorded_and_the_run_stops_at_shutdown() {
         let (last, ledger, dir, took) = shut_down_during_a_call(
             "grace-holds",
-            Duration::from_secs(3),
-            Duration::from_secs(5),
+            Duration::from_secs(2),
+            Duration::from_secs(10),
         )
         .await;
         assert_eq!(failure(&last), ("shutdown".into(), Some("shutdown".into())));
-        assert!(took < Duration::from_secs(5), "{took:?}");
+        // Well inside the grace (wide margin for a loaded machine): the
+        // answer ended the wait, not the grace.
+        assert!(took < Duration::from_secs(9), "{took:?}");
         let draws = records(&dir, "draw");
         let settlements = records(&dir, "settlement");
         assert_eq!(draws.len(), 1);
@@ -1165,14 +1167,16 @@ mod tests {
     async fn a_call_past_the_grace_is_aborted_settled_at_its_estimate_and_released() {
         let (last, ledger, dir, took) = shut_down_during_a_call(
             "grace-runs-out",
-            Duration::from_secs(10),
+            Duration::from_secs(40),
             Duration::from_secs(2),
         )
         .await;
         // The propose call was abandoned: the run failed at its stage with
-        // the shutdown code, long before the double would have answered.
+        // the shutdown code, long before the double would have answered
+        // (40 s): the abort is polled every 50 ms, so 5 s past the 2 s
+        // grace is a wide margin, and still well below the settle wait.
         assert_eq!(failure(&last), ("propose".into(), Some("shutdown".into())));
-        assert!(took < Duration::from_secs(6), "{took:?}");
+        assert!(took < Duration::from_secs(7), "{took:?}");
         let draws = records(&dir, "draw");
         let settlements = records(&dir, "settlement");
         assert_eq!(draws.len(), 1);

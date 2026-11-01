@@ -56,17 +56,22 @@
 //! timeout after a wait that could not pay off), else after a full-jitter
 //! exponential backoff from 500 ms; a connection that failed before the
 //! request was sent may be retried too. HTTP 500 and 502 are retried
-//! exactly once per call, under the same attempt budget, `Retry-After`,
-//! backoff and headroom rules (live run M02 failed on one HTTP 500 at
-//! critique): the failed attempt may have been billed (it is settled at
-//! its full estimate, like every 5xx), so this retry can bill at most one
-//! duplicate generation per call, and no invocation records the lost one
-//! (the answering call shows `attempts: 2`). A connection that broke after
-//! the request was sent (reset, or closed before any answer; no HTTP
-//! status) is retried exactly once, within the same rules, when
+//! exactly once per call, under the same attempt budget, `Retry-After` and
+//! backoff rules (live run M02 failed on one HTTP 500 at critique), and
+//! only while [`status_retry_window`] (30 s at the production budgets) is
+//! left after the wait: a late 500 is not retried, since the retry could
+//! not finish a generation. The failed attempt may have been billed (it
+//! is settled at its full estimate, like every 5xx), so this retry can
+//! bill one duplicate generation, and no invocation records the lost one
+//! (the answering call shows its `attempts`). A connection that broke
+//! after the request was sent (reset, or closed before any answer; no
+//! HTTP status) is retried exactly once, within the headroom rule, when
 //! [`MetaConfig::retry_transport_once`] is set (the default): the lost
-//! generation may have been billed, so the duplicate is bounded to one
-//! (live run R06 failed on one such error). Nothing else is retried: a
+//! generation may have been billed too (live run R06 failed on one such
+//! error). The two retries are separate, so the bound is one possibly
+//! billed duplicate per retry class: at most two per call (a lost
+//! connection and a 500 in the same call, within the 3-attempt budget),
+//! each settled at its full estimate on the ledger. Nothing else is retried: a
 //! timeout, a 504 (the gateway gave up on a generation that may have
 //! completed upstream) or any 4xx but 429 could follow a generation that
 //! was already billed or would fail the same way again. `finish_reason`
@@ -257,6 +262,15 @@ const MIN_RETRY_HEADROOM: Duration = Duration::from_secs(1);
 /// [`codes::RUN_DEADLINE_REACHED`]): a call cut off by the run deadline
 /// moments after it was sent would be billed for nothing the run can use.
 pub const MIN_CALL_WINDOW: Duration = Duration::from_secs(30);
+
+/// What the one HTTP 500 or 502 retry must have left of the call's budget
+/// after its wait: [`MIN_CALL_WINDOW`], or a quarter of a shorter call
+/// budget (never less than [`MIN_RETRY_HEADROOM`]). A 500 that comes late
+/// in the budget is not retried: the retry could not finish a generation,
+/// yet it would be drawn, settled at its full estimate and maybe billed.
+pub fn status_retry_window(timeout: Duration) -> Duration {
+    MIN_CALL_WINDOW.min(timeout / 4).max(MIN_RETRY_HEADROOM)
+}
 /// Pooled connections idle longer than this are dropped, never reused.
 pub const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
 /// How often a call bound to its run looks at the run's abort flag while
@@ -2070,17 +2084,27 @@ impl MetaModelClient {
                     self.settle_attempt(draw, Outcome::Status(status))?;
                     let (code, message) = http_failure(status);
                     let left = deadline.saturating_duration_since(Instant::now());
+                    // What the retry needs left after its wait: a useful
+                    // window for a 500 or 502 (it may bill a duplicate),
+                    // the headroom for a 429 or 503.
+                    let reserve = if matches!(status, 500 | 502) {
+                        status_retry_window(self.cfg.timeout)
+                    } else {
+                        MIN_RETRY_HEADROOM
+                    };
                     // 429 and 503 up to the attempt budget; 500 and 502
                     // once, and only when the retry has time to be answered.
                     // 504 never: the generation may have completed upstream.
                     let retry = match status {
                         429 | 503 => can_retry,
-                        500 | 502 => can_retry && !status_retried && left > MIN_RETRY_HEADROOM,
+                        500 | 502 => {
+                            can_retry && !status_retried && left > reserve + MIN_RETRY_HEADROOM
+                        }
                         _ => false,
                     };
                     if retry {
                         // The retry itself needs time after the wait.
-                        let budget = MAX_RETRY_WAIT.min(left.saturating_sub(MIN_RETRY_HEADROOM));
+                        let budget = MAX_RETRY_WAIT.min(left.saturating_sub(reserve));
                         let jitter = full_jitter(self.cfg.retry_base_delay, attempt);
                         let wait = match retry_after(&resp) {
                             // Honor Retry-After when it fits; never retry
@@ -2089,7 +2113,7 @@ impl MetaModelClient {
                                 return Err(provider(
                                     code,
                                     format!(
-                                        "{message}; it asked to retry after {} s, beyond the remaining retry budget of {} s",
+                                        "{message} after {attempt} attempt(s); it asked to retry after {} s, beyond the remaining retry budget of {} s",
                                         asked.as_secs(),
                                         budget.as_secs()
                                     ),

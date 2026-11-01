@@ -194,12 +194,18 @@ After the first public live runs (M01 `meta_timeout` and M02 `meta_unavailable`
 HTTP 500, both at critique; `docs/evaluation.md` §6.3):
 
 - **Decision 4 (retries), amended**: HTTP 500 and 502 are retried **once per
-  call**, within the attempt budget, the call's time budget and the 1 s headroom
-  rule, after `Retry-After` when it fits (else the call fails at once with that
-  status) or after the full-jitter backoff. The failed attempt may already have
-  been billed: it stays settled at its full estimate on the live ledger, and the
-  retry can bill **at most one duplicate generation per call**, which no
-  invocation records (the answering call shows `attempts: 2`). 504 is still never
+  call**, within the attempt budget and the call's time budget, after
+  `Retry-After` when it fits (else the call fails at once with that status) or
+  after the full-jitter backoff, and only while a useful window is left after the
+  wait (`status_retry_window`: 30 s, or a quarter of a call budget shorter than
+  120 s); a late 500 fails at once, since its retry could not finish a generation.
+  The failed attempt may already have been billed: it stays settled at its full
+  estimate on the live ledger, and the retry can bill one duplicate generation,
+  which no invocation records (the answering call shows its `attempts`). The
+  transport-after-send retry (above) is a separate one-time retry, so the bound is
+  **one possibly billed duplicate per retry class, at most two per call** (a lost
+  connection and a 500 in the same call, within the 3-attempt budget), each
+  charged at its estimate. 504 is still never
   retried (the gateway gave up on a generation that may have completed upstream),
   nor are timeouts or 400/401/402/403/404/413. 429 and 503 keep their retries up
   to the attempt budget; 503 is still charged at the estimate.

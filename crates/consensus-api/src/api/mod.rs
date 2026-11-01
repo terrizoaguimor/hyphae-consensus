@@ -890,6 +890,38 @@ async fn method_not_allowed() -> Response {
     ApiError::new(ErrorCode::MethodNotAllowed, "method not allowed").into_response()
 }
 
+/// Reads the whole request body (at most [`BODY_LIMIT_BYTES`]) before any
+/// other layer or handler runs, then hands the buffered bytes on.
+///
+/// Without it, a request refused before its body is read (401 without a
+/// session, 403 from the Origin check, 404 for an unknown route, 405)
+/// gets its answer while the client is still writing the body; hyper then
+/// closes the connection with the body unread. Behind cloudflared on the
+/// unix socket that close surfaces as `write: broken pipe` and the edge
+/// answers 502 instead of the server's own status. A body over the limit
+/// is refused here with the same 413 the JSON extractor gives.
+async fn buffer_body(req: Request, next: Next) -> Response {
+    let (parts, body) = req.into_parts();
+    match axum::body::to_bytes(body, BODY_LIMIT_BYTES).await {
+        Ok(bytes) => {
+            next.run(Request::from_parts(parts, axum::body::Body::from(bytes)))
+                .await
+        }
+        Err(e) => {
+            // The same test as `ApiJson`'s: axum names the limit error.
+            if e.to_string().to_ascii_lowercase().contains("length limit") {
+                ApiError::new(
+                    ErrorCode::PayloadTooLarge,
+                    format!("the request body may have at most {BODY_LIMIT_BYTES} bytes"),
+                )
+                .into_response()
+            } else {
+                ApiError::invalid("the request body could not be read").into_response()
+            }
+        }
+    }
+}
+
 /// The request outlived the server's request timeout.
 async fn timed_out(_: BoxError) -> Response {
     ApiError::new(
@@ -975,6 +1007,10 @@ fn finish(router: Router<AppState>, state: AppState) -> Router {
     router
         .layer(middleware::from_fn_with_state(state.clone(), csrf_check))
         .layer(middleware::from_fn_with_state(state.clone(), host_check))
+        // Inside the security headers (a 413 carries them) and the
+        // timeout (a slow body is cut off), outside every check that can
+        // refuse a request early.
+        .layer(middleware::from_fn(buffer_body))
         .layer(middleware::from_fn(security_headers))
         .layer(DefaultBodyLimit::max(BODY_LIMIT_BYTES))
         .layer(

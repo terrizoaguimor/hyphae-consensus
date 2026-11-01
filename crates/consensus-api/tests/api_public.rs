@@ -1965,3 +1965,57 @@ async fn ready_names_an_index_failure_by_its_code_and_publishes_no_store_text() 
         assert!(!text.contains(leak.as_str()), "{leak}: {text}");
     }
 }
+
+// ---------------------------------------------------------------------
+// Early refusals read the body first (the edge 502 of 2026-11-01)
+// ---------------------------------------------------------------------
+
+/// A request refused before its handler reads the body (401 without a
+/// session, 404 for an unknown route) is answered only once the client
+/// has finished writing the body. Before the fix the answer came while
+/// the body was still unread and the connection was closed under the
+/// writer: behind cloudflared that is `write: broken pipe` and a 502 at
+/// the edge instead of the server's own status.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn early_refusals_wait_for_the_whole_body() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let server = public_server(&[], BuildOptions::default());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = server
+        .router
+        .clone()
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let body = br#"{"scenario":"retry"}"#;
+    for (path, expected) in [("/api/v1/runs", "401"), ("/api/v1/operator/runs", "404")] {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let head = format!(
+            "POST {path} HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nSec-Fetch-Site: same-origin\r\n\
+             cf-ipcountry: US\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+             Connection: close\r\n\r\n",
+            server.host,
+            server.origin,
+            body.len()
+        );
+        stream.write_all(head.as_bytes()).await.unwrap();
+        let mut buf = [0u8; 64];
+        let early = tokio::time::timeout(Duration::from_millis(400), stream.read(&mut buf)).await;
+        assert!(
+            early.is_err(),
+            "{path}: answered before the body was written: {:?}",
+            early.map(|r| r.map(|n| String::from_utf8_lossy(&buf[..n]).into_owned()))
+        );
+        stream.write_all(body).await.unwrap();
+        let mut answer = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut answer))
+            .await
+            .expect("an answer once the body is complete")
+            .unwrap();
+        let text = String::from_utf8_lossy(&answer);
+        let status = text.split_whitespace().nth(1).unwrap_or("");
+        assert_eq!(status, expected, "{path}: {text}");
+    }
+}

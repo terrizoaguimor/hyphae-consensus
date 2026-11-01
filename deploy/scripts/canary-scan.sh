@@ -84,7 +84,7 @@ scan_server() {
   for d in /var/lib/consensus/runs /var/lib/consensus/ledger /var/lib/consensus/web \
            /etc/consensus/public.env /etc/consensus/operator.env /etc/cloudflared/config.yml; do
     [ -e "$d" ] || continue
-    n="$(grep -r -I -l -E "$PATTERN" "$d" 2>/dev/null | wc -l)"
+    n="$( { grep -r -I -l -E "$PATTERN" "$d" 2>/dev/null || true; } | wc -l)"
     report "$d" "$n"
   done
 

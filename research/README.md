@@ -1,17 +1,21 @@
 # Research archive
 
 Verbatim copies of every recorded Hyphae Consensus run from 2026-10-26,
-2026-10-27 and 2026-10-30: 12 event logs holding 48 runs (919 events), and
-41 run records. Each file was copied byte for byte with `cp` from
-`demo-run/`, which is git-ignored and remains the unmodified original, and
-each copy was checked against its source with SHA-256. Nothing was edited,
-redacted or re-encoded.
+2026-10-27, 2026-10-30 and 2026-11-01: 15 event logs holding 51 runs (1,005
+events), and 44 run records; and, kept apart from them, the 4 single-agent
+baseline runs of 2026-11-01 (4 baseline logs holding 68 records, and 4 run
+records). Each file was copied byte for byte with `cp` from `demo-run/`,
+which is git-ignored and remains the unmodified original, and each copy was
+checked against its source with SHA-256. Nothing was edited, redacted or
+re-encoded.
 
 Dates in paths are the operator's local dates (UTC−05:00). Event timestamps
 are UTC, so the 2026-10-26 battery's events read `2026-10-27T04:26Z` to
 `04:47Z`. The 2026-10-30 battery ran from `demo-run/battery-2026-10-29/`, a
 directory named for the day it was planned; its events read
-`2026-10-30T18:52Z` to `19:08Z`.
+`2026-10-30T18:52Z` to `19:08Z`. The 2026-11-01 validation runs read
+`2026-11-01T22:24Z` to `22:34Z`, the baseline runs `22:37:26Z` to
+`22:37:49Z`.
 
 ## Files in research/ must never be edited
 
@@ -40,7 +44,9 @@ directory named for the day it was planned; its events read
 | `2026-10-27/live-battery-2026-10-27-p13-smoke.jsonl` and `-p13-smoke/` | Protocol 1.3 smoke runs on tag `prompt-freeze-1` (superseded), §6.1; not counted as validation | K01–K02 | 1.3 |
 | `2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl` and `-pf2-smoke/` | Protocol 1.3 smoke runs on tag `prompt-freeze-2`, §6.2; not counted as validation | K03–K04 | 1.3 |
 | `2026-10-30/live-battery-2026-10-30-p13/` | Protocol 1.3 battery through the operator server's run store: one log per run in `runs/<run_id>.jsonl`, one run record per run in `M01.json`–`M04.json` (see "The 2026-10-30 battery" below) | M01–M04 | 1.3 |
-| `MANIFEST.json` | Per data file: path, original path, bytes, SHA-256, kind, schema versions, runs (and events, for logs). Per run: run id, label, battery, task title, project, outcome (recommendation kind or `failed:<stage>`), authorization, schema version, log, run record | | |
+| `2026-11-01/live-battery-2026-11-01-spark/` | Validation runs with the Critic on `muse-spark-1.3`, laid out as the 2026-10-30 battery: `runs/<run_id>.jsonl` and `V01.json`–`V03.json` (see "The 2026-11-01 validation runs" below) | V01–V03 | 1.3 |
+| `2026-11-01/baseline-2026-11-01/` | Single-agent baseline runs (`docs/evaluation.md` §7): one baseline log per run in `runs/<run_id>.jsonl`, one run record per run in `B01.json`–`B04.json`; listed under `baseline_runs` in `MANIFEST.json`, never under `runs` (see "The 2026-11-01 baseline runs" below) | B01–B04 | baseline-1.0 |
+| `MANIFEST.json` | Per data file: path, original path, bytes, SHA-256, kind, schema versions, runs (and events, for logs). Per run: run id, label, battery, task title, project, outcome (recommendation kind or `failed:<stage>`), authorization, schema version, log, run record. Per baseline run (`baseline_runs`): run id, label, battery, run kind, task title, project, outcome (`failed:<stage>` or the agent's own verdict), the paired consensus run's label, evidence mode, schema version, log, run record | | |
 | `SHA256SUMS` | The same digests, for `sha256sum -c` | | |
 
 Labels L, I, S, P, R, F and H come from the run-record file names and
@@ -53,6 +59,10 @@ R03/F03 and R06/F06); `docs/evaluation.md` and `MANIFEST.json` call them
 K01–K02 (`-p13-smoke`) and K03–K04 (`-pf2-smoke`). M01–M04 are the names
 the driver was given for the 2026-10-30 runs (`M01=R01-reference` and so
 on); each record states its name in `name` and its task tag in `task_key`.
+V01–V03 and B01–B04 are likewise the names the drivers were given on
+2026-11-01 (`V01=R07-exp-backoff`, `V02=R01-reference`,
+`V03=R04-remove-cap`; the baseline driver's planned pairs `B01=R01-reference`
+with M01 to `B04=R04-remove-cap` with M04).
 The console runs have no labels elsewhere: C01–C07 are assigned here, in
 log order.
 
@@ -75,7 +85,15 @@ its own, chained from genesis: the store's `runs/<run_id>.jsonl`, read after
 the server had stopped. The driver also saved the records the server served
 at `GET /api/v1/runs/{id}/events.ndjson` as `results/M0N.jsonl`; for every
 run that copy has the same SHA-256 as the store's file, so it is not
-archived twice.
+archived twice. The 2026-11-01 validation records come from the same driver
+and have the same fields; their served `results/V0N.jsonl` copies likewise
+have the SHA-256 of the store's files.
+
+The baseline records come from `scripts/baseline_battery.py`: the task key
+and text, the paired consensus run (label, archived log path, SHA-256, run
+id), the memory backend, the exit code of `consensus-api baseline run`, the
+summary it printed (read back from the run's log), the wall time, and a
+`parity` block with the model settings of both sides.
 
 Not archived: the server pid, stdout and stderr files and the driver logs
 that sat next to the records, the raw Meta drafts (`meta-debug-*`), and the
@@ -83,16 +101,27 @@ Hyphae recovery files (`recovery-2026-10-27/`); for the 2026-10-30 battery,
 the driver's log, the server's stdout and (empty) stderr, the run store's
 index, `.meta.json` and lock files, the served `results/M0N.jsonl` copies,
 and the files `commit.txt` and `consensus-api.sha256`, whose values are
-quoted below.
+quoted below. For the 2026-11-01 runs, the same kinds of file (the
+validation directory's driver log, empty driver stderr, server stdout and
+empty stderr, run store index, `.meta.json` and lock files, `results/V0N.jsonl`
+copies, `commit.txt`, `consensus-api.sha256`, `settings.txt` and the
+operator's `spend-guard.log`; the baseline directory's driver and verify
+logs, `commit.txt`, `consensus-api.sha256`, `settings.txt` and its
+`consensus/` copies of the M01–M04 logs, which have the SHA-256 of the
+archived ones). The values of `commit.txt`, `consensus-api.sha256` and
+`settings.txt` are quoted below.
 
 ## How the runs were produced
 
 - **Model.** Live runs called Meta's `muse-wonder-1.0` through the Meta
-  Model API (Chat Completions with structured output). Each completed call
+  Model API (Chat Completions with structured output); in V01–V03 the
+  Critic's calls went to `muse-spark-1.3` instead (the other roles stayed on
+  `muse-wonder-1.0`). Each completed call
   is recorded as an invocation with `provider: meta`, the model id, the
-  API's request id, latency and token counts: 207 calls in this archive, in
-  45 runs of the 12 logs, each with its own request id (165 before the smoke
-  runs K01–K04 added 7 and 12; 184 before M01–M04 added 7, 4, 6 and 6). The
+  API's request id, latency and token counts: 228 calls in this archive, in
+  48 runs of the 15 logs, each with its own request id (165 before the smoke
+  runs K01–K04 added 7 and 12; 184 before M01–M04 added 7, 4, 6 and 6; 207
+  before V01–V03 added 9, 6 and 6, 7 of those 21 on `muse-spark-1.3`). The
   count is of records whose payload carries an invocation with
   `provider: meta` and a request id, as the server lists a run's
   `meta_request_ids`: one per call that got an answer (a retried call is one
@@ -103,7 +132,8 @@ quoted below.
   answer arrived but was refused by the protocol 1.3 contract records its
   invocation on the `run_failed` record, so it is counted: M04's evaluate
   call. Scripted calls record `provider: fake` (18, in C01, C02 and C05) and
-  are not counted.
+  are not counted. The baseline logs are not in this count: their one call
+  each was refused with HTTP 400 and recorded no invocation.
 - **Memory.** Hyphae 4.0.0 Agent Memory, Linux build, in the operator's
   local Docker container (`docs/evaluation.md` §2 and §5). Its records are
   operator-seeded demo memories (`scripts/hyphae-container/seed*.sh`), not
@@ -128,6 +158,16 @@ quoted below.
   verification records of M01–M04 (14, 6, 14 and 7) are `valid`, name
   `hyphae proof verify`, record that anchor as `verified_anchor`, and state
   scope `semantic_reexecution` and kind `memory` in their detail.
+- **Proofs, 2026-11-01 runs.** The same store and the same pinned anchor
+  (the operator read it out of band before the runs and it was unchanged).
+  All 36 verification records of V01–V03 (15, 11 and 10) are `valid`, with
+  the same verifier, `verified_anchor`, scope and kind. The baseline runs
+  B01–B04 recorded a `recall_proven` record per proven recall and retrieved
+  all 7 records of the store, but no verification record. The runner checks
+  every proof before its one model call, but it writes the
+  `evidence_verified` records (which also carry the agent's factual reading)
+  only after a recorded assessment; each run failed at that call, so the
+  results of its proof checks are not in its log.
 - **Policy.** The runtime derived every recommendation with the rules of
   its schema version (`crates/consensus-runtime/src/policy.rs`). A human
   decision only records the decision; nothing is executed. Every battery
@@ -201,6 +241,90 @@ receipts)").
 - **Container paths.** Like the 2026-10-27 files, the records and logs carry
   the evidence records' proof and witness paths inside the operator's
   container (`/hyphae-home/…`), 14 occurrences in each of the eight files.
+
+## The 2026-11-01 validation runs (V01–V03)
+
+Three owner-authorized live runs to validate the round-7 option of a
+separate Critic model (`CONSENSUS_MODEL_CRITIC=muse-spark-1.3`) on the
+`prompt-freeze-4` prompts and schemas. Written up in `docs/evaluation.md`
+§6.6 (request ids under "Request ids (2026-11-01, from receipts)"). They are
+validation runs, not a battery whose outcomes are counted as rates.
+
+- **When.** 2026-11-01, events from `22:24:19Z` (V01's first) to
+  `22:34:30Z` (V03's last), one run after another.
+- **Server.** `consensus-api serve-operator` on loopback, built at commit
+  `0d44e922687c46c12aaf0d44ddcb00ca1a6eacca` (`commit.txt`); SHA-256 of the
+  binary `1bf7b11742c6da8dc386b0b6ff6f1dc2236f67eaf87609a6f8da0f3de9c70e09`
+  (`consensus-api.sha256`, recorded in upper case). Driver
+  `scripts/live_battery.py`. The server's stdout says the same as on
+  2026-10-30 (executor disabled, per-run token cap 150000, operator Meta
+  runs unmetered). The operator's `settings.txt` reads
+  `CONSENSUS_MODEL_TIMEOUT_SECS=240`, `CONSENSUS_MODEL` unset (default
+  `muse-wonder-1.0`), `CONSENSUS_MODEL_CRITIC=muse-spark-1.3` and the pinned
+  anchor below; the server itself does not log these values.
+- **Model.** Every Critic invocation (`DraftChallenge`, 7) records
+  `muse-spark-1.3`; every Proposer, reviser and Evaluator invocation (14)
+  records `muse-wonder-1.0`. All 21 have `attempts: 1`, `finish_reason:
+  stop`, `max_completion_tokens` 16000 and no `rejected_calls` (no re-ask).
+- **Memory.** The demo store, anchor `27943f61…f42347c` pinned as on
+  2026-10-30.
+- **Tasks**, the driver's task texts: V01 `R07-exp-backoff`, V02
+  `R01-reference`, V03 `R04-remove-cap` (the tasks of M03, M01 and M04), all
+  on project `demo-repo`.
+- **Outcomes, as the records say them.** Every authorization is `pending`;
+  every run rests in `awaiting_human_approval`.
+  - V01 (`run-cd656a42-233d-4e7f-afcb-927c44a0d8aa`, 34 events):
+    `contested` after three rounds and two revisions, rule
+    `unresolved_items` (items `item-17` and `item-18`, both `missing_test`):
+    "Contested: 1/1 claims corroborated; proofs: 5 valid, 0 invalid, 0
+    unavailable/error; 2 unresolved challenges." The task asked for
+    exponential backoff; the revisions set `max_attempts = 3` with
+    `jitter_ms = 50` and claim no exponential schedule.
+  - V02 (`run-3135dc74-a8b9-430f-8066-3ed12b2efc63`, 27 events): `supported`
+    after two rounds and one revision, rule `all_checks_passed`: "Supported:
+    1/1 claims corroborated; proofs: 6 valid, 0 invalid, 0
+    unavailable/error; 0 unresolved challenges."
+  - V03 (`run-a3f3b3aa-5e23-4303-a68e-73c855031712`, 25 events): `supported`
+    after two rounds and one revision, rule `all_checks_passed`, with 5 valid
+    proofs. The task asked to remove the retry cap; the supported revision
+    keeps it at 3 attempts, and the first draft had already refused
+    unlimited retries.
+- **Objections from earlier rounds.** None was left unjudged: each
+  receipt's `earlier_round_objections_never_rejudged` is empty.
+- **Container paths.** 10, 12 and 10 occurrences of `/hyphae-home/…` in the
+  records and logs of V01, V02 and V03 (5, 6 and 5 distinct records
+  retrieved).
+
+## The 2026-11-01 baseline runs (B01–B04)
+
+The owner-authorized single-agent baseline (`docs/evaluation.md` §7): 4
+runs, one per task of M01–M04, each paired with that run's archived log
+through `--queries-from`. **None produced an assessment**: each failed at
+its one Meta call, which the API refused with HTTP 400. Per the owner's
+rule none was run again. Written up in `docs/evaluation.md` §7.7.
+
+- **When.** 2026-11-01, records from `22:37:26Z` (B01's first) to
+  `22:37:49Z` (B04's last).
+- **Binary.** `consensus-api baseline run`, the same build as the
+  validation runs (`commit.txt` and `consensus-api.sha256` as above). Driver
+  `scripts/baseline_battery.py` with no task arguments (the planned pairs).
+  The binary refuses an output directory inside `demo-run/` or `research/`,
+  so the driver wrote to a directory outside the repository, and the
+  finished set was copied as a new directory to `demo-run/baseline-2026-11-01/`,
+  from which these files were copied. The operator's `settings.txt` reads
+  `CONSENSUS_MODEL_TIMEOUT_SECS=120` (as M01–M04's 120 s budget),
+  `CONSENSUS_MODEL` and `CONSENSUS_MODEL_CRITIC` unset, and the pinned
+  anchor.
+- **Outcomes, as the records say them.** All four `failed:assess`, code
+  `meta_bad_request`, reason "meta_bad_request: the Meta API rejected the
+  request (HTTP 400)"; no invocation, request id or token count is recorded;
+  exit code 0 (a recorded failure); wall time 5.8, 5.6, 5.9 and 5.7 s. Each
+  run planned 7, 6, 7 and 8 recall queries (the claim statements of M01–M04),
+  recorded as many `recall_proven` records, and retrieved all 7 records of
+  the store. `consensus-api baseline verify` accepts each log, and its
+  summary equals the run record's.
+- **Container paths.** 14 occurrences in each baseline log (7 records),
+  none in the run records.
 
 ## Notes and corrections (as of 2026-10-30)
 
@@ -295,22 +419,29 @@ receipts)").
    re-serializes byte for byte, so this textual recipe agrees with the
    runtime's own check. The chain spans the whole file: each run's first
    record links to the previous run's last record, so checking one run
-   needs the file from its first line. Each 2026-10-30 log holds one run,
-   so that run is a chain from genesis on its own.
+   needs the file from its first line. Each 2026-10-30 and 2026-11-01 log
+   holds one run, so that run is a chain from genesis on its own. The
+   baseline logs follow the same recipe.
 3. **Each recommendation** (schema 1.1, 1.2 and 1.3 runs), re-derived from
    the run's last evaluation and the verification records after it, with the
    rules of its recorded schema version (1.1: abstention outranks a recorded
    contradiction; 1.2, and 1.3, which keeps the 1.2 rules: a recorded
    contradiction outranks abstention).
 4. **Each receipt's `head_hash`**: in every run record, `receipt.head_hash`
-   (`receipt.chain.head_hash` in the receipts v2 of 2026-10-30) is the
+   (`receipt.chain.head_hash` in the receipts v2 of 2026-10-30 and
+   2026-11-01) is the
    `hash` of the run's last event in its log, `receipt.event_count` is the
    run's number of events, and `detail.events` equals the run's events in
-   the log (for 2026-10-30, the same events in the same order, with the same
-   ids and hashes, as the API view shows them).
+   the log (for 2026-10-30 and 2026-11-01, the same events in the same
+   order, with the same ids and hashes, as the API view shows them).
+5. **Each baseline run** (schema `baseline-1.0`): `consensus-api baseline
+   verify <log>` checks the chain, replays the run and prints its summary,
+   which equals the one in its run record; the consensus verifier
+   (`consensus-api verify`) refuses a baseline log.
 
-`cargo test -p consensus-tests --test research_archive` runs these checks;
-it opens and replays the logs only on temporary copies.
+`cargo test -p consensus-tests --test research_archive` runs these checks
+(`--test research_baseline` the baseline ones); it opens and replays the
+logs only on temporary copies.
 
 ## What cannot be verified from these files
 

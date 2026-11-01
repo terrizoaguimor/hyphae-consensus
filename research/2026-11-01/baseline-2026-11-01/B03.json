@@ -1,0 +1,87 @@
+{
+ "name": "B03",
+ "task_key": "R07-exp-backoff",
+ "task": {
+  "project": "demo-repo",
+  "title": "Exponential backoff for payment retries",
+  "description": "Replace fixed-delay payment retries with exponential backoff while staying within the documented attempt limit."
+ },
+ "consensus": {
+  "label": "M03",
+  "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-85a826e6-478c-412c-a6c8-baf56721a9d7.jsonl",
+  "sha256": "fa5b4174a87e9e5887e04fa0b4ae43285e52497ab207b419342055c407996118",
+  "run_id": "run-85a826e6-478c-412c-a6c8-baf56721a9d7"
+ },
+ "memory": "hyphae",
+ "exit_code": 0,
+ "summary": {
+  "agent_verdict": null,
+  "counts": null,
+  "event_count": 17,
+  "evidence": {
+   "recall_proven": 7,
+   "retrieved": [
+    "186670067796945807561772405393844769735",
+    "287567405605917891851290763137356115373",
+    "161896895843658017381255677281559699870",
+    "328114099256634798832222840773545327795",
+    "295729039551322334710406856728557559035",
+    "8864874238917673930644756936982232317",
+    "237412834382378687445660534362297845298"
+   ],
+   "unavailable": []
+  },
+  "evidence_mode": "live_hyphae",
+  "evidence_warning": null,
+  "failure": {
+   "code": "meta_bad_request",
+   "reason": "meta_bad_request: the Meta API rejected the request (HTTP 400)",
+   "stage": "assess"
+  },
+  "format": "hyphae-consensus-baseline-summary-v1",
+  "head_hash": "a31b4e04de9a1ba909563a6d602031d0bee62f7041e31c5043da9a62f4391d0c",
+  "log": "runs/baseline-763fbc40-8b12-450f-b55c-d89eff404b3b.jsonl",
+  "log_sha256": "16045e1b4212c6ac9a019fef791007047fb374c1580732fa791d1fc3be12308a",
+  "model_invocations": [],
+  "note": "Single-agent baseline: one model call, no Critic, no Evaluator, no policy rounds. The agent's verdict is its own statement and policy_reading is a comparison aid; neither is a recommendation, nothing was executed and no human decision is recorded.",
+  "outcome": "failed:assess",
+  "policy_reading": null,
+  "recall": {
+   "limit_per_query": 5,
+   "max_records": 20,
+   "queries": 7,
+   "source": {
+    "kind": "consensus_log",
+    "log_sha256": "fa5b4174a87e9e5887e04fa0b4ae43285e52497ab207b419342055c407996118",
+    "run_id": "run-85a826e6-478c-412c-a6c8-baf56721a9d7"
+   }
+  },
+  "run_id": "baseline-763fbc40-8b12-450f-b55c-d89eff404b3b",
+  "run_kind": "single_agent_baseline",
+  "schema_version": "baseline-1.0",
+  "task": {
+   "description": "Replace fixed-delay payment retries with exponential backoff while staying within the documented attempt limit.",
+   "mode": {
+    "evidence": "live_hyphae",
+    "model": "meta",
+    "origin": "cli"
+   },
+   "project_id": "demo-repo",
+   "title": "Exponential backoff for payment retries"
+  },
+  "verdict_reason": null,
+  "verifications": []
+ },
+ "wall_seconds": 5.9,
+ "parity": {
+  "consensus": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "baseline": [],
+  "equal": true
+ }
+}

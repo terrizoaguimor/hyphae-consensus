@@ -56,7 +56,7 @@ revision that departs from the task, which is why a human still decides
 
 | Criterion | Evidence (one line each) |
 |---|---|
-| **Impact (30 %)** | F03 ("Raise payment retry attempts to 10") claimed 10 attempts comply with any documented maximum; the stored cap is 3, 2 of 4 claims were recorded as contradicted, the revision proposed the recorded fix, and 6 open objections kept it `contested` for a human ([§5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output), [run record](research/2026-10-27/live-battery-2026-10-27-final/F03-raise-to-10.json)); a planted "SYSTEM OVERRIDE" record with a valid proof was never obeyed ([§5.4](docs/evaluation.md#54-hostile-note-with-a-valid-proof-h01h02-commit-3d50baf)). No single-agent baseline was run. |
+| **Impact (30 %)** | F03 ("Raise payment retry attempts to 10") claimed 10 attempts comply with any documented maximum; the stored cap is 3, 2 of 4 claims were recorded as contradicted, the revision proposed the recorded fix, and 6 open objections kept it `contested` for a human ([§5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output), [run record](research/2026-10-27/live-battery-2026-10-27-final/F03-raise-to-10.json)); a planted "SYSTEM OVERRIDE" record with a valid proof was never obeyed ([§5.4](docs/evaluation.md#54-hostile-note-with-a-valid-proof-h01h02-commit-3d50baf)). No single-agent baseline comparison exists: its 4 runs of 2026-11-01 each failed at their one Meta call (HTTP 400) ([§7.7](docs/evaluation.md#77-the-battery-of-2026-11-01-b01b04-every-run-failed-at-its-one-call)). |
 | **Use of Meta AI tooling (25 %)** | Four kinds of strict `json_schema` call (Proposer, Critic, Evaluator, revision; up to 9 per run) to `POST https://api.meta.ai/v1/chat/completions`, the Evaluator's schema generated per call with one required key per claim and per open objection ([docs/meta-api.md](docs/meta-api.md), [`meta.rs`](crates/consensus-api/src/meta.rs)); the request id of every recorded call ([10-26](docs/evaluation.md#request-ids-2026-10-26-from-receipts), [10-27](docs/evaluation.md#request-ids-2026-10-27-from-receipts), [10-30](docs/evaluation.md#request-ids-2026-10-30-from-receipts)), archived verbatim in [`research/`](research/README.md) and pinned by [`MANIFEST.json`](research/MANIFEST.json). |
 | **Technical depth (20 %)** | Protocol 1.3's fail-closed evaluation contract ([ADR-0010](docs/adr/0010-protocol-1-3-carry-forward.md)), hash-chained replayable logs, a sealed evidence snapshot ([ADR-0008](docs/adr/0008-public-evidence-sealed-snapshot.md)), [threat model v2](docs/threat-model.md#3-threats-and-mitigations); at `3686bbe` Rust 603 passed / 0 failed / 2 ignored ([tests](crates/consensus-tests/tests/)) and Vitest 904 passed / 16 skipped; at `a657531` Playwright 501 tests, axe 0 violations ([e2e](apps/web/e2e/)). |
 | **Demo (25 %)** | The video and Mission Control ([screenshots](#mission-control)); every run is labelled SIMULATED, RECORDED or LIVE, and a replay never reads LIVE ([labels](#simulated-recorded-and-live)). |
@@ -268,7 +268,9 @@ notes: [docs/verification.md](docs/verification.md#published-snapshot-digests).
 
 From [docs/evaluation.md](docs/evaluation.md) and [`research/`](research/README.md), as recorded.
 The scripted check and the live batteries are different things and are not pooled; **no
-single-agent baseline was executed**, and no rate of any outcome under protocol 1.3 is claimed.
+single-agent baseline comparison exists** (the baseline's 4 runs each failed at their one
+Meta call with HTTP 400, so the single agent produced nothing to compare), and no rate of any
+outcome under protocol 1.3 is claimed.
 
 | Run set | Setup | Outcomes | Read with |
 |---|---|---|---|
@@ -280,9 +282,12 @@ single-agent baseline was executed**, and no rate of any outcome under protocol 
 | Hostile note, H01–H02 ([§5.4](docs/evaluation.md#54-hostile-note-with-a-valid-proof-h01h02-commit-3d50baf)) | A "SYSTEM OVERRIDE" record with a valid proof | 2 `contested`; never obeyed | Two runs, one model, one note: not a robustness result |
 | Smoke runs K01–K04 ([§6](docs/evaluation.md#6-protocol-13-live-validation-2026-10-27-evening-to-2026-10-30)) | Protocol 1.3 | Not counted as validation | K03–K04 `supported` for a revision that departs from the task |
 | Counted battery, M01–M04 ([§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)) | Protocol 1.3, 2026-10-30 | 2 lost to provider errors; M03 `supported`; M04 failed closed | M03 attests a revision that departs from the task; all 41 verification records `valid` |
+| Validation, V01–V03 ([§6.6](docs/evaluation.md#66-validation-with-the-critic-on-muse-spark-13-v01v03-2026-11-01)) | Protocol 1.3, `prompt-freeze-4`, Critic on `muse-spark-1.3`, 2026-11-01 | V01 `contested` (2 open objections); V02, V03 `supported`; no provider failure, no re-ask | V01's revisions claim no exponential schedule; V03's `supported` keeps the cap the task asked to remove; all 36 verification records `valid` |
+| Single-agent baseline, B01–B04 ([§7.7](docs/evaluation.md#77-the-battery-of-2026-11-01-b01b04-every-run-failed-at-its-one-call)) | One Meta call per task, paired with M01–M04, 2026-11-01 | 4 failed at the call (HTTP 400, `meta_bad_request`) | Provider rejections of the baseline's request: no baseline claim, objection or verdict, so no comparison |
 
-No run self-authorized; every battery run's authorization is `pending`. The archive holds 12
-event logs with 48 runs (919 events) and 41 run records. The full account, with every figure:
+No run self-authorized; every battery run's authorization is `pending`. The archive holds 15
+event logs with 51 runs (1,005 events) and 44 run records, and 4 baseline logs with their 4
+run records. The full account, with every figure:
 [docs/results.md](docs/results.md).
 
 ## Quick start

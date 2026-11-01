@@ -1,0 +1,87 @@
+{
+ "name": "B01",
+ "task_key": "R01-reference",
+ "task": {
+  "project": "demo-repo",
+  "title": "Fix payment client timeouts",
+  "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints."
+ },
+ "consensus": {
+  "label": "M01",
+  "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-aa966e9f-db00-455d-bc04-8f714d8839ad.jsonl",
+  "sha256": "faaf46b9e506f90f53217ef9eac189f68b13af7ffe4c9afe81bc3e8a23fad6ee",
+  "run_id": "run-aa966e9f-db00-455d-bc04-8f714d8839ad"
+ },
+ "memory": "hyphae",
+ "exit_code": 0,
+ "summary": {
+  "agent_verdict": null,
+  "counts": null,
+  "event_count": 17,
+  "evidence": {
+   "recall_proven": 7,
+   "retrieved": [
+    "237412834382378687445660534362297845298",
+    "328114099256634798832222840773545327795",
+    "161896895843658017381255677281559699870",
+    "8864874238917673930644756936982232317",
+    "295729039551322334710406856728557559035",
+    "287567405605917891851290763137356115373",
+    "186670067796945807561772405393844769735"
+   ],
+   "unavailable": []
+  },
+  "evidence_mode": "live_hyphae",
+  "evidence_warning": null,
+  "failure": {
+   "code": "meta_bad_request",
+   "reason": "meta_bad_request: the Meta API rejected the request (HTTP 400)",
+   "stage": "assess"
+  },
+  "format": "hyphae-consensus-baseline-summary-v1",
+  "head_hash": "7f134df87fec66ef4cf81e9e2bd2dca50c4fb128e6502cb151b3d3c5ccfbbe68",
+  "log": "runs/baseline-805e18f3-64e7-4ea2-8235-6b7139f22fa4.jsonl",
+  "log_sha256": "263dc0d76e022f17eca3f7cf7ae0948a2a8038f79e8341e6f3eb12ebd957536c",
+  "model_invocations": [],
+  "note": "Single-agent baseline: one model call, no Critic, no Evaluator, no policy rounds. The agent's verdict is its own statement and policy_reading is a comparison aid; neither is a recommendation, nothing was executed and no human decision is recorded.",
+  "outcome": "failed:assess",
+  "policy_reading": null,
+  "recall": {
+   "limit_per_query": 5,
+   "max_records": 20,
+   "queries": 7,
+   "source": {
+    "kind": "consensus_log",
+    "log_sha256": "faaf46b9e506f90f53217ef9eac189f68b13af7ffe4c9afe81bc3e8a23fad6ee",
+    "run_id": "run-aa966e9f-db00-455d-bc04-8f714d8839ad"
+   }
+  },
+  "run_id": "baseline-805e18f3-64e7-4ea2-8235-6b7139f22fa4",
+  "run_kind": "single_agent_baseline",
+  "schema_version": "baseline-1.0",
+  "task": {
+   "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints.",
+   "mode": {
+    "evidence": "live_hyphae",
+    "model": "meta",
+    "origin": "cli"
+   },
+   "project_id": "demo-repo",
+   "title": "Fix payment client timeouts"
+  },
+  "verdict_reason": null,
+  "verifications": []
+ },
+ "wall_seconds": 5.8,
+ "parity": {
+  "consensus": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "baseline": [],
+  "equal": true
+ }
+}

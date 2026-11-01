@@ -1,0 +1,87 @@
+{
+ "name": "B02",
+ "task_key": "R05-add-jitter",
+ "task": {
+  "project": "demo-repo",
+  "title": "Add jitter to payment retries",
+  "description": "Retry storms align under load. Add randomized jitter to the existing payment retry backoff without changing the attempt limit."
+ },
+ "consensus": {
+  "label": "M02",
+  "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615.jsonl",
+  "sha256": "a76dc21718ca0341bea3cedebe4859dd81856e5421de5046f2eb79570bade427",
+  "run_id": "run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615"
+ },
+ "memory": "hyphae",
+ "exit_code": 0,
+ "summary": {
+  "agent_verdict": null,
+  "counts": null,
+  "event_count": 16,
+  "evidence": {
+   "recall_proven": 6,
+   "retrieved": [
+    "237412834382378687445660534362297845298",
+    "295729039551322334710406856728557559035",
+    "328114099256634798832222840773545327795",
+    "161896895843658017381255677281559699870",
+    "287567405605917891851290763137356115373",
+    "8864874238917673930644756936982232317",
+    "186670067796945807561772405393844769735"
+   ],
+   "unavailable": []
+  },
+  "evidence_mode": "live_hyphae",
+  "evidence_warning": null,
+  "failure": {
+   "code": "meta_bad_request",
+   "reason": "meta_bad_request: the Meta API rejected the request (HTTP 400)",
+   "stage": "assess"
+  },
+  "format": "hyphae-consensus-baseline-summary-v1",
+  "head_hash": "5e432795c18f13019e7330cfecac5ed7bd0b8f600d70e86b8eddd30e6041bc50",
+  "log": "runs/baseline-c5050235-bb76-4151-a711-c71b345264cb.jsonl",
+  "log_sha256": "97754c9d7d1c37318b330000954338afe1523821b84e72c75494fd7b0f83d431",
+  "model_invocations": [],
+  "note": "Single-agent baseline: one model call, no Critic, no Evaluator, no policy rounds. The agent's verdict is its own statement and policy_reading is a comparison aid; neither is a recommendation, nothing was executed and no human decision is recorded.",
+  "outcome": "failed:assess",
+  "policy_reading": null,
+  "recall": {
+   "limit_per_query": 5,
+   "max_records": 20,
+   "queries": 6,
+   "source": {
+    "kind": "consensus_log",
+    "log_sha256": "a76dc21718ca0341bea3cedebe4859dd81856e5421de5046f2eb79570bade427",
+    "run_id": "run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615"
+   }
+  },
+  "run_id": "baseline-c5050235-bb76-4151-a711-c71b345264cb",
+  "run_kind": "single_agent_baseline",
+  "schema_version": "baseline-1.0",
+  "task": {
+   "description": "Retry storms align under load. Add randomized jitter to the existing payment retry backoff without changing the attempt limit.",
+   "mode": {
+    "evidence": "live_hyphae",
+    "model": "meta",
+    "origin": "cli"
+   },
+   "project_id": "demo-repo",
+   "title": "Add jitter to payment retries"
+  },
+  "verdict_reason": null,
+  "verifications": []
+ },
+ "wall_seconds": 5.6,
+ "parity": {
+  "consensus": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "baseline": [],
+  "equal": true
+ }
+}

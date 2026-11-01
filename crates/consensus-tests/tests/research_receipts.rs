@@ -100,7 +100,7 @@ impl Drop for TempDir {
 /// evaluation never listed, and how many of them the evaluation of their
 /// own round had listed as unresolved. Counted independently from the
 /// raw JSONL (2026-10-27). Before protocol 1.3 nothing judged them again.
-const NEVER_REJUDGED: [(&str, usize, usize); 48] = [
+const NEVER_REJUDGED: [(&str, usize, usize); 51] = [
     ("C01", 2, 2),
     ("C02", 2, 2),
     ("C03", 0, 0),
@@ -155,6 +155,13 @@ const NEVER_REJUDGED: [(&str, usize, usize); 48] = [
     ("M02", 0, 0),
     ("M03", 0, 0),
     ("M04", 0, 0),
+    // The validation runs of 2026-11-01 with the Critic on muse-spark-1.3
+    // (research/README.md): every carried objection was judged again in
+    // the next round (V01 three rounds, V02 and V03 two), and each receipt
+    // captured at run time lists none.
+    ("V01", 0, 0),
+    ("V02", 0, 0),
+    ("V03", 0, 0),
 ];
 
 /// Receipt v2 of every MANIFEST run, keyed by label.
@@ -400,8 +407,9 @@ fn recorded_receipts_agree_with_receipt_v2() {
         // The receipt captured at run time and the one derived now from
         // the archived events state the same facts. The records up to
         // 2026-10-27 hold the first receipt format (authorization a string,
-        // a top-level head_hash); those of the operator server's battery of
-        // 2026-10-30 hold receipt v2 (authorization.state, chain.head_hash).
+        // a top-level head_hash); those of the operator server's runs of
+        // 2026-10-30 and 2026-11-01 hold receipt v2 (authorization.state,
+        // chain.head_hash).
         let captured_v2 = v1["format"] == "hyphae-consensus-run-receipt-v2";
         let (authorization, head_hash) = if captured_v2 {
             (&v1["authorization"]["state"], &v1["chain"]["head_hash"])
@@ -446,7 +454,7 @@ fn recorded_receipts_agree_with_receipt_v2() {
         assert_eq!(verifications, flat, "{label}");
         compared += 1;
     }
-    assert_eq!(compared, 41);
+    assert_eq!(compared, 44);
 }
 
 #[test]
@@ -495,6 +503,49 @@ fn recorded_supported_runs_depend_on_objections_never_judged_again() {
         ])
     );
     assert_eq!(f03.deliberation.missing_tests.len(), 3);
+}
+
+#[test]
+fn the_validation_runs_of_2026_11_01_put_only_the_critic_on_spark() {
+    let tmp = TempDir::new("spark");
+    let m = manifest();
+    let receipts = receipts(&tmp.open_all(&m), &m);
+    // (label, outcome, rounds, calls) as research/README.md states them.
+    for (label, outcome, rounds, calls) in [
+        ("V01", "contested", 3, 9),
+        ("V02", "supported", 2, 6),
+        ("V03", "supported", 2, 6),
+    ] {
+        let r = &receipts[label];
+        let rec = r.recommendation.as_ref().expect("recommendation");
+        assert_eq!(name!(rec.kind), outcome, "{label}");
+        assert_eq!(r.deliberation.rounds, rounds, "{label}");
+        assert_eq!(r.model_invocations.len(), calls, "{label}");
+        assert!(
+            r.deliberation
+                .earlier_round_objections_never_rejudged
+                .is_empty(),
+            "{label}"
+        );
+        let critic = r
+            .model_invocations
+            .iter()
+            .filter(|i| i.schema_name.as_deref() == Some("DraftChallenge"))
+            .count();
+        assert_eq!(critic, rounds as usize, "{label}: one Critic call per round");
+        for inv in &r.model_invocations {
+            let expected = if inv.schema_name.as_deref() == Some("DraftChallenge") {
+                "muse-spark-1.3"
+            } else {
+                "muse-wonder-1.0"
+            };
+            assert_eq!(inv.provider, "meta", "{label}");
+            assert_eq!(inv.model, expected, "{label}: {:?}", inv.schema_name);
+            assert_eq!(inv.attempts, Some(1), "{label}");
+            assert_eq!(inv.finish_reason.as_deref(), Some("stop"), "{label}");
+            assert!(inv.rejected_calls.is_none(), "{label}: no re-ask");
+        }
+    }
 }
 
 #[test]

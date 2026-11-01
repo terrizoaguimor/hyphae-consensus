@@ -72,7 +72,7 @@ describe("the archive's logs, as pinned", () => {
   const logs = manifest().files.filter((file) => file.kind === "event_log");
 
   it("are the files the manifest pins, byte for byte", async () => {
-    expect(logs).toHaveLength(12);
+    expect(logs).toHaveLength(15);
     for (const file of manifest().files) {
       const bytes = researchBytes(file.path);
       expect(bytes.length, file.path).toBe(file.bytes);

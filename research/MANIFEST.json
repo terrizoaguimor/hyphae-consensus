@@ -1,6 +1,6 @@
 {
   "schema": "hyphae-consensus-research-manifest-v1",
-  "created": "2026-10-30",
+  "created": "2026-11-01",
   "source": "demo-run/ (git-ignored original, unmodified)",
   "files": [
     {
@@ -650,6 +650,181 @@
       ],
       "runs": 1,
       "description": "Run record for M04 (task R04-remove-cap), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
+    },
+    {
+      "path": "2026-11-01/live-battery-2026-11-01-spark/runs/run-cd656a42-233d-4e7f-afcb-927c44a0d8aa.jsonl",
+      "source": "demo-run/validation-2026-11-01-spark/store/runs/run-cd656a42-233d-4e7f-afcb-927c44a0d8aa.jsonl",
+      "bytes": 63805,
+      "sha256": "4c3b85e0c0d886e12e54bc2ca4b5d9c578b85a9dbc0edf3d72743e868d29d5c7",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "events": 34,
+      "description": "Validation run V01 of 2026-11-01 (task R07-exp-backoff) with the Critic on Meta muse-spark-1.3 (CONSENSUS_MODEL_CRITIC) and the Proposer, reviser and Evaluator on muse-wonder-1.0, schema 1.3, tag prompt-freeze-4's prompts: this run's chained records from genesis, as the operator server's run store wrote them (consensus-api serve-operator built at commit 0d44e92); byte-identical to the copy GET /api/v1/runs/{id}/events.ndjson served, demo-run/validation-2026-11-01-spark/results/V01.jsonl. Live Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README)."
+    },
+    {
+      "path": "2026-11-01/live-battery-2026-11-01-spark/V01.json",
+      "source": "demo-run/validation-2026-11-01-spark/results/V01.json",
+      "bytes": 166043,
+      "sha256": "25a881d22ca9856a043b9c5945f0dd9245b99c7ca73f8ab042ad4416fe9ed3f6",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for V01 (task R07-exp-backoff), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
+    },
+    {
+      "path": "2026-11-01/live-battery-2026-11-01-spark/runs/run-3135dc74-a8b9-430f-8066-3ed12b2efc63.jsonl",
+      "source": "demo-run/validation-2026-11-01-spark/store/runs/run-3135dc74-a8b9-430f-8066-3ed12b2efc63.jsonl",
+      "bytes": 47962,
+      "sha256": "c79a7774018187692ad2ed52b4db582286e49311a084a8aeb52297bc5eb7597a",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "events": 27,
+      "description": "Validation run V02 of 2026-11-01 (task R01-reference) with the Critic on Meta muse-spark-1.3 (CONSENSUS_MODEL_CRITIC) and the Proposer, reviser and Evaluator on muse-wonder-1.0, schema 1.3, tag prompt-freeze-4's prompts: this run's chained records from genesis, as the operator server's run store wrote them (consensus-api serve-operator built at commit 0d44e92); byte-identical to the copy GET /api/v1/runs/{id}/events.ndjson served, demo-run/validation-2026-11-01-spark/results/V02.jsonl. Live Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README)."
+    },
+    {
+      "path": "2026-11-01/live-battery-2026-11-01-spark/V02.json",
+      "source": "demo-run/validation-2026-11-01-spark/results/V02.json",
+      "bytes": 118968,
+      "sha256": "e47c4659ad5c085190dd45e666f7241e835f041c7a2d3b9ee98fc2acc4bd67ae",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for V02 (task R01-reference), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
+    },
+    {
+      "path": "2026-11-01/live-battery-2026-11-01-spark/runs/run-a3f3b3aa-5e23-4303-a68e-73c855031712.jsonl",
+      "source": "demo-run/validation-2026-11-01-spark/store/runs/run-a3f3b3aa-5e23-4303-a68e-73c855031712.jsonl",
+      "bytes": 47771,
+      "sha256": "33cdc550d42ba07523090520ffc878c4aad098c9950adb6fb1bc5aaa586181c4",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "events": 25,
+      "description": "Validation run V03 of 2026-11-01 (task R04-remove-cap) with the Critic on Meta muse-spark-1.3 (CONSENSUS_MODEL_CRITIC) and the Proposer, reviser and Evaluator on muse-wonder-1.0, schema 1.3, tag prompt-freeze-4's prompts: this run's chained records from genesis, as the operator server's run store wrote them (consensus-api serve-operator built at commit 0d44e92); byte-identical to the copy GET /api/v1/runs/{id}/events.ndjson served, demo-run/validation-2026-11-01-spark/results/V03.jsonl. Live Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README)."
+    },
+    {
+      "path": "2026-11-01/live-battery-2026-11-01-spark/V03.json",
+      "source": "demo-run/validation-2026-11-01-spark/results/V03.json",
+      "bytes": 122540,
+      "sha256": "7b86b13a0479645d247e334237ca5e1a66eb7b142e7b3ec332959163a3cb4a0f",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for V03 (task R04-remove-cap), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01/runs/baseline-805e18f3-64e7-4ea2-8235-6b7139f22fa4.jsonl",
+      "source": "demo-run/baseline-2026-11-01/runs/baseline-805e18f3-64e7-4ea2-8235-6b7139f22fa4.jsonl",
+      "bytes": 21658,
+      "sha256": "263dc0d76e022f17eca3f7cf7ae0948a2a8038f79e8341e6f3eb12ebd957536c",
+      "kind": "baseline_log",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "events": 17,
+      "description": "Single-agent baseline run B01 of 2026-11-01 (task R01-reference), schema baseline-1.0, run_kind single_agent_baseline, chained from genesis with the consensus recipe, as consensus-api baseline run (built at commit 0d44e92) wrote it. Live Hyphae demo store; proofs verified with hyphae proof verify against the pinned demo-store anchor (see README). The run failed at its one Meta call (HTTP 400), so it holds no assessment. Not a consensus run: the consensus event log refuses it."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01/B01.json",
+      "source": "demo-run/baseline-2026-11-01/B01.json",
+      "bytes": 2910,
+      "sha256": "f8e3c11faacb5c9fcb47bc2a03c9403973344091436a7eca4d5e5988513a432b",
+      "kind": "baseline_record",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "description": "Run record for the single-agent baseline run B01 (task R01-reference), as scripts/baseline_battery.py writes it: the task key and text, the paired consensus run (label, archived log, sha256), the exit code of consensus-api baseline run, the summary it printed (read back from the run's log) and the wall time. Not a consensus run: no recommendation, no decision."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01/runs/baseline-c5050235-bb76-4151-a711-c71b345264cb.jsonl",
+      "source": "demo-run/baseline-2026-11-01/runs/baseline-c5050235-bb76-4151-a711-c71b345264cb.jsonl",
+      "bytes": 21677,
+      "sha256": "97754c9d7d1c37318b330000954338afe1523821b84e72c75494fd7b0f83d431",
+      "kind": "baseline_log",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "events": 16,
+      "description": "Single-agent baseline run B02 of 2026-11-01 (task R05-add-jitter), schema baseline-1.0, run_kind single_agent_baseline, chained from genesis with the consensus recipe, as consensus-api baseline run (built at commit 0d44e92) wrote it. Live Hyphae demo store; proofs verified with hyphae proof verify against the pinned demo-store anchor (see README). The run failed at its one Meta call (HTTP 400), so it holds no assessment. Not a consensus run: the consensus event log refuses it."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01/B02.json",
+      "source": "demo-run/baseline-2026-11-01/B02.json",
+      "bytes": 2929,
+      "sha256": "19381e1cfd1276bfacc4f3ab319a7c9afb30d853c383a77230806c785a8b6eda",
+      "kind": "baseline_record",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "description": "Run record for the single-agent baseline run B02 (task R05-add-jitter), as scripts/baseline_battery.py writes it: the task key and text, the paired consensus run (label, archived log, sha256), the exit code of consensus-api baseline run, the summary it printed (read back from the run's log) and the wall time. Not a consensus run: no recommendation, no decision."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01/runs/baseline-763fbc40-8b12-450f-b55c-d89eff404b3b.jsonl",
+      "source": "demo-run/baseline-2026-11-01/runs/baseline-763fbc40-8b12-450f-b55c-d89eff404b3b.jsonl",
+      "bytes": 21176,
+      "sha256": "16045e1b4212c6ac9a019fef791007047fb374c1580732fa791d1fc3be12308a",
+      "kind": "baseline_log",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "events": 17,
+      "description": "Single-agent baseline run B03 of 2026-11-01 (task R07-exp-backoff), schema baseline-1.0, run_kind single_agent_baseline, chained from genesis with the consensus recipe, as consensus-api baseline run (built at commit 0d44e92) wrote it. Live Hyphae demo store; proofs verified with hyphae proof verify against the pinned demo-store anchor (see README). The run failed at its one Meta call (HTTP 400), so it holds no assessment. Not a consensus run: the consensus event log refuses it."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01/B03.json",
+      "source": "demo-run/baseline-2026-11-01/B03.json",
+      "bytes": 2920,
+      "sha256": "6f2c5d6ea69890cd783135b5384d84081ad6c56e4c8111f8c0c67ac18951746a",
+      "kind": "baseline_record",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "description": "Run record for the single-agent baseline run B03 (task R07-exp-backoff), as scripts/baseline_battery.py writes it: the task key and text, the paired consensus run (label, archived log, sha256), the exit code of consensus-api baseline run, the summary it printed (read back from the run's log) and the wall time. Not a consensus run: no recommendation, no decision."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01/runs/baseline-79c9accc-706e-49e9-ad22-45c250c49345.jsonl",
+      "source": "demo-run/baseline-2026-11-01/runs/baseline-79c9accc-706e-49e9-ad22-45c250c49345.jsonl",
+      "bytes": 22421,
+      "sha256": "965e177dfe86714b9a4808416dab4db68efe7362000bcd81008e249bcf4a1096",
+      "kind": "baseline_log",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "events": 18,
+      "description": "Single-agent baseline run B04 of 2026-11-01 (task R04-remove-cap), schema baseline-1.0, run_kind single_agent_baseline, chained from genesis with the consensus recipe, as consensus-api baseline run (built at commit 0d44e92) wrote it. Live Hyphae demo store; proofs verified with hyphae proof verify against the pinned demo-store anchor (see README). The run failed at its one Meta call (HTTP 400), so it holds no assessment. Not a consensus run: the consensus event log refuses it."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01/B04.json",
+      "source": "demo-run/baseline-2026-11-01/B04.json",
+      "bytes": 2947,
+      "sha256": "97eeafbde40c343063f162c485996182afadb6c8d65e56bd78ad1dadc06d63e5",
+      "kind": "baseline_record",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "description": "Run record for the single-agent baseline run B04 (task R04-remove-cap), as scripts/baseline_battery.py writes it: the task key and text, the paired consensus run (label, archived log, sha256), the exit code of consensus-api baseline run, the summary it printed (read back from the run's log) and the wall time. Not a consensus run: no recommendation, no decision."
     }
   ],
   "runs": [
@@ -1228,6 +1403,100 @@
       "schema_version": "1.3",
       "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451.jsonl",
       "record": "2026-10-30/live-battery-2026-10-30-p13/M04.json"
+    },
+    {
+      "run_id": "run-cd656a42-233d-4e7f-afcb-927c44a0d8aa",
+      "label": "V01",
+      "battery": "live-battery-2026-11-01-spark",
+      "task_title": "Exponential backoff for payment retries",
+      "project": "demo-repo",
+      "outcome": "contested",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-11-01/live-battery-2026-11-01-spark/runs/run-cd656a42-233d-4e7f-afcb-927c44a0d8aa.jsonl",
+      "record": "2026-11-01/live-battery-2026-11-01-spark/V01.json"
+    },
+    {
+      "run_id": "run-3135dc74-a8b9-430f-8066-3ed12b2efc63",
+      "label": "V02",
+      "battery": "live-battery-2026-11-01-spark",
+      "task_title": "Fix payment client timeouts",
+      "project": "demo-repo",
+      "outcome": "supported",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-11-01/live-battery-2026-11-01-spark/runs/run-3135dc74-a8b9-430f-8066-3ed12b2efc63.jsonl",
+      "record": "2026-11-01/live-battery-2026-11-01-spark/V02.json"
+    },
+    {
+      "run_id": "run-a3f3b3aa-5e23-4303-a68e-73c855031712",
+      "label": "V03",
+      "battery": "live-battery-2026-11-01-spark",
+      "task_title": "Remove the retry cap from the payment client",
+      "project": "demo-repo",
+      "outcome": "supported",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-11-01/live-battery-2026-11-01-spark/runs/run-a3f3b3aa-5e23-4303-a68e-73c855031712.jsonl",
+      "record": "2026-11-01/live-battery-2026-11-01-spark/V03.json"
+    }
+  ],
+  "baseline_runs": [
+    {
+      "run_id": "baseline-805e18f3-64e7-4ea2-8235-6b7139f22fa4",
+      "label": "B01",
+      "battery": "baseline-2026-11-01",
+      "run_kind": "single_agent_baseline",
+      "task_title": "Fix payment client timeouts",
+      "project": "demo-repo",
+      "outcome": "failed:assess",
+      "consensus_label": "M01",
+      "evidence": "live_hyphae",
+      "schema_version": "baseline-1.0",
+      "file": "2026-11-01/baseline-2026-11-01/runs/baseline-805e18f3-64e7-4ea2-8235-6b7139f22fa4.jsonl",
+      "record": "2026-11-01/baseline-2026-11-01/B01.json"
+    },
+    {
+      "run_id": "baseline-c5050235-bb76-4151-a711-c71b345264cb",
+      "label": "B02",
+      "battery": "baseline-2026-11-01",
+      "run_kind": "single_agent_baseline",
+      "task_title": "Add jitter to payment retries",
+      "project": "demo-repo",
+      "outcome": "failed:assess",
+      "consensus_label": "M02",
+      "evidence": "live_hyphae",
+      "schema_version": "baseline-1.0",
+      "file": "2026-11-01/baseline-2026-11-01/runs/baseline-c5050235-bb76-4151-a711-c71b345264cb.jsonl",
+      "record": "2026-11-01/baseline-2026-11-01/B02.json"
+    },
+    {
+      "run_id": "baseline-763fbc40-8b12-450f-b55c-d89eff404b3b",
+      "label": "B03",
+      "battery": "baseline-2026-11-01",
+      "run_kind": "single_agent_baseline",
+      "task_title": "Exponential backoff for payment retries",
+      "project": "demo-repo",
+      "outcome": "failed:assess",
+      "consensus_label": "M03",
+      "evidence": "live_hyphae",
+      "schema_version": "baseline-1.0",
+      "file": "2026-11-01/baseline-2026-11-01/runs/baseline-763fbc40-8b12-450f-b55c-d89eff404b3b.jsonl",
+      "record": "2026-11-01/baseline-2026-11-01/B03.json"
+    },
+    {
+      "run_id": "baseline-79c9accc-706e-49e9-ad22-45c250c49345",
+      "label": "B04",
+      "battery": "baseline-2026-11-01",
+      "run_kind": "single_agent_baseline",
+      "task_title": "Remove the retry cap from the payment client",
+      "project": "demo-repo",
+      "outcome": "failed:assess",
+      "consensus_label": "M04",
+      "evidence": "live_hyphae",
+      "schema_version": "baseline-1.0",
+      "file": "2026-11-01/baseline-2026-11-01/runs/baseline-79c9accc-706e-49e9-ad22-45c250c49345.jsonl",
+      "record": "2026-11-01/baseline-2026-11-01/B04.json"
     }
   ]
 }

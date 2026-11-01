@@ -3,9 +3,11 @@
 //! files `scripts/make_research_manifest.py` pins with kinds
 //! `baseline_log` and `baseline_record`, and the runs it lists under
 //! `baseline_runs` (see `docs/evaluation.md`, "Single-agent baseline").
-//! None is archived yet; the same checks run here on a synthetic battery
-//! recorded with the scripted doubles, laid out exactly as the driver and
-//! the manifest script lay one out. Archived files are only ever read.
+//! One battery is archived (`2026-11-01/baseline-2026-11-01`, B01–B04,
+//! each failed at its one Meta call); the same checks also run here on a
+//! synthetic battery recorded with the scripted doubles, laid out exactly
+//! as the driver and the manifest script lay one out, so the completed-run
+//! path stays covered. Archived files are only ever read.
 
 use consensus_domain::*;
 use consensus_runtime::baseline::{
@@ -272,6 +274,54 @@ fn archived_baseline_runs_verify() {
     let checked = check_baseline_archive(&root, &m).unwrap();
     // The key appears only once a baseline battery is archived.
     assert_eq!(checked == 0, m.get("baseline_runs").is_none());
+}
+
+/// The battery of 2026-11-01 as `docs/evaluation.md` §7.7 reports it: four
+/// runs, paired B01–M01 … B04–M04, each of which recalled all 7 records of
+/// the demo store with proven recalls and then failed at its one Meta call
+/// (HTTP 400) before any assessment or verification, recording no
+/// invocation. Skipped on a `CONSENSUS_RESEARCH_DIR` copy without it.
+#[test]
+fn the_baseline_battery_of_2026_11_01_failed_at_its_one_call() {
+    let root = research_dir();
+    let m: Value = serde_json::from_slice(&std::fs::read(root.join("MANIFEST.json")).unwrap())
+        .expect("MANIFEST.json parses");
+    let runs: Vec<&Value> = array(&m, "baseline_runs")
+        .into_iter()
+        .filter(|r| r["battery"] == "baseline-2026-11-01")
+        .collect();
+    if runs.is_empty() && std::env::var_os("CONSENSUS_RESEARCH_DIR").is_some() {
+        return;
+    }
+    let expected = [
+        ("B01", "M01", 7),
+        ("B02", "M02", 6),
+        ("B03", "M03", 7),
+        ("B04", "M04", 8),
+    ];
+    assert_eq!(runs.len(), expected.len());
+    for (r, (label, paired, queries)) in runs.iter().zip(expected) {
+        assert_eq!(r["label"], label);
+        assert_eq!(r["consensus_label"], paired, "{label}");
+        assert_eq!(r["outcome"], "failed:assess", "{label}");
+        let bytes = std::fs::read(root.join(r["file"].as_str().unwrap())).unwrap();
+        let run = read_baseline(&bytes).unwrap();
+        let summary = baseline_summary(&run, &sha256_hex(&bytes));
+        assert_eq!(summary["failure"]["code"], "meta_bad_request", "{label}");
+        assert_eq!(
+            summary["failure"]["reason"], "meta_bad_request: the Meta API rejected the request (HTTP 400)",
+            "{label}"
+        );
+        assert_eq!(summary["agent_verdict"], Value::Null, "{label}");
+        assert_eq!(summary["policy_reading"], Value::Null, "{label}");
+        assert_eq!(summary["model_invocations"], json!([]), "{label}");
+        assert_eq!(summary["verifications"], json!([]), "{label}");
+        assert_eq!(summary["recall"]["queries"], queries, "{label}");
+        assert_eq!(summary["evidence"]["recall_proven"], queries, "{label}");
+        let retrieved = summary["evidence"]["retrieved"].as_array().unwrap();
+        assert_eq!(retrieved.len(), 7, "{label}: the whole demo store");
+        assert_eq!(summary["evidence"]["unavailable"], json!([]), "{label}");
+    }
 }
 
 /// A fresh, empty temporary directory, removed again on drop.

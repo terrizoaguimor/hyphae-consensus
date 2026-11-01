@@ -4,7 +4,8 @@ The [README](../README.md) has a summary of this page. The source of every figur
 
 All figures are from `docs/evaluation.md` and `research/`, as recorded. The scripted check
 and the live batteries are different things and are not pooled; neither is a baseline
-comparison (no single-agent baseline was executed).
+comparison (the single-agent baseline ran on 2026-11-01, but each of its 4 runs failed at
+its one Meta call, so no comparison exists).
 
 - **Scripted protocol conformance check** (deterministic doubles; not an experiment):
   the runtime produced the author-defined outcome in 10/10 cases
@@ -60,9 +61,28 @@ comparison (no single-agent baseline was executed).
   `valid`. Archived verbatim in `research/2026-10-30/` (`research/README.md`, "The
   2026-10-30 battery"). With 2 of 4 runs lost, no rate of any outcome under protocol 1.3
   is claimed.
+- **Validation runs V01–V03 with the Critic on `muse-spark-1.3`** ([§6.6](evaluation.md);
+  2026-11-01, 22:24–22:34 UTC), through `consensus-api serve-operator` built at `0d44e92`,
+  on the `prompt-freeze-4` prompts, with the Proposer, reviser and Evaluator on
+  `muse-wonder-1.0` and a 240 s budget per call, on the tasks of M03, M01 and M04. **No
+  call failed and none was retried or asked again** (21 calls, 7 of them the Critic's on
+  `muse-spark-1.3`; 31,541 / 103,563 tokens). V01 (exponential backoff) ended `contested`
+  with 2 open `missing_test` objections after two revisions, which claim no exponential
+  schedule; V02 (payment timeouts) ended `supported` for the stored decision's remedy;
+  V03 (remove the cap) ended `supported` **for a proposal that keeps the cap of 3** the
+  task asked to remove. The keyed contradiction verdicts of `prompt-freeze-4` worked live:
+  7 carried contradictions, each cleared by key with a reason (V03's four in the round
+  shape on which M04 had failed closed). All 36 verification records `valid`. Three runs:
+  no rate, and no comparison of the two models.
+- **Single-agent baseline, B01–B04** ([§7.7](evaluation.md); 2026-11-01), one Meta call per
+  task, paired with M01–M04: **all 4 failed at that call with HTTP 400**
+  (`meta_bad_request`), with no invocation and no token recorded, so the single agent
+  produced no claim, objection or verdict and the planned comparison cannot be made. The
+  cause is not recorded; the operator's offline guess (one schema field) is unconfirmed.
 
 No run self-authorized; every battery run's authorization is `pending`. The archive holds
-12 event logs with 48 runs (919 events) and 41 run records, byte-identical to the originals
+15 event logs with 51 runs (1,005 events) and 44 run records, and 4 baseline logs with their
+4 run records, byte-identical to the originals
 and pinned by `research/MANIFEST.json` and `research/SHA256SUMS`; the raw model drafts and
 the Hyphae proof witnesses are not published (`research/README.md` explains why and what a
 third party can and cannot check).

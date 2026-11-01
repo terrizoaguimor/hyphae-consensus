@@ -138,6 +138,21 @@ STORE_BATTERIES = [
             "proof verify against the pinned demo-store anchor (see README)."
         ),
     },
+    {
+        "dir": "2026-11-01/live-battery-2026-11-01-spark",
+        "source": "demo-run/validation-2026-11-01-spark",
+        "battery": "live-battery-2026-11-01-spark",
+        "description": (
+            "Validation run {label} of 2026-11-01 (task {task}) with the Critic on Meta "
+            "muse-spark-1.3 (CONSENSUS_MODEL_CRITIC) and the Proposer, reviser and Evaluator on "
+            "muse-wonder-1.0, schema 1.3, tag prompt-freeze-4's prompts: this run's chained records "
+            "from genesis, as the operator server's run store wrote them (consensus-api "
+            "serve-operator built at commit 0d44e92); byte-identical to the copy "
+            "GET /api/v1/runs/{{id}}/events.ndjson served, {source}/results/{label}.jsonl. Live "
+            "Hyphae demo store; proofs verified at run time with hyphae proof verify against the "
+            "pinned demo-store anchor (see README)."
+        ),
+    },
 ]
 
 # Single-agent baseline batteries (docs/evaluation.md, "Single-agent
@@ -149,18 +164,29 @@ STORE_BATTERIES = [
 # files are pinned like every other (kinds baseline_log and baseline_record)
 # and their runs are listed under "baseline_runs", never under "runs": a
 # baseline run is not a consensus run, and the consensus tools (the event
-# log, the showcase) refuse or ignore it. The key is written only once a
-# baseline battery is archived, so the manifest is unchanged until then.
+# log, the showcase) refuse or ignore it. The key is written only when a
+# baseline battery is archived (the first, 2026-11-01).
 # Only runs the binary recorded (exit 0, completed or failed) on live Hyphae
 # evidence are archived: a record with a non-zero or null exit code (the
 # binary could not record the run, or the driver timed it out) and a log
 # with no record are kept out of the battery directory and reported
 # (docs/evaluation.md §7.2, step 5); the asserts below refuse them, and
 # refuse a --smoke run (memory fake, SIMULATED proofs).
-# Entry shape (none archived yet):
-#   {"dir": "2026-11-0X/baseline-2026-11-0X", "source": "<operator dir>",
-#    "battery": "baseline-2026-11-0X", "description": "... {label} ... {task} ..."}
-BASELINE_BATTERIES = []
+BASELINE_BATTERIES = [
+    {
+        "dir": "2026-11-01/baseline-2026-11-01",
+        "source": "demo-run/baseline-2026-11-01",
+        "battery": "baseline-2026-11-01",
+        "description": (
+            "Single-agent baseline run {label} of 2026-11-01 (task {task}), schema baseline-1.0, "
+            "run_kind single_agent_baseline, chained from genesis with the consensus recipe, as "
+            "consensus-api baseline run (built at commit 0d44e92) wrote it. Live Hyphae demo "
+            "store; proofs verified with hyphae proof verify against the pinned demo-store anchor "
+            "(see README). The run failed at its one Meta call (HTTP 400), so it holds no "
+            "assessment. Not a consensus run: the consensus event log refuses it."
+        ),
+    },
+]
 
 BASELINE_SCHEMA = "baseline-1.0"
 BASELINE_RUN_KIND = "single_agent_baseline"
@@ -555,7 +581,7 @@ def main():
     assert len(labels) == len(set(labels)), "duplicate label"
     manifest = {
         "schema": "hyphae-consensus-research-manifest-v1",
-        "created": "2026-10-30",
+        "created": "2026-11-01",
         "source": "demo-run/ (git-ignored original, unmodified)",
         "files": files,
         "runs": runs_out,

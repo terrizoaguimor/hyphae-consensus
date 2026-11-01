@@ -286,6 +286,48 @@ The dated status blocks that opened `README.md` until 2026-10-29, moved here ver
 when the README was rewritten for first-time readers (it now carries one current status
 block). Newest first, as they stood in the README at `bc3b262`.
 
+*Added 2026-10-31:* the two blocks that follow, down to the dashed line, were the README's status from
+2026-10-29 and 2026-10-30 until `a657531`, moved here verbatim when the README's status
+was rewritten for the submission. One change: the target of the §6.3 link, which was
+relative to the README, now points to `evaluation.md` from this directory; its text is
+unchanged.
+
+> **2026-10-30 (nothing is deployed).** The counted protocol 1.3 battery ran on 2026-10-30,
+> spending the last 4 of the 8 authorized live runs ([`docs/evaluation.md` §6.3](evaluation.md#63-the-counted-battery-m01m04-2026-10-30)):
+> 2 runs lost to provider errors (a call past the battery's 120 s budget, where the smoke
+> runs had 240 s; an HTTP 500), 1 `supported` for a
+> revision that departs from the task (M03), 1 failed closed by the evaluation contract
+> (M04); every verification `valid`. It is archived in `research/2026-10-30/` on local
+> branches not yet merged into `feat/public-portal`. The authorized cap of 8 live
+> re-validation runs is reached. The block below is the status of 2026-10-29; apart from the battery it has
+> not been re-checked.
+>
+> **2026-10-29 (branch `feat/public-portal` at `6e202eb`; nothing is deployed).**
+> Protocol 1.3 with policy rules 1.2, the public API v1, the loopback operator console, the
+> live-mode admission (two-phase gate, Turnstile, per-client quota, USD ledger) and the
+> sealed-snapshot evidence client are implemented; live mode stays off until its gates pass.
+> Mission Control's run views (lanes W1 and W2: New deliberation, My runs, the run workspace
+> with all seven tabs, the research showcase in RECORDED mode) are merged, and W2's
+> adversarial review is in progress. Tests on the tree of `25c7867`: 600 passed / 0 failed /
+> 2 ignored on Windows, 603 / 0 / 2 on Linux with 7/7 gates (release checklist, G8).
+> Release gates: G8 passes (the fresh-clone run is still owed before the tag), G12 is partial, the other ten are pending.
+> The Hyphae container is on the new development machine. The sealed snapshot
+> `snap-2026-10-29-demo-repo` was captured there on 2026-10-29 (`b0375df`; digests under
+> "Published snapshot digests"). A test boot on the real snapshot found a format mismatch:
+> the server code at `6e202eb` rejects it, because Hyphae 4.0.0 wraps its answer differently
+> from what the loader expected. The fix (`0515f29`, merged as `7e26866`) is tested.
+> With it, the snapshot loads, Hyphae 4.0.0 re-verifies both proofs, and a local test run
+> over it served all 7 records as verified, against a stand-in for the Meta API (no real
+> Meta call). Not done yet (as of 2026-10-29): merging that fix; comparing the published
+> binary digest with the release tarball (runbook 3.2); the counted protocol 1.3 battery (the
+> Meta key was not set on this machine and only the owner could set it; no Meta call was
+> made; the battery then ran on 2026-10-30, see above); the staging deployment and the snapshot on the server (owner
+> authorization); the video; the owner's sign-off of the legal texts; and the final report.
+> Earlier status blocks (2026-10-27 and 2026-10-28) are in `docs/journal.md`, "README status
+> history".
+
+- - -
+
 > **Status (2026-10-28 evening, branch `feat/public-portal`; nothing exposed yet).**
 > The public live mode is wired end to end in code and stays off until its gates pass.
 > It runs only over a sealed Hyphae snapshot whose manifest, record texts and verifier

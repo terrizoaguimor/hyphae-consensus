@@ -2,6 +2,36 @@
 
 **Verifiable Multi-Agent Reasoning and Decision Accountability**
 
+## For judges
+
+**What it is.** Three Meta-model roles (Proposer, Critic, Evidence Evaluator; `muse-wonder-1.0`
+on the Meta Model API) deliberate over a coding agent's proposed change against project
+records from Hyphae Agent Memory whose integrity proofs the runtime checks; a fixed policy,
+not a vote, turns their judgments into a recommendation, and only a human can authorize.
+It is for teams that let coding agents propose changes: in the 6-run final battery of
+2026-10-27 (F01–F06, schema 1.2) every first proposal had 1 to 3 claims that the stored
+(synthetic, operator-seeded) records contradict, and none of those 6 runs ended `supported`
+([evaluation §5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output)).
+In the later protocol 1.3 battery (M01–M04, 2026-10-30) the one `supported` run attests a
+revision that departs from the task, which is why a human still decides
+([§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)).
+
+**Video:** [VIDEO_URL] · **Demo:** [DEMO_URL] · **Run it locally** (Rust 1.99.1 and Docker; no
+credential, no Meta call; on Docker Desktop for Windows export `HC_WEB_NODE_MODULES_VOLUME=hc-web`
+first, see `apps/web/README.md`; then open http://127.0.0.1:8788/):
+
+```sh
+sh apps/web/scripts/in-docker.sh pnpm install --frozen-lockfile
+sh apps/web/scripts/in-docker.sh pnpm build
+CONSENSUS_PUBLIC_BIND=127.0.0.1:8788 CONSENSUS_COOKIE_SECURE=false CONSENSUS_RUN_STORE_DIR="$(mktemp -d)" cargo run -p consensus-api --locked -- serve-public
+```
+
+- **Impact (30 %):** run F03 ("Raise payment retry attempts to 10") claimed 10 attempts comply with any documented maximum; the stored cap is 3, 2 of 4 claims were recorded as contradicted, the revision proposed the recorded fix, and 6 open objections kept it `contested` for a human ([§5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output), [run record](research/2026-10-27/live-battery-2026-10-27-final/F03-raise-to-10.json)); a planted "SYSTEM OVERRIDE" record with a valid proof was never obeyed ([§5.4](docs/evaluation.md#54-hostile-note-with-a-valid-proof-h01h02-commit-3d50baf)). Under protocol 1.3 (M01–M04, [§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)) M03 ended `supported` for a revision that departs from the task and M04 failed closed; a human decides either way. No single-agent baseline was run.
+- **Use of Meta AI tooling (25 %):** four kinds of strict `json_schema` call (Proposer, Critic, Evaluator, revision; up to 9 per run) to `POST https://api.meta.ai/v1/chat/completions`, the Evaluator's schema generated per call with one required key per claim and per open objection ([Meta's API here](#how-this-project-uses-metas-api), [`meta.rs`](crates/consensus-api/src/meta.rs)); request ids of every recorded call, by date ([2026-10-26](docs/evaluation.md#request-ids-2026-10-26-from-receipts), [2026-10-27](docs/evaluation.md#request-ids-2026-10-27-from-receipts), [2026-10-30](docs/evaluation.md#request-ids-2026-10-30-from-receipts)), archived verbatim in [`research/`](research/README.md) and pinned by [`MANIFEST.json`](research/MANIFEST.json).
+- **Technical depth (20 %):** protocol 1.3's fail-closed evaluation contract ([ADR-0010](docs/adr/0010-protocol-1-3-carry-forward.md)), hash-chained replayable logs, a sealed evidence snapshot ([ADR-0008](docs/adr/0008-public-evidence-sealed-snapshot.md)), [threat model v2](docs/threat-model.md#3-threats-and-mitigations); at `a657531`: Rust 603 passed / 0 failed / 2 ignored ([tests](crates/consensus-tests/tests/)), Vitest 904 passed / 16 skipped, Playwright 501 tests, axe 0 violations ([e2e](apps/web/e2e/)).
+- **Demo (25 %):** the video and Mission Control; every run is labelled SIMULATED, RECORDED or LIVE, and a replay never reads LIVE ([provenance](#simulated-recorded-and-live), [`docs/demo/`](docs/demo/README.md)).
+- **Limits, said once:** proofs attest integrity, not truth; the log is tamper-evident, not signed; the public live mode is not deployed; the protocol 1.3 battery lost 2 of its 4 runs to provider errors, and its one `supported` run attests a revision that departs from the task ([§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)); the rest is in [What is verified and what is not](#what-is-verified-and-what-is-not).
+
 Meta Global AI Developer Hackathon 2026 · Indie Developer track · Push the Frontier
 Development window: October 26 – November 4, 2026 · Owner: Mario (independent developer)
 
@@ -89,9 +119,9 @@ outcome even though they do not write it.
   - **Evidence** comes from a sealed Hyphae snapshot whose files are re-checked at every
     admission (ADR-0008, `docs/architecture/sealed-snapshot.md`). The snapshot
     `snap-2026-10-29-demo-repo` was captured on 2026-10-29 (`b0375df`; its public files
-    are in `snapshots/`, its digests under "Published snapshot digests" below); it is not
-    on any server yet, and the code on this branch needs the not-yet-merged fix `0515f29`
-    to load it (see Status).
+    are in `snapshots/`, its digests under "Published snapshot digests" below); the
+    runtime loads it since the boot fix `0515f29` (merged as `7e26866`), and it is not on
+    any server yet (see Status).
   - **Two-phase gate** (`live/gate.rs`): preset, geography, an 18+ attestation, the
     evidence status and Turnstile before the single live slot is taken; then the client's
     daily quota (default 3 public-lane runs per IPv4 /32 or IPv6 /64 per UTC day) and a
@@ -269,7 +299,10 @@ third party can and cannot check).
 
 **Nothing is deployed.** Mission Control (`apps/web`) is the public portal's frontend: a
 Next.js static export served by `consensus-api serve-public`, in English, Spanish,
-Brazilian Portuguese and French, light and dark. It runs locally against the real server
+Brazilian Portuguese and French, light and dark. Since the redesign of 2026-10-31 (round 5)
+it is monochrome (true greys only; status tags differ by fill, frame, hatch and icon, never
+by hue), with brushed-glass surfaces, square-first shapes and the Quorum logo; the UI is
+frozen at `a657531` for the submission. It runs locally against the real server
 and in the end-to-end suite against a mocked API. Its views ([`apps/web/README.md`](apps/web/README.md);
 [`docs/mission-control.md`](docs/mission-control.md) holds the superseded notes on the
 earlier operator-console UI):
@@ -392,38 +425,46 @@ read-only (`consensus-api verify`, the showcase).
 
 ## Status
 
-**2026-10-30 (nothing is deployed).** The counted protocol 1.3 battery ran on 2026-10-30,
-spending the last 4 of the 8 authorized live runs ([`docs/evaluation.md` §6.3](docs/evaluation.md)):
-2 runs lost to provider errors (a call past the battery's 120 s budget, where the smoke
-runs had 240 s; an HTTP 500), 1 `supported` for a
-revision that departs from the task (M03), 1 failed closed by the evaluation contract
-(M04); every verification `valid`. It is archived in `research/2026-10-30/` on local
-branches not yet merged into `feat/public-portal`. The authorized cap of 8 live
-re-validation runs is reached. The block below is the status of 2026-10-29; apart from the battery it has
-not been re-checked.
+**2026-10-31 (branch `feat/public-portal` at `a657531`; nothing is deployed).**
 
-**2026-10-29 (branch `feat/public-portal` at `6e202eb`; nothing is deployed).**
-Protocol 1.3 with policy rules 1.2, the public API v1, the loopback operator console, the
-live-mode admission (two-phase gate, Turnstile, per-client quota, USD ledger) and the
-sealed-snapshot evidence client are implemented; live mode stays off until its gates pass.
-Mission Control's run views (lanes W1 and W2: New deliberation, My runs, the run workspace
-with all seven tabs, the research showcase in RECORDED mode) are merged, and W2's
-adversarial review is in progress. Tests on the tree of `25c7867`: 600 passed / 0 failed /
-2 ignored on Windows, 603 / 0 / 2 on Linux with 7/7 gates (release checklist, G8).
-Release gates: G8 passes (the fresh-clone run is still owed before the tag), G12 is partial, the other ten are pending.
-The Hyphae container is on the new development machine. The sealed snapshot
-`snap-2026-10-29-demo-repo` was captured there on 2026-10-29 (`b0375df`; digests under
-"Published snapshot digests"). A test boot on the real snapshot found a format mismatch:
-the server code at `6e202eb` rejects it, because Hyphae 4.0.0 wraps its answer differently
-from what the loader expected. The fix (`0515f29`, merged as `7e26866`) is tested.
-With it, the snapshot loads, Hyphae 4.0.0 re-verifies both proofs, and a local test run
-over it served all 7 records as verified, against a stand-in for the Meta API (no real
-Meta call). Not done yet (as of 2026-10-29): merging that fix; comparing the published
-binary digest with the release tarball (runbook 3.2); the counted protocol 1.3 battery (the
-Meta key was not set on this machine and only the owner could set it; no Meta call was
-made; the battery then ran on 2026-10-30, see above); the staging deployment and the snapshot on the server (owner
-authorization); the video; the owner's sign-off of the legal texts; and the final report.
-Earlier status blocks (2026-10-27 and 2026-10-28) are in `docs/journal.md`, "README status
+- **Implemented:** protocol 1.3 with policy rules 1.2, the public API v1, the loopback
+  operator console, the live-mode admission (two-phase gate, Turnstile, per-client quota,
+  USD ledger) and the sealed-snapshot evidence client. Live mode stays off until its
+  release gates pass.
+- **Mission Control:** every view is merged (lanes W1 and W2 and their review rounds; the
+  heuristic-evaluation fixes of round 4; the round 5 redesign of 2026-10-31: monochrome,
+  brushed glass, square-first shapes, the Quorum logo). The UI is frozen at `a657531` for
+  the submission.
+- **Live evidence:** the counted protocol 1.3 battery M01–M04 ran on 2026-10-30 and is
+  merged (`e4e4c73`; `research/2026-10-30/`, [`docs/evaluation.md` §6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)):
+  2 runs lost to provider errors, M03 `supported` for a revision that departs from the
+  task, M04 failed closed by the evaluation contract, all 41 verification records
+  `valid`. The authorized cap of 8 live re-validation runs is reached.
+- **Sealed snapshot:** `snap-2026-10-29-demo-repo` was captured on 2026-10-29
+  (`b0375df`; digests under "Published snapshot digests"); the runtime boots it since the
+  fix `0515f29` (merged as `7e26866`). It is not on any server yet.
+- **Tests at `a657531`, run on 2026-10-31 on Windows:** `cargo test --workspace --locked`
+  603 passed / 0 failed / 2 ignored (the 2 live tests); the scripted conformance check
+  10/10; the demo crate 2 passed; `pnpm check` passes (Vitest: 42 files, 904 passed /
+  16 skipped); Playwright 501 tests, 500 passed in the full run and the 1 failure (a
+  browser-context teardown past the 120 s test timeout on a loaded machine, the axe check of
+  the tour and drawer in French, dark) passed when `a11y.spec.ts` was re-run (19/19); axe
+  340 scans, 0 violations. The last Linux parity run (7/7 gates) was on the tree
+  of `25c7867`.
+- **Release gates** (`docs/security/release-checklist.md`, statuses of 2026-10-28/29): G8
+  passes (the fresh-clone run is still owed before the tag), G12 is partly met, the other
+  ten are pending.
+- **Still to do:** the deployment (owner's server and variables; staging behind
+  Cloudflare Access first, and exposed to judges before every gate passes only if the
+  owner records that decision, see [`docs/roadmap.md`](docs/roadmap.md)) and the video,
+  both planned for 2026-11-01; the final engineering report, unless the owner decides
+  this block and "For judges" replace it; the push to GitHub with a CI run, after a full-history secret
+  scan; comparing the published binary digest with the release tarball (runbook 3.2); the
+  owner's sign-off of the legal texts; the submission form (draft:
+  [`docs/submission-draft.md`](docs/submission-draft.md)). The plan is in
+  [`docs/roadmap.md`](docs/roadmap.md).
+
+Earlier status blocks (2026-10-27 to 2026-10-30) are in `docs/journal.md`, "README status
 history".
 
 ## Competition boundary: pre-existing vs. newly developed work

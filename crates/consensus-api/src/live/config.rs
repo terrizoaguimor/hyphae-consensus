@@ -42,12 +42,20 @@
 //! `daily × exposure_days ≤ lifetime` when the exposure is declared. In
 //! public mode a Cloudflare test secret is refused
 //! ([`turnstile::TEST_SECRETS`]).
+//!
+//! The two prices are one table for every call (the defaults are Muse
+//! Wonder's). With `CONSENSUS_MODEL_CRITIC` naming another model than
+//! `CONSENSUS_MODEL`, both must be set explicitly, to the highest price
+//! among the configured models; `serve-public` (live mode enabled) and
+//! `serve-operator` (ledger configured) refuse to start otherwise
+//! ([`LiveConfig::require_prices_for_models`]).
 
 use super::budget::BudgetConfig;
 use super::geo::{self, parse_country_list, GeoPolicy};
 use super::judge::JudgeCodes;
 use super::money::{Ppm, Usd};
 use super::turnstile::{self, TurnstileConfig, TurnstileSecret, DEFAULT_MAX_CHALLENGE_AGE};
+use crate::config::{MetaConfig, CRITIC_MODEL_VARIABLE};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -216,6 +224,9 @@ pub struct LiveConfig {
     /// Judge-lane admissions the gate grants one judge code per UTC day.
     /// Process-local.
     pub judge_code_daily: u32,
+    /// Both ledger prices were set in the environment rather than left at
+    /// their defaults ([`LiveConfig::require_prices_for_models`]).
+    pub prices_explicit: bool,
 }
 
 impl LiveConfig {
@@ -261,6 +272,8 @@ impl LiveConfig {
         )?;
         let input_cap_tokens =
             parse_positive_u64(vars::INPUT_CAP_TOKENS, env, defaults::INPUT_CAP_TOKENS)?;
+        let prices_explicit = env.get(vars::PRICE_INPUT_PER_M)?.is_some()
+            && env.get(vars::PRICE_OUTPUT_PER_M)?.is_some();
         let price_input_per_m =
             parse_usd(vars::PRICE_INPUT_PER_M, env, defaults::PRICE_INPUT_PER_M)?;
         let price_output_per_m =
@@ -418,6 +431,36 @@ impl LiveConfig {
             exposure_days,
             client_daily,
             judge_code_daily,
+            prices_explicit,
+        })
+    }
+
+    /// The ledger has one price table, which defaults to Muse Wonder's
+    /// (`4.00`/`20.00` per million tokens). When the Critic runs on another
+    /// model than the other roles (`CONSENSUS_MODEL_CRITIC`,
+    /// [`MetaConfig::mixes_models`]), those defaults no longer price a
+    /// known model, so both [`vars::PRICE_INPUT_PER_M`] and
+    /// [`vars::PRICE_OUTPUT_PER_M`] must be set explicitly (to the highest
+    /// price among the configured models, so every call is over-reserved,
+    /// never under-reserved). An error naming the three variables
+    /// otherwise; one model for every role needs nothing.
+    pub fn require_prices_for_models(&self, meta: &MetaConfig) -> Result<(), ConfigError> {
+        if !meta.mixes_models() || self.prices_explicit {
+            return Ok(());
+        }
+        Err(ConfigError::Inconsistent {
+            vars: vec![
+                CRITIC_MODEL_VARIABLE,
+                vars::PRICE_INPUT_PER_M,
+                vars::PRICE_OUTPUT_PER_M,
+            ],
+            reason: format!(
+                "the Critic runs on {:?} and the other roles on {:?}, but the live ledger has one price table and its prices are the defaults; set both {} and {} explicitly to the highest price among the configured models, or unset {CRITIC_MODEL_VARIABLE}",
+                meta.critic_model,
+                meta.model,
+                vars::PRICE_INPUT_PER_M,
+                vars::PRICE_OUTPUT_PER_M
+            ),
         })
     }
 

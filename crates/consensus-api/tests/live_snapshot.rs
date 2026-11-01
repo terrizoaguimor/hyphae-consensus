@@ -2100,3 +2100,62 @@ fn with_live_mode_enabled_on_the_socket_serve_public_requires_both_pins() {
     let s = serve_public(&scratch, &[live, fx.vars()].concat());
     assert!(s.listening, "{s:?}");
 }
+
+/// `CONSENSUS_MODEL_CRITIC` on the real binary: a Critic on another model
+/// with the ledger's default prices stops startup naming the variables,
+/// before the snapshot is verified; with both prices set explicitly, or
+/// with the Critic on the one model, the server starts; an unusable id
+/// stops startup naming the override.
+#[test]
+fn serve_public_refuses_a_mixed_model_critic_without_explicit_ledger_prices() {
+    let scratch = TempRoot::new("serve-public-critic-model");
+    let live = [server_vars(&scratch), live_on_vars(&scratch)].concat();
+    let fx = Fixture::new("serve-public-critic-model");
+    let critic = ("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3".to_string());
+
+    let s = serve_public(
+        &scratch,
+        &[live.clone(), fx.vars(), vec![critic.clone()]].concat(),
+    );
+    assert!(!s.listening, "{s:?}");
+    assert_eq!(s.exit_code, Some(1), "{s:?}");
+    assert!(
+        s.stderr
+            .iter()
+            .any(|l| l.starts_with("error: public live mode: ")
+                && l.contains("CONSENSUS_MODEL_CRITIC")
+                && l.contains("CONSENSUS_META_PRICE_INPUT_PER_M")
+                && l.contains("CONSENSUS_META_PRICE_OUTPUT_PER_M")),
+        "{s:?}"
+    );
+    assert!(fx.calls().is_empty(), "refused before the snapshot boot");
+    assert!(!s.all().contains(TEST_KEY));
+
+    let prices = vec![
+        ("CONSENSUS_META_PRICE_INPUT_PER_M", "4.00".to_string()),
+        ("CONSENSUS_META_PRICE_OUTPUT_PER_M", "20.00".to_string()),
+    ];
+    let s = serve_public(
+        &scratch,
+        &[live.clone(), fx.vars(), vec![critic], prices].concat(),
+    );
+    assert!(s.listening, "{s:?}");
+
+    let one_model = ("CONSENSUS_MODEL_CRITIC", "muse-wonder-1.0".to_string());
+    let s = serve_public(
+        &scratch,
+        &[live.clone(), fx.vars(), vec![one_model]].concat(),
+    );
+    assert!(s.listening, "{s:?}");
+
+    let bad = ("CONSENSUS_MODEL_CRITIC", "muse spark".to_string());
+    let s = serve_public(&scratch, &[live, fx.vars(), vec![bad]].concat());
+    assert!(!s.listening, "{s:?}");
+    assert_eq!(s.exit_code, Some(1), "{s:?}");
+    assert!(
+        s.stderr
+            .iter()
+            .any(|l| l.starts_with("error: public live mode: CONSENSUS_MODEL_CRITIC: ")),
+        "{s:?}"
+    );
+}

@@ -9,6 +9,7 @@ mod support;
 
 use consensus_api::config::{ApiKey, MetaConfig};
 use consensus_api::meta::{MetaModelClient, Role};
+use consensus_api::public_view::{invocation_v1, Surface};
 use consensus_domain::*;
 use consensus_runtime::clock::{FixedClock, SequentialIdGen};
 use consensus_runtime::fakes::{FakeMemoryClient, FakeProofVerifier};
@@ -673,4 +674,237 @@ fn the_debug_dir_keeps_sanitized_files_without_the_key_and_never_in_public_mode(
     };
     assert_eq!(err.code(), Some("meta_config"));
     assert!(err.to_string().contains("public mode"), "{err}");
+}
+
+// ---------------------------------------------------------------------
+// CONSENSUS_MODEL_CRITIC: a per-role model for the Critic only
+// ---------------------------------------------------------------------
+
+/// One claim, an empty critique and an evaluation keyed by the id the
+/// adapter mints for the claim (`prop-1`, then `claim-2`) over the
+/// scripted record `ev-1`: a run that reaches its recommendation in three
+/// calls (propose, critique, evaluate).
+const RUN_PROPOSAL: &str = r#"{"summary":"Keep retries capped at 3 attempts","plan_steps":["cap the payment client retries at 3"],"claims":[{"statement":"Outbound retries must be capped at 3 attempts"}],"assumptions":[],"uncertainties":[]}"#;
+const RUN_CHALLENGE: &str = r#"{"items":[]}"#;
+const RUN_EVALUATION: &str = r#"{"assessments":{"claim-2":{"corroborated":true,"relevant_evidence":["ev-1"],"contradicting_evidence":[],"note":"ev-1 states the cap"}},"item_verdicts":{},"cleared_contradictions":[],"abstain":false,"abstain_reason":null}"#;
+
+/// A chat completion answering `content` that echoes no model id (the
+/// invocation then records the model the call was sent to).
+fn envelope_without_model(content: &str) -> String {
+    json!({
+        "id": "chatcmpl-test-3",
+        "choices": [{ "message": { "role": "assistant", "content": content } }],
+        "usage": { "prompt_tokens": 100, "completion_tokens": 50 }
+    })
+    .to_string()
+}
+
+/// A chat completion answering `content` that echoes `model`.
+fn envelope_with_model(content: &str, model: &str) -> String {
+    json!({
+        "id": "chatcmpl-test-4",
+        "model": model,
+        "choices": [{ "message": { "role": "assistant", "content": content } }],
+        "usage": { "prompt_tokens": 100, "completion_tokens": 50 }
+    })
+    .to_string()
+}
+
+fn three_calls() -> Vec<Reply> {
+    [RUN_PROPOSAL, RUN_CHALLENGE, RUN_EVALUATION]
+        .into_iter()
+        .map(|draft| Reply::ok(envelope_without_model(draft)))
+        .collect()
+}
+
+/// The `"model"` and `response_format.json_schema.name` of every request
+/// the fake server received, in order.
+fn sent_models(server: &FakeServer) -> Vec<(String, String)> {
+    server
+        .requests()
+        .iter()
+        .map(|raw| {
+            let body = body_of(raw);
+            (
+                body["response_format"]["json_schema"]["name"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+                body["model"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+/// A config for the fake server built from variables, as the servers
+/// build theirs: the key, the base URL and `extra`.
+fn config_from_vars(base_url: &str, extra: &[(&str, &str)]) -> MetaConfig {
+    let mut vars: Vec<(String, String)> = vec![
+        ("CONSENSUS_META_API_KEY".into(), TEST_KEY.into()),
+        ("CONSENSUS_META_BASE_URL".into(), base_url.into()),
+        ("CONSENSUS_MODEL_TIMEOUT_SECS".into(), "5".into()),
+    ];
+    vars.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+    let mut cfg =
+        MetaConfig::from_vars(|name| vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone()))
+            .unwrap()
+            .unwrap();
+    cfg.max_attempts = 2;
+    cfg.retry_base_delay = Duration::from_millis(1);
+    cfg
+}
+
+#[test]
+fn the_critic_override_changes_only_the_critics_request_and_every_call_records_its_model() {
+    let server = serve(three_calls());
+    let cfg = config_from_vars(
+        &server.base_url,
+        &[("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3")],
+    );
+    let (agg, log, text) = run_through_adapter("critic-model", cfg);
+    assert!(
+        agg.recommendation.is_some(),
+        "the scripted run reaches its recommendation: {:?}",
+        log.all_events().last()
+    );
+    // The request body's model, per role.
+    assert_eq!(
+        sent_models(&server),
+        [
+            ("DraftProposal".to_string(), "muse-wonder-1.0".to_string()),
+            ("DraftChallenge".to_string(), "muse-spark-1.3".to_string()),
+            ("DraftEvaluation".to_string(), "muse-wonder-1.0".to_string()),
+        ]
+    );
+    // No model echoed: each invocation records the model its call was
+    // sent to, in the aggregate, the receipt and the events.
+    let recorded: Vec<(Option<&str>, &str)> = agg
+        .invocations
+        .iter()
+        .map(|i| (i.schema_name.as_deref(), i.model.as_str()))
+        .collect();
+    assert_eq!(
+        recorded,
+        [
+            (Some("DraftProposal"), "muse-wonder-1.0"),
+            (Some("DraftChallenge"), "muse-spark-1.3"),
+            (Some("DraftEvaluation"), "muse-wonder-1.0"),
+        ]
+    );
+    let receipt = build_receipt(&log, &agg.run_id, "2026-10-27T09:00:00Z".into()).unwrap();
+    assert_eq!(receipt.model_invocations, agg.invocations);
+    let mut from_events = Vec::new();
+    for event in log.all_events() {
+        match &event.payload {
+            EventPayload::ProposalSubmitted { invocation, .. }
+            | EventPayload::ChallengeSubmitted { invocation, .. }
+            | EventPayload::EvaluationSubmitted { invocation, .. }
+            | EventPayload::RevisionSubmitted { invocation, .. } => {
+                from_events.push(invocation.model.clone())
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        from_events,
+        ["muse-wonder-1.0", "muse-spark-1.3", "muse-wonder-1.0"]
+    );
+    assert_eq!(
+        text.matches(r#""model":"muse-spark-1.3""#).count(),
+        1,
+        "{text}"
+    );
+    // The Meta API panel's projection keeps each call's own model, on both
+    // surfaces.
+    for surface in [Surface::Public, Surface::Operator] {
+        let shown: Vec<String> = agg
+            .invocations
+            .iter()
+            .map(|i| invocation_v1(i, surface).model)
+            .collect();
+        assert_eq!(
+            shown,
+            ["muse-wonder-1.0", "muse-spark-1.3", "muse-wonder-1.0"],
+            "{surface:?}"
+        );
+    }
+    assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg);
+}
+
+#[test]
+fn without_the_override_every_request_uses_the_one_model() {
+    for (extra, expected) in [
+        (vec![], "muse-wonder-1.0"),
+        (vec![("CONSENSUS_MODEL", "muse-x-2")], "muse-x-2"),
+    ] {
+        let server = serve(three_calls());
+        let cfg = config_from_vars(&server.base_url, &extra);
+        let (agg, _, _) = run_through_adapter("one-model", cfg);
+        let sent: Vec<String> = sent_models(&server).into_iter().map(|(_, m)| m).collect();
+        assert_eq!(sent, [expected; 3], "{extra:?}");
+        assert!(
+            agg.invocations.iter().all(|i| i.model == expected),
+            "{extra:?}"
+        );
+    }
+}
+
+#[test]
+fn a_model_echoed_by_the_api_wins_over_the_role_model() {
+    let server = serve(vec![Reply::ok(envelope_with_model(
+        RUN_CHALLENGE,
+        "muse-spark-1.3-20261101",
+    ))]);
+    let cfg = config_from_vars(
+        &server.base_url,
+        &[("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3")],
+    );
+    let mut c = MetaModelClient::new(cfg).unwrap();
+    let proposal = consensus_runtime::scenarios::proposal(
+        "prop-1",
+        "Keep retries capped at 3 attempts",
+        vec![consensus_runtime::scenarios::claim(
+            "claim-2",
+            "Outbound retries must be capped at 3 attempts",
+        )],
+    );
+    let (_, inv) = c
+        .critique(&proposal, &consensus_runtime::ports::RoleContext::default())
+        .unwrap();
+    assert_eq!(server.last_body()["model"], json!("muse-spark-1.3"));
+    assert_eq!(inv.model, "muse-spark-1.3-20261101");
+}
+
+#[test]
+fn the_critic_override_leaves_every_prompt_and_schema_hash_unchanged() {
+    let run = |extra: &[(&str, &str)]| {
+        let server = serve(three_calls());
+        let cfg = config_from_vars(&server.base_url, extra);
+        let (agg, _, _) = run_through_adapter("critic-hashes", cfg);
+        let schemas: Vec<String> = server
+            .requests()
+            .iter()
+            .map(|raw| {
+                serde_json::to_string(&body_of(raw)["response_format"]["json_schema"]["schema"])
+                    .unwrap()
+            })
+            .collect();
+        (agg.invocations, schemas)
+    };
+    let (plain, plain_schemas) = run(&[]);
+    let (mixed, mixed_schemas) = run(&[("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3")]);
+    assert_eq!(plain.len(), 3);
+    assert_eq!(plain.len(), mixed.len());
+    assert_eq!(
+        plain_schemas, mixed_schemas,
+        "the schemas sent are the same bytes"
+    );
+    let roles = [Role::Propose, Role::Critique, Role::Evaluate];
+    for ((a, b), role) in plain.iter().zip(&mixed).zip(roles) {
+        assert_eq!(a.schema_name, b.schema_name);
+        assert_eq!(a.schema_sha256, b.schema_sha256, "{role:?}");
+        assert_eq!(a.prompt_sha256, b.prompt_sha256, "{role:?}");
+        assert_eq!(a.prompt_sha256, Some(role.prompt_sha256()), "{role:?}");
+    }
+    assert_ne!(plain[1].model, mixed[1].model, "only the model moved");
 }

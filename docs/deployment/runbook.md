@@ -600,6 +600,19 @@ not exist. A console run's `CONSENSUS_META_MAX_COMPLETION_TOKENS` (default 16000
 exceed `CONSENSUS_LIVE_MAX_COMPLETION_TOKENS` (default 16000), or the metered run is
 refused before anything is reserved.
 
+`CONSENSUS_MODEL_CRITIC` is optional and stays unset (the template leaves it commented
+out): unset, the Critic uses `CONSENSUS_MODEL` (itself unset, `muse-wonder-1.0`), as do
+the other roles. Set, it changes the model id of the Critic's calls only (`DraftChallenge`;
+`config.rs`, validated like `CONSENSUS_MODEL`, an invalid value stops startup naming it);
+the prompts, schemas and their digests do not change, and every call records the model it
+ran on. The ledger has one price table, whose defaults are `muse-wonder-1.0`'s, so with a
+Critic model other than `CONSENSUS_MODEL` both `CONSENSUS_META_PRICE_INPUT_PER_M` and
+`CONSENSUS_META_PRICE_OUTPUT_PER_M` must be set explicitly, to the highest price among
+the configured models: otherwise `consensus-public` (live mode enabled) and
+`consensus-operator` (ledger configured) refuse to start, naming the three variables
+(`live/config.rs`). Set it on this server only after authorized validation runs; to go
+back, remove the line and restart the unit.
+
 The server validates every variable at startup and stops with the variable's name on
 an invalid value (`public_config.rs`, `live/config.rs`); a failed start is visible with
 `journalctl -u consensus-public -n 50`. A snapshot that does not boot is not a failed

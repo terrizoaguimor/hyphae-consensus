@@ -1,0 +1,230 @@
+1
+00:00:00,000 --> 00:00:03,500
+[Corrida grabada F03 · 27 oct 2026 · no en vivo]
+Hoy los equipos dejan que agentes de código propongan cambios.
+
+2
+00:00:03,500 --> 00:00:06,000
+Esta corrida se grabó el 27 de octubre.
+
+3
+00:00:06,000 --> 00:00:10,500
+Se le pidió subir a 10 los reintentos de pago,
+y el modelo de Meta, como Proposer,
+
+4
+00:00:10,500 --> 00:00:14,500
+afirmó que 10 intentos cumplen
+cualquier límite documentado.
+
+5
+00:00:14,500 --> 00:00:18,500
+[Proyecto de demostración · 7 registros sembrados]
+La memoria del proyecto de demostración dice lo contrario:
+
+6
+00:00:18,500 --> 00:00:21,500
+los reintentos están limitados a 3.
+
+7
+00:00:21,500 --> 00:00:25,000
+Un solo agente habría entregado esa afirmación.
+
+8
+00:00:25,000 --> 00:00:29,500
+Hyphae Consensus da a ese cambio tres roles,
+todos con el modelo de Meta:
+
+9
+00:00:29,500 --> 00:00:32,500
+un Proposer, un Critic
+y un Evidence Evaluator.
+
+10
+00:00:32,500 --> 00:00:36,500
+El runtime, no un modelo,
+trae los registros y comprueba sus pruebas.
+
+11
+00:00:36,500 --> 00:00:40,000
+Una política fija recomienda.
+Solo una persona decide.
+
+12
+00:00:40,000 --> 00:00:43,000
+[Corrida grabada F03 · no en vivo]
+Así se usa la API de Meta.
+
+13
+00:00:43,000 --> 00:00:47,500
+Esta corrida hizo seis llamadas, cada una registrada
+con el request id de Meta,
+
+14
+00:00:47,500 --> 00:00:51,500
+su latencia y sus tokens:
+6.874 de entrada, 31.910 de salida.
+
+15
+00:00:51,500 --> 00:00:55,000
+Cada llamada envía un esquema JSON estricto para su rol.
+
+16
+00:00:55,000 --> 00:00:59,500
+Con el protocolo 1.3, el esquema del Evaluator
+se construye en cada llamada,
+
+17
+00:00:59,500 --> 00:01:03,500
+con una clave obligatoria por afirmación
+y por objeción abierta,
+
+18
+00:01:03,500 --> 00:01:06,500
+así que nada puede omitirse en silencio.
+Y falla de forma segura.
+
+19
+00:01:06,500 --> 00:01:11,000
+[Corrida grabada M04 · 30 oct 2026 · no en vivo]
+En la corrida M04, el 30 de octubre,
+el Evaluator dejó una contradicción sin juzgar:
+
+20
+00:01:11,000 --> 00:01:15,000
+el runtime rechazó la respuesta
+y no emitió ninguna recomendación.
+
+21
+00:01:15,000 --> 00:01:19,000
+[Ejemplo guiado · roles programados · evidencia SIMULATED · sin llamada al modelo]
+Para ver los pasos, un ejemplo guiado:
+
+22
+00:01:19,000 --> 00:01:22,000
+roles programados, evidencia simulada,
+ningún modelo llamado.
+
+23
+00:01:22,000 --> 00:01:26,500
+El Proposer afirma, el Critic objeta,
+el Evaluator juzga cada afirmación,
+
+24
+00:01:26,500 --> 00:01:30,000
+el Proposer revisa
+y la ronda se repite.
+
+25
+00:01:30,000 --> 00:01:34,500
+[Corrida grabada F03 · no en vivo]
+En F03 la revisión volvió a 3 intentos
+con 50 milisegundos de jitter,
+
+26
+00:01:34,500 --> 00:01:37,500
+y las 5 afirmaciones quedaron corroboradas.
+
+27
+00:01:37,500 --> 00:01:41,000
+Aun así, contested: 6 objeciones siguen abiertas,
+
+28
+00:01:41,000 --> 00:01:45,000
+tres tests faltantes, dos afirmaciones sin respaldo
+y un riesgo de cobro duplicado.
+
+29
+00:01:45,000 --> 00:01:49,500
+Cada afirmación está ligada a los registros
+que la respaldan o la contradicen.
+
+30
+00:01:49,500 --> 00:01:54,000
+Cada registro trajo una prueba de recall de Hyphae,
+verificada en la corrida contra un ancla fijada:
+
+31
+00:01:54,000 --> 00:01:57,000
+las seis válidas en la ronda final.
+
+32
+00:01:57,000 --> 00:02:00,500
+Válida significa que es el registro que se guardó.
+
+33
+00:02:00,500 --> 00:02:03,000
+No significa que el registro sea verdadero.
+
+34
+00:02:03,000 --> 00:02:06,500
+Los archivos de prueba quedan con el operador;
+
+35
+00:02:06,500 --> 00:02:10,000
+cualquiera puede volver a comprobar la cadena.
+
+36
+00:02:10,000 --> 00:02:12,500
+Cada registro está encadenado por hash.
+
+37
+00:02:12,500 --> 00:02:17,000
+Este navegador acaba de descargar el log archivado
+y recalcular cada hash:
+
+38
+00:02:17,000 --> 00:02:19,500
+los 189 registros cuadran,
+
+39
+00:02:19,500 --> 00:02:23,500
+y el archivo coincide con el digest
+fijado en el manifiesto del archivo.
+
+40
+00:02:23,500 --> 00:02:27,000
+El log no está firmado: esto muestra
+que nada cambió desde que se fijó,
+
+41
+00:02:27,000 --> 00:02:30,000
+no que algo en él sea verdadero.
+
+42
+00:02:30,000 --> 00:02:33,000
+[Ejemplo guiado · evidencia SIMULATED]
+La corrida se detiene en un punto de decisión.
+
+43
+00:02:33,000 --> 00:02:36,000
+Solo una persona aprueba o rechaza,
+
+44
+00:02:36,000 --> 00:02:40,000
+y en este portal público
+la decisión no tiene autoridad:
+
+45
+00:02:40,000 --> 00:02:44,000
+aprobar registra una elección
+y no ejecuta nada.
+
+46
+00:02:44,000 --> 00:02:50,000
+Esta es la corrida guiada;
+una corrida grabada es de solo lectura.
+
+47
+00:02:50,000 --> 00:02:54,500
+Hyphae Consensus: recomendaciones de agentes
+que puedes inspeccionar, comprobar y pedirles cuentas
+
+48
+00:02:54,500 --> 00:02:57,000
+antes de que nadie actúe.
+
+49
+00:02:57,000 --> 00:03:00,000
+Sus tres roles usan muse-wonder-1.0 de Meta;
+lo construimos con Muse Code.

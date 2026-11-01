@@ -241,3 +241,61 @@ impl ExecutorPort for CountingExecutor {
         Ok(())
     }
 }
+
+/// Scripted single agent for the baseline ([`crate::baseline`]): each call
+/// pops the next queued document and returns it as written, only its run
+/// id rewritten to the task's (a correlation id). Its invocations are
+/// labeled `provider: "fake"`.
+#[derive(Default)]
+pub struct ScriptedBaselineModel {
+    pub assessments: VecDeque<Result<crate::baseline::BaselineAssessment, ModelError>>,
+    /// The context of every call, in call order.
+    pub contexts: Vec<RoleContext>,
+    /// Reported (input, output) tokens per call; (0, 0) by default.
+    pub tokens_per_call: (u64, u64),
+}
+
+impl ScriptedBaselineModel {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl crate::baseline::BaselineModel for ScriptedBaselineModel {
+    fn assess(
+        &mut self,
+        task: &Task,
+        ctx: &RoleContext,
+    ) -> Result<(crate::baseline::BaselineAssessment, ModelInvocation), ModelError> {
+        self.contexts.push(ctx.clone());
+        let (input, output) = self.tokens_per_call;
+        let invocation = ModelInvocation {
+            provider: "fake".into(),
+            model: "muse-wonder-1.0".into(),
+            request_id: Some(format!("fake-assess-{}", self.contexts.len())),
+            latency_ms: Some(1),
+            input_tokens: Some(input),
+            output_tokens: Some(output),
+            finish_reason: None,
+            reasoning_tokens: None,
+            max_completion_tokens: None,
+            schema_name: None,
+            schema_sha256: None,
+            prompt_sha256: None,
+            reasoning_effort: None,
+            safety_identifier_sent: None,
+            attempts: None,
+        };
+        self.assessments
+            .pop_front()
+            .unwrap_or_else(|| {
+                Err(ModelError::Unavailable(
+                    "fake model: no scripted assess response".into(),
+                ))
+            })
+            .map(|mut a| {
+                a.run_id = task.run_id.clone();
+                (a, invocation)
+            })
+    }
+}

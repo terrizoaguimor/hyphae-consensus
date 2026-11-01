@@ -159,7 +159,17 @@ pub fn verify(args: &VerifyArgs) -> Report {
     let events = match verify_bytes(&bytes) {
         Ok(events) => events,
         Err(e) => {
-            report.fatal = Some(format!("{}: {e}", args.log.display()));
+            // A single-agent baseline log is refused like any other
+            // non-consensus file; the message says where it is checked.
+            let hint = match &e {
+                consensus_runtime::EventLogError::SchemaVersion { found, .. }
+                    if found == consensus_runtime::baseline::BASELINE_SCHEMA_VERSION =>
+                {
+                    " (a single-agent baseline log, not a consensus log: check it with `consensus-api baseline verify`)"
+                }
+                _ => "",
+            };
+            report.fatal = Some(format!("{}: {e}{hint}", args.log.display()));
             return report;
         }
     };

@@ -19,6 +19,10 @@
 //! - [`verify_cli`]: the read-only `verify` subcommand.
 //! - [`ledger_cli`]: the operator's `ledger` subcommand (status, reset,
 //!   release) on the live-mode USD ledger.
+//! - [`baseline_cli`]: the operator's `baseline` subcommand (run, verify):
+//!   the single-agent baseline, one Meta call over the same recalled and
+//!   verified evidence, written to a log of its own kind. No route serves
+//!   it.
 //! - [`guided`]: the five guided scenarios.
 //! - [`live`]: admission controls for the public live mode (budget ledger,
 //!   Turnstile verification, presets, geographic policy).
@@ -27,6 +31,7 @@
 //!   logged or persisted.
 
 pub mod api;
+pub mod baseline_cli;
 pub mod config;
 pub mod guided;
 pub mod hyphae;

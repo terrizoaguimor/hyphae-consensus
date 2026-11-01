@@ -140,6 +140,32 @@ STORE_BATTERIES = [
     },
 ]
 
+# Single-agent baseline batteries (docs/evaluation.md, "Single-agent
+# baseline"; scripts/baseline_battery.py): one log per run under
+# <dir>/runs/<run_id>.jsonl, written by `consensus-api baseline run`
+# (schema_version baseline-1.0, run_kind single_agent_baseline on every
+# record, chained from genesis with the consensus recipe), and one run record
+# per run, <dir>/<NAME>.json, holding the summary the binary printed. Their
+# files are pinned like every other (kinds baseline_log and baseline_record)
+# and their runs are listed under "baseline_runs", never under "runs": a
+# baseline run is not a consensus run, and the consensus tools (the event
+# log, the showcase) refuse or ignore it. The key is written only once a
+# baseline battery is archived, so the manifest is unchanged until then.
+# Only runs the binary recorded (exit 0, completed or failed) on live Hyphae
+# evidence are archived: a record with a non-zero or null exit code (the
+# binary could not record the run, or the driver timed it out) and a log
+# with no record are kept out of the battery directory and reported
+# (docs/evaluation.md §7.2, step 5); the asserts below refuse them, and
+# refuse a --smoke run (memory fake, SIMULATED proofs).
+# Entry shape (none archived yet):
+#   {"dir": "2026-11-0X/baseline-2026-11-0X", "source": "<operator dir>",
+#    "battery": "baseline-2026-11-0X", "description": "... {label} ... {task} ..."}
+BASELINE_BATTERIES = []
+
+BASELINE_SCHEMA = "baseline-1.0"
+BASELINE_RUN_KIND = "single_agent_baseline"
+BASELINE_SUMMARY = "hyphae-consensus-baseline-summary-v1"
+
 RECEIPT_V2 = "hyphae-consensus-run-receipt-v2"
 
 # Run-record file tags that docs/evaluation.md labels differently.
@@ -312,6 +338,135 @@ def store_battery(store, files, runs_out):
     assert logs_used == logs_on_disk, (base, logs_on_disk - logs_used)
 
 
+def chain_ok(data):
+    """The consensus recipe on raw lines: sequence n on line n, prev_hash
+    genesis then the previous hash, hash = sha256(prev_hash + the line with
+    its own hash value blanked)."""
+    prev = "genesis"
+    for n, line in enumerate(data.decode("utf-8")[:-1].split("\n"), 1):
+        rec = json.loads(line)
+        assert rec["sequence"] == n and rec["prev_hash"] == prev, n
+        field = '"hash":"%s"' % rec["hash"]
+        assert line.count(field) == 1, n
+        blanked = line.replace(field, '"hash":""', 1)
+        assert sha256((prev + blanked).encode("utf-8")) == rec["hash"], n
+        prev = rec["hash"]
+    return True
+
+
+def baseline_outcome(records):
+    """The agent's verdict of a completed run, failed:<stage> of a failed one."""
+    last = records[-1]["payload"]
+    if last["type"] == "baseline_completed":
+        return last["outcome"]["agent_verdict"]
+    assert last["type"] == "baseline_failed", last["type"]
+    return "failed:" + last["stage"]
+
+
+def baseline_battery(entry, files, baseline_runs, consensus_runs):
+    """One BASELINE_BATTERIES entry: a log and a run record per run, cross-checked."""
+    base = entry["dir"]
+    names = sorted(
+        n for n in os.listdir(os.path.join(ROOT, base)) if os.path.isfile(os.path.join(ROOT, base, n))
+    )
+    logs_on_disk = set(os.listdir(os.path.join(ROOT, base, "runs")))
+    logs_used = set()
+    for name in names:
+        assert name.endswith(".json"), name
+        rel = base + "/" + name
+        rdata = read(rel)
+        rec = json.loads(rdata.decode("utf-8"))
+        label = rec["name"]
+        assert label == name[:-5], rel
+        summary = rec["summary"]
+        assert rec["exit_code"] == 0 and summary["format"] == BASELINE_SUMMARY, rel
+        rid = summary["run_id"]
+        log_name = rid + ".jsonl"
+        log_rel = base + "/runs/" + log_name
+        data = read(log_rel)
+        records = parse_log(data)
+        assert chain_ok(data), log_rel
+        assert all(
+            r["schema_version"] == BASELINE_SCHEMA and r["run_kind"] == BASELINE_RUN_KIND
+            and r["run_id"] == rid
+            for r in records
+        ), log_rel
+        task = records[0]["payload"]
+        assert task["type"] == "task_created", log_rel
+        # Live Hyphae evidence judged by the Meta model, never a --smoke run
+        # (memory fake, SIMULATED proofs) or a run without a recorded mode.
+        mode = task["task"].get("mode") or {}
+        assert rec["memory"] == "hyphae", (rel, rec["memory"])
+        assert mode.get("evidence") == "live_hyphae" and mode.get("model") == "meta", (log_rel, mode)
+        assert summary["evidence_mode"] == "live_hyphae" and summary["evidence_warning"] is None, rel
+        outcome = baseline_outcome(records)
+        assert summary["run_kind"] == BASELINE_RUN_KIND, rel
+        assert summary["event_count"] == len(records), rel
+        assert summary["head_hash"] == records[-1]["hash"], rel
+        assert summary["log_sha256"] == sha256(data), rel
+        assert summary["outcome"] == outcome, (rel, summary["outcome"], outcome)
+        assert summary["log"] == "runs/" + log_name, rel
+        consensus = rec.get("consensus")
+        if consensus:
+            # The paired consensus run is archived, of the same task, and
+            # its pinned log is the one the baseline recalled with.
+            paired = [r for r in consensus_runs if r["label"] == consensus["label"]]
+            assert len(paired) == 1 and paired[0]["run_id"] == consensus["run_id"], rel
+            assert paired[0]["task_title"] == task["task"]["title"], rel
+            source = summary["recall"]["source"]
+            assert source == {
+                "kind": "consensus_log",
+                "log_sha256": consensus["sha256"],
+                "run_id": consensus["run_id"],
+            }, rel
+            pinned = [f for f in files if f["path"] == paired[0]["file"]]
+            assert len(pinned) == 1 and pinned[0]["sha256"] == consensus["sha256"], rel
+        assert log_name not in logs_used, log_rel
+        logs_used.add(log_name)
+        files.append({
+            "path": log_rel,
+            "source": entry["source"] + "/runs/" + log_name,
+            "bytes": len(data),
+            "sha256": sha256(data),
+            "kind": "baseline_log",
+            "schema_versions": [BASELINE_SCHEMA],
+            "runs": 1,
+            "events": len(records),
+            "description": entry["description"].format(label=label, task=rec["task_key"]),
+        })
+        files.append({
+            "path": rel,
+            "source": entry["source"] + "/" + name,
+            "bytes": len(rdata),
+            "sha256": sha256(rdata),
+            "kind": "baseline_record",
+            "schema_versions": [BASELINE_SCHEMA],
+            "runs": 1,
+            "description": (
+                f"Run record for the single-agent baseline run {label} (task {rec['task_key']}), "
+                "as scripts/baseline_battery.py writes it: the task key and text, the paired "
+                "consensus run (label, archived log, sha256), the exit code of consensus-api "
+                "baseline run, the summary it printed (read back from the run's log) and the "
+                "wall time. Not a consensus run: no recommendation, no decision."
+            ),
+        })
+        baseline_runs.append({
+            "run_id": rid,
+            "label": label,
+            "battery": entry["battery"],
+            "run_kind": BASELINE_RUN_KIND,
+            "task_title": task["task"]["title"],
+            "project": task["task"]["project_id"],
+            "outcome": outcome,
+            "consensus_label": consensus["label"] if consensus else None,
+            "evidence": mode["evidence"],
+            "schema_version": BASELINE_SCHEMA,
+            "file": log_rel,
+            "record": rel,
+        })
+    assert logs_used == logs_on_disk, (base, logs_on_disk - logs_used)
+
+
 def main():
     files, runs_out = [], []
     for log in LOGS:
@@ -393,7 +548,10 @@ def main():
             })
     for store in STORE_BATTERIES:
         store_battery(store, files, runs_out)
-    labels = [r["label"] for r in runs_out]
+    baseline_runs = []
+    for entry in BASELINE_BATTERIES:
+        baseline_battery(entry, files, baseline_runs, runs_out)
+    labels = [r["label"] for r in runs_out + baseline_runs]
     assert len(labels) == len(set(labels)), "duplicate label"
     manifest = {
         "schema": "hyphae-consensus-research-manifest-v1",
@@ -402,6 +560,8 @@ def main():
         "files": files,
         "runs": runs_out,
     }
+    if baseline_runs:
+        manifest["baseline_runs"] = baseline_runs
     with open(os.path.join(ROOT, "MANIFEST.json"), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(manifest, fh, indent=2, ensure_ascii=True)
         fh.write("\n")
@@ -410,6 +570,9 @@ def main():
             fh.write(f"{f['sha256']}  {f['path']}\n")
     print(f"files={len(files)} runs={len(runs_out)}")
     print(collections.Counter(r["outcome"] for r in runs_out))
+    if baseline_runs:
+        print(f"baseline_runs={len(baseline_runs)}")
+        print(collections.Counter(r["outcome"] for r in baseline_runs))
 
 
 if __name__ == "__main__":

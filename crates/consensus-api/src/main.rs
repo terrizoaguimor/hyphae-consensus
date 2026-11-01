@@ -5,6 +5,7 @@
 //!   cargo run -p consensus-api -- serve-operator   # operator console (loopback, bearer token); `serve` is an alias
 //!   cargo run -p consensus-api -- verify <log.jsonl> [--run <id>] [--receipt <receipt.json>]
 //!   cargo run -p consensus-api -- ledger status    # operator: the live-mode USD ledger (also `reset --by <who>`, `release <id> --by <who>`)
+//!   cargo run -p consensus-api -- baseline run --title <t> --description <d> --out-dir <dir>   # operator: single-agent baseline (one Meta call); also `baseline verify <log>`
 //!   cargo run -p consensus-api                     # scripted demo to AwaitingHumanApproval
 //!   cargo run -p consensus-api -- --approve        # also record human approval
 //!   cargo run -p consensus-api -- --reject         # also record human rejection
@@ -27,6 +28,7 @@ use std::path::{Component, Path, PathBuf};
 const USAGE: &str = "usage: consensus-api serve-public | serve-operator | serve
        consensus-api verify <log.jsonl> [--run <id>] [--receipt <receipt.json>]
        consensus-api ledger status | reset --by <operator> | release <reservation-id> --by <operator>
+       consensus-api baseline run --title <title> --description <text> --out-dir <dir> [...] | verify <log.jsonl>
        consensus-api [--approve | --reject]    (the scripted demo)";
 
 /// Where the scripted demo keeps its log, under the current directory.
@@ -47,6 +49,14 @@ fn main() {
         }
         Some("ledger") => {
             let code = consensus_api::ledger_cli::run(
+                &args[2..],
+                &mut std::io::stdout(),
+                &mut std::io::stderr(),
+            );
+            std::process::exit(code);
+        }
+        Some("baseline") => {
+            let code = consensus_api::baseline_cli::run(
                 &args[2..],
                 &mut std::io::stdout(),
                 &mut std::io::stderr(),

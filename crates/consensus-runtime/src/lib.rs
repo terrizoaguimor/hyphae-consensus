@@ -9,6 +9,7 @@
 //! per run, and [`shared_log`] is how every thread acting on a run writes
 //! to it.
 
+pub mod baseline;
 pub mod clock;
 pub mod contract;
 pub mod control;

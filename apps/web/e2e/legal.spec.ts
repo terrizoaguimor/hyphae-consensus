@@ -27,9 +27,12 @@ for (const locale of locales) {
       await expect(page.locator("main").getByText(expected, { exact: true })).toBeVisible();
       shown.push(expected);
     }
-    // Limitations changed on a day Terms, Privacy and About did not.
-    expect(shown[2]).not.toBe(shown[0]);
+    // Terms and Privacy changed together (2026-11-01: the contact address and
+    // the hosting country); Limitations (2026-10-29) and About (2026-10-27)
+    // each on a day of their own.
     expect(shown[0]).toBe(shown[1]);
-    expect(shown[0]).toBe(shown[3]);
+    expect(shown[2]).not.toBe(shown[0]);
+    expect(shown[3]).not.toBe(shown[0]);
+    expect(shown[3]).not.toBe(shown[2]);
   });
 }

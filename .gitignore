@@ -27,17 +27,21 @@ id_dsa*
 id_ecdsa*
 id_ed25519*
 .netrc
+.npmrc
+.pypirc
 .git-credentials
 credentials/
 .credentials/
 # Hyphae instance homes (credentials, agent-memory data, runtime sockets).
-.config/hyphae/
-.local/share/hyphae/
-.local/state/hyphae/
+# The **/ prefix matches a home at any depth (e.g. hyphae-linux/home/.config/hyphae).
+**/.config/hyphae/
+**/.local/share/hyphae/
+**/.local/state/hyphae/
+**/agent-memory/
 /hyphae-home/
 
 # Local Windows Defender diagnostics (traces, reports, scripts) of the dev machine.
-/defender-*
+defender-*
 *.etl
 
 # Event logs anywhere except the curated research archive.

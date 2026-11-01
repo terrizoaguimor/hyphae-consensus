@@ -24,7 +24,10 @@
 //! the same task (same project, title and description, checked), so the
 //! baseline recalls what that run's final round held in context. The
 //! consensus log is read from its bytes and verified first (never opened
-//! writable); its SHA-256 and the run id are recorded in the plan.
+//! writable); its SHA-256 and the run id are recorded in the plan. Its
+//! calls' model settings must be the Meta configuration's
+//! ([`check_parity`]), checked before the call, so the comparison holds
+//! the model equal by construction, not by the operator's care.
 //!
 //! The log is written to `<dir>/<run_id>.jsonl`, a new file; a directory
 //! inside `research/` or `demo-run/` is refused (they hold the research
@@ -169,13 +172,111 @@ fn safe_out_dir(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The call settings a comparison holds equal: the model, and the
+/// completion budget and reasoning effort sent with every call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallSettings {
+    pub model: String,
+    /// `None` on an invocation that does not record it (scripted doubles,
+    /// older adapters): then neither it nor `reasoning_effort` is compared.
+    pub max_completion_tokens: Option<u64>,
+    pub reasoning_effort: Option<String>,
+}
+
+impl CallSettings {
+    fn of(invocation: &ModelInvocation) -> Self {
+        Self {
+            model: invocation.model.clone(),
+            max_completion_tokens: invocation.max_completion_tokens,
+            reasoning_effort: invocation.reasoning_effort.clone(),
+        }
+    }
+
+    /// What the operator's Meta configuration sends.
+    pub fn of_config(meta: &MetaConfig) -> Self {
+        Self {
+            model: meta.model.clone(),
+            max_completion_tokens: Some(meta.max_completion_tokens),
+            reasoning_effort: meta.reasoning_effort.clone(),
+        }
+    }
+}
+
+/// The settings every model call of run `run_id` recorded; an error when
+/// its calls disagree, `None` when it recorded no call.
+pub fn consensus_call_settings(
+    events: &[ConsensusEvent],
+    run_id: &RunId,
+) -> Result<Option<CallSettings>, String> {
+    let mut found: Option<CallSettings> = None;
+    for e in events.iter().filter(|e| &e.run_id == run_id) {
+        let invocation = match &e.payload {
+            EventPayload::ProposalSubmitted { invocation, .. }
+            | EventPayload::ChallengeSubmitted { invocation, .. }
+            | EventPayload::EvaluationSubmitted { invocation, .. }
+            | EventPayload::RevisionSubmitted { invocation, .. } => invocation,
+            EventPayload::RunFailed {
+                invocation: Some(invocation),
+                ..
+            } => invocation,
+            _ => continue,
+        };
+        let settings = CallSettings::of(invocation);
+        match &found {
+            None => found = Some(settings),
+            Some(first) if first == &settings => {}
+            Some(first) => {
+                return Err(format!(
+                    "run {run_id} made calls with different settings ({first:?}, then {settings:?}): no single setting to hold equal"
+                ))
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// `Ok` when `config` sends what the paired consensus run's calls
+/// recorded: the same model always, and the same `max_completion_tokens`
+/// and `reasoning_effort` whenever the consensus invocations record their
+/// call settings. Checked before the call, so a mismatched comparison
+/// costs nothing.
+pub fn check_parity(consensus: &CallSettings, config: &CallSettings) -> Result<(), String> {
+    let differs = |what: &str, ours: &dyn std::fmt::Debug, theirs: &dyn std::fmt::Debug| {
+        Err(format!(
+            "the Meta configuration sends {what} {ours:?} where the paired consensus run recorded {theirs:?}: the comparison would not hold the model settings equal (set CONSENSUS_MODEL, CONSENSUS_META_MAX_COMPLETION_TOKENS or CONSENSUS_META_REASONING_EFFORT to the run's)"
+        ))
+    };
+    if config.model != consensus.model {
+        return differs("model", &config.model, &consensus.model);
+    }
+    if consensus.max_completion_tokens.is_some() {
+        if config.max_completion_tokens != consensus.max_completion_tokens {
+            return differs(
+                "max_completion_tokens",
+                &config.max_completion_tokens,
+                &consensus.max_completion_tokens,
+            );
+        }
+        if config.reasoning_effort != consensus.reasoning_effort {
+            return differs(
+                "reasoning_effort",
+                &config.reasoning_effort,
+                &consensus.reasoning_effort,
+            );
+        }
+    }
+    Ok(())
+}
+
 /// The recall plan: the task text, or a recorded consensus run's claim
-/// statements (the run must be of the same task).
-fn plan(args: &RunArgs) -> Result<(QuerySource, Vec<String>), String> {
+/// statements (the run must be of the same task), with that run's call
+/// settings.
+fn plan(args: &RunArgs) -> Result<(QuerySource, Vec<String>, Option<CallSettings>), String> {
     let Some(path) = &args.queries_from else {
         return Ok((
             QuerySource::TaskText,
             task_text_queries(&args.title, &args.description),
+            None,
         ));
     };
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -216,12 +317,14 @@ fn plan(args: &RunArgs) -> Result<(QuerySource, Vec<String>), String> {
     }
     let queries = consensus_queries(&events, &run_id)
         .ok_or_else(|| format!("run {run_id} recorded no proposal, so no queries"))?;
+    let settings = consensus_call_settings(&events, &run_id)?;
     Ok((
         QuerySource::ConsensusLog {
             log_sha256: sha256_hex(&bytes),
             run_id,
         },
         queries,
+        settings,
     ))
 }
 
@@ -291,7 +394,7 @@ fn run_baseline(
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Result<serde_json::Value, String> {
     safe_out_dir(&args.out_dir)?;
-    let (source, queries) = plan(args)?;
+    let (source, queries, paired_settings) = plan(args)?;
     let meta = MetaConfig::from_vars(env)
         .map_err(|e| format!("model=meta: {e}"))?
         .ok_or("the baseline requires META_API_KEY (or MODEL_API_KEY, or a key file) in the environment")?;
@@ -299,6 +402,9 @@ fn run_baseline(
         return Err(
             "the baseline is operator-only: refused in public mode (CONSENSUS_PUBLIC_MODE)".into(),
         );
+    }
+    if let Some(paired) = &paired_settings {
+        check_parity(paired, &CallSettings::of_config(&meta))?;
     }
     let limits = parse_max_run_tokens(env("CONSENSUS_MAX_RUN_TOKENS").as_deref())?;
     let model = MetaModelClient::new(meta).map_err(|e| format!("model client: {e}"))?;
@@ -450,5 +556,107 @@ mod tests {
         ] {
             assert!(safe_out_dir(Path::new(dir)).is_err(), "{dir}");
         }
+    }
+
+    fn settings(model: &str, max: Option<u64>, effort: Option<&str>) -> CallSettings {
+        CallSettings {
+            model: model.into(),
+            max_completion_tokens: max,
+            reasoning_effort: effort.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn the_model_settings_must_be_the_paired_runs() {
+        // The 2026-10-30 battery's calls: muse-wonder-1.0, 16,000, no effort.
+        let recorded = settings("muse-wonder-1.0", Some(16_000), None);
+        let config = settings("muse-wonder-1.0", Some(16_000), None);
+        assert_eq!(check_parity(&recorded, &config), Ok(()));
+        for (bad, field) in [
+            (settings("muse-other", Some(16_000), None), "model"),
+            (
+                settings("muse-wonder-1.0", Some(8_000), None),
+                "max_completion_tokens",
+            ),
+            (
+                settings("muse-wonder-1.0", Some(16_000), Some("high")),
+                "reasoning_effort",
+            ),
+        ] {
+            let err = check_parity(&recorded, &bad).unwrap_err();
+            assert!(err.contains(&format!("sends {field} ")), "{err}");
+        }
+        // Invocations that do not record their call settings (scripted
+        // doubles) are compared on the model only.
+        let unrecorded = settings("muse-wonder-1.0", None, None);
+        assert_eq!(
+            check_parity(
+                &unrecorded,
+                &settings("muse-wonder-1.0", Some(8_000), Some("high"))
+            ),
+            Ok(())
+        );
+        assert!(check_parity(&unrecorded, &settings("muse-other", None, None)).is_err());
+    }
+
+    fn invocation(model: &str, max: Option<u64>) -> ModelInvocation {
+        ModelInvocation {
+            provider: "meta".into(),
+            model: model.into(),
+            request_id: None,
+            latency_ms: None,
+            input_tokens: None,
+            output_tokens: None,
+            finish_reason: None,
+            reasoning_tokens: None,
+            max_completion_tokens: max,
+            schema_name: None,
+            schema_sha256: None,
+            prompt_sha256: None,
+            reasoning_effort: None,
+            safety_identifier_sent: None,
+            attempts: None,
+        }
+    }
+
+    fn failed_event(run: &str, invocation: Option<ModelInvocation>) -> ConsensusEvent {
+        ConsensusEvent {
+            schema_version: SCHEMA_VERSION.into(),
+            sequence: 1,
+            event_id: EventId::new(format!("evt-{run}")),
+            run_id: RunId::new(run),
+            actor: Actor::Runtime,
+            occurred_at: "2026-11-01T00:00:00Z".into(),
+            prev_hash: "genesis".into(),
+            hash: String::new(),
+            payload: EventPayload::RunFailed {
+                reason: "r".into(),
+                stage: "s".into(),
+                code: None,
+                invocation,
+            },
+        }
+    }
+
+    #[test]
+    fn a_consensus_run_has_one_call_setting_or_none() {
+        let run = RunId::new("run-1");
+        assert_eq!(consensus_call_settings(&[], &run), Ok(None));
+        let one = vec![
+            failed_event("run-1", Some(invocation("muse-wonder-1.0", Some(16_000)))),
+            failed_event("run-2", Some(invocation("muse-other", None))),
+            failed_event("run-1", None),
+        ];
+        assert_eq!(
+            consensus_call_settings(&one, &run),
+            Ok(Some(settings("muse-wonder-1.0", Some(16_000), None)))
+        );
+        let mixed = vec![
+            failed_event("run-1", Some(invocation("muse-wonder-1.0", Some(16_000)))),
+            failed_event("run-1", Some(invocation("muse-wonder-1.0", Some(8_000)))),
+        ];
+        assert!(consensus_call_settings(&mixed, &run)
+            .unwrap_err()
+            .contains("different settings"));
     }
 }

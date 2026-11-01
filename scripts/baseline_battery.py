@@ -25,17 +25,29 @@ instead.
 Per task the script writes the run's log to OUT_DIR/runs/<run_id>.jsonl (the
 binary's own file) and the run record OUT_DIR/<NAME>.json: the task key and
 text, the consensus pairing (label, archived path, sha256), the binary's exit
-code, the summary it printed (everything read back from the log) and the wall
-time. These two are what scripts/make_research_manifest.py archives
-(BASELINE_BATTERIES). The script never records a decision, never prints or
-writes a credential, and stops at the first task whose run could not be
-recorded.
+code, the summary it printed (everything read back from the log), the
+model-settings parity with the paired consensus run and the wall time. These
+two are what scripts/make_research_manifest.py archives (BASELINE_BATTERIES).
+The script never records a decision, never prints or writes a credential,
+and stops at the first task whose run could not be recorded: a non-zero exit
+gives a record with the binary's error, a run past RUN_TIMEOUT_SECONDS a
+record with exit_code null and error "timeout" (the binary may have left a
+partial log in OUT_DIR/runs/). Neither is archived (the manifest script
+refuses both, and a log without a record); they are reported instead.
+
+Parity: `consensus-api baseline run --queries-from` refuses, before its call,
+a Meta configuration whose model (and, when recorded, max_completion_tokens
+and reasoning_effort) differs from the paired consensus run's calls. The
+record's "parity" block shows both sides as recorded, read from the paired
+log and from the baseline's invocation, and the script stops on a mismatch.
 
 The Meta and Hyphae settings are the ones `consensus-api serve-operator`
 reads (scripts/hyphae-container/live-env.ps1, with a pinned
 CONSENSUS_HYPHAE_EXPECTED_ANCHOR). The baseline is not metered by the live
 ledger: the per-run token cap CONSENSUS_MAX_RUN_TOKENS applies, and each run
-makes exactly one call.
+makes exactly one call. Its spend is outside the ledger's daily and total
+caps, so the script prints each run's input and output tokens and the
+running totals, to reconcile by hand against the owner's approval.
 
 Usage: python -I scripts/baseline_battery.py [--smoke] CONSENSUS_API OUT_DIR [TASK ...]
   --smoke        memory=fake: the scripted reference records with SIMULATED
@@ -118,6 +130,37 @@ def consensus_log(label, task):
     return run["file"], pinned[0]["sha256"], data, run["run_id"]
 
 
+SETTINGS = ("model", "max_completion_tokens", "reasoning_effort")
+
+
+def call_settings(data, run_id):
+    """The distinct (model, max_completion_tokens, reasoning_effort) of every
+    model call run `run_id` recorded in a consensus log."""
+    seen = []
+    for line in data.decode("utf-8").splitlines():
+        event = json.loads(line)
+        if event["run_id"] != run_id:
+            continue
+        invocation = event["payload"].get("invocation")
+        if isinstance(invocation, dict):
+            settings = {k: invocation.get(k) for k in SETTINGS}
+            if settings not in seen:
+                seen.append(settings)
+    return seen
+
+
+def parity(consensus_data, run_id, summary):
+    """Both sides of the model settings, and whether they agree."""
+    consensus = call_settings(consensus_data, run_id)
+    calls = summary.get("model_invocations") or []
+    baseline = [{k: c.get(k) for k in SETTINGS} for c in calls]
+    return {
+        "consensus": consensus,
+        "baseline": baseline,
+        "equal": len(consensus) == 1 and all(b == consensus[0] for b in baseline),
+    }
+
+
 def main():
     args = sys.argv[1:]
     memory = "hyphae"
@@ -133,6 +176,7 @@ def main():
         sys.exit("task names repeat")
     runs_dir = os.path.join(out_dir, "runs")
     os.makedirs(runs_dir, exist_ok=True)
+    totals = [0, 0]
     for name, key, label in planned:
         record_path = os.path.join(out_dir, f"{name}.json")
         if os.path.exists(record_path):
@@ -157,23 +201,31 @@ def main():
             argv += ["--queries-from", copy, "--run", run_id]
             consensus = {"label": label, "file": path, "sha256": digest, "run_id": run_id}
         started = time.monotonic()
-        done = subprocess.run(argv, capture_output=True, timeout=RUN_TIMEOUT_SECONDS)
+        try:
+            done = subprocess.run(argv, capture_output=True, timeout=RUN_TIMEOUT_SECONDS)
+            exit_code = done.returncode
+        except subprocess.TimeoutExpired:
+            done, exit_code = None, None
         record = {
             "name": name,
             "task_key": key,
             "task": {"project": project, "title": title, "description": description},
             "consensus": consensus,
             "memory": memory,
-            "exit_code": done.returncode,
+            "exit_code": exit_code,
             "summary": None,
             "wall_seconds": round(time.monotonic() - started, 1),
         }
-        if done.returncode == 0:
+        if exit_code == 0:
             summary = json.loads(done.stdout.decode("utf-8"))
             # The log's path relative to OUT_DIR: an absolute local path
             # names the operator's machine and is not archived.
             summary["log"] = "runs/" + os.path.basename(summary["log"])
             record["summary"] = summary
+            if label:
+                record["parity"] = parity(data, run_id, summary)
+        elif done is None:
+            record["error"] = "timeout"
         else:
             # The binary's own message (fixed texts, no credential).
             record["error"] = done.stderr.decode("utf-8", errors="replace")[-2000:]
@@ -181,15 +233,25 @@ def main():
             json.dump(record, fh, indent=1)
             fh.write("\n")
         summary = record["summary"] or {}
+        calls = summary.get("model_invocations") or []
+        tokens_in = sum(c.get("input_tokens") or 0 for c in calls)
+        tokens_out = sum(c.get("output_tokens") or 0 for c in calls)
+        totals[0] += tokens_in
+        totals[1] += tokens_out
+        evidence = summary.get("evidence_mode") or f"memory {memory}"
         print(
-            f"{name} ({key}{'@' + label if label else ''}): exit {done.returncode}, "
-            f"run {summary.get('run_id')}, {record['wall_seconds']} s, "
+            f"{'SIMULATED ' if memory != 'hyphae' else ''}"
+            f"{name} ({key}{'@' + label if label else ''}): exit {exit_code}, "
+            f"evidence {evidence}, run {summary.get('run_id')}, {record['wall_seconds']} s, "
             f"outcome {summary.get('outcome')}, policy reading "
-            f"{(summary.get('policy_reading') or {}).get('kind')}",
+            f"{(summary.get('policy_reading') or {}).get('kind')}, "
+            f"tokens in/out {tokens_in}/{tokens_out} (totals {totals[0]}/{totals[1]})",
             flush=True,
         )
-        if done.returncode != 0:
-            sys.exit(f"{name}: the run could not be recorded; stopping")
+        if exit_code != 0:
+            sys.exit(f"{name}: the run could not be recorded ({record['error'][:200]}); stopping")
+        if label and not record["parity"]["equal"]:
+            sys.exit(f"{name}: model settings differ from {label}'s: {record['parity']}; stopping")
 
 
 if __name__ == "__main__":

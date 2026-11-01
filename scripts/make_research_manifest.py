@@ -151,6 +151,12 @@ STORE_BATTERIES = [
 # baseline run is not a consensus run, and the consensus tools (the event
 # log, the showcase) refuse or ignore it. The key is written only once a
 # baseline battery is archived, so the manifest is unchanged until then.
+# Only runs the binary recorded (exit 0, completed or failed) on live Hyphae
+# evidence are archived: a record with a non-zero or null exit code (the
+# binary could not record the run, or the driver timed it out) and a log
+# with no record are kept out of the battery directory and reported
+# (docs/evaluation.md §7.2, step 5); the asserts below refuse them, and
+# refuse a --smoke run (memory fake, SIMULATED proofs).
 # Entry shape (none archived yet):
 #   {"dir": "2026-11-0X/baseline-2026-11-0X", "source": "<operator dir>",
 #    "battery": "baseline-2026-11-0X", "description": "... {label} ... {task} ..."}
@@ -387,6 +393,12 @@ def baseline_battery(entry, files, baseline_runs, consensus_runs):
         ), log_rel
         task = records[0]["payload"]
         assert task["type"] == "task_created", log_rel
+        # Live Hyphae evidence judged by the Meta model, never a --smoke run
+        # (memory fake, SIMULATED proofs) or a run without a recorded mode.
+        mode = task["task"].get("mode") or {}
+        assert rec["memory"] == "hyphae", (rel, rec["memory"])
+        assert mode.get("evidence") == "live_hyphae" and mode.get("model") == "meta", (log_rel, mode)
+        assert summary["evidence_mode"] == "live_hyphae" and summary["evidence_warning"] is None, rel
         outcome = baseline_outcome(records)
         assert summary["run_kind"] == BASELINE_RUN_KIND, rel
         assert summary["event_count"] == len(records), rel
@@ -447,6 +459,7 @@ def baseline_battery(entry, files, baseline_runs, consensus_runs):
             "project": task["task"]["project_id"],
             "outcome": outcome,
             "consensus_label": consensus["label"] if consensus else None,
+            "evidence": mode["evidence"],
             "schema_version": BASELINE_SCHEMA,
             "file": log_rel,
             "record": rel,

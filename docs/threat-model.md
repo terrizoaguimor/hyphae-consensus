@@ -1598,10 +1598,11 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
     questions): the judge lane's daily cap (default: the whole $15 slice, so a day's
     exposure is $25); the ring's eviction of in-window visitor runs under load; the public
     contact email; the legal texts in four languages; the Day-2 items (hostname, named
-    Tunnel, Turnstile widget and secret, the dedicated server key); whether an optional
-    single-model baseline battery is run; egress for updates and the resolved-address
-    allowlist; `CONSENSUS_LIVE_EXPOSURE_DAYS` against the judging window; Bot Fight Mode;
-    staging after go-live; `sudo -n` or group membership for the origin probes.
+    Tunnel, Turnstile widget and secret, the dedicated server key); egress for updates and
+    the resolved-address allowlist; `CONSENSUS_LIVE_EXPOSURE_DAYS` against the judging
+    window; Bot Fight Mode; staging after go-live; `sudo -n` or group membership for the
+    origin probes. The optional single-model baseline battery is no longer open: approved
+    2026-11-01 (about 4 runs, cap $5; `docs/evaluation.md` §7), not run yet.
 24. **Residuals accepted for the hackathon:** a generated operator token is printed once
     to stdout (use `CONSENSUS_OPERATOR_TOKEN_FILE`; the template does); a key passed by
     variable is visible in the process environment (use the key file); a mistyped judge

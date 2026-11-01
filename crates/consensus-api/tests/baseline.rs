@@ -163,8 +163,9 @@ fn env_for(base_url: &str, extra: &[(&'static str, &str)]) -> impl Fn(&str) -> O
         ("CONSENSUS_META_BASE_URL".into(), base_url.into()),
         ("CONSENSUS_MODEL".into(), "muse-wonder-1.0".into()),
     ];
-    for (k, v) in extra {
-        vars.push((k.to_string(), v.to_string()));
+    // Extras first: they override the defaults above.
+    for (k, v) in extra.iter().rev() {
+        vars.insert(0, (k.to_string(), v.to_string()));
     }
     move |name: &str| vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone())
 }
@@ -224,6 +225,13 @@ fn baseline_run_writes_a_verifiable_log_with_one_meta_call() {
     );
     assert_eq!(summary["task"]["mode"]["evidence"], "simulated");
     assert_eq!(summary["task"]["mode"]["origin"], "cli");
+    // ... and at the top of the summary, never only deep in the JSON.
+    assert_eq!(summary["evidence_mode"], "simulated");
+    assert!(summary["evidence_warning"]
+        .as_str()
+        .unwrap()
+        .starts_with("SIMULATED"));
+    assert!(summary["note"].as_str().unwrap().starts_with("SIMULATED"));
     // A SIMULATED proof says so; it is never presented as a real check.
     assert_eq!(summary["verifications"][0]["verifier"], "fake-verifier");
     // The open objection would have kept the consensus policy from
@@ -339,6 +347,22 @@ fn with_a_consensus_log_the_baseline_recalls_with_that_runs_claims() {
     let (code, _, stderr) = cli(&mismatched, &env);
     assert_eq!(code, 1);
     assert!(stderr.contains("another task"), "{stderr}");
+    assert_eq!(server.hits(), 1, "no call for the refused run");
+    assert_eq!(std::fs::read_dir(&other).unwrap().count(), 0);
+
+    // A Meta configuration with another model than the consensus run's is
+    // refused before any call: the comparison holds the model equal.
+    let other_model = env_for(&server.base_url, &[("CONSENSUS_MODEL", "muse-other-2.0")]);
+    let other = temp_dir("baseline-cli-consensus-model");
+    let mut wrong_model = base;
+    wrong_model[6] = other.to_str().unwrap();
+    let (code, _, stderr) = cli(&wrong_model, &other_model);
+    assert_eq!(code, 1);
+    assert!(
+        stderr.contains("sends model \"muse-other-2.0\""),
+        "{stderr}"
+    );
+    assert!(stderr.contains("\"muse-wonder-1.0\""), "{stderr}");
     assert_eq!(server.hits(), 1, "no call for the refused run");
     assert_eq!(std::fs::read_dir(&other).unwrap().count(), 0);
 }

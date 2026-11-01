@@ -30,8 +30,8 @@ What this shows: the runtime handles contradictions, abstention, proof gating,
 offline memory, model failure, and hostile memory text the way its rules say it
 should. What it does **not** show: anything about live model quality, and it is
 **not a baseline comparison**. No single-agent baseline is executed (§7 plans one; not
-run yet); the "first
-proposal" column is the case author's label for the scripted first proposal.
+run yet); the "first proposal" column is the case author's label for the scripted first
+proposal.
 
 | Case | First proposal (authored label) | Runtime outcome | Model calls |
 |---|---|---|---|
@@ -782,7 +782,7 @@ one agent working alone, in one call, approve proposals that the three-role cons
 | Held equal | Consensus (M01–M04, §6.3) | Baseline | Enforced by |
 |---|---|---|---|
 | Tasks | `R01-reference`, `R05-add-jitter`, `R07-exp-backoff`, `R04-remove-cap` on `demo-repo` | the same four, paired B01–M01, B02–M02, B03–M03, B04–M04 | `scripts/baseline_battery.py` loads `TASKS` from `scripts/live_battery.py` (never a copy); `consensus-api baseline run` refuses a paired consensus run whose project, title or description differ |
-| Model | Meta `muse-wonder-1.0`, `max_completion_tokens` 16,000 | the same, through the same adapter path (`MetaModelClient`, strict structured output, same retry and time-budget rules) | the operator's Meta configuration, the variables `serve-operator` reads; each invocation records model, request id, latency, tokens, `prompt_sha256` and `schema_sha256` |
+| Model | Meta `muse-wonder-1.0`, `max_completion_tokens` 16,000 | the same, through the same adapter path (`MetaModelClient`, strict structured output, same retry and time-budget rules) | the operator's Meta configuration, the variables `serve-operator` reads, checked: `consensus-api baseline run --queries-from` refuses, before its call, a configuration whose model, `max_completion_tokens` or `reasoning_effort` differs from what the paired run's calls recorded, and the driver records both sides in the run record's `parity` block and stops on a mismatch; each invocation records model, request id, latency, tokens, `prompt_sha256` and `schema_sha256` |
 | Evidence | the re-seeded demo store, anchor `27943f61…f42347c`; each run retrieved all 7 records | recall queries = every claim statement of the paired M run (its proposal and each revision, in order, each once), so the baseline recalls what that run's final round held in context | the runtime's own evidence stage (`recall_evidence` in `crates/consensus-runtime/src/orchestrator.rs`, shared by both: same memory port, 5 records per recall, 20 per run, foreign-record drop, `recall_proven` records); the plan records the paired log's SHA-256 and run id |
 | Proof checks | `hyphae proof verify` pinned to the anchor, every record | the same check (`check_integrity`, shared), one `evidence_verified` per record | the operator's Hyphae configuration with `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` pinned |
 | What the model sees of a record | id, kind, integrity status, content (bounded), in an `<UNTRUSTED_EVIDENCE>` block | the same block (`evidence_block`) | `crates/consensus-api/src/meta/baseline.rs` |
@@ -815,7 +815,13 @@ as reported, not normalized.
    makes exactly one Meta call; the driver stops at the first run that could not be
    recorded. The baseline is not metered by the live ledger: the spend bound is four calls
    (plus any 429/503 retries the adapter makes, recorded in `attempts`) under the
-   `CONSENSUS_MAX_RUN_TOKENS` cap.
+   `CONSENSUS_MAX_RUN_TOKENS` cap. Because the ledger never sees it, its spend sits outside
+   the deployment's daily and total caps even when the same owner key is used: the driver
+   prints each run's input and output tokens and the running totals, and the integrator
+   reconciles them by hand (tokens from the archived invocations, at the prices the ledger
+   is configured with, `CONSENSUS_META_PRICE_INPUT_PER_M` and
+   `CONSENSUS_META_PRICE_OUTPUT_PER_M`, reasoning tokens at the output price) against the
+   owner's $5 approval, and reports the figure with the results.
 4. `consensus-api baseline verify <OUT_DIR>/runs/<run_id>.jsonl` for each run (chain,
    replay, re-derived counts; the printed summary must equal the one in the run record).
 5. Archive: copy `<OUT_DIR>/B0N.json` and `<OUT_DIR>/runs/` (not `<OUT_DIR>/consensus/`,
@@ -827,7 +833,13 @@ as reported, not normalized.
    `baseline_runs`, never under `runs`: the consensus event log refuses a baseline log
    (its `schema_version` is `baseline-1.0`; every record also says `run_kind:
    single_agent_baseline`), so no consensus tool can read, replay or serve one as a
-   consensus run.
+   consensus run. Only runs the binary recorded (exit 0, completed or failed) on live Hyphae
+   evidence are archived: a run record with a non-zero exit code, or with `exit_code` null
+   and `error: "timeout"` (the driver's time limit), and a log in `runs/` without a run
+   record (what a timed-out run can leave) stay out of the battery directory and are
+   reported with the results; so does any `--smoke` run (memory fake, SIMULATED proofs,
+   `evidence_warning` set in its summary). The manifest script and the archive tests refuse
+   all of them.
 
 ### 7.3 What is compared, per task
 
@@ -861,7 +873,11 @@ All from the archived records; nothing typed in.
    runtime's policy rules would derive from the baseline's own claim assessments, its open
    objections and the verification records. A comparison aid only (`BaselineRun::policy_reading`),
    never recorded in the log and never a recommendation. It separates an agent that did
-   not see a problem from one that saw it and approved anyway.
+   not see a problem from one that saw it and approved anyway. The rule order is pinned to
+   the log's schema version (`baseline-1.0`: policy rules 1.2, `BASELINE_POLICY`), not to
+   whatever the consensus rules are when the log is read, and the summary names it
+   (`policy_reading.version`), so an archived reading does not change if the consensus
+   rules do.
 6. **Cost.** Calls, input/output/reasoning tokens and model latency, from the
    invocations, against the paired run's.
 
@@ -874,9 +890,10 @@ holds:
   Evaluator cited as contradicting in any round of the paired run;
 - the baseline's proposal does what the consensus revised away from in the paired run
   (for R04: removing the attempt cap or retrying until success, which M04's revision
-  replaced with the documented `max_attempts = 3, jitter_ms = 50`), or rests on a premise
-  the paired run's Evaluator recorded as contradicted (for R07: that retries already use a
-  fixed delay, which M03's Evaluator found contradicted by the default-policy record);
+  replaced with "max_attempts = 3 with jitter_ms of at least 50", its revision's words),
+  or rests on a premise the paired run's Evaluator recorded as contradicted (for R07:
+  that retries already use a fixed delay, which M03's Evaluator found contradicted by the
+  default-policy record);
 - the baseline's own record contradicts its verdict: `policy_reading` is not `supported`
   (an own `contradicting_evidence` entry, an `open` objection, or an uncorroborated
   claim).
@@ -903,7 +920,10 @@ with its disagreements.
   (`baseline-1.0`, the consensus envelope plus `run_kind`, the same hash-chain recipe),
   the contract the agent's document is checked against before it is recorded, the
   read-only verifier and replay (which refuses a re-hashed forgery of a verification
-  status, of the counts, of a dropped verification or of a cut log), and the summary.
+  status, of the counts, of a dropped verification, of a cut log, of records out of order
+  or by the wrong actor, of plan bounds, and of a document that breaks any contract rule),
+  and the summary (which names its evidence mode and carries a warning for anything but
+  live Hyphae evidence).
 - `crates/consensus-api/src/meta/baseline.rs`: the one Meta call (prompt, strict schema,
   draft checks). `crates/consensus-api/src/baseline_cli.rs`: the operator-only
   `consensus-api baseline run | verify` subcommand; no route, no change to `/api/v1`.

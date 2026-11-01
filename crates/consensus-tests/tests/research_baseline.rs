@@ -9,8 +9,8 @@
 
 use consensus_domain::*;
 use consensus_runtime::baseline::{
-    baseline_summary, consensus_queries, read_baseline, BaselineLog, BaselineRunner, QuerySource,
-    BASELINE_SCHEMA_VERSION, RUN_KIND,
+    baseline_summary, consensus_queries, read_baseline, BaselineLog, BaselineRun, BaselineRunner,
+    QuerySource, BASELINE_SCHEMA_VERSION, RUN_KIND,
 };
 use consensus_runtime::clock::{FixedClock, SequentialIdGen};
 use consensus_runtime::event_log::verify_bytes;
@@ -86,6 +86,19 @@ macro_rules! ensure {
     };
 }
 
+/// A baseline run's evidence is live Hyphae evidence, judged by the Meta
+/// model: a run recorded with simulated proofs (`--memory fake`, the
+/// driver's `--smoke`), or with no mode at all, is never archived.
+fn live_evidence(what: &str, run: &BaselineRun) -> Result<(), String> {
+    ensure!(
+        matches!(&run.task.mode, Some(m)
+            if m.evidence == EvidenceMode::LiveHyphae && m.model == ModelMode::Meta),
+        "{what}: not live Hyphae evidence with the Meta model (mode {:?}); simulated or unrecorded evidence is never archived",
+        run.task.mode
+    );
+    Ok(())
+}
+
 /// Every check on an archive's baseline runs; the number of runs checked.
 /// Each baseline log verifies and replays, is refused by the consensus
 /// event log, and is listed by exactly one baseline run whose outcome,
@@ -114,6 +127,7 @@ fn check_baseline_archive(root: &Path, m: &Value) -> Result<usize, String> {
             verify_bytes(&bytes).is_err(),
             "{rel}: the consensus event log must refuse a baseline log"
         );
+        live_evidence(rel, &run)?;
     }
     let (mut used_logs, mut used_records, mut labels) =
         (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
@@ -156,6 +170,12 @@ fn check_baseline_archive(root: &Path, m: &Value) -> Result<usize, String> {
             file.ends_with(&format!("/runs/{}.jsonl", run.run_id)),
             "{label}: log path"
         );
+        live_evidence(label, &run)?;
+        ensure!(
+            r["evidence"] == "live_hyphae",
+            "{label}: the manifest's evidence is {}, not live_hyphae",
+            r["evidence"]
+        );
         let record = text(r, "record")?;
         ensure!(
             records.iter().any(|f| f["path"] == record),
@@ -169,6 +189,11 @@ fn check_baseline_archive(root: &Path, m: &Value) -> Result<usize, String> {
             .map_err(|e| format!("{record}: {e}"))?;
         ensure!(rec["name"] == label, "{label}: record name");
         ensure!(rec["exit_code"] == 0, "{label}: exit code");
+        ensure!(
+            rec["memory"] == "hyphae",
+            "{label}: the record's memory is {}, not hyphae",
+            rec["memory"]
+        );
         let mut summary = rec["summary"].clone();
         let log = summary
             .as_object_mut()
@@ -290,8 +315,8 @@ fn file_entry(root: &Path, rel: &str, kind: &str, events: Option<u64>) -> Value 
 
 /// A synthetic archive: one consensus run (scripted) and one baseline run
 /// paired with it, laid out as the driver and the manifest script lay them
-/// out. Returns the manifest.
-fn synthetic_archive(root: &Path) -> Value {
+/// out, its task recorded with `mode`. Returns the manifest.
+fn synthetic_archive(root: &Path, mode: Option<TaskMode>) -> Value {
     let day = "2026-11-01";
     // The consensus run, pinned like an archived store battery's.
     let consensus_rel = format!("{day}/consensus/runs/consensus.jsonl");
@@ -314,7 +339,8 @@ fn synthetic_archive(root: &Path) -> Value {
 
     // The baseline run, as `consensus-api baseline run` writes it.
     let base = format!("{day}/baseline-{day}");
-    let b = baseline_scenario();
+    let mut b = baseline_scenario();
+    b.input.mode = mode;
     let input = b.input.clone();
     let mut runner = BaselineRunner {
         model: b.model,
@@ -355,6 +381,7 @@ fn synthetic_archive(root: &Path) -> Value {
             "sha256": sha256_hex(&consensus_bytes),
             "run_id": consensus.run_id,
         },
+        "memory": "hyphae",
         "exit_code": 0,
         "summary": summary,
         "wall_seconds": 1.0,
@@ -400,6 +427,7 @@ fn synthetic_archive(root: &Path) -> Value {
             "project": input.project_id,
             "outcome": run.outcome_label(),
             "consensus_label": "M91",
+            "evidence": input.mode.as_ref().map(|m| m.evidence),
             "schema_version": BASELINE_SCHEMA_VERSION,
             "file": log_rel,
             "record": record_rel,
@@ -407,11 +435,49 @@ fn synthetic_archive(root: &Path) -> Value {
     })
 }
 
+/// The mode `consensus-api baseline run` records with `--memory hyphae`
+/// (`evidence`: `LiveHyphae`) or `--memory fake` (`Simulated`).
+fn live_mode(evidence: EvidenceMode) -> TaskMode {
+    TaskMode {
+        model: ModelMode::Meta,
+        evidence,
+        origin: RunOrigin::Cli,
+        preset: None,
+    }
+}
+
 #[test]
 fn a_synthetic_baseline_battery_passes_the_archive_checks() {
     let tmp = TempDir::new("synthetic");
-    let m = synthetic_archive(&tmp.0);
+    let m = synthetic_archive(&tmp.0, Some(live_mode(EvidenceMode::LiveHyphae)));
     assert_eq!(check_baseline_archive(&tmp.0, &m), Ok(1));
+
+    // Simulated or unrecorded evidence is refused, whatever the manifest
+    // says of it.
+    let mut says_simulated = m.clone();
+    says_simulated["baseline_runs"][0]["evidence"] = json!("simulated");
+    assert!(check_baseline_archive(&tmp.0, &says_simulated)
+        .unwrap_err()
+        .contains("the manifest's evidence"));
+    let mut no_evidence = m.clone();
+    no_evidence["baseline_runs"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("evidence");
+    assert!(check_baseline_archive(&tmp.0, &no_evidence)
+        .unwrap_err()
+        .contains("the manifest's evidence"));
+    for (name, mode) in [
+        ("simulated", Some(live_mode(EvidenceMode::Simulated))),
+        ("unrecorded", None),
+    ] {
+        let other = TempDir::new(name);
+        let mut forged = synthetic_archive(&other.0, mode);
+        // Even when the manifest entry claims live evidence.
+        forged["baseline_runs"][0]["evidence"] = json!("live_hyphae");
+        let err = check_baseline_archive(&other.0, &forged).unwrap_err();
+        assert!(err.contains("not live Hyphae evidence"), "{name}: {err}");
+    }
 
     // Each kind of disagreement is caught.
     let mut wrong_outcome = m.clone();
@@ -448,6 +514,21 @@ fn a_synthetic_baseline_battery_passes_the_archive_checks() {
     assert!(check_baseline_archive(&tmp.0, &repinned)
         .unwrap_err()
         .contains("not what the log yields"));
+    // A record of a --smoke run.
+    let mut rec: Value = serde_json::from_slice(&original).unwrap();
+    rec["memory"] = json!("fake");
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&rec).unwrap()
+            + "
+",
+    )
+    .unwrap();
+    let mut repinned = m.clone();
+    repinned["files"][2] = file_entry(&tmp.0, &record_rel, "baseline_record", None);
+    assert!(check_baseline_archive(&tmp.0, &repinned)
+        .unwrap_err()
+        .contains("the record's memory"));
     // And a log edited after pinning.
     std::fs::write(&path, &original).unwrap();
     let log_rel = m["baseline_runs"][0]["file"].as_str().unwrap().to_string();

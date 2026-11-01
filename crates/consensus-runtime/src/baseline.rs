@@ -78,6 +78,14 @@ pub const BASELINE_SCHEMA_VERSION: &str = "baseline-1.0";
 /// `run_kind` of every baseline record.
 pub const RUN_KIND: &str = "single_agent_baseline";
 
+/// The policy rule order of a [`BASELINE_SCHEMA_VERSION`] log: the one the
+/// agent is told (the Meta adapter's verdict rules) and the one
+/// [`BaselineRun::policy_reading`] applies. Pinned to the schema version,
+/// not to [`PolicyVersion::CURRENT`], so an archived run's reading never
+/// changes when the consensus rules do; a new rule order for the baseline
+/// needs a new baseline schema version.
+pub const BASELINE_POLICY: PolicyVersion = PolicyVersion::V1_2;
+
 /// Most recall queries one baseline run may plan (twelve claims, the Meta
 /// adapter's cap, in each of four proposals: a consensus run's whole set).
 pub const MAX_QUERIES: usize = 48;
@@ -780,16 +788,16 @@ impl BaselineRun {
     }
 
     /// For comparison only, never recorded and never a recommendation:
-    /// what the consensus runtime's policy rules (current version) would
-    /// derive from the agent's own claim assessments, its open objections
-    /// as unresolved items and the run's verification records. It separates
-    /// "the agent saw the problem and approved anyway" from "the agent never
-    /// saw it".
+    /// what the consensus runtime's policy rules ([`BASELINE_POLICY`], the
+    /// rule order pinned to the log's schema version) would derive from the
+    /// agent's own claim assessments, its open objections as unresolved
+    /// items and the run's verification records. It separates "the agent
+    /// saw the problem and approved anyway" from "the agent never saw it".
     pub fn policy_reading(&self) -> Option<PolicyTrace> {
         let assessment = self.assessment.as_ref()?;
         self.outcome.as_ref()?;
         Some(explain(
-            PolicyVersion::CURRENT,
+            BASELINE_POLICY,
             &assessment.policy_evaluation(),
             &self.verifications,
         ))
@@ -1068,6 +1076,14 @@ pub fn baseline_summary(run: &BaselineRun, log_sha256: &str) -> serde_json::Valu
         .iter()
         .map(|(query, code)| json!({"query": query, "code": code}))
         .collect();
+    let evidence_mode = run.task.mode.as_ref().map(|m| m.evidence);
+    let evidence_warning = evidence_warning(evidence_mode);
+    let note = format!(
+        "{}{BASELINE_NOTE}",
+        evidence_warning
+            .map(|w| format!("{w} "))
+            .unwrap_or_default()
+    );
     json!({
         "format": SUMMARY_FORMAT,
         "run_kind": RUN_KIND,
@@ -1082,6 +1098,11 @@ pub fn baseline_summary(run: &BaselineRun, log_sha256: &str) -> serde_json::Valu
             "description": run.task.description,
             "mode": run.task.mode,
         },
+        // Where the records and their proofs came from, at the top level so
+        // no reader has to dig for it: `live_hyphae` is the only mode the
+        // research archive accepts.
+        "evidence_mode": evidence_mode,
+        "evidence_warning": evidence_warning,
         "recall": {
             "source": run.plan.source,
             "queries": run.plan.queries.len(),
@@ -1105,11 +1126,35 @@ pub fn baseline_summary(run: &BaselineRun, log_sha256: &str) -> serde_json::Valu
             "reason": f.reason,
         })),
         "policy_reading": run.policy_reading().map(|t| json!({
+            "version": t.version,
             "kind": t.kind,
             "rule": t.rule,
         })),
-        "note": "Single-agent baseline: one model call, no Critic, no Evaluator, no policy rounds. The agent's verdict is its own statement and policy_reading is a comparison aid; neither is a recommendation, nothing was executed and no human decision is recorded.",
+        "note": note,
     })
+}
+
+/// The fixed part of [`baseline_summary`]'s `note`.
+const BASELINE_NOTE: &str = "Single-agent baseline: one model call, no Critic, no Evaluator, no policy rounds. The agent's verdict is its own statement and policy_reading is a comparison aid; neither is a recommendation, nothing was executed and no human decision is recorded.";
+
+/// The warning a summary carries when its evidence is not live Hyphae
+/// evidence: `None` only for [`EvidenceMode::LiveHyphae`].
+pub fn evidence_warning(mode: Option<EvidenceMode>) -> Option<&'static str> {
+    match mode {
+        Some(EvidenceMode::LiveHyphae) => None,
+        Some(EvidenceMode::Simulated) => Some(
+            "SIMULATED evidence: scripted records with scripted proof outcomes; the integrity statuses were not verified against any Hyphae proof.",
+        ),
+        Some(EvidenceMode::Offline) => Some(
+            "OFFLINE: no memory backend; no record was retrieved or verified.",
+        ),
+        Some(EvidenceMode::SealedSnapshot) => Some(
+            "SEALED SNAPSHOT evidence: records from a pre-captured snapshot, not a live Hyphae recall.",
+        ),
+        None => Some(
+            "UNSPECIFIED evidence: the run records no evidence mode; treat its integrity statuses as unverified.",
+        ),
+    }
 }
 
 /// The single agent's one call. The document returned must keep
@@ -1941,6 +1986,312 @@ mod tests {
         let cut = forged(&records[..5], |_| {});
         let err = read_baseline(&cut).unwrap_err().to_string();
         assert!(err.contains("has no end"), "{err}");
+    }
+
+    /// `records` renumbered from 1 and re-chained: a forger's insertions
+    /// and removals.
+    fn reforged(records: Vec<BaselineRecord>) -> Vec<u8> {
+        let renumbered: Vec<BaselineRecord> = records
+            .into_iter()
+            .enumerate()
+            .map(|(n, mut r)| {
+                r.sequence = n as u64 + 1;
+                r
+            })
+            .collect();
+        forged(&renumbered, |_| {})
+    }
+
+    fn refused(bytes: &[u8]) -> String {
+        read_baseline(bytes).unwrap_err().to_string()
+    }
+
+    /// An edit of the agent's document.
+    type DocEdit = Box<dyn Fn(&mut BaselineAssessment)>;
+
+    #[test]
+    fn the_document_contract_refuses_each_broken_rule() {
+        let run_id = RunId::new("baseline-1");
+        let retrieved = [EvidenceId::new("ev-fact"), EvidenceId::new("ev-constraint")];
+        let mut base = baseline_document();
+        base.run_id = run_id.clone();
+        assert_eq!(validate_assessment(&run_id, &retrieved, &base), Ok(()));
+        let cases: Vec<(&str, DocEdit)> = vec![
+            (
+                "baseline_run_id",
+                Box::new(|d| d.run_id = RunId::new("baseline-other")),
+            ),
+            (
+                "baseline_has_claims",
+                Box::new(|d| {
+                    d.claims.clear();
+                    d.assessments.clear();
+                    d.objections.clear();
+                }),
+            ),
+            (
+                "claim_ids_unique",
+                Box::new(|d| d.claims[1].id = ClaimId::new("claim-1")),
+            ),
+            (
+                "one_assessment_per_claim: claim \"claim-2\" has no assessment",
+                Box::new(|d| {
+                    d.assessments.pop();
+                }),
+            ),
+            (
+                "one_assessment_per_claim",
+                Box::new(|d| {
+                    let again = d.assessments[0].clone();
+                    d.assessments.push(again);
+                }),
+            ),
+            (
+                "one_assessment_per_claim",
+                Box::new(|d| d.assessments[1].claim_id = ClaimId::new("claim-9")),
+            ),
+            (
+                "cited_evidence_retrieved",
+                Box::new(|d| d.assessments[0].relevant_evidence = vec![EvidenceId::new("ev-x")]),
+            ),
+            (
+                "item_ids_unique",
+                Box::new(|d| d.objections[0].id = " ".into()),
+            ),
+            (
+                "item_ids_unique",
+                Box::new(|d| {
+                    let again = d.objections[0].clone();
+                    d.objections.push(again);
+                }),
+            ),
+            (
+                "objection_targets_claim",
+                Box::new(|d| d.objections[0].claim_id = Some(ClaimId::new("claim-9"))),
+            ),
+            (
+                "objection_cites_retrieved",
+                Box::new(|d| d.objections[0].evidence_refs = vec![EvidenceId::new("ev-x")]),
+            ),
+            (
+                "verdict_has_reason",
+                Box::new(|d| d.verdict_reason = " \n".into()),
+            ),
+        ];
+        for (rule, edit) in cases {
+            let mut doc = base.clone();
+            edit(&mut doc);
+            let err = validate_assessment(&run_id, &retrieved, &doc)
+                .expect_err(rule)
+                .to_string();
+            assert!(err.contains(rule), "{rule}: {err}");
+        }
+        // The baseline's own variants, matched exactly.
+        let mut doc = base.clone();
+        doc.objections[0].evidence_refs = vec![EvidenceId::new("ev-x")];
+        assert_eq!(
+            validate_assessment(&run_id, &retrieved, &doc),
+            Err(BaselineViolation::ObjectionUnretrieved {
+                objection: "obj-1".into(),
+                evidence: EvidenceId::new("ev-x"),
+            })
+        );
+        // An objection naming no claim, or citing nothing, is allowed.
+        let mut doc = base.clone();
+        doc.objections[0].claim_id = None;
+        doc.objections[0].evidence_refs.clear();
+        assert_eq!(validate_assessment(&run_id, &retrieved, &doc), Ok(()));
+    }
+
+    #[test]
+    fn replay_refuses_records_out_of_order_or_by_the_wrong_actor() {
+        let (_, path, _, _) = reference("order");
+        let records = verify_baseline_bytes(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(kinds(&records[4..5]), ["baseline_assessed"]);
+        // The unedited records replay.
+        assert!(read_baseline(&reforged(records.clone())).is_ok());
+
+        // Evidence of any kind after the assessment.
+        let late: Vec<BaselinePayload> = vec![
+            BaselinePayload::EvidenceRetrieved {
+                evidence: evidence("ev-late", "demo-repo", "fact", "Fact: late."),
+            },
+            BaselinePayload::EvidenceUnavailable {
+                query: "q".into(),
+                reason: "r".into(),
+                code: None,
+            },
+            BaselinePayload::RecallProven {
+                request: ProofRequest {
+                    operation: "list".into(),
+                    project: "demo-repo".into(),
+                    query: None,
+                    limit: Some(5),
+                },
+                evidence_ids: vec![],
+                proof_ref: "proof-late".into(),
+                anchor: "a".repeat(64),
+                empty: true,
+            },
+        ];
+        for payload in late {
+            let mut v = records.clone();
+            let mut extra = records[2].clone();
+            extra.event_id = EventId::new("evt-late");
+            extra.payload = payload;
+            v.insert(5, extra);
+            let err = refused(&reforged(v));
+            assert!(err.contains("evidence outside the recall stage"), "{err}");
+        }
+        // A second task.
+        let mut v = records.clone();
+        let mut again = records[0].clone();
+        again.event_id = EventId::new("evt-again");
+        v.insert(1, again);
+        let err = refused(&reforged(v));
+        assert!(err.contains("the task is not the first record"), "{err}");
+
+        // Per-record edits, re-hashed.
+        let edit = |edit: &dyn Fn(&mut BaselineRecord)| refused(&forged(&records, edit));
+        let err = edit(&|r| {
+            if r.sequence == 1 {
+                r.actor = BaselineActor::Runtime;
+            }
+        });
+        assert!(err.contains("not submitted by a human"), "{err}");
+        let err = edit(&|r| {
+            if let BaselinePayload::TaskCreated { task } = &mut r.payload {
+                task.run_id = RunId::new("baseline-other");
+            }
+        });
+        assert!(err.contains("the task names another run"), "{err}");
+        let err = edit(&|r| {
+            if let BaselinePayload::RecallPlanned { .. } = r.payload {
+                r.actor = BaselineActor::Human { id: "op".into() };
+            }
+        });
+        assert!(err.contains("by the runtime"), "{err}");
+        let err = edit(&|r| {
+            if let BaselinePayload::RecallPlanned { plan } = &mut r.payload {
+                plan.limit_per_query = RECALL_LIMIT as u32 + 1;
+            }
+        });
+        assert!(
+            err.contains("the plan's bounds are not the runtime's"),
+            "{err}"
+        );
+        let err = edit(&|r| {
+            if let BaselinePayload::RecallPlanned { plan } = &mut r.payload {
+                plan.max_records = MAX_EVIDENCE_PER_RUN as u32 + 1;
+            }
+        });
+        assert!(
+            err.contains("the plan's bounds are not the runtime's"),
+            "{err}"
+        );
+        let err = edit(&|r| {
+            if let BaselinePayload::RecallPlanned { plan } = &mut r.payload {
+                plan.queries = vec!["q".into(); MAX_QUERIES + 1];
+            }
+        });
+        assert!(
+            err.contains("49 queries planned (1 to 48 allowed)"),
+            "{err}"
+        );
+        let err = edit(&|r| {
+            if let BaselinePayload::RecallPlanned { plan } = &mut r.payload {
+                plan.queries.clear();
+            }
+        });
+        assert!(err.contains("0 queries planned"), "{err}");
+        let err = edit(&|r| {
+            if let BaselinePayload::EvidenceRetrieved { .. } = r.payload {
+                r.actor = BaselineActor::Agent {
+                    role: BaselineRole::SingleAgent,
+                };
+            }
+        });
+        assert!(err.contains("evidence outside the recall stage"), "{err}");
+        let err = edit(&|r| {
+            if let BaselinePayload::BaselineAssessed { .. } = r.payload {
+                r.actor = BaselineActor::Runtime;
+            }
+        });
+        assert!(err.contains("by the single agent"), "{err}");
+        let err = edit(&|r| {
+            if let BaselinePayload::EvidenceVerified { .. } = r.payload {
+                r.actor = BaselineActor::Agent {
+                    role: BaselineRole::SingleAgent,
+                };
+            }
+        });
+        assert!(err.contains("outside the verification stage"), "{err}");
+        let err = edit(&|r| {
+            if let BaselinePayload::BaselineCompleted { .. } = r.payload {
+                r.actor = BaselineActor::Agent {
+                    role: BaselineRole::SingleAgent,
+                };
+            }
+        });
+        assert!(err.contains("completes only after its assessment"), "{err}");
+
+        // The document is checked again on replay, rule by rule.
+        let doc_edit = |change: &dyn Fn(&mut BaselineAssessment)| {
+            edit(&|r| {
+                if let BaselinePayload::BaselineAssessed { assessment, .. } = &mut r.payload {
+                    change(assessment);
+                }
+            })
+        };
+        let err = doc_edit(&|d| d.objections[0].evidence_refs = vec![EvidenceId::new("ev-x")]);
+        assert!(err.contains("objection_cites_retrieved"), "{err}");
+        assert!(err.contains("record 5 (baseline_assessed)"), "{err}");
+        let err = doc_edit(&|d| d.objections[0].claim_id = Some(ClaimId::new("claim-9")));
+        assert!(err.contains("objection_targets_claim"), "{err}");
+        let err = doc_edit(&|d| d.verdict_reason.clear());
+        assert!(err.contains("verdict_has_reason"), "{err}");
+        let err = doc_edit(&|d| d.run_id = RunId::new("baseline-other"));
+        assert!(err.contains("baseline_run_id"), "{err}");
+    }
+
+    #[test]
+    fn the_summary_flags_evidence_that_is_not_live_hyphae() {
+        let (run, _, _, _) = reference("summary-evidence");
+        let digest = "0".repeat(64);
+        // The scripted reference task records no mode.
+        let summary = baseline_summary(&run, &digest);
+        assert_eq!(summary["evidence_mode"], serde_json::Value::Null);
+        let warning = summary["evidence_warning"].as_str().unwrap();
+        assert!(warning.starts_with("UNSPECIFIED"), "{warning}");
+        assert!(summary["note"].as_str().unwrap().starts_with(warning));
+        // The policy reading names the rule order it applied: the one
+        // pinned to the baseline schema version.
+        assert_eq!(summary["policy_reading"]["version"], "1.2");
+        assert_eq!(summary["policy_reading"]["kind"], "contested");
+        assert_eq!(run.policy_reading().unwrap().version, PolicyRules::V1_2);
+        let mode = |evidence| TaskMode {
+            model: ModelMode::Meta,
+            evidence,
+            origin: RunOrigin::Cli,
+            preset: None,
+        };
+        let mut simulated = run.clone();
+        simulated.task.mode = Some(mode(EvidenceMode::Simulated));
+        let summary = baseline_summary(&simulated, &digest);
+        assert_eq!(summary["evidence_mode"], "simulated");
+        let warning = summary["evidence_warning"].as_str().unwrap();
+        assert!(warning.starts_with("SIMULATED"), "{warning}");
+        assert!(warning.contains("not verified"), "{warning}");
+        assert!(summary["note"].as_str().unwrap().starts_with("SIMULATED"));
+        let mut live = run.clone();
+        live.task.mode = Some(mode(EvidenceMode::LiveHyphae));
+        let summary = baseline_summary(&live, &digest);
+        assert_eq!(summary["evidence_mode"], "live_hyphae");
+        assert_eq!(summary["evidence_warning"], serde_json::Value::Null);
+        assert_eq!(summary["note"], BASELINE_NOTE);
+        for other in [EvidenceMode::Offline, EvidenceMode::SealedSnapshot] {
+            assert!(evidence_warning(Some(other)).is_some());
+        }
     }
 
     #[test]

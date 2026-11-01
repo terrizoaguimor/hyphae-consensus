@@ -15,7 +15,12 @@
 # at ../../ from apps/web): rust in the ubuntu:24.04 digest of
 # scripts/linux-gates.sh as a non-root user; web in the image below as
 # root with HOME=/github/home owned by the runner, as GitHub runs a
-# container job.
+# container job. cargo-deny ran as the same release (0.20.2) with the
+# action's arguments inside that Ubuntu container; the action's own Alpine
+# container was not reproduced. The web job was reproduced at 4 vCPU / 16 GB
+# (public runner) and 2 vCPU / 7 GB (private runner): at 2 vCPU with 4
+# workers a WebKit focus test fails, so Playwright runs with 2 workers
+# (2 vCPU / 7 GB, 2 workers: 501 passed, about 1 h).
 name: ci
 
 on:
@@ -77,18 +82,25 @@ jobs:
         run: pnpm check
       # pnpm check runs Vitest before the build, so the scan of the built CSS
       # (tests/radius-scan.test.ts, runIf out/ exists) is skipped there on a
-      # fresh checkout; run it again over the export just built.
+      # fresh checkout; run it again over the export just built. Fail if the
+      # export is missing, so the scan can never be skipped here silently.
       - name: Radius scan of the built CSS (needs out/)
-        run: pnpm exec vitest run tests/radius-scan.test.ts
+        run: |
+          test -d out
+          pnpm exec vitest run tests/radius-scan.test.ts
       - name: Playwright + axe
         if: ${{ hashFiles('apps/web/playwright.config.ts') != '' }}
         # GitHub runs the container as root with HOME=/github/home, owned by
         # the runner user; Firefox then refuses to start ("Running Nightly as
         # root in a regular user's session is not supported") and every
         # firefox @smoke test fails at launch. Playwright's documented
-        # workaround: HOME=/root for this step.
+        # workaround: HOME=/root for this step. The repo is private, so a push
+        # runs on the 2-vCPU / 7 GB runner; there the config's default of 4
+        # workers makes a WebKit focus test (e2e/navigation.spec.ts) time out.
+        # 2 workers pass at 2 vCPU and at 4 vCPU.
         env:
           HOME: /root
+          PW_WORKERS: "2"
         run: pnpm exec playwright test
       # The config's reporters are list and json; traces, screenshots, the
       # JSON report and the axe results all land in test-results/ (there is

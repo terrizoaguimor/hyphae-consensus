@@ -173,9 +173,22 @@ grammar is `allow|deny|reject|limit [in|out] ... [proto PROTOCOL] [from ADDRESS
 with `ufw default allow|deny|reject [incoming|outgoing|routed]`, and "the first match
 wins" `[UB-3]`. The Ubuntu Server guide shows `ufw allow proto tcp from <ip> to any
 port 22`, `ufw status numbered`, `ufw delete <rule>` and `ufw logging on` `[UB-2]`.
-ufw has no hostname rules, so the HTTPS destinations are resolved at rule time
-(re-run that block if `api.meta.ai` or `challenges.cloudflare.com` change addresses;
-section 9.2 checks it daily).
+ufw has no hostname rules. `challenges.cloudflare.com` is resolved at rule time
+(re-run that line if it changes addresses; section 9.2 checks it daily). `api.meta.ai`
+is NOT: each DNS answer carries one address (a CNAME to `star.c10r.facebook.com`), and
+the answer rotates between Meta edge addresses from one lookup to the next. On
+2026-11-01, 60 uncached lookups on the server returned three addresses, and 15 minutes
+later 30 lookups returned a fourth that no rule allowed: a third of the connections
+then timed out. The Meta client retries a connect that failed (nothing was sent,
+`meta.rs`), but each blocked address costs the 10-second connect timeout first, and a
+call fails once its attempts run out. The rule therefore
+allows the address blocks that answer for `api.meta.ai`, on TCP 443 only: `57.144.0.0/14`
+(inside RIPE's `FB-BLOCK` 57.141.0.0-57.149.255.255, announced whole by Meta's
+AS32934), `157.240.0.0/16` (ARIN `THEFA-3`, AS32934) and `2a03:2880::/32` (AS32934),
+checked with RIPEstat (`https://stat.ripe.net/data/prefix-overview/data.json?resource=<ip>`
+names the announced prefix and its origin AS) before the rules went in. Re-check that
+every address `api.meta.ai` resolves to is inside one of them (section 9.2) and, if
+Meta answers from another block, check that block the same way before adding it.
 
 cloudflared needs outbound TCP **and** UDP 7844 to `region1.v2.argotunnel.com` and
 `region2.v2.argotunnel.com` (the `quic` default uses UDP and falls back to `http2` on
@@ -209,11 +222,14 @@ for prefix in 2606:4700:a0 2606:4700:a8; do for n in 1 2 3 4 5 6 7 8 9 10; do
   sudo ufw allow out to "$prefix::$n" port 7844 proto tcp comment 'cloudflared edge v6'
   sudo ufw allow out to "$prefix::$n" port 7844 proto udp comment 'cloudflared edge v6'
 done; done
-# Meta Model API and Turnstile Siteverify over HTTPS: resolved now
-for host in api.meta.ai challenges.cloudflare.com; do
-  for ip in $(getent ahostsv4 "$host" | awk '{print $1}' | sort -u); do
-    sudo ufw allow out to "$ip" port 443 proto tcp comment "$host"
-  done
+# Meta Model API over HTTPS: Meta's address blocks (AS32934), because the
+# answer for api.meta.ai rotates per lookup (see above)
+for net in 57.144.0.0/14 157.240.0.0/16 2a03:2880::/32; do
+  sudo ufw allow out to "$net" port 443 proto tcp comment 'api.meta.ai (AS32934)'
+done
+# Turnstile Siteverify over HTTPS: resolved now
+for ip in $(getent ahostsv4 challenges.cloudflare.com | awk '{print $1}' | sort -u); do
+  sudo ufw allow out to "$ip" port 443 proto tcp comment 'challenges.cloudflare.com'
 done
 sudo ufw logging on
 sudo ufw enable
@@ -303,7 +319,8 @@ the ledger, not the journal, is the record of spend.
 ### 3.1 The `consensus-api` binary, built reproducibly
 
 `scripts/linux-gates.sh` runs fmt, clippy, the workspace and demo-crate tests, the
-evaluation and the snapshot tooling self-tests inside `ubuntu:24.04` pinned by digest
+evaluation, the snapshot tooling self-tests and the `verify-edge.sh` self-test inside
+`ubuntu:24.04` pinned by digest
 (glibc 2.39, the deployment target), with toolchain `1.99.1` pinned by
 `rust-toolchain.toml`, the repository mounted read-only and the toolchain, registry
 and target directory in named Docker volumes (the target volume is per checkout path).
@@ -1339,7 +1356,13 @@ and pass `--no-sudo`: the group means "may connect to the public socket", which 
 exactly what the probe does (open question 7).
 
 Any `DIFFER` means an edge feature of section 7.7 is still on (or a challenge page was
-served); fix the setting and re-run. The Playwright part of G6 (CSP violations across
+served); fix the setting and re-run. One field is masked before the comparison: in
+`/api` bodies the value of `daily_available_now` (live mode's budget in
+`/api/v1/capabilities`), which grows by the second as the daily cap is released, so two
+reads a moment apart never agree while live mode is on; the NOTE column says when the
+mask decided. `deploy/scripts/verify-edge-selftest.sh` (gate `edge-selftest` of
+`scripts/linux-gates.sh`) checks the comparison without network.
+The Playwright part of G6 (CSP violations across
 pages × locales × themes, the Turnstile flow) is the web lane's.
 
 ### 8.5 SSE through the tunnel: heartbeat and resume
@@ -1609,7 +1632,9 @@ sudo ~/consensus/deploy/scripts/kill-switch.sh status                           
 ledger=$(grep -E '^CONSENSUS_LIVE_LEDGER_DIR=' /etc/consensus/public.env | cut -d= -f2-)
 sudo tail -n 5 "$ledger/$(date -u +%F).jsonl" 2>/dev/null                               # today's reservations and settlements (no PII: ids and amounts)
 # egress allowlist still valid? (section 2.4)
-for host in api.meta.ai challenges.cloudflare.com; do getent ahostsv4 "$host" | awk '{print $1}' | sort -u | sed "s/^/$host /"; done
+getent ahostsv4 challenges.cloudflare.com | awk '{print $1}' | sort -u | sed 's/^/challenges.cloudflare.com /'
+# api.meta.ai rotates per lookup: sample it; every address must be inside 57.144.0.0/14 or 157.240.0.0/16
+for i in $(seq 1 30); do resolvectl query --cache=no -4 api.meta.ai | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}'; done | sort | uniq -c
 sudo ufw status | grep -E 'api.meta.ai|challenges.cloudflare.com'
 ```
 
@@ -1897,11 +1922,14 @@ templates and scripts under `deploy/`.
    80/443 are allowed. This runbook allows 123/udp outright and opens 80/443 only in
    maintenance windows (section 2.4). Decide whether to allow the security mirrors
    permanently.
-2. **Resolved-address allowlist.** `api.meta.ai` and `challenges.cloudflare.com` are
-   allowed by the addresses they resolve to at rule time (ufw has no hostname rules). If
-   they rotate, live runs fail until the rules are refreshed (daily check, 9.2). The
-   alternative is `ufw allow out to any port 443 proto tcp`, which is looser than the
-   decision.
+2. **Address allowlist.** `challenges.cloudflare.com` is allowed by the addresses it
+   resolves to at rule time (ufw has no hostname rules); `api.meta.ai`, whose answer
+   rotates per lookup, by Meta's AS32934 blocks `57.144.0.0/14`, `157.240.0.0/16` and
+   `2a03:2880::/32` on 443 (section 2.4). Those blocks also serve Meta's other sites, so
+   the server can reach them on 443 too; that is looser than one address but still
+   Meta only. If an address falls outside them, live runs fail until the rules are
+   refreshed (daily check, 9.2). The alternative is `ufw allow out to any port 443 proto
+   tcp`, which is looser than the decision.
 3. **`CONSENSUS_LIVE_EXPOSURE_DAYS`.** With $10 a day and $60 lifetime, the server refuses
    to start with the variable set to 7 or more days (`daily × days ≤ lifetime`), and the
    exposure from go-live to 2026-11-10 is longer than six days. Either leave it unset and

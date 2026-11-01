@@ -3,7 +3,10 @@
 #
 # Gate G6, edge versus origin: fetches the same paths from the origin (the
 # public unix socket on the server) and from the public hostname (through
-# Cloudflare), and compares the bodies byte for byte. Also prints
+# Cloudflare), and compares the bodies byte for byte (one exception: in /api
+# bodies the value of "daily_available_now" is masked first, because the
+# live budget refills by the second and two reads never agree while live
+# mode is on; the NOTE column says so when the mask decided). Also prints
 # cf-cache-status for every path (/api and /research must never be HIT) and
 # the security headers seen at the edge. Runbook section 8.4.
 #
@@ -28,7 +31,7 @@
 # token with a Service Auth policy, runbook 7.9); the edge requests then
 # carry the two Access headers. Exit status: 0 when every body is identical,
 # every status matches and no cf-cache-status is HIT on /api or /research;
-# 1 otherwise.
+# 1 otherwise. Self-test without network: deploy/scripts/verify-edge-selftest.sh.
 set -euo pipefail
 
 HOSTNAME_=""
@@ -45,7 +48,7 @@ while [ $# -gt 0 ]; do
     --socket) SOCKET="$2"; shift 2 ;;
     --path) PATHS+=("$2"); shift 2 ;;
     --keep) KEEP="$2"; shift 2 ;;
-    -h|--help) sed -n '3,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,34p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
   esac
 done
@@ -94,6 +97,14 @@ origin_fetch() {
   tail -c 3 "$raw"
 }
 
+# mask_volatile <file>: the body with the value of every "daily_available_now"
+# replaced (live.budget in /api/v1/capabilities: it grows continuously as the
+# daily cap is released, so origin and edge reads a moment apart differ there
+# and nowhere else). Applied to /api bodies only.
+mask_volatile() {
+  sed -E 's/"daily_available_now":"[0-9]+(\.[0-9]+)?"/"daily_available_now":"<masked>"/g' "$1"
+}
+
 status=0
 printf '%-32s %-6s %-6s %-7s %-12s %s\n' PATH ORIGIN EDGE BODIES CACHE-STATUS NOTE
 for p in "${PATHS[@]}"; do
@@ -108,7 +119,14 @@ for p in "${PATHS[@]}"; do
   if [ "$e_code" = ERR ]; then
     note="${note:+$note; }edge: $(head -n 1 "$work/edge$safe.err" 2>/dev/null || true)"; status=1
   fi
-  if cmp -s "$work/origin$safe" "$work/edge$safe"; then bodies=equal; else bodies=DIFFER; status=1; fi
+  if cmp -s "$work/origin$safe" "$work/edge$safe"; then
+    bodies=equal
+  elif case "$p" in /api/*) true ;; *) false ;; esac &&
+       cmp -s <(mask_volatile "$work/origin$safe") <(mask_volatile "$work/edge$safe"); then
+    bodies=equal; note="${note:+$note; }equal once daily_available_now is masked (refills by the second)"
+  else
+    bodies=DIFFER; status=1
+  fi
   cache="$(grep -i '^cf-cache-status:' "$work/edge$safe.h" 2>/dev/null | tr -d '\r' | awk '{print $2}' | tail -n 1 || true)"
   case "$p" in
     /api/*|/research/*)

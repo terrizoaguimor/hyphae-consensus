@@ -14,6 +14,11 @@
 //   challenge admits at most one run, whatever the answer. `spend()` hands
 //   the token to exactly one request and asks the widget for a new
 //   challenge at once; the form never sends a token twice.
+// - Status: "loading" only until the widget is on the page; "ready" while a
+//   rendered challenge waits for the person (after render, reset or expiry,
+//   and when it enters interactive mode); "passed" with a token; "failed"
+//   on an error or timeout. Without "ready" the form kept saying the
+//   challenge was loading while it showed the 'Verify you are human' box.
 
 /** The widget action the server expects for a live-run token. */
 export const TURNSTILE_ACTION_LIVE = "live-run";
@@ -22,6 +27,7 @@ export type TurnstileRenderOptions = {
   sitekey: string;
   action: string;
   callback: (token: string) => void;
+  "before-interactive-callback"?: () => void;
   "expired-callback"?: () => void;
   "error-callback"?: () => void;
   "timeout-callback"?: () => void;
@@ -34,7 +40,26 @@ export type TurnstileApi = {
   remove: (widgetId: string) => void;
 };
 
-export type TurnstileStatus = "loading" | "passed" | "failed";
+/** Every widget status, in the order a visitor meets them. */
+export const TURNSTILE_STATUSES = ["loading", "ready", "passed", "failed"] as const;
+
+export type TurnstileStatus = (typeof TURNSTILE_STATUSES)[number];
+
+/** The `NewDeliberation.live` message that describes `status` under the widget. */
+export function turnstileStatusMessage(
+  status: TurnstileStatus,
+): "turnstileLoading" | "turnstileReady" | "turnstilePassed" | "turnstileFailed" {
+  switch (status) {
+    case "loading":
+      return "turnstileLoading";
+    case "ready":
+      return "turnstileReady";
+    case "passed":
+      return "turnstilePassed";
+    case "failed":
+      return "turnstileFailed";
+  }
+}
 
 export type TurnstileListener = {
   /** The current token, or null when there is none (expired, failed, spent). */
@@ -45,6 +70,7 @@ export type TurnstileListener = {
 export class TurnstileWidget {
   private widgetId: string | null = null;
   private token: string | null = null;
+  private status: TurnstileStatus = "loading";
 
   constructor(
     private readonly api: TurnstileApi,
@@ -58,22 +84,30 @@ export class TurnstileWidget {
       action: TURNSTILE_ACTION_LIVE,
       callback: (token) => {
         this.setToken(token);
-        this.listener.onStatus("passed");
+        this.setStatus("passed");
+      },
+      "before-interactive-callback": () => {
+        this.setStatus("ready");
       },
       "expired-callback": () => {
-        // Turnstile refreshes an expired widget on its own.
+        // Turnstile refreshes an expired widget on its own, in place.
         this.setToken(null);
-        this.listener.onStatus("loading");
+        this.setStatus("ready");
       },
       "error-callback": () => {
         this.setToken(null);
-        this.listener.onStatus("failed");
+        this.setStatus("failed");
       },
       "timeout-callback": () => {
         this.setToken(null);
-        this.listener.onStatus("failed");
+        this.setStatus("failed");
       },
     });
+    // The widget is on the page and waits for the person, unless a callback
+    // already settled it during render (a token, an error or a timeout).
+    if (this.status === "loading") {
+      this.setStatus("ready");
+    }
   }
 
   /** The token a request may carry now, or null. */
@@ -95,8 +129,13 @@ export class TurnstileWidget {
   reset(): void {
     this.setToken(null);
     if (this.widgetId !== null) {
-      this.listener.onStatus("loading");
+      this.status = "loading";
       this.api.reset(this.widgetId);
+      // The fresh challenge is on the page again, waiting for the person,
+      // unless a callback already settled it during the reset.
+      if (this.status === "loading") {
+        this.setStatus("ready");
+      }
     }
   }
 
@@ -106,6 +145,11 @@ export class TurnstileWidget {
       this.widgetId = null;
     }
     this.token = null;
+  }
+
+  private setStatus(status: TurnstileStatus): void {
+    this.status = status;
+    this.listener.onStatus(status);
   }
 
   private setToken(token: string | null): void {

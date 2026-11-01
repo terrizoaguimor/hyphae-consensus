@@ -251,6 +251,7 @@
       "turnstileHeading": "Verificación humana",
       "turnstileMissing": "El modo en vivo necesita el desafío Turnstile de Cloudflare, y esta versión se construyó sin una clave de sitio de Turnstile, así que desde ella no se puede iniciar ninguna ejecución en vivo.",
       "turnstileLoading": "Cargando el desafío Turnstile de Cloudflare…",
+      "turnstileReady": "Completa el desafío de arriba para iniciar una ejecución en vivo.",
       "turnstilePassed": "Desafío superado.",
       "turnstileFailed": "El desafío no se completó; vuelve a intentarlo o recarga la página.",
       "turnstileRetry": "Volver a intentar el desafío",

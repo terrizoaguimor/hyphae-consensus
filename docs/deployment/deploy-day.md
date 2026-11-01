@@ -358,7 +358,8 @@ Only now, with cloudflared registered: run the `ufw` block of runbook section 2.
 `<admin-ip>` and `<resolver-ip>` filled in. Keep a second SSH session open while you
 `sudo ufw enable`, and check from it that SSH still works before closing the first.
 In mode A the `api.meta.ai` and `challenges.cloudflare.com` rules may be left out (nothing
-calls them); add them before mode B.
+calls them); add them before mode B. `api.meta.ai` is allowed by Meta's address blocks,
+not by the address one lookup returns: its answer rotates per lookup (runbook 2.4).
 
 Verify: `sudo ufw status numbered`; `journalctl -u cloudflared -n 10 --no-pager` still shows
 connections registered after a `sudo systemctl restart cloudflared`.

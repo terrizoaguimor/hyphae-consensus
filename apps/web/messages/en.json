@@ -251,6 +251,7 @@
       "turnstileHeading": "Human check",
       "turnstileMissing": "Live mode needs the Cloudflare Turnstile challenge, and this build was made without a Turnstile site key, so no live run can be started from it.",
       "turnstileLoading": "Loading the Cloudflare Turnstile challenge…",
+      "turnstileReady": "Complete the challenge above to start a live run.",
       "turnstilePassed": "Challenge passed.",
       "turnstileFailed": "The challenge did not complete; try it again, or reload the page.",
       "turnstileRetry": "Try the challenge again",

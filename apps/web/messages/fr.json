@@ -251,6 +251,7 @@
       "turnstileHeading": "Vérification humaine",
       "turnstileMissing": "Le mode en direct exige le défi Turnstile de Cloudflare, et cette version a été construite sans clé de site Turnstile : aucune exécution en direct ne peut donc être lancée depuis elle.",
       "turnstileLoading": "Chargement du défi Turnstile de Cloudflare…",
+      "turnstileReady": "Relevez le défi ci-dessus pour lancer une exécution en direct.",
       "turnstilePassed": "Défi réussi.",
       "turnstileFailed": "Le défi n’a pas abouti ; réessayez-le ou rechargez la page.",
       "turnstileRetry": "Réessayer le défi",

@@ -16,7 +16,12 @@ import { Button } from "@astryxdesign/core/Button";
 import { useTranslations } from "next-intl";
 import { type RefObject, useEffect, useRef, useState } from "react";
 
-import { type TurnstileApi, type TurnstileStatus, TurnstileWidget } from "@/lib/live/turnstile";
+import {
+  type TurnstileApi,
+  type TurnstileStatus,
+  TurnstileWidget,
+  turnstileStatusMessage,
+} from "@/lib/live/turnstile";
 
 export const TURNSTILE_SITE_KEY: string | undefined =
   process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY === undefined ||
@@ -128,11 +133,7 @@ export function Turnstile({ siteKey, onToken, controlRef }: TurnstileProps) {
     <div data-turnstile={status}>
       <div ref={container} className="hc-turnstile" />
       <p role="status" className="hc-supporting">
-        {status === "loading"
-          ? t("turnstileLoading")
-          : status === "passed"
-            ? t("turnstilePassed")
-            : t("turnstileFailed")}
+        {t(turnstileStatusMessage(status))}
       </p>
       {status === "failed" && rendered ? (
         <div className="hc-actions">

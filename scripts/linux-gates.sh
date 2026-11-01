@@ -119,6 +119,7 @@ docker run --rm "$@" \
     gate evaluate 'author-defined outcome|Unauthorized executions' cargo run -q -p consensus-tests --example evaluate
     gate manifest-selftest '^selftest' python3 -I scripts/snapshot_manifest.py selftest
     gate capture-selftest '^selftest' sh scripts/hyphae-container/capture-snapshot.sh --selftest
+    gate edge-selftest '^selftest' bash deploy/scripts/verify-edge-selftest.sh
     if [ -n \"\$failed\" ]; then
       echo \"== FAILED:\$failed\"
       exit 1

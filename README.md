@@ -73,7 +73,7 @@ replay and check for later changes.
 | **Proposer** | Meta model | Turns a task into explicit claims, assumptions and uncertainties; revises them after review. |
 | **Critic** | Meta model | Raises individually tracked objections: contradictions, unsupported claims, missing tests, constraint conflicts, risks. |
 | **Evidence Evaluator** | Meta model | Judges, per claim, whether the retrieved records are relevant and corroborate or contradict it, and gives an explicit verdict on every open objection. |
-| **Runtime** | Rust, not a model | Retrieves the evidence from Hyphae, verifies each recall's sealed proof offline with `hyphae proof verify`, enforces the evaluation contract, bounds the debate (at most 2 revision rounds, 9 model calls, 20 distinct records and a per-run token cap) and records every event. |
+| **Runtime** | Rust, not a model | Retrieves the evidence from Hyphae, verifies each recall's sealed proof offline with `hyphae proof verify`, enforces the evaluation contract, bounds the debate (at most 2 revision rounds, 9 role calls plus at most 2 re-asks of an answer with no usable claim or an unreadable one, never of a judgment ([docs/evaluation.md §6.4](docs/evaluation.md)), 20 distinct records and a per-run token cap) and records every event. |
 | **Policy** | A fixed function | Turns the judgments and proof statuses into `supported`, `contested`, `insufficient_evidence`, `abstained` or `blocked`, with a `PolicyTrace` that shows which rule decided ("protocol 1.3 · policy rules 1.2", ADR-0010). |
 | **Human** | A person | The run stops at `AwaitingHumanApproval`. Only a human decision is recorded as an authorization, and nothing is executed in any mode: the executor is deferred. |
 

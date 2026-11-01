@@ -8,6 +8,7 @@
 //! fails the run safely on any `Err` and never guesses.
 
 use crate::contract::OpenItem;
+use crate::control::RunControl;
 use crate::orchestrator::codes;
 use consensus_domain::*;
 use thiserror::Error;
@@ -174,6 +175,12 @@ pub trait ModelClient {
     fn take_failed_invocation(&mut self) -> Option<ModelInvocation> {
         None
     }
+
+    /// The run's stop handle, handed over once when a deliberation starts,
+    /// so a client that may make a second call inside one role call (the
+    /// Meta adapter's bounded re-ask) can skip it once the run is
+    /// cancelled or past its deadline. The default ignores it.
+    fn observe_control(&mut self, _control: &RunControl) {}
 }
 
 /// One recall as the memory backend answered it ([`MemoryClient::recall_with_proof`]).

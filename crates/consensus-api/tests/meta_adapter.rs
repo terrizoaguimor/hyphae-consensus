@@ -177,7 +177,7 @@ fn task() -> Task {
     }
 }
 
-const DRAFT_PROPOSAL: &str = r#"{"summary":"Raise retries","plan_steps":["edit config"],"claims":[{"statement":"Timeouts come from too few retries"}],"assumptions":["upstream is tolerant"],"uncertainties":[]}"#;
+const DRAFT_PROPOSAL: &str = r#"{"summary":"Raise retries","plan_steps":["edit config"],"primary_claim":{"statement":"Timeouts come from too few retries"},"further_claims":[],"assumptions":["upstream is tolerant"],"uncertainties":[]}"#;
 
 #[test]
 fn propose_happy_path_assigns_ids_and_records_exact_model() {
@@ -391,7 +391,7 @@ fn untrusted_text_cannot_close_its_delimiter_block() {
 #[test]
 fn revise_sees_critic_items_and_evidence_and_filters_item_ids() {
     // Audit finding 7: the revision must see what it is asked to fix.
-    let draft = r#"{"summary":"Cap retries at 3 with jitter","plan_steps":["cap"],"claims":[{"statement":"Retries are capped at 3 attempts with jitter"}],"assumptions":[],"uncertainties":[],"addressed_items":["item-7","item-unknown"]}"#;
+    let draft = r#"{"summary":"Cap retries at 3 with jitter","plan_steps":["cap"],"primary_claim":{"statement":"Retries are capped at 3 attempts with jitter"},"further_claims":[],"assumptions":[],"uncertainties":[],"addressed_items":["item-7","item-unknown"]}"#;
     let server = serve(vec![(200, envelope(draft))]);
     let mut c = client(server.base_url.clone());
     let proposal = one_claim_proposal("Raise retries to 10");
@@ -449,23 +449,120 @@ fn revise_sees_critic_items_and_evidence_and_filters_item_ids() {
     assert_eq!(revision.supersedes, ProposalId::new("prop-1"));
 }
 
-#[test]
-fn proposal_claim_count_is_bounded() {
-    // Audit finding 14: claims drive memory calls; unbounded is malformed.
-    let claims: Vec<String> = (0..13)
-        .map(|i| format!(r#"{{"statement":"claim {i}"}}"#))
+/// A prompt-freeze-3 draft: `primary` as `primary_claim`, `further`
+/// further claims; a revision when `revision` (with `addressed_items`).
+fn claims_draft(primary: &str, further: usize, revision: bool) -> String {
+    let further: Vec<serde_json::Value> = (0..further)
+        .map(|i| serde_json::json!({"statement": format!("Retries are capped at {i} attempts")}))
         .collect();
-    let too_many = format!(
-        r#"{{"summary":"s","plan_steps":[],"claims":[{}],"assumptions":[],"uncertainties":[]}}"#,
-        claims.join(",")
-    );
-    let none = r#"{"summary":"s","plan_steps":[],"claims":[],"assumptions":[],"uncertainties":[]}"#;
-    for draft in [too_many.as_str(), none] {
-        let server = serve(vec![(200, envelope(draft))]);
-        let mut c = client(server.base_url);
-        match c.propose(&task()) {
-            Err(ModelError::MalformedOutput { .. }) => {}
-            other => panic!("expected MalformedOutput, got {other:?}"),
+    let mut draft = serde_json::json!({
+        "summary": "Cap retries", "primary_claim": {"statement": primary},
+        "further_claims": further, "plan_steps": ["cap"], "assumptions": [], "uncertainties": []
+    });
+    if revision {
+        draft["addressed_items"] = serde_json::json!([]);
+    }
+    draft.to_string()
+}
+
+fn empty_evaluation() -> Evaluation {
+    Evaluation {
+        schema_version: SCHEMA_VERSION.into(),
+        run_id: RunId::new("run-1"),
+        target_proposal: ProposalId::new("prop-1"),
+        assessments: vec![],
+        unresolved_items: vec![],
+        item_verdicts: vec![],
+        cleared_contradictions: vec![],
+        abstain: false,
+        abstain_reason: None,
+        created_at: "2026-10-26T00:00:00Z".into(),
+    }
+}
+
+fn empty_challenge() -> Challenge {
+    Challenge {
+        schema_version: SCHEMA_VERSION.into(),
+        id: ChallengeId::new("chal-1"),
+        run_id: RunId::new("run-1"),
+        target_proposal: ProposalId::new("prop-1"),
+        items: vec![],
+        created_at: "2026-10-26T00:00:00Z".into(),
+    }
+}
+
+/// Proposes (or revises) once against `draft`, served for every request;
+/// returns the claims or the error, and the requests made.
+fn claims_of(draft: &str, revision: bool) -> (Result<Vec<Claim>, ModelError>, usize) {
+    let server = serve(vec![(200, envelope(draft))]);
+    let mut c = client(server.base_url.clone());
+    let result = if revision {
+        c.revise(
+            &one_claim_proposal("Raise retries to 10"),
+            &empty_challenge(),
+            &empty_evaluation(),
+            &RoleContext::default(),
+        )
+        .map(|(r, _)| r.proposal.claims)
+    } else {
+        c.propose(&task()).map(|(p, _)| p.claims)
+    };
+    (result, server.hits.load(Ordering::SeqCst))
+}
+
+#[test]
+fn proposal_claims_are_primary_then_further_and_bounded() {
+    // Audit finding 14: claims drive memory calls; unbounded is malformed.
+    // Prompt-freeze-3 (live R01): a proposal or revision always carries
+    // primary_claim; further_claims add at most 11.
+    for revision in [false, true] {
+        let (claims, hits) = claims_of(
+            &claims_draft("Retries are capped at 3", 0, revision),
+            revision,
+        );
+        let claims = claims.unwrap();
+        assert_eq!(claims.len(), 1, "revision={revision}");
+        assert_eq!(claims[0].statement, "Retries are capped at 3");
+        assert_eq!(hits, 1);
+
+        let (claims, _) = claims_of(
+            &claims_draft("Retries are capped at 3", 11, revision),
+            revision,
+        );
+        let claims = claims.unwrap();
+        assert_eq!(claims.len(), 12, "revision={revision}");
+        assert_eq!(
+            claims[0].statement, "Retries are capped at 3",
+            "primary first"
+        );
+        assert_eq!(claims[1].statement, "Retries are capped at 0 attempts");
+
+        let (refused, hits) = claims_of(
+            &claims_draft("Retries are capped at 3", 12, revision),
+            revision,
+        );
+        match refused {
+            Err(e @ ModelError::MalformedOutput { .. }) => {
+                assert!(
+                    e.to_string().contains("draft has 13 claims (cap 12)"),
+                    "{e}"
+                );
+                assert_eq!(e.code(), None, "the generic malformed code");
+            }
+            other => panic!("expected too many claims, got {other:?}"),
+        }
+        assert_eq!(hits, 2, "a form defect is asked again once");
+
+        for empty in ["", "   "] {
+            let (refused, hits) = claims_of(&claims_draft(empty, 2, revision), revision);
+            match refused {
+                Err(e @ ModelError::MalformedOutput { .. }) => {
+                    assert_eq!(e.code(), Some("model_no_claims"), "{e}");
+                    assert!(e.to_string().contains("draft has no claims"), "{e}");
+                }
+                other => panic!("expected model_no_claims, got {other:?}"),
+            }
+            assert_eq!(hits, 2, "asked again once");
         }
     }
 }
@@ -532,7 +629,7 @@ fn label_only_challenge_items_are_malformed() {
 
 #[test]
 fn empty_claim_statement_is_malformed() {
-    let draft = r#"{"summary":"s","plan_steps":[],"claims":[{"statement":"Cap retries at 3"},{"statement":"   "}],"assumptions":[],"uncertainties":[]}"#;
+    let draft = r#"{"summary":"s","plan_steps":[],"primary_claim":{"statement":"Cap retries at 3"},"further_claims":[{"statement":"   "}],"assumptions":[],"uncertainties":[]}"#;
     let server = serve(vec![(200, envelope(draft))]);
     let mut c = client(server.base_url);
     match c.propose(&task()) {
@@ -577,7 +674,7 @@ fn prompts_ask_for_record_checkable_claims_and_evidence_based_judgment() {
     assert!(prompt.contains("including objections the evidence confirms"));
 
     // After an abstention the reviser sees the Evaluator's reason.
-    let draft = r#"{"summary":"Cap retries","plan_steps":[],"claims":[{"statement":"Retries are capped at 3 attempts with jitter"}],"assumptions":[],"uncertainties":[],"addressed_items":[]}"#;
+    let draft = r#"{"summary":"Cap retries","plan_steps":[],"primary_claim":{"statement":"Retries are capped at 3 attempts with jitter"},"further_claims":[],"assumptions":[],"uncertainties":[],"addressed_items":[]}"#;
     let server = serve(vec![(200, envelope(draft))]);
     let mut c = client(server.base_url.clone());
     let evaluation = Evaluation {
@@ -661,7 +758,11 @@ fn structured_output_is_strict_and_every_list_is_required() {
     };
     assert!(required(schema).contains(&"assessments".to_string()));
     assert!(required(schema).contains(&"item_verdicts".to_string()));
-    assert!(required(schema).contains(&"cleared_contradictions".to_string()));
+    // Prompt-freeze-4 (M04): carried contradictions are judged by keyed
+    // verdicts, asked for only in a round that carries one; the free
+    // `cleared_contradictions` list is no longer the model's.
+    assert!(!required(schema).contains(&"cleared_contradictions".to_string()));
+    assert!(schema["properties"].get("contradiction_verdicts").is_none());
     assert!(required(schema).contains(&"abstain_reason".to_string()));
     let assessment = &schema["definitions"]["DraftAssessment"];
     for field in ["relevant_evidence", "contradicting_evidence", "note"] {
@@ -692,10 +793,7 @@ fn structured_output_is_strict_and_every_list_is_required() {
         .get("item_id")
         .is_none());
     // The new draft types are strict too, and a verdict is one of two words.
-    for (definition, fields) in [
-        ("DraftItemVerdict", &["status", "reason"][..]),
-        ("DraftClearedContradiction", &["evidence_id", "reason"][..]),
-    ] {
+    for (definition, fields) in [("DraftItemVerdict", &["status", "reason"][..])] {
         let d = &schema["definitions"][definition];
         assert_eq!(
             d["additionalProperties"],
@@ -793,8 +891,12 @@ fn draft_verdict(item: &str, status: &str, reason: &str) -> Entry {
     )
 }
 
-fn draft_cleared(evidence: &str, reason: &str) -> serde_json::Value {
-    serde_json::json!({"evidence_id": evidence, "reason": reason})
+/// A verdict on a carried contradiction, keyed by its record id.
+fn draft_contradiction(evidence: &str, status: &str, reason: &str) -> Entry {
+    (
+        evidence.to_string(),
+        serde_json::json!({"status": status, "reason": reason}),
+    )
 }
 
 /// `entries` as a JSON object in that order, a repeated key written twice
@@ -808,13 +910,17 @@ fn keyed(entries: &[Entry]) -> String {
     format!("{{{}}}", members.join(","))
 }
 
-fn evaluation_draft(
-    assessments: &[Entry],
-    verdicts: &[Entry],
-    cleared: serde_json::Value,
-) -> String {
+/// An evaluation draft; `contradictions` (the verdicts on carried
+/// contradictions) is written only when given, as the schema asks for it
+/// only in a round that carries one.
+fn evaluation_draft(assessments: &[Entry], verdicts: &[Entry], contradictions: &[Entry]) -> String {
+    let carried = if contradictions.is_empty() {
+        String::new()
+    } else {
+        format!(r#""contradiction_verdicts":{},"#, keyed(contradictions))
+    };
     format!(
-        r#"{{"assessments":{},"item_verdicts":{},"cleared_contradictions":{cleared},"abstain":false,"abstain_reason":null}}"#,
+        r#"{{"assessments":{},"item_verdicts":{},{carried}"abstain":false,"abstain_reason":null}}"#,
         keyed(assessments),
         keyed(verdicts)
     )
@@ -828,13 +934,20 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
     ctx.carried_contradictions = vec![EvidenceId::new("ev-1")];
     let ok = || draft_assessment("claim-1", true, &["ev-1"], &[]);
     let open = || vec![draft_verdict("item-5", "unresolved", "no test")];
-    let none = || serde_json::json!([]);
+    // The carried ev-1 judged, so each case below breaks one rule only.
+    let judged = || {
+        vec![draft_contradiction(
+            "ev-1",
+            "cleared",
+            "the claim was rewritten",
+        )]
+    };
     let cases: Vec<(String, &[&str])> = vec![
         (
             evaluation_draft(
                 &[draft_assessment("claim-9", true, &["ev-1"], &[])],
                 &open(),
-                none(),
+                &judged(),
             ),
             &["assessments", "\"claim-9\"", "not a claim"],
         ),
@@ -842,19 +955,19 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             evaluation_draft(
                 &[ok(), draft_assessment("claim-1", false, &[], &["ev-1"])],
                 &open(),
-                none(),
+                &judged(),
             ),
             &["assessments", "\"claim-1\"", "more than once"],
         ),
         (
-            evaluation_draft(&[], &open(), none()),
+            evaluation_draft(&[], &open(), &judged()),
             &["assessments", "no assessment", "\"claim-1\""],
         ),
         (
             evaluation_draft(
                 &[draft_assessment("claim-1", true, &["ev-1", "ev-1"], &[])],
                 &open(),
-                none(),
+                &judged(),
             ),
             &["relevant_evidence", "\"ev-1\"", "more than once"],
         ),
@@ -862,7 +975,7 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             evaluation_draft(
                 &[draft_assessment("claim-1", true, &["ev-1"], &["ev-9"])],
                 &open(),
-                none(),
+                &judged(),
             ),
             &[
                 "contradicting_evidence",
@@ -871,7 +984,7 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             ],
         ),
         (
-            evaluation_draft(&[ok()], &[], none()),
+            evaluation_draft(&[ok()], &[], &judged()),
             &["item_verdicts", "no verdict", "\"item-5\""],
         ),
         (
@@ -881,7 +994,7 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
                     draft_verdict("item-5", "unresolved", "no test"),
                     draft_verdict("item-5", "resolved", "a test exists"),
                 ],
-                none(),
+                &judged(),
             ),
             &["item_verdicts", "\"item-5\"", "more than one verdict"],
         ),
@@ -892,7 +1005,7 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
                     draft_verdict("item-5", "unresolved", "no test"),
                     draft_verdict("item-6", "resolved", "invented"),
                 ],
-                none(),
+                &judged(),
             ),
             &[
                 "item_verdicts",
@@ -904,10 +1017,13 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             evaluation_draft(
                 &[ok()],
                 &open(),
-                serde_json::json!([draft_cleared("ev-9", "never carried")]),
+                &[
+                    draft_contradiction("ev-1", "cleared", "fixed"),
+                    draft_contradiction("ev-9", "cleared", "never carried"),
+                ],
             ),
             &[
-                "cleared_contradictions",
+                "contradiction_verdicts",
                 "\"ev-9\"",
                 "not a carried contradiction",
             ],
@@ -916,12 +1032,38 @@ fn evaluate_names_the_field_and_value_of_every_rejected_id() {
             evaluation_draft(
                 &[ok()],
                 &open(),
-                serde_json::json!([
-                    draft_cleared("ev-1", "fixed"),
-                    draft_cleared("ev-1", "again")
-                ]),
+                &[
+                    draft_contradiction("ev-1", "cleared", "fixed"),
+                    draft_contradiction("ev-1", "cleared", "again"),
+                ],
             ),
-            &["cleared_contradictions", "\"ev-1\"", "more than once"],
+            &[
+                "contradiction_verdicts",
+                "\"ev-1\"",
+                "more than one verdict",
+            ],
+        ),
+        // Live M04's shape: a carried contradiction left unjudged.
+        (
+            evaluation_draft(&[ok()], &open(), &[]),
+            &["contradiction_verdicts", "no verdict", "\"ev-1\""],
+        ),
+        // still_contradicts must be backed by the citation the policy reads.
+        (
+            evaluation_draft(
+                &[ok()],
+                &open(),
+                &[draft_contradiction(
+                    "ev-1",
+                    "still_contradicts",
+                    "still caps at 3",
+                )],
+            ),
+            &[
+                "contradiction_verdicts[\"ev-1\"]",
+                "still_contradicts",
+                "contradicting_evidence",
+            ],
         ),
     ];
     let server = serve(cases.iter().map(|(d, _)| (200, envelope(d))).collect());
@@ -952,50 +1094,116 @@ fn every_refused_answer_keeps_its_invocation() {
     // Audit TC-7 / review R13-3: once the API has answered, the call was
     // made and billed, so a refusal carries its invocation whatever the
     // reason; only a call that never got an answer carries none.
-    let no_content = serde_json::json!({
-        "id": "chatcmpl-test-1",
-        "model": "muse-wonder-1.0",
-        "choices": [{ "message": { "role": "assistant", "content": null }, "finish_reason": "content_filter" }],
-        "usage": { "prompt_tokens": 100, "completion_tokens": 50 }
-    })
-    .to_string();
-    let no_claims =
-        r#"{"summary":"s","plan_steps":[],"claims":[],"assumptions":[],"uncertainties":[]}"#;
-    for (label, response, request_id) in [
+    let finished = |content: serde_json::Value, finish: &str| {
+        serde_json::json!({
+            "id": "chatcmpl-test-1",
+            "model": "muse-wonder-1.0",
+            "choices": [{ "message": { "role": "assistant", "content": content }, "finish_reason": finish }],
+            "usage": { "prompt_tokens": 100, "completion_tokens": 50 }
+        })
+        .to_string()
+    };
+    // The R01 shape under the prompt-freeze-3 schema: the primary claim
+    // is there but says nothing.
+    let no_claims = r#"{"summary":"s","primary_claim":{"statement":""},"further_claims":[],"plan_steps":[],"assumptions":[],"uncertainties":[]}"#;
+    // (label, response, request id, code, requests made): a form defect
+    // or an unreadable answer is asked again once (and refused again
+    // here, the fake answering the same); a filtered or unexpected stop
+    // never is.
+    for (label, response, request_id, code, hits) in [
         (
             "draft parse",
             (200, envelope("not json")),
             Some("chatcmpl-test-1"),
+            "model_malformed_output",
+            2,
         ),
         (
             "missing content",
-            (200, no_content),
+            (200, finished(serde_json::Value::Null, "stop")),
             Some("chatcmpl-test-1"),
+            "model_malformed_output",
+            2,
+        ),
+        (
+            "content filtered",
+            (200, finished(serde_json::Value::Null, "content_filter")),
+            Some("chatcmpl-test-1"),
+            "model_content_filtered",
+            1,
+        ),
+        (
+            "content filtered with content",
+            (200, finished(DRAFT_PROPOSAL.into(), "content_filter")),
+            Some("chatcmpl-test-1"),
+            "model_content_filtered",
+            1,
+        ),
+        (
+            "tool calls",
+            (200, finished(DRAFT_PROPOSAL.into(), "tool_calls")),
+            Some("chatcmpl-test-1"),
+            "model_unexpected_finish",
+            1,
         ),
         (
             "no claims",
             (200, envelope(no_claims)),
             Some("chatcmpl-test-1"),
+            "model_no_claims",
+            2,
         ),
         // An unreadable envelope names no request id or usage: the call is
         // still recorded, its tokens unknown.
-        ("unreadable envelope", (200, "<html>".to_string()), None),
+        (
+            "unreadable envelope",
+            (200, "<html>".to_string()),
+            None,
+            "meta_bad_envelope",
+            2,
+        ),
     ] {
         let server = serve(vec![response]);
-        let mut c = client(server.base_url);
+        let mut c = client(server.base_url.clone());
         match c.propose(&task()) {
             Err(e @ ModelError::MalformedOutput { .. }) => {
+                assert_eq!(
+                    e.code().unwrap_or("model_malformed_output"),
+                    code,
+                    "{label}: {e}"
+                );
                 let inv = e.invocation().unwrap_or_else(|| panic!("{label}: {e}"));
                 assert_eq!(inv.provider, "meta", "{label}");
                 assert_eq!(inv.request_id.as_deref(), request_id, "{label}");
                 assert_eq!(inv.schema_name.as_deref(), Some("DraftProposal"), "{label}");
                 assert_eq!(inv.attempts, Some(1), "{label}");
-                let tokens = request_id.map(|_| 100);
+                // Tokens are summed over the refused call and its re-ask.
+                let tokens = request_id.map(|_| 100 * hits as u64);
                 assert_eq!(inv.input_tokens, tokens, "{label}");
+                let rejected = inv.rejected_calls.as_deref().unwrap_or_default();
+                assert_eq!(rejected.len(), hits - 1, "{label}");
+                if let Some(first) = rejected.first() {
+                    assert_eq!(first.code, code, "{label}");
+                    assert_eq!(first.request_id.as_deref(), request_id, "{label}");
+                }
             }
             other => panic!("{label}: expected MalformedOutput, got {other:?}"),
         }
+        assert_eq!(server.hits.load(Ordering::SeqCst), hits, "{label}");
     }
+    // The adapter's own fault (here a proposal whose claim ids repeat, so
+    // the Evaluator's keyed schema cannot be built) is never sent and
+    // never asked again.
+    let server = serve(vec![(200, envelope("{}"))]);
+    let mut c = client(server.base_url.clone());
+    let mut doubled = one_claim_proposal("Cap retries at 3");
+    doubled.claims.push(doubled.claims[0].clone());
+    let fault = c
+        .evaluate(&doubled, &empty_challenge(), &RoleContext::default())
+        .unwrap_err();
+    assert_eq!(fault.code(), Some("adapter_schema_error"), "{fault}");
+    assert!(fault.invocation().is_none());
+    assert_eq!(server.hits.load(Ordering::SeqCst), 0, "nothing sent");
     // A label-only critique item is refused after the answer too.
     let server = serve(vec![(
         200,
@@ -1094,7 +1302,7 @@ fn evaluations_recorded(log: &EventLog) -> usize {
 
 /// The proposal mints prop-1 and claim-2; the critique item-3, item-4,
 /// item-5 and chal-6 (the adapter numbers every id it assigns in turn).
-const MA1_PROPOSAL: &str = r#"{"summary":"Add jitter","plan_steps":["Add jitter to retries"],"claims":[{"statement":"Retries are capped at 3 attempts with jitter"}],"assumptions":[],"uncertainties":[]}"#;
+const MA1_PROPOSAL: &str = r#"{"summary":"Add jitter","plan_steps":["Add jitter to retries"],"primary_claim":{"statement":"Retries are capped at 3 attempts with jitter"},"further_claims":[],"assumptions":[],"uncertainties":[]}"#;
 const MA1_CRITIQUE: &str = r#"{"items":[{"kind":"unsupported_claim","claim_id":"claim-2","description":"No record shows the jitter range is safe","evidence_refs":[]},{"kind":"regression_risk","claim_id":"claim-2","description":"Jitter could push latency past the client timeout","evidence_refs":[]},{"kind":"missing_test","claim_id":"claim-2","description":"No test covers the jitter requirement","evidence_refs":[]}]}"#;
 
 /// An MA-1 evaluation: items 3 and 4 resolved, and `last` (id, status)
@@ -1107,7 +1315,7 @@ fn ma1_evaluation(assessments: &[Entry], last: (&str, &str)) -> String {
             draft_verdict("item-4", "resolved", "ev-1 caps attempts, bounding latency"),
             draft_verdict(last.0, last.1, "judged"),
         ],
-        serde_json::json!([]),
+        &[],
     )
 }
 
@@ -1246,7 +1454,7 @@ fn every_ma1_variant_fails_evaluate_and_never_reaches_supported() {
 /// silent.
 fn rt1_drafts(second_evaluation: String) -> Vec<String> {
     vec![
-        r#"{"summary":"Retry harder","plan_steps":["Set max attempts to 10","Use exponential backoff"],"claims":[{"statement":"Raise max attempts to 10"},{"statement":"Use exponential backoff with a 50 ms base"}],"assumptions":[],"uncertainties":[]}"#.into(),
+        r#"{"summary":"Retry harder","plan_steps":["Set max attempts to 10","Use exponential backoff"],"primary_claim":{"statement":"Raise max attempts to 10"},"further_claims":[{"statement":"Use exponential backoff with a 50 ms base"}],"assumptions":[],"uncertainties":[]}"#.into(),
         r#"{"items":[{"kind":"constraint_conflict","claim_id":"claim-2","description":"Ten attempts break the documented 3-attempt cap","evidence_refs":["ev-cap"]},{"kind":"missing_test","claim_id":"claim-3","description":"No test covers the backoff schedule","evidence_refs":[]}]}"#.into(),
         evaluation_draft(
             &[
@@ -1257,9 +1465,9 @@ fn rt1_drafts(second_evaluation: String) -> Vec<String> {
                 draft_verdict("item-4", "unresolved", "ev-cap caps retries at 3 attempts"),
                 draft_verdict("item-5", "unresolved", "no test yet"),
             ],
-            serde_json::json!([]),
+            &[],
         ),
-        r#"{"summary":"Backoff only","plan_steps":["Set max attempts to 10","Use exponential backoff"],"claims":[{"statement":"Use exponential backoff with a 50 ms base"}],"assumptions":[],"uncertainties":[],"addressed_items":[]}"#.into(),
+        r#"{"summary":"Backoff only","plan_steps":["Set max attempts to 10","Use exponential backoff"],"primary_claim":{"statement":"Use exponential backoff with a 50 ms base"},"further_claims":[],"assumptions":[],"uncertainties":[],"addressed_items":[]}"#.into(),
         r#"{"items":[]}"#.into(),
         second_evaluation,
     ]
@@ -1285,7 +1493,7 @@ fn rt1_round_two_silence_cannot_reach_supported_through_the_adapter() {
     let backoff = || vec![draft_assessment("claim-8", true, &["ev-backoff"], &[])];
 
     // Silent on the carried objections: no verdict is ever inferred.
-    let silent = evaluation_draft(&backoff(), &[], serde_json::json!([]));
+    let silent = evaluation_draft(&backoff(), &[], &[]);
     let (agg, log, calls) =
         deliberate_through_adapter("rt1-silent.jsonl", &rt1_drafts(silent), rt1_records());
     assert_eq!(calls, 6);
@@ -1305,17 +1513,21 @@ fn rt1_round_two_silence_cannot_reach_supported_through_the_adapter() {
         "the evaluate call the adapter refused is recorded"
     );
 
-    // Verdicts given, but silent on the round-1 contradiction: refused by
-    // the runtime contract, and the refused call stays on the record.
+    // Verdicts given, but silent on the round-1 contradiction (live M04's
+    // shape): since prompt-freeze-4 the round-2 schema requires a verdict
+    // keyed by ev-cap, so this answer could only come from an API that
+    // ignored strict mode; the adapter refuses it before the contract
+    // would (which still refuses it alone: protocol_1_3's rt1 test), and
+    // the refused call stays on the record.
     let verdicts_only = evaluation_draft(
         &backoff(),
         &[
             draft_verdict("item-4", "resolved", "claim-2 was dropped"),
             draft_verdict("item-5", "resolved", "backoff is documented"),
         ],
-        serde_json::json!([]),
+        &[],
     );
-    let (agg, log, _) = deliberate_through_adapter(
+    let (agg, log, calls) = deliberate_through_adapter(
         "rt1-contradiction.jsonl",
         &rt1_drafts(verdicts_only),
         rt1_records(),
@@ -1324,15 +1536,22 @@ fn rt1_round_two_silence_cannot_reach_supported_through_the_adapter() {
     let (stage, code, reason) = run_failure(&log);
     assert_eq!(
         (stage.as_str(), code.as_deref()),
-        ("evaluate", Some("evaluation_contract"))
+        ("evaluate", Some("model_malformed_output"))
     );
-    assert!(reason.contains("carried_contradiction_judged"), "{reason}");
-    assert!(reason.contains("\"ev-cap\""), "{reason}");
+    assert!(
+        reason.contains("contradiction_verdicts: no verdict for evidence_id \"ev-cap\""),
+        "{reason}"
+    );
     assert_eq!(
         agg.invocations.len(),
         6,
         "the refused evaluate call is recorded"
     );
+    // Fail-closed by design: the judgment is refused and never asked
+    // again, so exactly one round-2 evaluate request was made (the fake
+    // would answer a second).
+    assert_eq!(calls, 6, "no re-ask of a judgment");
+    assert!(agg.invocations[5].rejected_calls.is_none());
 
     // An explicit judgment keeps the plan-step conflict open: contested.
     let judged = evaluation_draft(
@@ -1341,10 +1560,11 @@ fn rt1_round_two_silence_cannot_reach_supported_through_the_adapter() {
             draft_verdict("item-4", "unresolved", "the plan still sets 10 attempts"),
             draft_verdict("item-5", "unresolved", "still no test"),
         ],
-        serde_json::json!([draft_cleared(
+        &[draft_contradiction(
             "ev-cap",
-            "claim-2 was dropped; item-4 keeps the plan-step conflict open"
-        )]),
+            "cleared",
+            "claim-2 was dropped; item-4 keeps the plan-step conflict open",
+        )],
     );
     let (agg, log, calls) =
         deliberate_through_adapter("rt1-judged.jsonl", &rt1_drafts(judged), rt1_records());
@@ -1426,10 +1646,11 @@ fn prompts_carry_open_objections_and_contradictions_across_rounds() {
             draft_verdict("item-10", "unresolved", "no test yet"),
             draft_verdict("item-4", "unresolved", "the plan still sets 10 attempts"),
         ],
-        serde_json::json!([draft_cleared(
+        &[draft_contradiction(
             "ev-cap",
-            "the claim raising attempts was dropped"
-        )]),
+            "cleared",
+            "the claim raising attempts was dropped",
+        )],
     );
     let server = serve(vec![(200, envelope(&draft))]);
     let mut c = client(server.base_url.clone());
@@ -1459,8 +1680,20 @@ fn prompts_carry_open_objections_and_contradictions_across_rounds() {
     assert!(prompt.contains("raised in round 1, still open"), "{prompt}");
     assert!(prompt.contains("raised this round"), "{prompt}");
     assert!(prompt.contains("Carried contradictions"), "{prompt}");
-    assert!(prompt.contains("- ev-cap"), "{prompt}");
-    assert!(prompt.contains("never leave one out"), "{prompt}");
+    // Prompt-freeze-4: each carried contradiction is its record's line,
+    // in an untrusted block, and is judged under its own key.
+    assert!(
+        prompt.contains("<UNTRUSTED_CONTRADICTIONS>\n{\"id\": \"ev-cap\", \"kind\": \"constraint\", \"integrity\": \"Valid\", \"content\": \"Constraint: outbound retries are capped at 3 attempts.\"}\n</UNTRUSTED_CONTRADICTIONS>"),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains("For each id under contradiction_verdicts answer still_contradicts (and cite it in contradicting_evidence of the claim it conflicts with) or cleared (with the change that removed the conflict)."),
+        "{prompt}"
+    );
+    assert_eq!(
+        schema["properties"]["contradiction_verdicts"]["required"],
+        serde_json::json!(["ev-cap"])
+    );
     stale(&prompt);
     // This round's objection targets a current claim, named as such.
     assert!(
@@ -1475,13 +1708,16 @@ fn prompts_carry_open_objections_and_contradictions_across_rounds() {
         .collect();
     assert_eq!(ids, ["item-4", "item-10"]);
     assert_eq!(
-        evaluation.cleared_contradictions[0].evidence_id,
-        EvidenceId::new("ev-cap")
+        evaluation.cleared_contradictions,
+        vec![ClearedContradiction {
+            evidence_id: EvidenceId::new("ev-cap"),
+            reason: "the claim raising attempts was dropped".into(),
+        }]
     );
 
     // The reviser sees every open objection, wherever it was raised, with
     // the Evaluator's reason; addressed ids of either kind are kept.
-    let revision = r#"{"summary":"Backoff with a cap","plan_steps":["Keep 3 attempts"],"claims":[{"statement":"Use exponential backoff with a 50 ms base"}],"assumptions":[],"uncertainties":[],"addressed_items":["item-4","item-10","item-unknown"]}"#;
+    let revision = r#"{"summary":"Backoff with a cap","plan_steps":["Keep 3 attempts"],"primary_claim":{"statement":"Use exponential backoff with a 50 ms base"},"further_claims":[],"assumptions":[],"uncertainties":[],"addressed_items":["item-4","item-10","item-unknown"]}"#;
     let server = serve(vec![(200, envelope(revision))]);
     let mut c = client(server.base_url.clone());
     let (revision, _) = c.revise(&proposal, &challenge, &evaluation, &ctx).unwrap();
@@ -1553,4 +1789,812 @@ fn invocation_records_schema_name_attempts_and_finish_reason() {
         inv.finish_reason, None,
         "nothing claimed that the API did not say"
     );
+}
+
+// ---------------------------------------------------------------------
+// Prompt-freeze-3: the one bounded re-ask (A2) and the refused-draft
+// fingerprint (A3). Live R01 (2026-11-01) ended at propose on a draft with
+// no claims; a form defect or an unreadable answer is now asked again
+// once, a judgment never.
+// ---------------------------------------------------------------------
+
+/// A meter over a real ledger that counts draws and settlements, and
+/// refuses every draw from the `refuse_from`-th on (1-based).
+struct CountingMeter {
+    inner: consensus_api::live::budget::ReservationMeter,
+    draws: AtomicUsize,
+    settled: Mutex<Vec<String>>,
+    refuse_from: usize,
+    _dir: std::path::PathBuf,
+}
+
+impl consensus_api::live::budget::AttemptMeter for CountingMeter {
+    fn draw(
+        &self,
+        est: consensus_api::live::budget::AttemptEstimate,
+    ) -> Result<consensus_api::live::budget::Draw, consensus_api::live::budget::Refusal> {
+        let n = self.draws.fetch_add(1, Ordering::SeqCst) + 1;
+        if n >= self.refuse_from {
+            return Err(consensus_api::live::budget::Refusal::LifetimeBudget);
+        }
+        self.inner.draw(est)
+    }
+
+    fn settle(
+        &self,
+        draw: consensus_api::live::budget::Draw,
+        outcome: consensus_api::live::budget::Outcome,
+    ) -> Result<consensus_api::live::budget::Settlement, consensus_api::live::budget::LedgerError>
+    {
+        self.settled.lock().unwrap().push(format!("{outcome:?}"));
+        self.inner.settle(draw, outcome)
+    }
+}
+
+fn counting_meter(name: &str, refuse_from: usize) -> Arc<CountingMeter> {
+    use consensus_api::live::budget::{BudgetConfig, Lane, Ledger};
+    use consensus_api::live::money::{Ppm, Usd};
+    let dir = std::env::temp_dir().join(format!(
+        "hyphae-consensus-reask-ledger-{}-{name}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let usd = |t: &str| Usd::parse(t).unwrap();
+    let cfg = BudgetConfig {
+        daily_cap: usd("10.00"),
+        lifetime_cap: usd("60.00"),
+        judge_slice: usd("15.00"),
+        judge_daily_cap: usd("15.00"),
+        max_concurrent: 100,
+        hourly_admissions: 1_000,
+        burst_fraction: Ppm::ONE,
+        run_token_cap: 70_000,
+        max_completion_tokens: 16_000,
+        input_cap_tokens: 32_000,
+        price_input_per_m: usd("4.00"),
+        price_output_per_m: usd("20.00"),
+        kill_switch_file: None,
+    };
+    let ledger = Ledger::open(&dir, cfg).unwrap();
+    let reservation = ledger.reserve(Lane::Public).unwrap();
+    Arc::new(CountingMeter {
+        inner: ledger.meter(&reservation),
+        draws: AtomicUsize::new(0),
+        settled: Mutex::new(Vec::new()),
+        refuse_from,
+        _dir: dir,
+    })
+}
+
+fn metered(base_url: String, meter: &Arc<CountingMeter>) -> MetaModelClient {
+    client(base_url).with_meter(meter.clone())
+}
+
+fn hits(server: &FakeServer) -> usize {
+    server.hits.load(Ordering::SeqCst)
+}
+
+const R01_EMPTY_PRIMARY: &str = r#"{"summary":"R01-FIRST-ANSWER-TEXT keep retries","primary_claim":{"statement":""},"further_claims":[],"plan_steps":["a","b","c","d"],"assumptions":["x","y","z"],"uncertainties":["u","v"]}"#;
+
+#[test]
+fn an_empty_primary_claim_is_asked_again_once_and_both_calls_are_on_record() {
+    // (a) R01's shape, then a valid draft: the run goes on.
+    let meter = counting_meter("a", usize::MAX);
+    let server = serve(vec![
+        (200, envelope(R01_EMPTY_PRIMARY)),
+        (200, envelope(DRAFT_PROPOSAL)),
+    ]);
+    let mut c = metered(server.base_url.clone(), &meter);
+    let (proposal, inv) = c.propose(&task()).unwrap();
+    assert_eq!(hits(&server), 2);
+    assert_eq!(proposal.claims.len(), 1);
+    // Ids are minted for the accepted draft only.
+    assert_eq!(proposal.id.as_str(), "prop-1");
+    assert_eq!(proposal.claims[0].id.as_str(), "claim-2");
+    let rejected = inv.rejected_calls.as_deref().expect("the refused call");
+    assert_eq!(rejected.len(), 1);
+    assert_eq!(rejected[0].request_id.as_deref(), Some("chatcmpl-test-1"));
+    assert_eq!(rejected[0].code, "model_no_claims");
+    assert_eq!(
+        (rejected[0].input_tokens, rejected[0].output_tokens),
+        (Some(100), Some(50))
+    );
+    // Summed, so the run's token budget charges both billed calls.
+    assert_eq!(
+        (inv.input_tokens, inv.output_tokens),
+        (Some(200), Some(100))
+    );
+    assert_eq!(
+        inv.corrective_sha256.as_deref(),
+        Some(sha256_hex(consensus_api::meta::CORRECTIVE_NO_CLAIMS).as_str())
+    );
+    assert_eq!(inv.attempts, Some(1), "the accepted call's own attempts");
+    // Two draws, both settled with the reported usage.
+    assert_eq!(meter.draws.load(Ordering::SeqCst), 2);
+    let settled = meter.settled.lock().unwrap().clone();
+    assert_eq!(settled.len(), 2, "{settled:?}");
+    assert!(
+        settled.iter().all(|s| s.starts_with("Success(")),
+        "{settled:?}"
+    );
+    // The re-ask is the same prompt plus the fixed corrective, never the
+    // model's first answer.
+    let second = user_prompt(&server.last_body.lock().unwrap());
+    assert!(second.ends_with(&format!(
+        "\n\n{}",
+        consensus_api::meta::CORRECTIVE_NO_CLAIMS
+    )));
+    assert!(!second.contains("R01-FIRST-ANSWER-TEXT"), "{second}");
+    assert!(second.contains("Give at least one and at most 12 claims."));
+}
+
+fn sha256_hex(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+#[test]
+fn a_second_empty_primary_fails_closed_with_both_calls_on_record() {
+    // (b) The same defect twice: the run fails with model_no_claims and
+    // both request ids on record.
+    let meter = counting_meter("b", usize::MAX);
+    let server = serve(vec![(200, envelope(R01_EMPTY_PRIMARY))]);
+    let mut c = metered(server.base_url.clone(), &meter);
+    let err = c.propose(&task()).unwrap_err();
+    assert_eq!(err.code(), Some("model_no_claims"), "{err}");
+    assert_eq!(hits(&server), 2);
+    assert_eq!(meter.draws.load(Ordering::SeqCst), 2);
+    assert_eq!(meter.settled.lock().unwrap().len(), 2);
+    let inv = err.invocation().expect("the final call");
+    assert_eq!(inv.rejected_calls.as_ref().map(Vec::len), Some(1));
+    assert_eq!(
+        (inv.input_tokens, inv.output_tokens),
+        (Some(200), Some(100))
+    );
+    assert_eq!(c.take_failed_invocation().as_ref(), Some(inv));
+    // A3: the reason names the draft's shape, never its text.
+    let reason = err.to_string();
+    assert!(
+        reason.contains("draft has no claims (summary 34 chars, primary_claim.statement 0 chars, further_claims 0, plan_steps 4, assumptions 3, uncertainties 2; content "),
+        "{reason}"
+    );
+    assert!(reason.contains(" bytes, sha256 "), "{reason}");
+    assert!(!reason.contains("R01-FIRST-ANSWER-TEXT"), "{reason}");
+}
+
+#[test]
+fn a_revision_with_an_empty_primary_is_asked_again_once() {
+    // (c)
+    let empty = r#"{"summary":"Cap retries","primary_claim":{"statement":" "},"further_claims":[],"plan_steps":[],"addressed_items":[],"assumptions":[],"uncertainties":[]}"#;
+    let valid = claims_draft("Retries are capped at 3 attempts with jitter", 1, true);
+    let server = serve(vec![(200, envelope(empty)), (200, envelope(&valid))]);
+    let mut c = client(server.base_url.clone());
+    let (revision, inv) = c
+        .revise(
+            &one_claim_proposal("Raise retries to 10"),
+            &empty_challenge(),
+            &empty_evaluation(),
+            &RoleContext::default(),
+        )
+        .unwrap();
+    assert_eq!(hits(&server), 2);
+    assert_eq!(revision.proposal.claims.len(), 2);
+    assert_eq!(inv.rejected_calls.as_ref().map(Vec::len), Some(1));
+    assert!(user_prompt(&server.last_body.lock().unwrap())
+        .ends_with(consensus_api::meta::CORRECTIVE_NO_CLAIMS));
+}
+
+#[test]
+fn a_readable_judgment_or_a_terminal_stop_is_never_asked_again() {
+    // (d) An evaluation citing a record that was not retrieved.
+    let (proposal, challenge, ctx) = evaluation_inputs();
+    let unretrieved = evaluation_draft(
+        &[draft_assessment("claim-1", true, &["ev-404"], &[])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[],
+    );
+    let server = serve(vec![(200, envelope(&unretrieved)), (200, envelope("{}"))]);
+    let mut c = client(server.base_url.clone());
+    let err = c.evaluate(&proposal, &challenge, &ctx).unwrap_err();
+    assert!(err.to_string().contains("\"ev-404\""), "{err}");
+    assert_eq!(hits(&server), 1, "a judgment is never resampled");
+    assert!(err.invocation().unwrap().rejected_calls.is_none());
+
+    // (e) A degenerate Critic item.
+    let server = serve(vec![(
+        200,
+        envelope(&draft_challenge("constraint_conflict")),
+    )]);
+    let mut c = client(server.base_url.clone());
+    let err = c
+        .critique(
+            &one_claim_proposal("Raise retries to 10"),
+            &RoleContext::default(),
+        )
+        .unwrap_err();
+    assert_eq!(hits(&server), 1);
+    // Its size, never its text.
+    let reason = err.to_string();
+    assert!(reason.contains("(description 19 chars)"), "{reason}");
+    assert!(!reason.contains("constraint_conflict"), "{reason}");
+
+    // (d') A syntactically complete evaluation that serde refuses on its
+    // data (a repeated member, an invalid value) is a readable judgment:
+    // never asked again, and its value is never quoted.
+    for draft in [
+        r#"{"assessments":{"claim-1":{"corroborated":true,"note":"n","relevant_evidence":["ev-1"],"contradicting_evidence":[]}},"assessments":{},"item_verdicts":{"item-5":{"status":"unresolved","reason":"r"}},"abstain":false,"abstain_reason":null}"#,
+        r#"{"assessments":{"claim-1":{"corroborated":true,"note":"n","relevant_evidence":["ev-1"],"contradicting_evidence":[]}},"item_verdicts":{"item-5":{"status":"unresolved","reason":"r"}},"abstain":"SECRET-SENTINEL","abstain_reason":null}"#,
+    ] {
+        let server = serve(vec![
+            (200, envelope(draft)),
+            (
+                200,
+                envelope(&evaluation_draft(
+                    &[draft_assessment("claim-1", true, &["ev-1"], &[])],
+                    &[draft_verdict("item-5", "unresolved", "no test")],
+                    &[],
+                )),
+            ),
+        ]);
+        let mut c = client(server.base_url.clone());
+        let err = c.evaluate(&proposal, &challenge, &ctx).unwrap_err();
+        assert_eq!(hits(&server), 1, "{err}");
+        let reason = err.to_string();
+        assert!(reason.contains("serde category data"), "{reason}");
+        assert!(!reason.contains("SECRET-SENTINEL"), "{reason}");
+        assert!(err.invocation().unwrap().rejected_calls.is_none());
+    }
+
+    // (f) Truncation and refusal.
+    for (label, message, finish, code) in [
+        (
+            "length",
+            serde_json::json!({"role": "assistant", "content": "{\"summary\":\"Raise"}),
+            "length",
+            "model_output_truncated",
+        ),
+        (
+            "refusal",
+            serde_json::json!({"role": "assistant", "content": null, "refusal": "I will not."}),
+            "stop",
+            "model_refusal",
+        ),
+    ] {
+        let body = serde_json::json!({
+            "id": "chatcmpl-test-1", "model": "muse-wonder-1.0",
+            "choices": [{"message": message, "finish_reason": finish}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50}
+        })
+        .to_string();
+        let server = serve(vec![(200, body), (200, envelope(DRAFT_PROPOSAL))]);
+        let mut c = client(server.base_url.clone());
+        let err = c.propose(&task()).unwrap_err();
+        assert_eq!(err.code(), Some(code), "{label}: {err}");
+        assert_eq!(hits(&server), 1, "{label}");
+    }
+}
+
+#[test]
+fn an_unreadable_evaluation_is_asked_again_once_and_then_judged() {
+    // (g) Content that is not JSON (finish stop), then a valid evaluation.
+    let (proposal, challenge, ctx) = evaluation_inputs();
+    let valid = evaluation_draft(
+        &[draft_assessment("claim-1", true, &["ev-1"], &[])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[],
+    );
+    let not_json = serde_json::json!({
+        "id": "chatcmpl-unreadable", "model": "muse-wonder-1.0",
+        "choices": [{"message": {"role": "assistant", "content": "I think the claim holds."}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50}
+    })
+    .to_string();
+    let server = serve(vec![(200, not_json), (200, envelope(&valid))]);
+    let mut c = client(server.base_url.clone());
+    let (evaluation, inv) = c.evaluate(&proposal, &challenge, &ctx).unwrap();
+    assert_eq!(hits(&server), 2);
+    assert!(evaluation.assessments[0].corroborated);
+    let rejected = inv.rejected_calls.as_deref().unwrap();
+    assert_eq!(
+        rejected[0].request_id.as_deref(),
+        Some("chatcmpl-unreadable")
+    );
+    assert_eq!(rejected[0].code, "model_malformed_output");
+    assert_eq!(rejected[0].finish_reason.as_deref(), Some("stop"));
+    assert_eq!(
+        inv.corrective_sha256.as_deref(),
+        Some(sha256_hex(consensus_api::meta::CORRECTIVE_UNREADABLE).as_str())
+    );
+    assert!(!user_prompt(&server.last_body.lock().unwrap()).contains("I think the claim holds"));
+}
+
+#[test]
+fn a_client_re_asks_at_most_twice() {
+    // (h) One client is one run: after two re-asks, a third retryable
+    // refusal ends the call at once.
+    let server = serve(vec![(200, envelope(R01_EMPTY_PRIMARY))]);
+    let mut c = client(server.base_url.clone());
+    for expected_hits in [2, 4] {
+        assert_eq!(
+            c.propose(&task()).unwrap_err().code(),
+            Some("model_no_claims")
+        );
+        assert_eq!(hits(&server), expected_hits);
+    }
+    let third = c.propose(&task()).unwrap_err();
+    assert_eq!(third.code(), Some("model_no_claims"));
+    assert_eq!(hits(&server), 5, "no third re-ask");
+    assert!(third.invocation().unwrap().rejected_calls.is_none());
+}
+
+#[test]
+fn a_refused_re_ask_draw_fails_with_budget_refused_and_keeps_the_first_call() {
+    // (i) The ledger refuses the re-ask's draw: nothing more is sent, the
+    // first draw is settled, and the billed first call stays on record.
+    let meter = counting_meter("i", 2);
+    let server = serve(vec![(200, envelope(R01_EMPTY_PRIMARY))]);
+    let mut c = metered(server.base_url.clone(), &meter);
+    let err = c.propose(&task()).unwrap_err();
+    assert_eq!(err.code(), Some("budget_refused"), "{err}");
+    assert_eq!(hits(&server), 1);
+    assert_eq!(meter.draws.load(Ordering::SeqCst), 2);
+    let settled = meter.settled.lock().unwrap().clone();
+    assert_eq!(settled.len(), 1, "{settled:?}");
+    assert!(settled[0].starts_with("Success("), "{settled:?}");
+    // The reason says what was being asked again, the code is the
+    // re-ask's own.
+    assert!(
+        err.to_string()
+            .contains("(while asking again after model_no_claims)"),
+        "{err}"
+    );
+    let kept = c.take_failed_invocation().expect("the billed first call");
+    assert_eq!(kept.request_id.as_deref(), Some("chatcmpl-test-1"));
+    assert_eq!(kept.input_tokens, Some(100));
+    // The first call is listed under its own rejected_calls with its
+    // refusal code (its tokens counted once), with the corrective's
+    // digest: the record shows a refused answer and a failed re-ask.
+    let rejected = kept.rejected_calls.as_deref().expect("the refused call");
+    assert_eq!(rejected.len(), 1);
+    assert_eq!(rejected[0].request_id.as_deref(), Some("chatcmpl-test-1"));
+    assert_eq!(rejected[0].code, "model_no_claims");
+    assert_eq!(
+        kept.corrective_sha256.as_deref(),
+        Some(sha256_hex(consensus_api::meta::CORRECTIVE_NO_CLAIMS).as_str())
+    );
+}
+
+#[test]
+fn no_re_ask_once_the_run_is_cancelled_or_past_its_deadline() {
+    use consensus_runtime::{CancelReason, RunControl};
+    for control in [
+        {
+            let c = RunControl::new();
+            c.cancel(CancelReason::Owner);
+            c
+        },
+        RunControl::with_deadline(std::time::Instant::now()),
+    ] {
+        let server = serve(vec![
+            (200, envelope(R01_EMPTY_PRIMARY)),
+            (200, envelope(DRAFT_PROPOSAL)),
+        ]);
+        let mut c = client(server.base_url.clone());
+        c.observe_control(&control);
+        let err = c.propose(&task()).unwrap_err();
+        assert_eq!(err.code(), Some("model_no_claims"), "{err}");
+        assert_eq!(hits(&server), 1, "no second billed call");
+        assert!(err.invocation().unwrap().rejected_calls.is_none());
+    }
+    // A control that has not tripped leaves the re-ask in place.
+    let server = serve(vec![
+        (200, envelope(R01_EMPTY_PRIMARY)),
+        (200, envelope(DRAFT_PROPOSAL)),
+    ]);
+    let mut c = client(server.base_url.clone());
+    c.observe_control(&consensus_runtime::RunControl::new());
+    c.propose(&task()).unwrap();
+    assert_eq!(hits(&server), 2);
+}
+
+#[test]
+fn an_unreadable_envelope_is_asked_again_once() {
+    let server = serve(vec![
+        (200, "<html>bad gateway</html>".into()),
+        (200, envelope(DRAFT_PROPOSAL)),
+    ]);
+    let mut c = client(server.base_url.clone());
+    let (_, inv) = c.propose(&task()).unwrap();
+    assert_eq!(hits(&server), 2);
+    let rejected = inv.rejected_calls.as_deref().unwrap();
+    assert_eq!(rejected[0].code, "meta_bad_envelope");
+    assert_eq!(rejected[0].request_id, None);
+    // The refused call reported no usage: it adds nothing it cannot know.
+    assert_eq!(inv.input_tokens, Some(100));
+}
+
+#[test]
+fn an_unparseable_draft_reason_names_its_size_digest_and_category() {
+    let server = serve(vec![(200, envelope(r#"{"summary":"SECRET-SENTINEL"}"#))]);
+    let mut c = client(server.base_url.clone());
+    let reason = c.propose(&task()).unwrap_err().to_string();
+    assert!(reason.contains("draft parse: missing field"), "{reason}");
+    assert!(reason.contains("content 29 bytes, sha256 "), "{reason}");
+    assert!(reason.contains("serde category data"), "{reason}");
+    assert!(!reason.contains("SECRET-SENTINEL"), "{reason}");
+    // serde messages that would quote a value (an invalid type, an
+    // unknown variant) keep only their fixed parts.
+    for (draft, kept) in [
+        (
+            r#"{"summary":"s","primary_claim":{"statement":"x"},"further_claims":"SECRET-SENTINEL","plan_steps":[],"assumptions":[],"uncertainties":[]}"#,
+            "draft parse: invalid type: string, expected a sequence (serde category data, line 1 column ",
+        ),
+        (
+            r#"{"summary":"s","primary_claim":"SECRET-SENTINEL","further_claims":[],"plan_steps":[],"assumptions":[],"uncertainties":[]}"#,
+            "draft parse: invalid type: string, expected struct DraftClaim",
+        ),
+    ] {
+        let server = serve(vec![(200, envelope(draft))]);
+        let mut c = client(server.base_url.clone());
+        let err = c.propose(&task()).unwrap_err();
+        let reason = err.to_string();
+        assert!(reason.contains(kept), "{reason}");
+        assert!(!reason.contains("SECRET-SENTINEL"), "{reason}");
+        let rejected = err.invocation().unwrap().rejected_calls.clone().unwrap();
+        assert_eq!(rejected.len(), 1, "an unreadable proposal is asked again once");
+    }
+    let critique = r#"{"items":[{"kind":"SECRET-SENTINEL","claim_id":null,"description":"A full objection sentence here","evidence_refs":[]}]}"#;
+    let server = serve(vec![(200, envelope(critique))]);
+    let mut c = client(server.base_url.clone());
+    let reason = c
+        .critique(
+            &one_claim_proposal("Raise retries to 10"),
+            &RoleContext::default(),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(
+        reason.contains("draft parse: unknown variant ("),
+        "{reason}"
+    );
+    assert!(!reason.contains("SECRET-SENTINEL"), "{reason}");
+}
+
+#[test]
+fn an_archived_1_3_invocation_round_trips_byte_identically() {
+    // (j) Records written before the re-ask fields existed read and write
+    // back unchanged, so archived chains still verify.
+    let runs = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../research/2026-10-30/live-battery-2026-10-30-p13/runs");
+    let mut seen = 0;
+    for entry in std::fs::read_dir(&runs).unwrap() {
+        let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            let Some(invocation) = value["payload"].get("invocation") else {
+                continue;
+            };
+            let parsed: ModelInvocation = serde_json::from_value(invocation.clone()).unwrap();
+            assert!(parsed.rejected_calls.is_none() && parsed.corrective_sha256.is_none());
+            assert_eq!(&serde_json::to_value(&parsed).unwrap(), invocation);
+            let event: ConsensusEvent = serde_json::from_str(line).unwrap();
+            assert_eq!(serde_json::to_string(&event).unwrap(), line);
+            seen += 1;
+        }
+    }
+    assert!(seen >= 10, "{seen} archived invocations");
+}
+
+// ---------------------------------------------------------------------
+// Prompt-freeze-4 (phase 2): keyed contradiction verdicts (A6, live M04),
+// evidence-id enums (A7) and Critic schema hints (A8).
+// ---------------------------------------------------------------------
+
+/// `evaluation_inputs` with ev-1 carried as an earlier contradiction.
+fn carried_inputs() -> (Proposal, Challenge, RoleContext) {
+    let (proposal, challenge, mut ctx) = evaluation_inputs();
+    ctx.carried_contradictions = vec![EvidenceId::new("ev-1")];
+    (proposal, challenge, ctx)
+}
+
+#[test]
+fn a_cleared_verdict_becomes_the_domain_clearing_with_its_reason() {
+    let (proposal, challenge, ctx) = carried_inputs();
+    let draft = evaluation_draft(
+        &[draft_assessment("claim-1", true, &["ev-1"], &[])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[draft_contradiction(
+            "ev-1",
+            "cleared",
+            "the revision keeps 3 attempts",
+        )],
+    );
+    let server = serve(vec![(200, envelope(&draft))]);
+    let mut c = client(server.base_url.clone());
+    let (evaluation, _) = c.evaluate(&proposal, &challenge, &ctx).unwrap();
+    assert_eq!(
+        evaluation.cleared_contradictions,
+        vec![ClearedContradiction {
+            evidence_id: EvidenceId::new("ev-1"),
+            reason: "the revision keeps 3 attempts".into(),
+        }]
+    );
+    // The request keyed the verdicts by the carried id.
+    let body: serde_json::Value = serde_json::from_str(
+        server
+            .last_body
+            .lock()
+            .unwrap()
+            .split_once("\r\n\r\n")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    let schema = &body["response_format"]["json_schema"]["schema"];
+    assert_eq!(
+        schema["properties"]["contradiction_verdicts"]["required"],
+        serde_json::json!(["ev-1"])
+    );
+}
+
+#[test]
+fn still_contradicts_needs_a_citation_and_is_never_asked_again() {
+    let (proposal, challenge, ctx) = carried_inputs();
+    let uncited = evaluation_draft(
+        &[draft_assessment("claim-1", false, &[], &[])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[draft_contradiction(
+            "ev-1",
+            "still_contradicts",
+            "still conflicts",
+        )],
+    );
+    let server = serve(vec![(200, envelope(&uncited))]);
+    let mut c = client(server.base_url.clone());
+    let err = c.evaluate(&proposal, &challenge, &ctx).unwrap_err();
+    assert!(
+        err.to_string().contains(
+            "contradiction_verdicts[\"ev-1\"]: still_contradicts, but no assessment lists it in contradicting_evidence"
+        ),
+        "{err}"
+    );
+    assert_eq!(hits(&server), 1, "a judgment is never resampled");
+
+    let cited = evaluation_draft(
+        &[draft_assessment("claim-1", false, &[], &["ev-1"])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[draft_contradiction(
+            "ev-1",
+            "still_contradicts",
+            "still conflicts",
+        )],
+    );
+    let server = serve(vec![(200, envelope(&cited))]);
+    let mut c = client(server.base_url.clone());
+    let (evaluation, _) = c.evaluate(&proposal, &challenge, &ctx).unwrap();
+    assert!(evaluation.cleared_contradictions.is_empty());
+    assert_eq!(
+        evaluation.assessments[0].contradicting_evidence,
+        vec![EvidenceId::new("ev-1")]
+    );
+}
+
+#[test]
+fn a_citation_outside_the_enum_is_still_refused() {
+    // A7: the schema's enum names ev-1 only; an API that ignored it is
+    // still refused by the adapter, naming the value, after one request.
+    let (proposal, challenge, ctx) = evaluation_inputs();
+    let e3 = evaluation_draft(
+        &[draft_assessment("claim-1", true, &["e3"], &[])],
+        &[draft_verdict("item-5", "unresolved", "no test")],
+        &[],
+    );
+    let server = serve(vec![(200, envelope(&e3))]);
+    let mut c = client(server.base_url.clone());
+    let err = c.evaluate(&proposal, &challenge, &ctx).unwrap_err();
+    assert!(
+        err.to_string().contains("\"e3\" is not a retrieved record"),
+        "{err}"
+    );
+    assert_eq!(hits(&server), 1);
+    let body: serde_json::Value = serde_json::from_str(
+        server
+            .last_body
+            .lock()
+            .unwrap()
+            .split_once("\r\n\r\n")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(
+        body["response_format"]["json_schema"]["schema"]["definitions"]["DraftAssessment"]
+            ["properties"]["relevant_evidence"]["items"],
+        serde_json::json!({"type": "string", "enum": ["ev-1"]})
+    );
+}
+
+#[test]
+fn an_unknown_critic_claim_id_is_still_dropped() {
+    // A8: the schema's enum names claim-1 only; an id outside it (an API
+    // that ignored the enum) is dropped, never trusted.
+    let draft = serde_json::json!({"items": [
+        {"kind": "missing_test", "claim_id": "claim-99",
+         "description": "No test covers the jitter requirement", "evidence_refs": ["ev-404"]}
+    ]})
+    .to_string();
+    let server = serve(vec![(200, envelope(&draft))]);
+    let mut c = client(server.base_url.clone());
+    let (challenge, _) = c
+        .critique(
+            &one_claim_proposal("Raise retries to 10"),
+            &RoleContext::default(),
+        )
+        .unwrap();
+    assert_eq!(challenge.items[0].claim_id, None);
+    assert!(challenge.items[0].evidence_refs.is_empty());
+    let body: serde_json::Value = serde_json::from_str(
+        server
+            .last_body
+            .lock()
+            .unwrap()
+            .split_once("\r\n\r\n")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(
+        body["response_format"]["json_schema"]["schema"]["definitions"]["DraftChallengeItem"]
+            ["properties"]["claim_id"],
+        serde_json::json!({"anyOf": [{"type": "string", "enum": ["claim-1"]}, {"type": "null"}]})
+    );
+}
+
+/// Live M04's round-2 evaluate inputs, rebuilt from its archived run log
+/// (`research/2026-10-30/live-battery-2026-10-30-p13/runs/`): the revised
+/// proposal, the round-2 challenge, every record retrieved so far with its
+/// latest integrity status, the objections left open and the carried
+/// contradictions, exactly as the orchestrator hands them to the Evaluator.
+fn m04_round_two() -> (Proposal, Challenge, RoleContext) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../research/2026-10-30/live-battery-2026-10-30-p13/runs/run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451.jsonl",
+    );
+    let events: Vec<ConsensusEvent> = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let last_challenge = events
+        .iter()
+        .rposition(|e| matches!(e.payload, EventPayload::ChallengeSubmitted { .. }))
+        .expect("a round-2 challenge");
+    let agg = consensus_api::public_view::aggregate_of(&events[..=last_challenge]).unwrap();
+    let mut proposal = None;
+    let mut challenge = None;
+    let mut integrity: Vec<(EvidenceId, IntegrityStatus)> = Vec::new();
+    for e in &events[..=last_challenge] {
+        match &e.payload {
+            EventPayload::ProposalSubmitted { proposal: p, .. } => proposal = Some(p.clone()),
+            EventPayload::RevisionSubmitted { revision, .. } => {
+                proposal = Some(revision.proposal.clone())
+            }
+            EventPayload::ChallengeSubmitted { challenge: c, .. } => challenge = Some(c.clone()),
+            EventPayload::EvidenceVerified { verification } => {
+                integrity.retain(|(id, _)| id != &verification.evidence_id);
+                integrity.push((
+                    verification.evidence_id.clone(),
+                    verification.integrity_status,
+                ));
+            }
+            _ => {}
+        }
+    }
+    let ctx = RoleContext {
+        evidence: agg.retrieved.clone(),
+        integrity,
+        open_items: agg.open_items.clone(),
+        carried_contradictions: agg.contradicted.clone(),
+    };
+    (proposal.unwrap(), challenge.unwrap(), ctx)
+}
+
+#[test]
+fn m04_round_two_replayed_offline_asks_for_a_verdict_on_every_carried_contradiction() {
+    let (proposal, challenge, ctx) = m04_round_two();
+    assert!(
+        !ctx.carried_contradictions.is_empty(),
+        "M04 carried a contradiction into round 2"
+    );
+    let carried: Vec<&str> = ctx
+        .carried_contradictions
+        .iter()
+        .map(EvidenceId::as_str)
+        .collect();
+    let assess = |contradicting: &[&str]| -> Vec<Entry> {
+        proposal
+            .claims
+            .iter()
+            .map(|c| draft_assessment(c.id.as_str(), false, &[], contradicting))
+            .collect()
+    };
+    let verdicts: Vec<Entry> = ctx
+        .open_items
+        .iter()
+        .map(|o| o.item.id.clone())
+        .chain(challenge.items.iter().map(|i| i.id.clone()))
+        .map(|id| draft_verdict(&id, "unresolved", "still open"))
+        .collect();
+
+    // M04's own answer shape: every claim and objection judged, the
+    // carried contradiction passed over. Refused, never asked again.
+    let silent = evaluation_draft(&assess(&[]), &verdicts, &[]);
+    let server = serve(vec![(200, envelope(&silent))]);
+    let mut c = client(server.base_url.clone());
+    let err = c.evaluate(&proposal, &challenge, &ctx).unwrap_err();
+    assert!(
+        err.to_string().contains(&format!(
+            "contradiction_verdicts: no verdict for evidence_id \"{}\"",
+            carried[0]
+        )),
+        "{err}"
+    );
+    assert_eq!(hits(&server), 1);
+    // The request asked for exactly those verdicts, showed each record's
+    // line and bounded every citation to the round's records.
+    let raw = server.last_body.lock().unwrap().clone();
+    let body: serde_json::Value =
+        serde_json::from_str(raw.split_once("\r\n\r\n").unwrap().1).unwrap();
+    let schema = &body["response_format"]["json_schema"]["schema"];
+    assert_eq!(
+        schema["properties"]["contradiction_verdicts"]["required"],
+        serde_json::json!(carried)
+    );
+    let retrieved: Vec<&str> = ctx.evidence.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(
+        schema["definitions"]["DraftAssessment"]["properties"]["contradicting_evidence"]["items"]
+            ["enum"],
+        serde_json::json!(retrieved)
+    );
+    let prompt = user_prompt(&raw);
+    assert!(prompt.contains("<UNTRUSTED_CONTRADICTIONS>"), "{prompt}");
+    for id in &carried {
+        assert!(
+            prompt.contains(&format!("{{\"id\": \"{id}\", \"kind\": ")),
+            "{prompt}"
+        );
+    }
+
+    // A judged answer passes the adapter and the runtime contract, either
+    // way the Evaluator judges the record.
+    let checks = |evaluation: &Evaluation| {
+        let contract = consensus_runtime::contract::EvaluationContext {
+            claims: proposal.claims.iter().map(|c| c.id.clone()).collect(),
+            expected_items: verdicts.iter().map(|(id, _)| id.clone()).collect(),
+            retrieved: ctx.evidence.iter().map(|e| e.id.clone()).collect(),
+            carried_contradictions: ctx.carried_contradictions.clone(),
+        };
+        consensus_runtime::contract::validate_evaluation(&contract, evaluation)
+    };
+    let cleared: Vec<Entry> = carried
+        .iter()
+        .map(|id| draft_contradiction(id, "cleared", "the revision removed the conflict"))
+        .collect();
+    let still: Vec<Entry> = carried
+        .iter()
+        .map(|id| draft_contradiction(id, "still_contradicts", "the cap is still removed"))
+        .collect();
+    for draft in [
+        evaluation_draft(&assess(&[]), &verdicts, &cleared),
+        evaluation_draft(&assess(&carried), &verdicts, &still),
+    ] {
+        let server = serve(vec![(200, envelope(&draft))]);
+        let mut c = client(server.base_url.clone());
+        let (evaluation, _) = c.evaluate(&proposal, &challenge, &ctx).unwrap();
+        checks(&evaluation).unwrap();
+    }
 }

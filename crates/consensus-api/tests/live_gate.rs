@@ -44,7 +44,7 @@ const TOKEN: &str = "tok-live-1";
 /// one claim the reference records corroborate, an empty critique, and
 /// an evaluation keyed by the id the adapter mints for that claim
 /// (`prop-1`, then `claim-2`). Supported in one round: three calls.
-const DRAFT_PROPOSAL: &str = r#"{"summary":"Keep retries capped at 3 attempts with jitter","plan_steps":["add jitter to the payment client backoff"],"claims":[{"statement":"Payment timeouts correlate with retry bursts above 5 attempts"}],"assumptions":[],"uncertainties":[]}"#;
+const DRAFT_PROPOSAL: &str = r#"{"summary":"Keep retries capped at 3 attempts with jitter","plan_steps":["add jitter to the payment client backoff"],"primary_claim":{"statement":"Payment timeouts correlate with retry bursts above 5 attempts"},"further_claims":[],"assumptions":[],"uncertainties":[]}"#;
 const DRAFT_CHALLENGE: &str = r#"{"items":[]}"#;
 const DRAFT_EVALUATION: &str = r#"{"assessments":{"claim-2":{"corroborated":true,"relevant_evidence":["ev-fact"],"contradicting_evidence":[],"note":"ev-fact states the correlation"}},"item_verdicts":{},"cleared_contradictions":[],"abstain":false,"abstain_reason":null}"#;
 

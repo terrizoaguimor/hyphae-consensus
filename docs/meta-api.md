@@ -37,8 +37,27 @@ The [README](../README.md) has a summary of this page.
   fits or after a full-jitter backoff from 500 ms; a connection that failed before the
   request was sent may be retried too; a connection that broke after the request was sent
   is retried exactly once (it may have been billed). Timeouts, 504 and other 4xx are never
-  retried. `finish_reason: length` and `refusal` are recorded as failures with stable
-  codes; no response body or URL reaches an error, event or receipt.
+  retried. `finish_reason: length` (`model_output_truncated`), `refusal`
+  (`model_refusal`), `content_filter` (`model_content_filtered`) and any other finish
+  reason but `stop` (`model_unexpected_finish`) are recorded as failures with stable codes
+  before the content is read; no response body or URL reaches an error, event or receipt.
+- **One bounded re-ask** (`meta.rs` module doc; since `prompt-freeze-3`,
+  [evaluation.md §6.4](evaluation.md)). An answered call is asked again **once**, with the
+  same inputs plus one fixed corrective sentence (never model text), only when nothing
+  was judged: a proposal or revision with no usable claim (`model_no_claims`), more than
+  12 claims or an empty statement, or an unreadable answer at any stage (a 2xx body that
+  is not a chat completion, `meta_bad_envelope`; with `finish_reason` `stop`, missing
+  content or content that does not parse, except an Evaluator document that is complete
+  JSON). A judgment is never resampled: every refusal of a readable evaluation, a
+  degenerate Critic item, a refusal, truncation, filtered or unexpected finish, adapter
+  fault (`adapter_schema_error`), timeout, HTTP failure and every runtime contract
+  refusal ends the run. At most one re-ask per role call and **two per run**; the re-ask
+  is a second billed generation with its own request id and its own ledger draw, and is
+  skipped once the run is cancelled or past its deadline. The accepted (or final) call's
+  invocation lists the refused one under `rejected_calls` (request id, code, finish
+  reason, latency, tokens, attempts) with `corrective_sha256`, and its token counts are
+  summed over both calls; both fields are on the operator and the public receipt. A run
+  therefore makes at most 9 role calls plus 2 re-asks.
 - **Prompts.** Everything a role did not write itself sits in separate `<UNTRUSTED_*>`
   blocks; a mitigation, not a boundary (details in [verification.md](verification.md#safety-invariants-enforced-in-code-covered-by-tests)).
 - **The public live mode (on the owner's key; not deployed).** Decided in ADR-0007,

@@ -59,6 +59,21 @@ pub mod codes {
     pub const MODEL_OUTPUT_TRUNCATED: &str = "model_output_truncated";
     /// The model declined to produce the document.
     pub const MODEL_REFUSAL: &str = "model_refusal";
+    /// A proposal or revision carried no usable claim (an empty
+    /// `primary_claim` statement), after the adapter's one re-ask.
+    pub const MODEL_NO_CLAIMS: &str = "model_no_claims";
+    /// The provider stopped the output with `finish_reason`
+    /// `content_filter`; never retried.
+    pub const MODEL_CONTENT_FILTERED: &str = "model_content_filtered";
+    /// The provider stopped the output for a reason other than `stop`,
+    /// `length` or `content_filter` (e.g. `tool_calls`); never retried.
+    pub const MODEL_UNEXPECTED_FINISH: &str = "model_unexpected_finish";
+    /// The adapter could not build its own schema or request: its own
+    /// fault, before any call; never retried.
+    pub const ADAPTER_SCHEMA_ERROR: &str = "adapter_schema_error";
+    /// The provider answered 2xx with a body that is not a chat
+    /// completion (an HTML page, say), after the adapter's one re-ask.
+    pub const META_BAD_ENVELOPE: &str = "meta_bad_envelope";
     /// The model service was unavailable.
     pub const MODEL_UNAVAILABLE: &str = "model_unavailable";
     /// The per-run token cap was crossed (stage `token_budget`).
@@ -377,6 +392,10 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
         // call's document is recorded first (its tokens were spent and
         // belong in the receipt); then an exhausted budget fails the run.
         let mut budget = TokenBudget::new(&self.limits);
+
+        // The client learns the run's stop handle (its bounded re-ask is
+        // skipped once the run stops).
+        self.model.observe_control(control);
 
         // Stage 1: proposal.
         if let Some(stop) = control.check() {
@@ -1214,6 +1233,8 @@ mod tests {
         inner: FakeModelClient,
         control: RunControl,
         cancel_during: usize,
+        /// The stop handle the orchestrator handed over.
+        observed: Option<RunControl>,
     }
 
     impl CancellingModel {
@@ -1260,6 +1281,9 @@ mod tests {
             self.after_call();
             out
         }
+        fn observe_control(&mut self, control: &RunControl) {
+            self.observed = Some(control.clone());
+        }
     }
 
     #[test]
@@ -1280,6 +1304,7 @@ mod tests {
                 inner: s.model,
                 control: control.clone(),
                 cancel_during,
+                observed: None,
             };
             let name = format!("cancel-during-call-{cancel_during}.jsonl");
             let mut log = EventLog::open(temp_log(&name)).unwrap();
@@ -1290,6 +1315,10 @@ mod tests {
             // The call in flight completed and its document was recorded;
             // no later call was made.
             assert_eq!(orch.model.inner.calls.len(), cancel_during);
+            // The client was handed the run's own stop handle (the Meta
+            // adapter skips its re-ask once it trips).
+            let observed = orch.model.observed.as_ref().expect("the run's control");
+            assert!(observed.check().is_some(), "{name}: the same handle");
             assert_eq!(agg.invocations.len(), cancel_during, "{name}");
             let reason = format!("cancelled by the run's owner before the {next_checkpoint}");
             assert_eq!(failure(&log), ("cancelled", reason.as_str()), "{name}");
@@ -1689,6 +1718,8 @@ mod tests {
             reasoning_effort: None,
             safety_identifier_sent: None,
             attempts: Some(1),
+            rejected_calls: None,
+            corrective_sha256: None,
         };
         let mut model = s.model;
         model.critiques.clear();
@@ -1766,6 +1797,60 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_re_asked_call_is_recorded_with_its_rejected_call_and_charged_in_full() {
+        // Prompt-freeze-3: an adapter that asked again after a form defect
+        // reports one invocation whose tokens are the sum over both billed
+        // calls, the refused one listed under `rejected_calls`. It is
+        // recorded as given, and the run's token budget charges the sum.
+        let s = retry_constraint_scenario();
+        let reasked = ModelInvocation {
+            input_tokens: Some(600),
+            output_tokens: Some(400),
+            rejected_calls: Some(vec![RejectedCall {
+                request_id: Some("fake-rejected-propose".into()),
+                code: codes::MODEL_NO_CLAIMS.into(),
+                finish_reason: Some("stop".into()),
+                latency_ms: Some(4),
+                input_tokens: Some(300),
+                output_tokens: Some(200),
+                reasoning_tokens: None,
+                attempts: Some(1),
+            }]),
+            corrective_sha256: Some("ab".repeat(32)),
+            ..answered_call("fake-accepted-propose")
+        };
+        let mut model = s.model;
+        model.scripted_invocations.push_back(reasked.clone());
+        let mut log = EventLog::open(temp_log("re-asked-propose.jsonl")).unwrap();
+        let mut orch = orchestrator(model, s.memory, s.verifier);
+        // Each call's own 500 tokens fit; the sum of both does not.
+        orch.limits.max_run_tokens = 999;
+        let agg = orch.run(&mut log, s.input).unwrap();
+        let recorded = log
+            .all_events()
+            .iter()
+            .find_map(|e| match &e.payload {
+                EventPayload::ProposalSubmitted { invocation, .. } => Some(invocation.clone()),
+                _ => None,
+            })
+            .expect("the proposal is recorded");
+        assert_eq!(recorded, reasked);
+        let (stage, reason) = failure(&log);
+        assert_eq!(stage, "token_budget");
+        assert!(
+            reason.contains("1000 tokens used across 1 model calls, cap 999"),
+            "{reason}"
+        );
+        assert_eq!(agg.invocations, vec![reasked]);
+        let receipt = build_receipt(&log, &agg.run_id, TS.into()).unwrap();
+        assert_eq!(receipt.model_invocations, agg.invocations);
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "replays");
+        // The extra fields are part of the hash-chained record.
+        let text = std::fs::read_to_string(log.path()).unwrap();
+        assert!(text.contains("\"rejected_calls\":[{\"request_id\":\"fake-rejected-propose\",\"code\":\"model_no_claims\""));
+    }
+
     fn answered_call(request_id: &str) -> ModelInvocation {
         ModelInvocation {
             provider: "meta".into(),
@@ -1783,6 +1868,8 @@ mod tests {
             reasoning_effort: None,
             safety_identifier_sent: Some(false),
             attempts: Some(1),
+            rejected_calls: None,
+            corrective_sha256: None,
         }
     }
 

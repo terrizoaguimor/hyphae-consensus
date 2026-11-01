@@ -119,8 +119,15 @@ fn requests_carry_the_documented_parameters_and_invocations_record_them() {
     assert_eq!(inv.safety_identifier_sent, Some(false));
     assert_eq!(inv.attempts, Some(1));
     assert_eq!(inv.schema_name.as_deref(), Some("DraftProposal"));
-    // schema_sha256 is the digest of the strict schema exactly as sent.
-    let sent = serde_json::to_string(&body["response_format"]["json_schema"]["schema"]).unwrap();
+    // schema_sha256 is the digest of the strict schema exactly as sent
+    // (its bytes: since prompt-freeze-3 the properties are in an explicit
+    // order, which a parsed and re-serialized `Value` would re-sort).
+    let request = server.last_request();
+    let sent = raw_schema(&request, "DraftProposal");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(sent).unwrap(),
+        body["response_format"]["json_schema"]["schema"]
+    );
     assert_eq!(
         inv.schema_sha256,
         Some(hex(&Sha256::digest(sent.as_bytes())))
@@ -684,7 +691,7 @@ fn the_debug_dir_keeps_sanitized_files_without_the_key_and_never_in_public_mode(
 /// adapter mints for the claim (`prop-1`, then `claim-2`) over the
 /// scripted record `ev-1`: a run that reaches its recommendation in three
 /// calls (propose, critique, evaluate).
-const RUN_PROPOSAL: &str = r#"{"summary":"Keep retries capped at 3 attempts","plan_steps":["cap the payment client retries at 3"],"claims":[{"statement":"Outbound retries must be capped at 3 attempts"}],"assumptions":[],"uncertainties":[]}"#;
+const RUN_PROPOSAL: &str = r#"{"summary":"Keep retries capped at 3 attempts","plan_steps":["cap the payment client retries at 3"],"primary_claim":{"statement":"Outbound retries must be capped at 3 attempts"},"further_claims":[],"assumptions":[],"uncertainties":[]}"#;
 const RUN_CHALLENGE: &str = r#"{"items":[]}"#;
 const RUN_EVALUATION: &str = r#"{"assessments":{"claim-2":{"corroborated":true,"relevant_evidence":["ev-1"],"contradicting_evidence":[],"note":"ev-1 states the cap"}},"item_verdicts":{},"cleared_contradictions":[],"abstain":false,"abstain_reason":null}"#;
 

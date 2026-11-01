@@ -735,6 +735,12 @@ pub fn sanitize_receipt(mut receipt: RunReceiptV2, surface: Surface) -> RunRecei
         inv.schema_sha256 = None;
         inv.prompt_sha256 = None;
         inv.attempts = None;
+        // Prompt-freeze-3's re-ask record (`rejected_calls`,
+        // `corrective_sha256`) stays on the public receipt: it holds codes,
+        // request ids, token counts and a constant's digest, never model
+        // text, and without it a re-asked call (its tokens summed over two
+        // billed generations) would read as one clean call. The receipt
+        // schema allows extra members, so the contract is unchanged.
     }
     receipt
 }
@@ -1000,10 +1006,37 @@ mod tests {
             inv.schema_name = Some("proposal".into());
             inv.max_completion_tokens = Some(4096);
             inv.attempts = Some(2);
+            inv.corrective_sha256 = Some("c".repeat(64));
+            inv.rejected_calls = Some(vec![RejectedCall {
+                request_id: Some("chatcmpl-rejected".into()),
+                code: "model_no_claims".into(),
+                finish_reason: Some("stop".into()),
+                latency_ms: Some(9),
+                input_tokens: Some(3),
+                output_tokens: Some(4),
+                reasoning_tokens: None,
+                attempts: Some(1),
+            }]);
         }
         let operator = sanitize_receipt(receipt.clone(), Surface::Operator);
         assert!(operator.model_invocations[0].prompt_sha256.is_some());
+        assert!(operator.model_invocations[0].rejected_calls.is_some());
+        assert!(operator.model_invocations[0].corrective_sha256.is_some());
+        // A re-asked call stays recognisable on the public receipt: the
+        // refused call, its code and the corrective's digest are kept.
+        let text =
+            serde_json::to_string(&sanitize_receipt(receipt.clone(), Surface::Public)).unwrap();
+        assert!(
+            text.contains(
+                r#""rejected_calls":[{"request_id":"chatcmpl-rejected","code":"model_no_claims""#
+            ) && text.contains(&format!(r#""corrective_sha256":"{}""#, "c".repeat(64))),
+            "{text}"
+        );
         let public = sanitize_receipt(receipt, Surface::Public);
+        for inv in &public.model_invocations {
+            assert_eq!(inv.rejected_calls.as_ref().map(Vec::len), Some(1));
+            assert!(inv.corrective_sha256.is_some());
+        }
         assert!(!public.model_invocations.is_empty());
         for inv in &public.model_invocations {
             assert!(inv.prompt_sha256.is_none());

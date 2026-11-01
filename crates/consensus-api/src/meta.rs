@@ -19,22 +19,28 @@
 //!
 //! The Evaluator's ids decide the outcome, so `evaluate` never drops one
 //! (audit finding MA-1): every claim id, cited record id, item verdict
-//! id and cleared contradiction id must name, byte for byte, a claim of
+//! id and contradiction verdict id must name, byte for byte, a claim of
 //! the proposal, a record of the round context, an objection under
 //! evaluation or a carried contradiction, and none may repeat; a missing
 //! verdict, a missing assessment or a second assessment of one claim is
-//! malformed too. The error names the field and the value, quoted at most
+//! malformed too, and so is `still_contradicts` for a record no
+//! assessment cites as contradicting. The error names the field and the
+//! value, quoted at most
 //! [`MAX_QUOTED_CHARS`](consensus_runtime::contract::MAX_QUOTED_CHARS)
 //! characters long, since the message is persisted. Omission is made
 //! structurally impossible first: the Evaluator's strict schema is built
 //! per call ([`evaluation_schema`]), its `assessments` an object whose
-//! properties are exactly the proposal's claim ids and its `item_verdicts`
-//! one whose properties are exactly the objections under evaluation, every
-//! property required and no other allowed (live run R03 returned an empty
-//! `assessments` array under the list schema, and every claim was then
-//! completed as uncorroborated; nothing is completed any more). Ids no
-//! decision reads (the Critic's `claim_id`/`evidence_refs`, the reviser's
-//! `addressed_items`) are still filtered to known ids.
+//! properties are exactly the proposal's claim ids, its `item_verdicts`
+//! one whose properties are exactly the objections under evaluation and,
+//! in a round that carries a contradiction, its `contradiction_verdicts`
+//! one whose properties are exactly the carried records (live M04 passed
+//! one over under the former free clearing list), every property required
+//! and no other allowed (live run R03 returned an empty `assessments`
+//! array under the list schema, and every claim was then completed as
+//! uncorroborated; nothing is completed any more); cited ids are an
+//! `enum` of the round's records. Ids no decision reads (the Critic's
+//! `claim_id`, an `enum` of the proposal's claim ids, and `evidence_refs`;
+//! the reviser's `addressed_items`) are still filtered to known ids.
 //!
 //! Protocol 1.3 prompts carry the deliberation across rounds: the
 //! Evaluator is shown every objection still open (carried ones marked
@@ -64,7 +70,44 @@
 //! timeout or any other status could follow a generation that was already
 //! billed. `finish_reason` `length` is truncated output (code
 //! `model_output_truncated`); `message.refusal` is a refusal (code
-//! `model_refusal`).
+//! `model_refusal`); `content_filter` is `model_content_filtered` and any
+//! other finish reason but `stop` is `model_unexpected_finish`, both
+//! refused before the content is read.
+//!
+//! Re-ask (prompt-freeze-3, after live run R01 ended at propose on a draft
+//! with no claims): an answered call whose output is a *form defect* or
+//! *unreadable* is asked again exactly once, with the same inputs and one
+//! fixed corrective sentence ([`CORRECTIVE_NO_CLAIMS`],
+//! [`CORRECTIVE_CLAIM_FORM`], [`CORRECTIVE_UNREADABLE`]) appended to the
+//! user message; model text is never sent back. Form defects are a
+//! proposal or revision with no usable claim (code `model_no_claims`),
+//! more than [`MAX_CLAIMS_PER_PROPOSAL`] claims, or an empty claim
+//! statement. Unreadable is a 2xx body that is not a chat completion
+//! (`meta_bad_envelope`), or, with `finish_reason` `stop` (or none), a
+//! missing `message.content` or content that does not parse as the
+//! draft (for the Evaluator only a syntax or end-of-input error: a
+//! complete JSON evaluation that serde refuses on its data, a duplicate
+//! member say, is a readable judgment). Nothing that judges is ever
+//! resampled: every refusal of a
+//! readable evaluation (unknown, repeated or missing keys, uncited or
+//! unretrieved citations, bad clears), a degenerate Critic item, a
+//! refusal, a truncation, a filtered or unexpected finish, an adapter
+//! fault (`adapter_schema_error`), a timeout, any HTTP failure and every
+//! runtime contract refusal end the run as before. One re-ask per role
+//! call and at most [`MAX_REASKS_PER_CLIENT`] per client (one client per
+//! run); the re-ask draws its own attempt on the meter. The accepted (or
+//! finally refused) call's invocation lists the refused one under
+//! `rejected_calls` and carries the corrective's digest, its token counts
+//! summed over both calls so the run's token budget charges both. A
+//! re-ask that got no answer at all (a refused draw, a timeout, a
+//! transport failure) fails with its own code, its reason naming the
+//! refusal being asked again, and the billed first call is the record,
+//! listed under its own `rejected_calls` with its refusal code. No re-ask
+//! is made once the run's [`RunControl`] has tripped (a cancel, the
+//! shutdown or `CONSENSUS_RUN_DEADLINE_SECS`; handed over through
+//! [`ModelClient::observe_control`]): the first refusal then stands.
+//! Refusal reasons never quote model text: a draft parse error names its
+//! serde category, line and column and the content's size and digest.
 //!
 //! Errors (MA-4, SEC-9): every failure carries a stable code ([`codes`])
 //! and a fixed short message for its class. No response body, and no URL,
@@ -110,6 +153,7 @@ use consensus_domain::*;
 use consensus_runtime::contract::{quote, OpenItem};
 use consensus_runtime::orchestrator::codes as run_codes;
 use consensus_runtime::ports::{ModelClient, ModelError, RoleContext};
+use consensus_runtime::RunControl;
 use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER};
 use schemars::JsonSchema;
 use serde::de::{DeserializeOwned, Deserializer, MapAccess, Visitor};
@@ -175,7 +219,23 @@ const CHECKABLE_CLAIMS: &str = "\
 Each claim must be checkable against the project's stored records (documented constraints, facts, decisions, incident history): \
 state the concrete value, rule, or fact that such a record could confirm or contradict. \
 Put expectations, implementation guesses, and anything no stored record could settle under assumptions or uncertainties instead of claims. \
-Prefer a few precise claims over many broad ones.";
+Prefer a few precise claims over many broad ones. \
+Give at least one and at most 12 claims. \
+You are not shown the stored records: state as claims the concrete values and rules your plan depends on (limits, timeouts, retry counts, documented constraints) so retrieved records can confirm or contradict them; \
+only what no stored record could ever settle goes under assumptions or uncertainties.";
+
+/// The fixed sentences a re-ask appends to the user message, one per
+/// retryable class (see the module doc). Constants, hashed into the
+/// invocation's `corrective_sha256`; never model text.
+pub const CORRECTIVE_NO_CLAIMS: &str = "Your previous answer had no usable claims; primary_claim must hold one concrete checkable claim.";
+pub const CORRECTIVE_CLAIM_FORM: &str = "Your previous answer broke the claim rules; give one primary_claim and at most 11 further_claims, each with a non-empty checkable statement.";
+pub const CORRECTIVE_UNREADABLE: &str = "Your previous answer could not be read as the required JSON document; answer with the document only.";
+
+/// Re-asks one client (one run) may make in all.
+pub const MAX_REASKS_PER_CLIENT: u32 = 2;
+/// Most claims a proposal or revision may carry: `primary_claim` plus at
+/// most 11 `further_claims`.
+pub const MAX_CLAIMS_PER_PROPOSAL: usize = 12;
 
 /// Evaluator guidance. Corroboration needs a Valid record that directly
 /// states the claim; an unsettled claim is reported per claim (the policy
@@ -188,7 +248,7 @@ If no record settles a claim, set corroborated=false for it: an unsettled claim 
 List in contradicting_evidence every record that conflicts with a claim. \
 Cite records only by the ids given in the evidence block, exactly as written. \
 In item_verdicts, give exactly one verdict for every objection listed above, by its ITEM id exactly as written: status unresolved when the objection still applies to the proposal as written, including objections the evidence confirms; status resolved only when the proposal already satisfies it or the retrieved evidence shows it is mistaken, with a reason naming the change or the record that settles it. \
-For every carried contradiction, either list the record again in contradicting_evidence of a claim it still conflicts with, or put it in cleared_contradictions with a reason naming the change that removed the conflict; never leave one out. \
+For each id under contradiction_verdicts answer still_contradicts (and cite it in contradicting_evidence of the claim it conflicts with) or cleared (with the change that removed the conflict). \
 Set abstain=true only when the evidence is too sparse or inconsistent to assess the claims at all, and say why in abstain_reason.";
 
 const PROPOSER_SYSTEM: &str = "You are the Proposer in a multi-agent engineering review.";
@@ -228,11 +288,20 @@ const MIN_RETRY_HEADROOM: Duration = Duration::from_secs(1);
 // is malformed output, never an empty answer. Unknown extra fields (even a
 // model-invented `recommendation`) are ignored: they cannot reach a decision.
 
+// Prompt-freeze-3: a proposal's claims are `primary_claim` (required, one
+// object) plus `further_claims` (required, possibly empty), so a draft
+// with no claim at all is structurally impossible under strict mode (live
+// R01 returned `claims: []` under the list schema). `build_proposal`
+// merges them, primary first, into the domain `Proposal.claims`. The
+// property order the model sees is set explicitly ([`proposal_schema`]).
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftProposal {
     pub summary: String,
+    /// The single most important checkable claim the plan depends on (a concrete value, limit, timeout, retry count or documented rule).
+    pub primary_claim: DraftClaim,
+    /// Further checkable claims, at most 11.
+    pub further_claims: Vec<DraftClaim>,
     pub plan_steps: Vec<String>,
-    pub claims: Vec<DraftClaim>,
     pub assumptions: Vec<String>,
     pub uncertainties: Vec<String>,
 }
@@ -251,6 +320,7 @@ pub struct DraftChallenge {
 pub struct DraftChallengeItem {
     pub kind: ChallengeKind,
     pub claim_id: Option<String>,
+    /// One full sentence stating the specific objection.
     pub description: String,
     pub evidence_refs: Vec<String>,
 }
@@ -267,10 +337,36 @@ pub struct DraftEvaluation {
     pub assessments: Keyed<DraftAssessment>,
     /// One verdict per objection listed in the prompt, keyed by ITEM id.
     pub item_verdicts: Keyed<DraftItemVerdict>,
-    /// Carried contradictions this evaluation clears, with reasons.
-    pub cleared_contradictions: Vec<DraftClearedContradiction>,
+    /// One verdict per carried contradiction listed in the prompt, keyed by its record id.
+    pub contradiction_verdicts: Option<Keyed<DraftContradictionVerdict>>,
     pub abstain: bool,
     pub abstain_reason: Option<String>,
+}
+
+// Prompt-freeze-4 (live M04 left a carried contradiction unjudged under a
+// free `cleared_contradictions` list): `contradiction_verdicts` is keyed by
+// exactly the carried record ids (required, none other allowed) when the
+// round carries any, and absent from the schema otherwise (an absent value
+// reads as no verdict, which the adapter refuses when one is due). The
+// adapter derives the domain `cleared_contradictions` from the `cleared`
+// verdicts; `still_contradicts` must be backed by a citation in some
+// assessment's `contradicting_evidence`.
+
+/// A verdict on one carried contradiction; the record's id is the key it
+/// sits under in `contradiction_verdicts`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DraftContradictionVerdict {
+    pub status: ContradictionStatus,
+    pub reason: String,
+}
+
+/// Whether a carried contradiction still holds against the proposal as
+/// written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContradictionStatus {
+    StillContradicts,
+    Cleared,
 }
 
 /// A verdict on one objection; the objection's id is the key it sits
@@ -278,12 +374,6 @@ pub struct DraftEvaluation {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftItemVerdict {
     pub status: ItemStatus,
-    pub reason: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct DraftClearedContradiction {
-    pub evidence_id: String,
     pub reason: String,
 }
 
@@ -347,12 +437,15 @@ impl<T: JsonSchema> JsonSchema for Keyed<T> {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftRevision {
     pub summary: String,
+    /// The single most important checkable claim the plan depends on (a concrete value, limit, timeout, retry count or documented rule).
+    pub primary_claim: DraftClaim,
+    /// Further checkable claims, at most 11.
+    pub further_claims: Vec<DraftClaim>,
     pub plan_steps: Vec<String>,
-    pub claims: Vec<DraftClaim>,
-    pub assumptions: Vec<String>,
-    pub uncertainties: Vec<String>,
     /// Challenge ITEM ids this revision addresses.
     pub addressed_items: Vec<String>,
+    pub assumptions: Vec<String>,
+    pub uncertainties: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -561,15 +654,153 @@ pub fn draft_schema<T: JsonSchema>() -> Result<OrderedJson, String> {
     Ok(schema.into())
 }
 
+/// The Proposer's property order, as sent: the model writes its keys in
+/// schema order, so the claims come right after the summary, before the
+/// plan, the assumptions and the uncertainties.
+pub const PROPOSAL_ORDER: [&str; 6] = [
+    "summary",
+    "primary_claim",
+    "further_claims",
+    "plan_steps",
+    "assumptions",
+    "uncertainties",
+];
+/// The reviser's property order, as sent.
+pub const REVISION_ORDER: [&str; 7] = [
+    "summary",
+    "primary_claim",
+    "further_claims",
+    "plan_steps",
+    "addressed_items",
+    "assumptions",
+    "uncertainties",
+];
+/// The Evaluator's property order, as sent: the judgments first, the
+/// abstention last.
+/// `contradiction_verdicts` is sent only in a round that carries a
+/// contradiction; the others keep their places without it.
+pub const EVALUATION_ORDER: [&str; 5] = [
+    "assessments",
+    "item_verdicts",
+    "contradiction_verdicts",
+    "abstain",
+    "abstain_reason",
+];
+
+/// The Proposer's strict schema: [`draft_schema`] of [`DraftProposal`],
+/// `primary_claim` an inline object (no `allOf`), properties and
+/// `required` in [`PROPOSAL_ORDER`].
+pub fn proposal_schema() -> Result<OrderedJson, String> {
+    let mut schema = draft_schema::<DraftProposal>()?;
+    inline_definition(&mut schema, "primary_claim")?;
+    order_properties(&mut schema, &PROPOSAL_ORDER)?;
+    Ok(schema)
+}
+
+/// The reviser's strict schema, as [`proposal_schema`], in
+/// [`REVISION_ORDER`].
+pub fn revision_schema() -> Result<OrderedJson, String> {
+    let mut schema = draft_schema::<DraftRevision>()?;
+    inline_definition(&mut schema, "primary_claim")?;
+    order_properties(&mut schema, &REVISION_ORDER)?;
+    Ok(schema)
+}
+
+/// Puts the top-level `properties` of `schema` in `order`, and its
+/// `required` list too (every property, in that order). The names must
+/// be exactly the schema's properties: a field added to a draft type
+/// without its place in the order is an error, never sent unordered.
+fn order_properties(schema: &mut OrderedJson, order: &[&str]) -> Result<(), String> {
+    let Some(OrderedJson::Object(members)) = schema.get_mut("properties") else {
+        return Err("the schema has no properties".into());
+    };
+    let mut have: Vec<&str> = members.iter().map(|(k, _)| k.as_str()).collect();
+    let mut want: Vec<&str> = order.to_vec();
+    have.sort_unstable();
+    want.sort_unstable();
+    if have != want {
+        return Err(format!(
+            "property order {want:?} does not match the properties {have:?}"
+        ));
+    }
+    let mut ordered = Vec::with_capacity(members.len());
+    for name in order {
+        if let Some(at) = members.iter().position(|(k, _)| k == name) {
+            ordered.push(members.remove(at));
+        }
+    }
+    *members = ordered;
+    schema.set(
+        "required",
+        OrderedJson::Array(
+            order
+                .iter()
+                .map(|name| OrderedJson::Scalar(serde_json::Value::String(name.to_string())))
+                .collect(),
+        ),
+    );
+    Ok(())
+}
+
+/// Replaces the top-level property `field`, a reference to a definition
+/// (`{"$ref"}`, or `{"description", "allOf": [{"$ref"}]}` as schemars
+/// writes a documented field), with that definition inline, its
+/// description first: a plain object schema, the most basic strict-mode
+/// form. The definition stays for other uses (`further_claims` items).
+fn inline_definition(schema: &mut OrderedJson, field: &str) -> Result<(), String> {
+    let property = schema
+        .get("properties")
+        .and_then(|p| p.get(field))
+        .ok_or_else(|| format!("{field}: no such property in the schema"))?;
+    let reference = property
+        .get("$ref")
+        .or_else(|| match property.get("allOf") {
+            Some(OrderedJson::Array(parts)) if parts.len() == 1 => parts[0].get("$ref"),
+            _ => None,
+        });
+    let name = match reference {
+        Some(OrderedJson::Scalar(serde_json::Value::String(r))) => r
+            .strip_prefix("#/definitions/")
+            .ok_or_else(|| format!("{field}: unexpected reference {r}"))?
+            .to_string(),
+        _ => return Err(format!("{field}: not a reference to a definition")),
+    };
+    let definition = schema
+        .get("definitions")
+        .and_then(|d| d.get(&name))
+        .cloned()
+        .ok_or_else(|| format!("{field}: no definition {name}"))?;
+    let OrderedJson::Object(body) = definition else {
+        return Err(format!(
+            "{field}: definition {name} is not an object schema"
+        ));
+    };
+    let mut inline = Vec::with_capacity(body.len() + 1);
+    if let Some(description) = property.get("description").cloned() {
+        inline.push(("description".to_string(), description));
+    }
+    inline.extend(body.into_iter().filter(|(k, _)| k != "description"));
+    if let Some(properties) = schema.get_mut("properties") {
+        properties.set(field, OrderedJson::Object(inline));
+    }
+    Ok(())
+}
+
 /// The Evaluator's strict schema for one call: [`draft_schema`] of
 /// [`DraftEvaluation`] with `assessments` an object whose properties are
 /// exactly `claim_ids` (in that order, the proposal's) and `item_verdicts`
 /// one whose properties are exactly `item_ids` (in that order, the
 /// prompt's), each value the entry type's schema, every property required
 /// and no other allowed (`key_property`). With no claims or no objections
-/// the object is empty, and still strict. `cleared_contradictions` stays a
-/// list: clearing is optional per record by design. A repeated id is an
-/// error: the ids are this adapter's, so one would be a bug here.
+/// the object is empty, and still strict. `contradiction_verdicts` is
+/// keyed the same way by exactly `carried_ids` (the round's carried
+/// contradictions, in prompt order) and left out of the schema when there
+/// are none (an empty object is never sent for it). With at least one
+/// retrieved record, every cited id (`relevant_evidence`,
+/// `contradicting_evidence`) is an `enum` of `evidence_ids` in prompt
+/// order; with none it stays a plain string (an empty `enum` is never
+/// sent). The adapter still checks every id. A repeated id is an error:
+/// the ids are this adapter's, so one would be a bug here.
 ///
 /// Two features of this schema have only been exercised against the fake
 /// server, never the live API: a `$ref` value directly under `properties`
@@ -579,10 +810,109 @@ pub fn draft_schema<T: JsonSchema>() -> Result<OrderedJson, String> {
 /// implementations reject. Either rejection would be loud (a 4xx fails the
 /// run), never silent; the next live smoke battery must include a run
 /// whose critique raises no objection.
-pub fn evaluation_schema(claim_ids: &[&str], item_ids: &[&str]) -> Result<OrderedJson, String> {
+pub fn evaluation_schema(
+    claim_ids: &[&str],
+    item_ids: &[&str],
+    carried_ids: &[&str],
+    evidence_ids: &[&str],
+) -> Result<OrderedJson, String> {
     let mut schema = draft_schema::<DraftEvaluation>()?;
     key_property(&mut schema, "assessments", claim_ids)?;
     key_property(&mut schema, "item_verdicts", item_ids)?;
+    let order: Vec<&str> = if carried_ids.is_empty() {
+        if let Some(properties) = schema.get_mut("properties") {
+            properties.remove("contradiction_verdicts");
+        }
+        if let Some(definitions) = schema.get_mut("definitions") {
+            definitions.remove("DraftContradictionVerdict");
+            definitions.remove("ContradictionStatus");
+        }
+        EVALUATION_ORDER
+            .iter()
+            .copied()
+            .filter(|p| *p != "contradiction_verdicts")
+            .collect()
+    } else {
+        key_property(&mut schema, "contradiction_verdicts", carried_ids)?;
+        // Required, never null, when a contradiction is carried.
+        if let Some(property) = schema
+            .get_mut("properties")
+            .and_then(|p| p.get_mut("contradiction_verdicts"))
+        {
+            property.set("type", OrderedJson::Scalar("object".into()));
+        }
+        EVALUATION_ORDER.to_vec()
+    };
+    if !evidence_ids.is_empty() {
+        let assessment = schema
+            .get_mut("definitions")
+            .and_then(|d| d.get_mut("DraftAssessment"))
+            .and_then(|a| a.get_mut("properties"))
+            .ok_or("DraftAssessment: no properties in the schema")?;
+        for field in ["relevant_evidence", "contradicting_evidence"] {
+            let list = assessment
+                .get_mut(field)
+                .ok_or_else(|| format!("DraftAssessment.{field}: no such property"))?;
+            list.set("items", string_enum(evidence_ids, field)?);
+        }
+    }
+    order_properties(&mut schema, &order)?;
+    Ok(schema)
+}
+
+/// `{"type": "string", "enum": values}`, the values in the order given;
+/// never empty, never repeated.
+fn string_enum(values: &[&str], what: &str) -> Result<OrderedJson, String> {
+    if values.is_empty() {
+        return Err(format!("{what}: an empty enum is never sent"));
+    }
+    for (n, value) in values.iter().enumerate() {
+        if values[..n].contains(value) {
+            return Err(format!("{what}: id {} repeats", quote(value)));
+        }
+    }
+    Ok(OrderedJson::Object(vec![
+        ("type".into(), OrderedJson::Scalar("string".into())),
+        (
+            "enum".into(),
+            OrderedJson::Array(
+                values
+                    .iter()
+                    .map(|v| OrderedJson::Scalar(serde_json::Value::String(v.to_string())))
+                    .collect(),
+            ),
+        ),
+    ]))
+}
+
+/// The Critic's strict schema for one call: [`draft_schema`] of
+/// [`DraftChallenge`] with each item's `claim_id` one of `claim_ids` (the
+/// proposal's, in proposal order) or null. Without claims it stays a
+/// nullable string (an empty `enum` is never sent). Unknown ids are still
+/// dropped by the adapter.
+pub fn critique_schema(claim_ids: &[&str]) -> Result<OrderedJson, String> {
+    let mut schema = draft_schema::<DraftChallenge>()?;
+    if claim_ids.is_empty() {
+        return Ok(schema);
+    }
+    let claim_id = schema
+        .get_mut("definitions")
+        .and_then(|d| d.get_mut("DraftChallengeItem"))
+        .and_then(|i| i.get_mut("properties"))
+        .and_then(|p| p.get_mut("claim_id"))
+        .ok_or("DraftChallengeItem.claim_id: no such property")?;
+    let mut rewritten = Vec::new();
+    if let Some(description) = claim_id.get("description").cloned() {
+        rewritten.push(("description".to_string(), description));
+    }
+    rewritten.push((
+        "anyOf".to_string(),
+        OrderedJson::Array(vec![
+            string_enum(claim_ids, "claim_id")?,
+            OrderedJson::Object(vec![("type".into(), OrderedJson::Scalar("null".into()))]),
+        ]),
+    ));
+    *claim_id = OrderedJson::Object(rewritten);
     Ok(schema)
 }
 
@@ -854,26 +1184,50 @@ fn evidence_block(ctx: &RoleContext) -> String {
     let entries: Vec<String> = ctx
         .evidence
         .iter()
-        .map(|ev| {
-            let integrity = ctx
-                .integrity
-                .iter()
-                .find(|(id, _)| id == &ev.id)
-                .map(|(_, s)| format!("{s:?}"))
-                .unwrap_or_else(|| "NotChecked".into());
-            format!(
-                "{{\"id\": {}, \"kind\": {}, \"integrity\": {}, \"content\": {}}}",
-                json_string(ev.id.as_str()),
-                json_string(&truncate(&ev.kind, KIND_MAX_CHARS)),
-                json_string(&integrity),
-                json_string(&truncate(&ev.content, EVIDENCE_CONTENT_MAX_CHARS))
-            )
-        })
+        .map(|ev| evidence_entry(ctx, ev))
         .collect();
     block(
         "UNTRUSTED_EVIDENCE",
         &format!("[\n{}\n]", entries.join(",\n")),
     )
+}
+
+/// One record as a JSON object on one line: `{"id","kind","integrity",
+/// "content"}`.
+fn evidence_entry(ctx: &RoleContext, ev: &EvidenceReference) -> String {
+    let integrity = ctx
+        .integrity
+        .iter()
+        .find(|(id, _)| id == &ev.id)
+        .map(|(_, s)| format!("{s:?}"))
+        .unwrap_or_else(|| "NotChecked".into());
+    format!(
+        "{{\"id\": {}, \"kind\": {}, \"integrity\": {}, \"content\": {}}}",
+        json_string(ev.id.as_str()),
+        json_string(&truncate(&ev.kind, KIND_MAX_CHARS)),
+        json_string(&integrity),
+        json_string(&truncate(&ev.content, EVIDENCE_CONTENT_MAX_CHARS))
+    )
+}
+
+/// The round's carried contradictions, each as its record's JSON line
+/// (the id alone when the record is not in the round context), inside an
+/// untrusted block; `(none)` without any. The contradicted claim itself
+/// is not shown: claim ids are minted anew on every revision and the
+/// round context does not carry the earlier proposal's statements.
+fn contradictions_block(ctx: &RoleContext) -> String {
+    if ctx.carried_contradictions.is_empty() {
+        return "(none)".into();
+    }
+    let lines: Vec<String> = ctx
+        .carried_contradictions
+        .iter()
+        .map(|id| match ctx.evidence.iter().find(|ev| &ev.id == id) {
+            Some(ev) => evidence_entry(ctx, ev),
+            None => format!("{{\"id\": {}}}", json_string(id.as_str())),
+        })
+        .collect();
+    block("UNTRUSTED_CONTRADICTIONS", &lines.join("\n"))
 }
 
 /// One objection as a role sees it: id, kind, target claim, when it was
@@ -991,7 +1345,7 @@ Assess these claims, one assessment each, keyed by claim id: {claim_ids}
 Objections to judge, one verdict each (this round's challenge document id={challenge_id}; a carried objection was raised in an earlier round and is still open):
 {objections}
 
-Carried contradictions (records an earlier evaluation found contradicting a claim; judge each again):
+Carried contradictions (records an earlier evaluation found contradicting a claim of an earlier proposal; one verdict each under contradiction_verdicts, keyed by the record id):
 {contradictions}
 
 Retrieved evidence with integrity status (integrity is about record tampering only; it does NOT make content true):
@@ -1013,7 +1367,7 @@ Unresolved item ids: {unresolved}
 Evidence:
 {evidence}
 
-Revise the proposal to address every open objection. In addressed_items, list by ITEM id which objections the revision fixes. Drop or fix claims the evidence contradicts and respect documented constraints found in the evidence. {checkable_claims}";
+Revise the proposal to address every open objection. In addressed_items, list by ITEM id which objections the revision fixes. Drop or fix claims the evidence contradicts and respect documented constraints found in the evidence. Replace a contradicted claim with the corrected checkable claim instead of only deleting it; the revision must contain at least one claim. {checkable_claims}";
 
 fn propose_prompt(task: &Task) -> String {
     fill(
@@ -1063,11 +1417,6 @@ fn evaluate_prompt(proposal: &Proposal, challenge: &Challenge, ctx: &RoleContext
         .iter()
         .map(|(item, raised)| item_line(item, *raised, &proposal.claims))
         .collect();
-    let contradictions: Vec<String> = ctx
-        .carried_contradictions
-        .iter()
-        .map(|id| format!("- {}", untrusted_line(id.as_str(), ID_MAX_CHARS)))
-        .collect();
     fill(
         EVALUATE_TEMPLATE,
         &[
@@ -1085,14 +1434,7 @@ fn evaluate_prompt(proposal: &Proposal, challenge: &Challenge, ctx: &RoleContext
                 &untrusted_line(challenge.id.as_str(), ID_MAX_CHARS),
             ),
             ("objections", &objections_block(&items)),
-            (
-                "contradictions",
-                &if contradictions.is_empty() {
-                    "(none)".to_string()
-                } else {
-                    contradictions.join("\n")
-                },
-            ),
+            ("contradictions", &contradictions_block(ctx)),
             ("evidence", &evidence_block(ctx)),
             ("evaluation_rules", EVALUATION_RULES),
         ],
@@ -1183,6 +1525,16 @@ pub enum Role {
 
 impl Role {
     pub const ALL: [Role; 4] = [Role::Propose, Role::Critique, Role::Evaluate, Role::Revise];
+
+    /// The orchestrator's stage name for the role's call.
+    pub fn stage(self) -> &'static str {
+        match self {
+            Role::Propose => "propose",
+            Role::Critique => "critique",
+            Role::Evaluate => "evaluate",
+            Role::Revise => "revise",
+        }
+    }
 
     /// Name of the strict structured-output schema the role is asked for.
     pub fn schema_name(self) -> &'static str {
@@ -1588,6 +1940,243 @@ struct CallSpec {
     /// the Critic), or `CONSENSUS_MODEL` for a call that is not one of the
     /// four roles (the single-agent baseline).
     model: String,
+    /// The document is a judgment (the Evaluator's, the baseline's): one
+    /// that is syntactically complete but that serde refuses on its data
+    /// was read, so it is never marked [`RetryClass::Retryable`].
+    judgment: bool,
+}
+
+/// The adapter's own fault (a schema or request it could not build):
+/// never retried, and loud in the operator log.
+fn adapter_fault(what: &str, detail: impl std::fmt::Display) -> ModelError {
+    eprintln!("[meta] ALERT adapter_schema_error: {what}: {detail}");
+    provider(
+        run_codes::ADAPTER_SCHEMA_ERROR,
+        format!("the adapter could not build its {what}: {detail}"),
+    )
+}
+
+/// Which corrective sentence a re-ask appends (see the module doc).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Corrective {
+    /// No usable claim (`model_no_claims`).
+    NoClaims,
+    /// Too many claims, or an empty claim statement.
+    ClaimForm,
+    /// The answer could not be read as the draft.
+    Unreadable,
+}
+
+impl Corrective {
+    fn text(self) -> &'static str {
+        match self {
+            Corrective::NoClaims => CORRECTIVE_NO_CLAIMS,
+            Corrective::ClaimForm => CORRECTIVE_CLAIM_FORM,
+            Corrective::Unreadable => CORRECTIVE_UNREADABLE,
+        }
+    }
+}
+
+/// Whether a refused answer may be asked again (once). Internal to this
+/// adapter: the runtime's [`ModelError`] does not change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetryClass {
+    /// A form defect or an unreadable answer: nothing was judged.
+    Retryable(Corrective),
+    /// Everything else, every judgment in particular.
+    Never,
+}
+
+/// A refused call and whether it may be asked again.
+#[derive(Debug)]
+struct Rejection {
+    error: ModelError,
+    retry: RetryClass,
+}
+
+impl From<ModelError> for Rejection {
+    /// Never retried unless said otherwise.
+    fn from(error: ModelError) -> Self {
+        Rejection {
+            error,
+            retry: RetryClass::Never,
+        }
+    }
+}
+
+impl Rejection {
+    fn retryable(error: ModelError, corrective: Corrective) -> Self {
+        Rejection {
+            error,
+            retry: RetryClass::Retryable(corrective),
+        }
+    }
+}
+
+/// Size and digest of an answer's content, for refusal reasons that must
+/// never quote model text (A3).
+#[derive(Debug, Clone)]
+struct ContentPrint {
+    bytes: usize,
+    sha256_prefix: String,
+}
+
+impl ContentPrint {
+    fn of(content: &[u8]) -> Self {
+        ContentPrint {
+            bytes: content.len(),
+            sha256_prefix: sha256_hex(content)[..8].to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for ContentPrint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "content {} bytes, sha256 {}",
+            self.bytes, self.sha256_prefix
+        )
+    }
+}
+
+/// The serde category of a draft parse error (never its text, which can
+/// quote the model's).
+fn serde_category(e: &serde_json::Error) -> &'static str {
+    match e.classify() {
+        serde_json::error::Category::Io => "io",
+        serde_json::error::Category::Syntax => "syntax",
+        serde_json::error::Category::Data => "data",
+        serde_json::error::Category::Eof => "eof",
+    }
+}
+
+/// What a draft parse error says, with every part that could quote the
+/// model's text removed (A3). Kept whole: syntax and end-of-input
+/// messages (fixed texts) and `missing field` / `duplicate field` (the
+/// field is this adapter's own name). `invalid type` and `invalid value`
+/// keep the kind of value found (its first word: `string`, `integer`,
+/// `sequence`, ...) and what was expected (this adapter's type, the text
+/// after the last `, expected `, which follows any quoted value).
+/// `unknown variant` and `unknown field` name neither the variant nor
+/// the field. Any other data message is reduced to `data error`.
+fn serde_summary(e: &serde_json::Error) -> String {
+    let full = e.to_string();
+    // serde_json appends " at line L column C" when it knows the
+    // position; the position is reported separately.
+    let message = match full.rfind(" at line ") {
+        Some(at) if e.line() != 0 => &full[..at],
+        _ => full.as_str(),
+    };
+    use serde_json::error::Category;
+    if matches!(e.classify(), Category::Syntax | Category::Eof) {
+        return truncate(message, 120);
+    }
+    if message.starts_with("missing field `") || message.starts_with("duplicate field `") {
+        return truncate(message, 120);
+    }
+    for prefix in ["invalid type: ", "invalid value: "] {
+        if let Some(rest) = message.strip_prefix(prefix) {
+            let kind: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphabetic())
+                .collect();
+            let expected = message
+                .rsplit_once(", expected ")
+                .map(|(_, expected)| format!(", expected {}", truncate(expected, 80)))
+                .unwrap_or_default();
+            return format!("{prefix}{kind}{expected}");
+        }
+    }
+    for prefix in ["unknown variant", "unknown field", "invalid length"] {
+        if message.starts_with(prefix) {
+            return prefix.to_string();
+        }
+    }
+    "data error".to_string()
+}
+
+/// The shape of a proposal or revision draft, with no model text: field
+/// lengths and counts, then the content's size and digest.
+fn draft_shape(d: &DraftProposal, addressed_items: Option<usize>, print: &ContentPrint) -> String {
+    let addressed = addressed_items
+        .map(|n| format!(", addressed_items {n}"))
+        .unwrap_or_default();
+    format!(
+        "summary {} chars, primary_claim.statement {} chars, further_claims {}, plan_steps {}{addressed}, assumptions {}, uncertainties {}; {print}",
+        d.summary.chars().count(),
+        d.primary_claim.statement.chars().count(),
+        d.further_claims.len(),
+        d.plan_steps.len(),
+        d.assumptions.len(),
+        d.uncertainties.len(),
+    )
+}
+
+/// `accepted` plus `extra`, when `accepted` is known: a call that
+/// reported no usage stays without (the run's budget refuses it), and a
+/// refused call that reported none adds nothing (the ledger charged its
+/// attempt at its full estimate).
+fn add_tokens(accepted: Option<u64>, extra: Option<u64>) -> Option<u64> {
+    accepted.map(|n| n.saturating_add(extra.unwrap_or(0)))
+}
+
+/// The record of a refused call that was asked again.
+fn rejected_call(call: &ModelInvocation, code: &str) -> RejectedCall {
+    RejectedCall {
+        request_id: call.request_id.clone(),
+        code: code.to_string(),
+        finish_reason: call.finish_reason.clone(),
+        latency_ms: call.latency_ms,
+        input_tokens: call.input_tokens,
+        output_tokens: call.output_tokens,
+        reasoning_tokens: call.reasoning_tokens,
+        attempts: call.attempts,
+    }
+}
+
+/// The invocation of a re-ask (`second`, accepted or finally refused):
+/// its own fields, the refused first call under `rejected_calls`, the
+/// corrective's digest, and its token counts SUMMED over both calls, so
+/// the orchestrator's token budget charges both billed calls.
+fn with_rejected(
+    second: ModelInvocation,
+    first: &ModelInvocation,
+    code: &str,
+    corrective: Corrective,
+) -> ModelInvocation {
+    let mut rejected = second.rejected_calls.clone().unwrap_or_default();
+    rejected.push(rejected_call(first, code));
+    ModelInvocation {
+        input_tokens: add_tokens(second.input_tokens, first.input_tokens),
+        output_tokens: add_tokens(second.output_tokens, first.output_tokens),
+        reasoning_tokens: add_tokens(second.reasoning_tokens, first.reasoning_tokens),
+        rejected_calls: Some(rejected),
+        corrective_sha256: Some(sha256_hex(corrective.text().as_bytes())),
+        ..second
+    }
+}
+
+/// `error`, a re-ask's failure before any answer, with its reason saying
+/// which refusal was being asked again (its code is unchanged).
+fn after_failed_reask(error: ModelError, refused_code: &str) -> ModelError {
+    let note = format!(" (while asking again after {refused_code})");
+    match error {
+        ModelError::Provider { code, message } => ModelError::Provider {
+            code,
+            message: format!("{message}{note}"),
+        },
+        ModelError::MalformedOutput {
+            reason,
+            invocation,
+            code,
+        } => ModelError::MalformedOutput {
+            reason: format!("{reason}{note}"),
+            invocation,
+            code,
+        },
+        other => other,
+    }
 }
 
 pub struct MetaModelClient {
@@ -1607,6 +2196,11 @@ pub struct MetaModelClient {
     /// The live ledger's per-attempt meter, when this client spends a
     /// public reservation (see the module doc).
     meter: Option<Arc<dyn AttemptMeter>>,
+    /// Re-asks made so far ([`MAX_REASKS_PER_CLIENT`]; one client per run).
+    reasks: u32,
+    /// The run's stop handle ([`ModelClient::observe_control`]): a re-ask
+    /// is skipped once it trips.
+    control: Option<RunControl>,
 }
 
 impl MetaModelClient {
@@ -1645,6 +2239,8 @@ impl MetaModelClient {
             calls: 0,
             failed: None,
             meter: None,
+            reasks: 0,
+            control: None,
         })
     }
 
@@ -1944,38 +2540,43 @@ impl MetaModelClient {
     /// (per call for the Evaluator) that `T` parses (see the module doc
     /// for retries, the time budget and errors). Once the API has
     /// answered, a refused answer carries the call's invocation
-    /// ([`ModelError::after_call`]).
+    /// ([`ModelError::after_call`]); a refusal that may be asked again
+    /// says so ([`RetryClass`]), and the parsed draft comes with its
+    /// content's size and digest.
     fn call<T: DeserializeOwned>(
         &mut self,
         role: Role,
         schema: OrderedJson,
         user: String,
-    ) -> Result<(T, ModelInvocation), ModelError> {
+    ) -> Result<(T, ModelInvocation, ContentPrint), Rejection> {
         let spec = CallSpec {
             schema_name: role.schema_name(),
             system: role.system_prompt(),
             prompt_sha256: self.prompt_hash(role),
             model: self.cfg.model_for(role).to_string(),
+            judgment: role == Role::Evaluate,
         };
         self.call_spec(spec, schema, user)
     }
 
-    /// [`call`](Self::call) for any call: its schema name, system message
-    /// and prompt-template digest given by `spec` (the single-agent
-    /// baseline's call is not one of the four roles).
+    /// [`call`](Self::call) for any call: its schema name, system message,
+    /// prompt-template digest and model given by `spec` (the single-agent
+    /// baseline's call is not one of the four roles). The re-ask wrapper
+    /// ([`with_reask`](Self::with_reask)) is the four roles' only; this
+    /// request path (its classification of the answer included) is shared.
     fn call_spec<T: DeserializeOwned>(
         &mut self,
         spec: CallSpec,
         schema: OrderedJson,
         user: String,
-    ) -> Result<(T, ModelInvocation), ModelError> {
+    ) -> Result<(T, ModelInvocation, ContentPrint), Rejection> {
         self.failed = None;
         self.calls += 1;
         let schema_name = spec.schema_name;
         // The digest is of these bytes, and the request body embeds the
         // same serialization of the same document.
         let schema_text = serde_json::to_string(&schema)
-            .map_err(|e| ModelError::malformed(format!("schema build: {e}")))?;
+            .map_err(|e| adapter_fault(&format!("{schema_name} schema"), e))?;
         // The role's model (`CONSENSUS_MODEL_CRITIC` for the Critic): sent,
         // and recorded when the API echoes none. Neither the prompt nor the
         // schema depends on it.
@@ -2005,7 +2606,7 @@ impl MetaModelClient {
             safety_identifier: self.cfg.safety_identifier.as_deref(),
         };
         let body = serde_json::to_vec(&request)
-            .map_err(|e| ModelError::malformed(format!("request build: {e}")))?;
+            .map_err(|e| adapter_fault(&format!("{schema_name} request"), e))?;
         drop(request);
         let base = ModelInvocation {
             provider: "meta".into(),
@@ -2023,6 +2624,8 @@ impl MetaModelClient {
             reasoning_effort: self.cfg.reasoning_effort.clone(),
             safety_identifier_sent: Some(self.cfg.safety_identifier.is_some()),
             attempts: None,
+            rejected_calls: None,
+            corrective_sha256: None,
         };
         let started = Instant::now();
         let deadline = started + self.cfg.timeout;
@@ -2049,14 +2652,15 @@ impl MetaModelClient {
                         "the Meta API answered but its response did not arrive within the {} s budget",
                         self.cfg.timeout.as_secs()
                     ),
-                ));
+                )
+                .into());
             }
             Err(BodyFailure::TooLarge) => {
                 self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
                 let refused = ModelError::malformed(format!(
                     "response body exceeds {MAX_RESPONSE_BYTES} bytes"
                 ));
-                return Err(self.refused(refused, call));
+                return Err(self.refused(refused, call).into());
             }
             Err(BodyFailure::Read) => {
                 self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
@@ -2064,21 +2668,30 @@ impl MetaModelClient {
                 return Err(provider(
                     codes::TRANSPORT,
                     "the Meta API answered but its response could not be read",
-                ));
+                )
+                .into());
             }
         };
         // An unreadable envelope names no request id or usage: the call is
         // recorded with what is known (its tokens stay unknown). Its text
-        // is upstream text, so only its digest is quoted.
+        // is upstream text, so only its size and digest are quoted. Nothing
+        // was judged: asked again once.
         let parsed = match serde_json::from_slice::<ChatResponse>(&bytes) {
             Ok(parsed) => parsed,
             Err(_) => {
                 self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
-                let refused = ModelError::malformed(format!(
-                    "response envelope is not a chat completion (body sha256 {})",
-                    &sha256_hex(&bytes)[..16]
+                let refused = ModelError::malformed_with_code(
+                    run_codes::META_BAD_ENVELOPE,
+                    format!(
+                        "response envelope is not a chat completion (body {} bytes, sha256 {})",
+                        bytes.len(),
+                        &sha256_hex(&bytes)[..16]
+                    ),
+                );
+                return Err(Rejection::retryable(
+                    self.refused(refused, call),
+                    Corrective::Unreadable,
                 ));
-                return Err(self.refused(refused, call));
             }
         };
         let choice = parsed.choices.into_iter().next();
@@ -2111,8 +2724,11 @@ impl MetaModelClient {
         };
         self.settle_answered(draw, outcome, &invocation)?;
         let Some(choice) = choice else {
-            let refused = ModelError::malformed("missing choices[0].message.content");
-            return Err(self.refused(refused, invocation));
+            let refused = ModelError::malformed("missing choices[0].message.content (no choice)");
+            return Err(Rejection::retryable(
+                self.refused(refused, invocation),
+                Corrective::Unreadable,
+            ));
         };
         // Opt-in diagnostics: keep the raw structured output (model text
         // only; never the prompt or the key) to audit what the adapter
@@ -2131,7 +2747,9 @@ impl MetaModelClient {
             .as_deref()
             .is_some_and(|r| !r.trim().is_empty())
         {
-            return Err(self.refused(ModelError::Refused { invocation: None }, invocation));
+            return Err(self
+                .refused(ModelError::Refused { invocation: None }, invocation)
+                .into());
         }
         if invocation.finish_reason.as_deref() == Some("length") {
             let refused = ModelError::malformed_with_code(
@@ -2141,19 +2759,156 @@ impl MetaModelClient {
                     self.cfg.max_completion_tokens
                 ),
             );
-            return Err(self.refused(refused, invocation));
+            return Err(self.refused(refused, invocation).into());
         }
+        // Any other stop but `stop` (or none reported) is refused before
+        // the content is read, whatever it holds; never asked again. The
+        // raw value decides: one `api_identifier` would not keep still
+        // counts as unexpected.
+        match choice.finish_reason.as_deref() {
+            None | Some("stop") | Some("length") => {}
+            Some("content_filter") => {
+                let refused = ModelError::malformed_with_code(
+                    run_codes::MODEL_CONTENT_FILTERED,
+                    "model_content_filtered: the provider stopped the output with finish_reason content_filter",
+                );
+                return Err(self.refused(refused, invocation).into());
+            }
+            Some(_) => {
+                let shown = invocation
+                    .finish_reason
+                    .clone()
+                    .unwrap_or_else(|| "(unreadable)".into());
+                let refused = ModelError::malformed_with_code(
+                    run_codes::MODEL_UNEXPECTED_FINISH,
+                    format!(
+                        "model_unexpected_finish: the output stopped with finish_reason {shown}"
+                    ),
+                );
+                return Err(self.refused(refused, invocation).into());
+            }
+        }
+        // From here on the output ended normally: what cannot be read as
+        // the draft was never judged, so it is asked again once.
         let Some(content) = choice.message.content else {
             let refused = ModelError::malformed("missing choices[0].message.content");
-            return Err(self.refused(refused, invocation));
+            return Err(Rejection::retryable(
+                self.refused(refused, invocation),
+                Corrective::Unreadable,
+            ));
         };
-        // Parse errors can quote the model's text (an invalid value, say):
-        // bounded, since the reason is persisted.
+        let print = ContentPrint::of(content.as_bytes());
+        // A serde message can quote the model's text (`invalid type:
+        // string "..."`, an unknown variant or field) and the reason is
+        // persisted, so only its fixed parts are kept ([`serde_summary`]),
+        // with its category, position and the content's size and digest
+        // (A3).
         match serde_json::from_str::<T>(&content) {
-            Ok(draft) => Ok((draft, invocation)),
+            Ok(draft) => Ok((draft, invocation, print)),
             Err(e) => {
-                let reason = format!("draft parse: {}", truncate(&e.to_string(), 300));
-                Err(self.refused(ModelError::malformed(reason), invocation))
+                let reason = format!(
+                    "draft parse: {} (serde category {}, line {} column {}; {print})",
+                    serde_summary(&e),
+                    serde_category(&e),
+                    e.line(),
+                    e.column()
+                );
+                let refused = self.refused(ModelError::malformed(reason), invocation);
+                // A syntactically complete evaluation that serde refuses on
+                // its data (a duplicate member, say) is a readable
+                // judgment: never resampled. Everything else here could
+                // not be read at all and is asked again once.
+                if spec.judgment && e.classify() == serde_json::error::Category::Data {
+                    return Err(refused.into());
+                }
+                Err(Rejection::retryable(refused, Corrective::Unreadable))
+            }
+        }
+    }
+
+    /// One role call with at most one re-ask (see the module doc).
+    /// `attempt` makes the call and builds the document from `user`, the
+    /// user message; a [`RetryClass::Retryable`] refusal of an answered
+    /// call is asked again with the same message and the class's fixed
+    /// corrective sentence appended, while this client has re-asks left.
+    /// The re-ask's result is final, whatever it is: its invocation then
+    /// lists the refused call ([`with_rejected`]). A re-ask that got no
+    /// readable answer at all (a refused draw, a timeout) fails with its
+    /// own error, its reason naming the refusal being asked again, and the
+    /// refused first call stays on the record through
+    /// [`ModelClient::take_failed_invocation`], listed under its own
+    /// `rejected_calls`. No re-ask once the run's control has tripped.
+    fn with_reask<D>(
+        &mut self,
+        role: Role,
+        user: String,
+        mut attempt: impl FnMut(&mut Self, String) -> Result<(D, ModelInvocation), Rejection>,
+    ) -> Result<(D, ModelInvocation), ModelError> {
+        let first = match attempt(self, user.clone()) {
+            Ok(done) => return Ok(done),
+            Err(rejection) => rejection,
+        };
+        let corrective = match first.retry {
+            RetryClass::Retryable(c) if self.reasks < MAX_REASKS_PER_CLIENT => c,
+            _ => return Err(first.error),
+        };
+        let Some(first_call) = first.error.invocation().cloned() else {
+            return Err(first.error);
+        };
+        let code = first
+            .error
+            .code()
+            .unwrap_or(run_codes::MODEL_MALFORMED_OUTPUT);
+        // A run that was cancelled, or reached its deadline, during the
+        // first call gets no second billed call: the refusal stands and
+        // the orchestrator records it.
+        if self.control.as_ref().and_then(RunControl::check).is_some() {
+            eprintln!(
+                "[meta] re-ask skipped stage={} class={code} request_id={}: the run is stopping",
+                role.stage(),
+                first_call.request_id.as_deref().unwrap_or("none")
+            );
+            return Err(first.error);
+        }
+        self.reasks += 1;
+        eprintln!(
+            "[meta] re-ask stage={} class={code} request_id={}",
+            role.stage(),
+            first_call.request_id.as_deref().unwrap_or("none")
+        );
+        let asked_again = format!("{user}\n\n{}", corrective.text());
+        match attempt(self, asked_again) {
+            Ok((document, call)) => {
+                Ok((document, with_rejected(call, &first_call, code, corrective)))
+            }
+            Err(second) => {
+                let error = second.error;
+                if let Some(call) = error.invocation().cloned() {
+                    let call = with_rejected(call, &first_call, code, corrective);
+                    self.failed = Some(call.clone());
+                    Err(error.after_call(call))
+                } else {
+                    match self.failed.take() {
+                        Some(call) => {
+                            self.failed = Some(with_rejected(call, &first_call, code, corrective));
+                            Err(error)
+                        }
+                        // The re-ask got no answer (a refused draw, a
+                        // timeout, a transport failure): the billed first
+                        // call is the record, listed under its own
+                        // `rejected_calls` with its refusal code (its
+                        // tokens counted once) and the corrective's
+                        // digest, and the reason says a re-ask failed.
+                        None => {
+                            self.failed = Some(ModelInvocation {
+                                rejected_calls: Some(vec![rejected_call(&first_call, code)]),
+                                corrective_sha256: Some(sha256_hex(corrective.text().as_bytes())),
+                                ..first_call
+                            });
+                            Err(after_failed_reask(error, code))
+                        }
+                    }
+                }
             }
         }
     }
@@ -2163,18 +2918,17 @@ impl MetaModelClient {
     /// instead, so the billed call is still recorded (TC-7).
     fn answered<D>(
         &mut self,
-        built: Result<D, ModelError>,
+        built: Result<D, Rejection>,
         invocation: ModelInvocation,
-    ) -> Result<(D, ModelInvocation), ModelError> {
+    ) -> Result<(D, ModelInvocation), Rejection> {
         match built {
             Ok(document) => Ok((document, invocation)),
-            Err(e) => Err(self.refused(e, invocation)),
+            Err(r) => Err(Rejection {
+                error: self.refused(r.error, invocation),
+                retry: r.retry,
+            }),
         }
     }
-
-    /// A model emitting unbounded claims would drive unbounded memory
-    /// calls and prompt growth; reject drafts past the cap as malformed.
-    const MAX_CLAIMS_PER_PROPOSAL: usize = 12;
 
     /// Words that only name a challenge category. A description made of
     /// nothing else (live run L02 returned bare `constraint_conflict`
@@ -2213,26 +2967,60 @@ impl MetaModelClient {
         words.len() < 3 || words.iter().all(|w| Self::CATEGORY_WORDS.contains(w))
     }
 
-    fn build_proposal(&mut self, run_id: &RunId, d: DraftProposal) -> Result<Proposal, ModelError> {
-        if d.claims.len() > Self::MAX_CLAIMS_PER_PROPOSAL {
-            return Err(ModelError::malformed(format!(
-                "draft has {} claims (cap {})",
-                d.claims.len(),
-                Self::MAX_CLAIMS_PER_PROPOSAL
-            )));
+    /// The domain proposal of a draft: `primary_claim` then
+    /// `further_claims`, ids minted only once the draft is accepted. A
+    /// model emitting unbounded claims would drive unbounded memory calls
+    /// and prompt growth, so more than [`MAX_CLAIMS_PER_PROPOSAL`] is
+    /// refused; an empty primary statement (or no claim at all) is
+    /// `model_no_claims`, any other empty statement a form defect. Each
+    /// refusal is asked again once, and its reason ends with the draft's
+    /// `shape` ([`draft_shape`]), never its text.
+    fn build_proposal(
+        &mut self,
+        run_id: &RunId,
+        d: DraftProposal,
+        shape: &str,
+    ) -> Result<Proposal, Rejection> {
+        let total = 1 + d.further_claims.len();
+        if total > MAX_CLAIMS_PER_PROPOSAL {
+            return Err(Rejection::retryable(
+                ModelError::malformed(format!(
+                    "draft has {total} claims (cap {MAX_CLAIMS_PER_PROPOSAL}) ({shape})"
+                )),
+                Corrective::ClaimForm,
+            ));
         }
-        if d.claims.is_empty() {
-            return Err(ModelError::malformed("draft has no claims"));
+        let no_claims = || {
+            Rejection::retryable(
+                ModelError::malformed_with_code(
+                    run_codes::MODEL_NO_CLAIMS,
+                    format!("draft has no claims ({shape})"),
+                ),
+                Corrective::NoClaims,
+            )
+        };
+        if d.primary_claim.statement.trim().is_empty() {
+            return Err(no_claims());
         }
-        if let Some(n) = d.claims.iter().position(|c| c.statement.trim().is_empty()) {
-            return Err(ModelError::malformed(format!(
-                "draft claim {} has an empty statement",
-                n + 1
-            )));
+        let mut drafted = Vec::with_capacity(total);
+        drafted.push(d.primary_claim);
+        drafted.extend(d.further_claims);
+        // Unreachable since the claims are primary + further; kept as the
+        // defense it was.
+        if drafted.is_empty() {
+            return Err(no_claims());
+        }
+        if let Some(n) = drafted.iter().position(|c| c.statement.trim().is_empty()) {
+            return Err(Rejection::retryable(
+                ModelError::malformed(format!(
+                    "draft claim {} has an empty statement ({shape})",
+                    n + 1
+                )),
+                Corrective::ClaimForm,
+            ));
         }
         let id = ProposalId::new(self.next_id("prop"));
-        let claims = d
-            .claims
+        let claims = drafted
             .into_iter()
             .map(|c| Claim {
                 id: ClaimId::new(self.next_id("claim")),
@@ -2394,7 +3182,11 @@ impl MetaModelClient {
     ) -> Result<Evaluation, ModelError> {
         let assessments = Self::assessments_from_draft(proposal, ctx, draft.assessments)?;
         let item_verdicts = Self::verdicts_from_draft(expected, draft.item_verdicts)?;
-        let cleared_contradictions = Self::cleared_from_draft(ctx, draft.cleared_contradictions)?;
+        let cleared_contradictions = Self::cleared_from_draft(
+            ctx,
+            &assessments,
+            draft.contradiction_verdicts.unwrap_or(Keyed(Vec::new())),
+        )?;
         // Derived, never asked for separately: exactly the open verdicts.
         let unresolved_items = item_verdicts
             .iter()
@@ -2415,55 +3207,88 @@ impl MetaModelClient {
         })
     }
 
-    /// Cleared contradictions as drafted. Only a carried contradiction can
-    /// be cleared, once; anything else is malformed. (The runtime contract
-    /// then checks each reason and that a cleared record is not also
-    /// listed as contradicting.)
+    /// The domain's cleared contradictions, from one verdict per carried
+    /// contradiction, in the order carried. A key that is not a carried
+    /// contradiction, one judged twice, or a carried one without a verdict
+    /// is malformed (the per-call schema requires exactly the carried
+    /// ids), and so is `still_contradicts` for a record no assessment lists
+    /// in `contradicting_evidence`: the verdict must be backed by the
+    /// citation the policy reads. `cleared` verdicts become the domain
+    /// list, with their reasons. None of these is ever asked again (it is
+    /// the Evaluator's judgment). The runtime contract then checks each
+    /// reason and that a cleared record is not also listed as
+    /// contradicting.
     fn cleared_from_draft(
         ctx: &RoleContext,
-        drafts: Vec<DraftClearedContradiction>,
+        assessments: &[ClaimAssessment],
+        drafts: Keyed<DraftContradictionVerdict>,
     ) -> Result<Vec<ClearedContradiction>, ModelError> {
-        for (n, c) in drafts.iter().enumerate() {
+        let drafts = drafts.0;
+        for (n, (evidence_id, _)) in drafts.iter().enumerate() {
             if !ctx
                 .carried_contradictions
                 .iter()
-                .any(|id| id.as_str() == c.evidence_id)
+                .any(|id| id.as_str() == evidence_id)
             {
                 return Err(ModelError::malformed(format!(
-                    "cleared_contradictions: evidence_id {} is not a carried contradiction",
-                    quote(&c.evidence_id)
+                    "contradiction_verdicts: evidence_id {} is not a carried contradiction",
+                    quote(evidence_id)
                 )));
             }
-            if drafts[..n].iter().any(|d| d.evidence_id == c.evidence_id) {
+            if drafts[..n].iter().any(|(other, _)| other == evidence_id) {
                 return Err(ModelError::malformed(format!(
-                    "cleared_contradictions: evidence_id {} is cleared more than once",
-                    quote(&c.evidence_id)
+                    "contradiction_verdicts: evidence_id {} has more than one verdict",
+                    quote(evidence_id)
                 )));
             }
         }
-        Ok(drafts
-            .into_iter()
-            .map(|c| ClearedContradiction {
-                evidence_id: EvidenceId::new(c.evidence_id),
-                reason: c.reason,
-            })
-            .collect())
+        let mut cleared = Vec::new();
+        for carried in &ctx.carried_contradictions {
+            let Some((_, verdict)) = drafts.iter().find(|(id, _)| id == carried.as_str()) else {
+                return Err(ModelError::malformed(format!(
+                    "contradiction_verdicts: no verdict for evidence_id {}",
+                    quote(carried.as_str())
+                )));
+            };
+            match verdict.status {
+                ContradictionStatus::Cleared => cleared.push(ClearedContradiction {
+                    evidence_id: carried.clone(),
+                    reason: verdict.reason.clone(),
+                }),
+                ContradictionStatus::StillContradicts => {
+                    if !assessments
+                        .iter()
+                        .any(|a| a.contradicting_evidence.contains(carried))
+                    {
+                        return Err(ModelError::malformed(format!(
+                            "contradiction_verdicts[{}]: still_contradicts, but no assessment lists it in contradicting_evidence",
+                            quote(carried.as_str())
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(cleared)
     }
 }
 
 /// A schema that could not be built: this adapter's own fault, before any
 /// call, so no invocation stands behind it.
 fn schema_error(e: String) -> ModelError {
-    ModelError::malformed(format!("schema build: {e}"))
+    adapter_fault("schema", e)
 }
 
 impl ModelClient for MetaModelClient {
     fn propose(&mut self, task: &Task) -> Result<(Proposal, ModelInvocation), ModelError> {
-        let schema = draft_schema::<DraftProposal>().map_err(schema_error)?;
-        let (draft, inv) =
-            self.call::<DraftProposal>(Role::Propose, schema, propose_prompt(task))?;
-        let built = self.build_proposal(&task.run_id.clone(), draft);
-        self.answered(built, inv)
+        let schema = proposal_schema().map_err(schema_error)?;
+        let run_id = task.run_id.clone();
+        self.with_reask(Role::Propose, propose_prompt(task), |s, user| {
+            let (draft, inv, print) =
+                s.call::<DraftProposal>(Role::Propose, schema.clone(), user)?;
+            let shape = draft_shape(&draft, None, &print);
+            let built = s.build_proposal(&run_id, draft, &shape);
+            s.answered(built, inv)
+        })
     }
 
     fn critique(
@@ -2471,58 +3296,13 @@ impl ModelClient for MetaModelClient {
         proposal: &Proposal,
         ctx: &RoleContext,
     ) -> Result<(Challenge, ModelInvocation), ModelError> {
-        let schema = draft_schema::<DraftChallenge>().map_err(schema_error)?;
-        let (draft, inv) =
-            self.call::<DraftChallenge>(Role::Critique, schema, critique_prompt(proposal, ctx))?;
-        // Label-only items (live L02) passed schema validation but say
-        // nothing; the whole document is rejected, never silently trimmed.
-        if let Some((n, item)) = draft
-            .items
-            .iter()
-            .enumerate()
-            .find(|(_, i)| Self::is_degenerate_description(&i.description))
-        {
-            let refused = ModelError::malformed(format!(
-                "challenge item {} of {} states no objection (description {:?})",
-                n + 1,
-                draft.items.len(),
-                truncate(&item.description, 80)
-            ));
-            return Err(self.refused(refused, inv));
-        }
-        let known_claims: Vec<&ClaimId> = proposal.claims.iter().map(|c| &c.id).collect();
-        let known_evidence: Vec<&EvidenceId> = ctx.evidence.iter().map(|e| &e.id).collect();
-        let items = draft
-            .items
-            .into_iter()
-            .map(|i| ChallengeItem {
-                id: self.next_id("item"),
-                kind: i.kind,
-                // Unknown ids are dropped, never trusted.
-                claim_id: i
-                    .claim_id
-                    .map(ClaimId::new)
-                    .filter(|id| known_claims.contains(&id)),
-                description: i.description,
-                evidence_refs: i
-                    .evidence_refs
-                    .into_iter()
-                    .map(EvidenceId::new)
-                    .filter(|id| known_evidence.contains(&id))
-                    .collect(),
-            })
-            .collect();
-        Ok((
-            Challenge {
-                schema_version: SCHEMA_VERSION.into(),
-                id: ChallengeId::new(self.next_id("chal")),
-                run_id: proposal.run_id.clone(),
-                target_proposal: proposal.id.clone(),
-                items,
-                created_at: (self.now)(),
-            },
-            inv,
-        ))
+        let claim_ids: Vec<&str> = proposal.claims.iter().map(|c| c.id.as_str()).collect();
+        let schema = critique_schema(&claim_ids).map_err(schema_error)?;
+        let user = critique_prompt(proposal, ctx);
+        self.with_reask(Role::Critique, user, |s, user| {
+            let (draft, inv, _) = s.call::<DraftChallenge>(Role::Critique, schema.clone(), user)?;
+            s.challenge_from_draft(proposal, ctx, draft, inv)
+        })
     }
 
     fn evaluate(
@@ -2537,14 +3317,25 @@ impl ModelClient for MetaModelClient {
         let expected = under_evaluation(ctx, challenge);
         let expected_ids: Vec<&str> = expected.iter().map(|(i, _)| i.id.as_str()).collect();
         let claim_ids: Vec<&str> = proposal.claims.iter().map(|c| c.id.as_str()).collect();
-        let schema = evaluation_schema(&claim_ids, &expected_ids).map_err(schema_error)?;
-        let (draft, inv) = self.call::<DraftEvaluation>(
-            Role::Evaluate,
-            schema,
-            evaluate_prompt(proposal, challenge, ctx),
-        )?;
-        let built = self.evaluation_from_draft(proposal, ctx, &expected_ids, draft);
-        self.answered(built, inv)
+        let carried_ids: Vec<&str> = ctx
+            .carried_contradictions
+            .iter()
+            .map(EvidenceId::as_str)
+            .collect();
+        let evidence_ids: Vec<&str> = ctx.evidence.iter().map(|e| e.id.as_str()).collect();
+        let schema = evaluation_schema(&claim_ids, &expected_ids, &carried_ids, &evidence_ids)
+            .map_err(schema_error)?;
+        let user = evaluate_prompt(proposal, challenge, ctx);
+        // Only an unreadable answer is asked again: every refusal of a
+        // readable evaluation is a judgment, never resampled.
+        self.with_reask(Role::Evaluate, user, |s, user| {
+            let (draft, inv, _) =
+                s.call::<DraftEvaluation>(Role::Evaluate, schema.clone(), user)?;
+            let built = s
+                .evaluation_from_draft(proposal, ctx, &expected_ids, draft)
+                .map_err(Rejection::from);
+            s.answered(built, inv)
+        })
     }
 
     fn revise(
@@ -2554,41 +3345,123 @@ impl ModelClient for MetaModelClient {
         evaluation: &Evaluation,
         ctx: &RoleContext,
     ) -> Result<(Revision, ModelInvocation), ModelError> {
-        let schema = draft_schema::<DraftRevision>().map_err(schema_error)?;
-        let (draft, inv) = self.call::<DraftRevision>(
-            Role::Revise,
-            schema,
-            revise_prompt(proposal, challenge, evaluation, ctx),
-        )?;
+        let schema = revision_schema().map_err(schema_error)?;
+        let user = revise_prompt(proposal, challenge, evaluation, ctx);
         let expected = under_evaluation(ctx, challenge);
         let known_items: Vec<&str> = expected.iter().map(|(item, _)| item.id.as_str()).collect();
-        let addressed: Vec<String> = draft
-            .addressed_items
-            .into_iter()
-            .filter(|id| known_items.contains(&id.as_str()))
-            .collect();
-        let built = self
-            .build_proposal(
-                &proposal.run_id.clone(),
-                DraftProposal {
-                    summary: draft.summary,
-                    plan_steps: draft.plan_steps,
-                    claims: draft.claims,
-                    assumptions: draft.assumptions,
-                    uncertainties: draft.uncertainties,
-                },
-            )
-            .map(|new_proposal| Revision {
-                schema_version: SCHEMA_VERSION.into(),
-                proposal: new_proposal,
-                supersedes: proposal.id.clone(),
-                addressed_items: addressed,
-            });
-        self.answered(built, inv)
+        self.with_reask(Role::Revise, user, |s, user| {
+            let (draft, inv, print) =
+                s.call::<DraftRevision>(Role::Revise, schema.clone(), user)?;
+            let addressed_count = draft.addressed_items.len();
+            let addressed: Vec<String> = draft
+                .addressed_items
+                .into_iter()
+                .filter(|id| known_items.contains(&id.as_str()))
+                .collect();
+            let draft = DraftProposal {
+                summary: draft.summary,
+                primary_claim: draft.primary_claim,
+                further_claims: draft.further_claims,
+                plan_steps: draft.plan_steps,
+                assumptions: draft.assumptions,
+                uncertainties: draft.uncertainties,
+            };
+            let shape = draft_shape(&draft, Some(addressed_count), &print);
+            let built = s
+                .build_proposal(&proposal.run_id, draft, &shape)
+                .map(|new_proposal| Revision {
+                    schema_version: SCHEMA_VERSION.into(),
+                    proposal: new_proposal,
+                    supersedes: proposal.id.clone(),
+                    addressed_items: addressed,
+                });
+            s.answered(built, inv)
+        })
     }
 
     fn take_failed_invocation(&mut self) -> Option<ModelInvocation> {
         self.failed.take()
+    }
+
+    fn observe_control(&mut self, control: &RunControl) {
+        self.control = Some(control.clone());
+    }
+}
+
+impl MetaModelClient {
+    /// The challenge a Critic draft states. Label-only items (live L02)
+    /// passed schema validation but say nothing; the whole document is
+    /// refused, never silently trimmed, and never asked again (it is the
+    /// Critic's judgment). Unknown claim and record ids are dropped.
+    fn challenge_from_draft(
+        &mut self,
+        proposal: &Proposal,
+        ctx: &RoleContext,
+        draft: DraftChallenge,
+        inv: ModelInvocation,
+    ) -> Result<(Challenge, ModelInvocation), Rejection> {
+        if let Some((n, item)) = draft
+            .items
+            .iter()
+            .enumerate()
+            .find(|(_, i)| Self::is_degenerate_description(&i.description))
+        {
+            // Its size, never its text (A3): the reason is persisted.
+            let refused = ModelError::malformed(format!(
+                "challenge item {} of {} states no objection (description {} chars)",
+                n + 1,
+                draft.items.len(),
+                item.description.chars().count()
+            ));
+            return Err(self.refused(refused, inv).into());
+        }
+        let known_claims: Vec<&ClaimId> = proposal.claims.iter().map(|c| &c.id).collect();
+        let known_evidence: Vec<&EvidenceId> = ctx.evidence.iter().map(|e| &e.id).collect();
+        let (mut dropped_claims, mut dropped_refs) = (0usize, 0usize);
+        let mut items = Vec::with_capacity(draft.items.len());
+        for i in draft.items {
+            // Unknown ids are dropped, never trusted; only their count is
+            // logged (never the ids, which are model text).
+            let named_claim = i.claim_id.is_some();
+            let known_claim = i
+                .claim_id
+                .map(ClaimId::new)
+                .filter(|id| known_claims.contains(&id));
+            if named_claim && known_claim.is_none() {
+                dropped_claims += 1;
+            }
+            let refs = i.evidence_refs.len();
+            let evidence_refs: Vec<EvidenceId> = i
+                .evidence_refs
+                .into_iter()
+                .map(EvidenceId::new)
+                .filter(|id| known_evidence.contains(&id))
+                .collect();
+            dropped_refs += refs - evidence_refs.len();
+            items.push(ChallengeItem {
+                id: self.next_id("item"),
+                kind: i.kind,
+                claim_id: known_claim,
+                description: i.description,
+                evidence_refs,
+            });
+        }
+        if dropped_claims + dropped_refs > 0 {
+            eprintln!(
+                "[meta] critique dropped unknown ids: claim_id {dropped_claims}, evidence_refs {dropped_refs}"
+            );
+        }
+        Ok((
+            Challenge {
+                schema_version: SCHEMA_VERSION.into(),
+                id: ChallengeId::new(self.next_id("chal")),
+                run_id: proposal.run_id.clone(),
+                target_proposal: proposal.id.clone(),
+                items,
+                created_at: (self.now)(),
+            },
+            inv,
+        ))
     }
 }
 
@@ -2825,7 +3698,7 @@ mod tests {
     fn the_evaluator_schema_is_keyed_by_the_calls_ids_in_their_order() {
         let claims = ["claim-14", "claim-9", "claim-15"];
         let items = ["item-3", "item-12"];
-        let schema = evaluation_schema(&claims, &items).unwrap();
+        let schema = evaluation_schema(&claims, &items, &[], &[]).unwrap();
         // Serialized in the order given: serde_json alone would sort
         // "claim-15" before "claim-9" and "item-12" before "item-3".
         let text = serde_json::to_string(&schema).unwrap();
@@ -2861,8 +3734,8 @@ mod tests {
                 "{id}"
             );
         }
-        // The entries carry no id field: the key is the id. Clearing a
-        // carried contradiction stays optional, so that is still a list.
+        // The entries carry no id field: the key is the id. A round that
+        // carries no contradiction asks for no contradiction verdict.
         let assessment = &value["definitions"]["DraftAssessment"];
         assert_eq!(
             assessment["required"],
@@ -2877,29 +3750,30 @@ mod tests {
             value["definitions"]["DraftItemVerdict"]["required"],
             json!(["reason", "status"])
         );
+        assert!(value["properties"].get("contradiction_verdicts").is_none());
+        assert!(value["properties"].get("cleared_contradictions").is_none());
+        assert!(value["definitions"]
+            .get("DraftContradictionVerdict")
+            .is_none());
+        // No record retrieved: cited ids stay plain strings (no empty enum).
         assert_eq!(
-            value["properties"]["cleared_contradictions"]["type"],
-            json!("array")
+            assessment["properties"]["relevant_evidence"]["items"],
+            json!({"type": "string"})
         );
         assert_eq!(
             value["properties"]["abstain_reason"]["type"],
             json!(["string", "null"]),
             "optional values stay nullable"
         );
-        assert_eq!(
-            value["required"],
-            json!([
-                "abstain",
-                "abstain_reason",
-                "assessments",
-                "cleared_contradictions",
-                "item_verdicts"
-            ])
-        );
+        // Prompt-freeze-3: the judgments first, the abstention last, in
+        // `properties` as sent and in `required`.
+        let round_one = ["assessments", "item_verdicts", "abstain", "abstain_reason"];
+        assert_eq!(value["required"], json!(round_one));
+        assert_eq!(top_level_keys(&schema), round_one);
         assert_strict(&value);
 
         // No claims and no objections: empty objects, still strict.
-        let empty = evaluation_schema(&[], &[]).unwrap().to_value();
+        let empty = evaluation_schema(&[], &[], &[], &[]).unwrap().to_value();
         for field in ["assessments", "item_verdicts"] {
             assert_eq!(empty["properties"][field]["properties"], json!({}));
             assert_eq!(empty["properties"][field]["required"], json!([]));
@@ -2911,14 +3785,19 @@ mod tests {
         assert_strict(&empty);
 
         // A repeated id would be this adapter's bug: refused, named.
-        let err = evaluation_schema(&["claim-1", "claim-2", "claim-1"], &[]).unwrap_err();
+        let err = evaluation_schema(&["claim-1", "claim-2", "claim-1"], &[], &[], &[]).unwrap_err();
         assert!(
             err.contains("assessments") && err.contains("\"claim-1\""),
             "{err}"
         );
-        let err = evaluation_schema(&["claim-1"], &["item-4", "item-4"]).unwrap_err();
+        let err = evaluation_schema(&["claim-1"], &["item-4", "item-4"], &[], &[]).unwrap_err();
         assert!(
             err.contains("item_verdicts") && err.contains("\"item-4\""),
+            "{err}"
+        );
+        let err = evaluation_schema(&["claim-1"], &[], &["ev-a", "ev-a"], &["ev-a"]).unwrap_err();
+        assert!(
+            err.contains("contradiction_verdicts") && err.contains("\"ev-a\""),
             "{err}"
         );
 
@@ -2930,6 +3809,255 @@ mod tests {
         ] {
             assert_strict(&schema.to_value());
         }
+    }
+
+    fn top_level_keys(schema: &OrderedJson) -> Vec<String> {
+        match schema.get("properties") {
+            Some(OrderedJson::Object(members)) => members.iter().map(|(k, _)| k.clone()).collect(),
+            other => panic!("no properties: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn proposals_and_revisions_require_a_primary_claim_in_an_explicit_order() {
+        for (schema, order) in [
+            (proposal_schema().unwrap(), &PROPOSAL_ORDER[..]),
+            (revision_schema().unwrap(), &REVISION_ORDER[..]),
+        ] {
+            let value = schema.to_value();
+            // As sent: the properties and `required` in the order given,
+            // never serde's alphabetical one.
+            assert_eq!(top_level_keys(&schema), order);
+            assert_eq!(value["required"], json!(order));
+            let text = serde_json::to_string(&schema).unwrap();
+            let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle}"));
+            for pair in order.windows(2) {
+                assert!(
+                    at(&format!("\"{}\":{{", pair[0])) < at(&format!("\"{}\":{{", pair[1])),
+                    "{} before {} in {text}",
+                    pair[0],
+                    pair[1]
+                );
+            }
+            // The primary claim is one required inline object (no allOf),
+            // described; further claims are a described list.
+            let primary = &value["properties"]["primary_claim"];
+            assert_eq!(primary["type"], json!("object"), "{primary}");
+            assert_eq!(primary["required"], json!(["statement"]));
+            assert_eq!(primary["additionalProperties"], json!(false));
+            assert!(primary.get("allOf").is_none() && primary.get("$ref").is_none());
+            assert_eq!(
+                primary["description"],
+                json!("The single most important checkable claim the plan depends on (a concrete value, limit, timeout, retry count or documented rule).")
+            );
+            let further = &value["properties"]["further_claims"];
+            assert_eq!(further["type"], json!("array"));
+            assert_eq!(
+                further["items"],
+                json!({"$ref": "#/definitions/DraftClaim"})
+            );
+            assert_eq!(
+                further["description"],
+                json!("Further checkable claims, at most 11.")
+            );
+            assert!(value["properties"].get("claims").is_none());
+            assert_strict(&value);
+        }
+        // A property without its place in the order is refused, never
+        // sent unordered.
+        let mut schema = draft_schema::<DraftProposal>().unwrap();
+        let err = order_properties(&mut schema, &PROPOSAL_ORDER[..5]).unwrap_err();
+        assert!(err.contains("does not match"), "{err}");
+    }
+
+    #[test]
+    fn carried_contradictions_and_retrieved_records_key_and_bound_the_evaluator_schema() {
+        let schema = evaluation_schema(
+            &["claim-1"],
+            &["item-2"],
+            &["ev-b", "ev-a"],
+            &["ev-a", "ev-b", "ev-c"],
+        )
+        .unwrap();
+        let value = schema.to_value();
+        // A6: exactly the carried ids, in prompt order, each a verdict.
+        let verdicts = &value["properties"]["contradiction_verdicts"];
+        assert_eq!(verdicts["type"], json!("object"));
+        assert_eq!(verdicts["required"], json!(["ev-b", "ev-a"]));
+        assert_eq!(verdicts["additionalProperties"], json!(false));
+        assert_eq!(
+            verdicts["properties"]["ev-b"],
+            json!({"$ref": "#/definitions/DraftContradictionVerdict"})
+        );
+        assert_eq!(
+            value["definitions"]["ContradictionStatus"]["enum"],
+            json!(["still_contradicts", "cleared"])
+        );
+        assert_eq!(
+            value["definitions"]["DraftContradictionVerdict"]["required"],
+            json!(["reason", "status"])
+        );
+        assert_eq!(value["required"], json!(EVALUATION_ORDER));
+        assert_eq!(top_level_keys(&schema), EVALUATION_ORDER);
+        // A7: cited ids are the retrieved records, in prompt order.
+        let assessment = &value["definitions"]["DraftAssessment"]["properties"];
+        for field in ["relevant_evidence", "contradicting_evidence"] {
+            assert_eq!(
+                assessment[field]["items"],
+                json!({"type": "string", "enum": ["ev-a", "ev-b", "ev-c"]}),
+                "{field}"
+            );
+        }
+        assert_strict(&value);
+        let text = serde_json::to_string(&schema).unwrap();
+        assert!(text.find("\"ev-b\":{").unwrap() < text.find("\"ev-a\":{").unwrap());
+        assert!(text.contains(r#""enum":["ev-a","ev-b","ev-c"]"#), "{text}");
+    }
+
+    #[test]
+    fn the_critic_schema_names_the_proposals_claim_ids_or_null() {
+        let schema = critique_schema(&["claim-3", "claim-2"]).unwrap();
+        let value = schema.to_value();
+        let item = &value["definitions"]["DraftChallengeItem"]["properties"];
+        assert_eq!(
+            item["claim_id"],
+            json!({"anyOf": [{"type": "string", "enum": ["claim-3", "claim-2"]}, {"type": "null"}]})
+        );
+        assert_eq!(
+            item["description"]["description"],
+            json!("One full sentence stating the specific objection.")
+        );
+        assert_strict(&value);
+        // Without claims, no empty enum: a nullable string as before.
+        let bare = critique_schema(&[]).unwrap().to_value();
+        assert_eq!(
+            bare["definitions"]["DraftChallengeItem"]["properties"]["claim_id"]["type"],
+            json!(["string", "null"])
+        );
+    }
+
+    /// Prompt-freeze record (docs/evaluation.md sections 6.4 and 6.5): the
+    /// prompt and schema digests per role, asserted, so a prompt or schema
+    /// edit fails here until the freeze record is updated with it. `cargo
+    /// test -p consensus-api --lib prompt_freeze_digests -- --nocapture`
+    /// prints them; the Critic's and the Evaluator's schemas are per call,
+    /// recorded for one claim (`claim-1`), no objection, no carried
+    /// contradiction and no record.
+    #[test]
+    fn prompt_freeze_digests() {
+        let evaluate = evaluation_schema(&["claim-1"], &[], &[], &[]).unwrap();
+        // (role, schema, recorded prompt_sha256, recorded schema_sha256)
+        for (role, schema, prompt_sha, schema_sha) in [
+            (
+                Role::Propose,
+                proposal_schema().unwrap(),
+                "5d9d3593f6556b515ed396f58bb2df3b89701c19bc2ca5a265b93b771c4d4d9a",
+                "12d04b11a00e6d0e4085772b981d96cd02b1814c90c1d268d88e7b2ecfc78478",
+            ),
+            (
+                Role::Critique,
+                critique_schema(&["claim-1"]).unwrap(),
+                "06447d5d97f118a38af1b0f3394f694eaf3dd3590dd1d8c9a460f02327670edb",
+                "f241325093b78d4cedad3d6f7e380e34e4087e0891d2f7e9fb49cb19de470226",
+            ),
+            (
+                Role::Evaluate,
+                evaluate,
+                "01d3164ef46648ffe991345ec89d5614f01ba7d924bf621d46926d021ffab68b",
+                "0e85208a09ef36a6886a93385e3fe011db8848974e9517518871585bb20ede66",
+            ),
+            (
+                Role::Revise,
+                revision_schema().unwrap(),
+                "b4e7d77d8f96a316761daeace2f8a4c5a2dcb5209042965b6455023f1420b40d",
+                "e4d33c9346bed089a1d8c85dd736c6be892a3b32378d68047221a7a8a23e03bb",
+            ),
+        ] {
+            let actual_schema = sha256_hex(serde_json::to_string(&schema).unwrap().as_bytes());
+            let actual_prompt = role.prompt_sha256();
+            println!(
+                "{:<8} prompt_sha256 {} schema_sha256 {}",
+                role.stage(),
+                actual_prompt,
+                actual_schema
+            );
+            assert_eq!(
+                actual_prompt,
+                prompt_sha,
+                "{} prompt changed: update the freeze record in docs/evaluation.md",
+                role.stage()
+            );
+            assert_eq!(
+                actual_schema,
+                schema_sha,
+                "{} schema changed: update the freeze record in docs/evaluation.md",
+                role.stage()
+            );
+        }
+        // The corrective sentences, recorded by digest prefix.
+        for (name, text, prefix) in [
+            ("CORRECTIVE_NO_CLAIMS", CORRECTIVE_NO_CLAIMS, "0aa416a4"),
+            ("CORRECTIVE_CLAIM_FORM", CORRECTIVE_CLAIM_FORM, "fd175af4"),
+            ("CORRECTIVE_UNREADABLE", CORRECTIVE_UNREADABLE, "a05a080d"),
+        ] {
+            let digest = sha256_hex(text.as_bytes());
+            println!("{name} sha256 {digest}");
+            assert!(digest.starts_with(prefix), "{name} changed: {digest}");
+        }
+    }
+
+    #[test]
+    fn a_serde_summary_keeps_fixed_parts_and_never_model_text() {
+        let summary = |text: &str| {
+            let e = serde_json::from_str::<DraftProposal>(text).unwrap_err();
+            serde_summary(&e)
+        };
+        // A string where a list belongs: the value is not quoted, even
+        // when it imitates the expected part.
+        let s = summary(
+            r#"{"summary":"s","primary_claim":{"statement":"x"},"further_claims":"SECRET-SENTINEL, expected nothing","plan_steps":[],"assumptions":[],"uncertainties":[]}"#,
+        );
+        assert_eq!(s, "invalid type: string, expected a sequence");
+        let s = summary(r#"{"summary":true}"#);
+        assert_eq!(s, "invalid type: boolean, expected a string");
+        let s = summary(r#"{"summary":"SECRET-SENTINEL"}"#);
+        assert!(s.starts_with("missing field `"), "{s}");
+        let s = summary(r#"{"summary":"SECRET-SENTINEL", "#);
+        assert!(s.starts_with("EOF while parsing"), "{s}");
+        assert!(!s.contains("line"), "{s}");
+        // An unknown variant names neither itself nor the alternatives.
+        let e = serde_json::from_str::<DraftChallenge>(
+            r#"{"items":[{"kind":"SECRET-SENTINEL","claim_id":null,"description":"d","evidence_refs":[]}]}"#,
+        )
+        .unwrap_err();
+        assert_eq!(serde_summary(&e), "unknown variant");
+        // A key a backtick could hide inside is never shown either.
+        let e = serde_json::from_str::<DraftChallenge>(
+            r#"{"items":[{"kind":"a`SECRET-SENTINEL`b","claim_id":null,"description":"d","evidence_refs":[]}]}"#,
+        )
+        .unwrap_err();
+        assert!(!serde_summary(&e).contains("SECRET"));
+    }
+
+    #[test]
+    fn a_draft_shape_names_counts_and_never_text() {
+        let draft = DraftProposal {
+            summary: "SECRET-SENTINEL summary".into(),
+            primary_claim: DraftClaim {
+                statement: String::new(),
+            },
+            further_claims: vec![],
+            plan_steps: vec!["SECRET-SENTINEL step".into(); 4],
+            assumptions: vec!["a".into(); 3],
+            uncertainties: vec!["u".into(); 2],
+        };
+        let print = ContentPrint::of(b"{\"summary\":\"SECRET-SENTINEL\"}");
+        let shape = draft_shape(&draft, Some(5), &print);
+        assert!(
+            shape.starts_with("summary 23 chars, primary_claim.statement 0 chars, further_claims 0, plan_steps 4, addressed_items 5, assumptions 3, uncertainties 2; content 29 bytes, sha256 "),
+            "{shape}"
+        );
+        assert!(!shape.contains("SECRET"), "{shape}");
     }
 
     #[test]

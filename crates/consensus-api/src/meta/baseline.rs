@@ -72,13 +72,24 @@ Retrieved evidence with integrity status (integrity is about record tampering on
 3. In objections, list every problem you see in your own proposal: contradictions, unsupported claims, missing tests, regression and security risks, and conflicts with documented constraints. Each description must state the specific objection in a full sentence; give the 1-based position in claims of the claim it targets in claim_number, or null; put the ids of the records it rests on in evidence_refs; set status open when it still applies to the proposal as written and addressed when the proposal already answers it. Use an empty list only if you find nothing.
 4. Give your verdict on your own proposal, and in verdict_reason name the claims, records or objections that decide it. To choose the verdict, {verdict_rules}";
 
+/// The checkable-claims guidance as the paired consensus runs (M01-M04,
+/// prompt-freeze-2) were given it: the comparison holds the guidance
+/// equal to those runs, so prompt-freeze-3's additions to
+/// [`CHECKABLE_CLAIMS`] (at least one claim, at most 12, state the values
+/// the plan depends on) are not the baseline's.
+const BASELINE_CHECKABLE_CLAIMS: &str = "\
+Each claim must be checkable against the project's stored records (documented constraints, facts, decisions, incident history): \
+state the concrete value, rule, or fact that such a record could confirm or contradict. \
+Put expectations, implementation guesses, and anything no stored record could settle under assumptions or uncertainties instead of claims. \
+Prefer a few precise claims over many broad ones.";
+
 fn baseline_prompt(task: &Task, ctx: &RoleContext) -> String {
     fill(
         BASELINE_TEMPLATE,
         &[
             ("task", &task_json(task)),
             ("evidence", &evidence_block(ctx)),
-            ("checkable_claims", CHECKABLE_CLAIMS),
+            ("checkable_claims", BASELINE_CHECKABLE_CLAIMS),
             ("claim_rules", BASELINE_CLAIM_RULES),
             ("verdict_rules", BASELINE_VERDICT_RULES),
         ],
@@ -188,11 +199,11 @@ impl MetaModelClient {
         if d.claims.is_empty() {
             return Err(malformed("draft has no claims".into()));
         }
-        if d.claims.len() > Self::MAX_CLAIMS_PER_PROPOSAL {
+        if d.claims.len() > MAX_CLAIMS_PER_PROPOSAL {
             return Err(malformed(format!(
                 "draft has {} claims (cap {})",
                 d.claims.len(),
-                Self::MAX_CLAIMS_PER_PROPOSAL
+                MAX_CLAIMS_PER_PROPOSAL
             )));
         }
         for (n, c) in d.claims.iter().enumerate() {
@@ -230,11 +241,13 @@ impl MetaModelClient {
             .enumerate()
             .find(|(_, o)| Self::is_degenerate_description(&o.description))
         {
+            // Its size, never its text, as for the Critic's items (A3):
+            // the reason is persisted.
             return Err(malformed(format!(
-                "objection {} of {} states no objection (description {:?})",
+                "objection {} of {} states no objection (description {} chars)",
                 n + 1,
                 d.objections.len(),
-                truncate(&o.description, 80)
+                o.description.chars().count()
             )));
         }
         if d.verdict_reason.trim().is_empty() {
@@ -322,11 +335,20 @@ impl BaselineModel for MetaModelClient {
             system: baseline_system_prompt(),
             prompt_sha256: baseline_prompt_sha256(),
             model: self.cfg.model.clone(),
+            judgment: true,
         };
-        let (draft, inv) =
-            self.call_spec::<DraftBaselineAssessment>(spec, schema, baseline_prompt(task, ctx))?;
-        let built = self.baseline_from_draft(task, ctx, draft);
-        self.answered(built, inv)
+        // The roles' request path, its classification of the answer
+        // included (content_filter, unexpected finish, unreadable
+        // envelope, adapter fault); never asked again: the bounded re-ask
+        // is the four roles' only, and the baseline's one call per run is
+        // what the comparison counts.
+        let (draft, inv, _print) = self
+            .call_spec::<DraftBaselineAssessment>(spec, schema, baseline_prompt(task, ctx))
+            .map_err(|r| r.error)?;
+        let built = self
+            .baseline_from_draft(task, ctx, draft)
+            .map_err(Rejection::from);
+        self.answered(built, inv).map_err(|r| r.error)
     }
 
     fn take_failed_invocation(&mut self) -> Option<ModelInvocation> {
@@ -346,6 +368,16 @@ mod tests {
         for role in Role::ALL {
             assert_ne!(hash, role.prompt_sha256(), "{role:?}");
         }
+    }
+
+    #[test]
+    fn the_baseline_keeps_the_paired_runs_claim_guidance() {
+        // prompt-freeze-3 only appended to the consensus guidance.
+        assert!(CHECKABLE_CLAIMS.starts_with(BASELINE_CHECKABLE_CLAIMS));
+        assert_ne!(CHECKABLE_CLAIMS, BASELINE_CHECKABLE_CLAIMS);
+        let prompt = baseline_prompt(&probe::task(), &RoleContext::default());
+        assert!(prompt.contains(BASELINE_CHECKABLE_CLAIMS));
+        assert!(!prompt.contains("at least one and at most 12"));
     }
 
     #[test]

@@ -740,7 +740,13 @@ pub fn sanitize_receipt(mut receipt: RunReceiptV2, surface: Surface) -> RunRecei
         // request ids, token counts and a constant's digest, never model
         // text, and without it a re-asked call (its tokens summed over two
         // billed generations) would read as one clean call. The receipt
-        // schema allows extra members, so the contract is unchanged.
+        // schema allows extra members, so the contract is unchanged. Its
+        // per-call attempt count is withheld like the invocation's own.
+        if let Some(rejected) = &mut inv.rejected_calls {
+            for call in rejected {
+                call.attempts = None;
+            }
+        }
     }
     receipt
 }
@@ -1022,6 +1028,15 @@ mod tests {
         assert!(operator.model_invocations[0].prompt_sha256.is_some());
         assert!(operator.model_invocations[0].rejected_calls.is_some());
         assert!(operator.model_invocations[0].corrective_sha256.is_some());
+        assert_eq!(
+            operator.model_invocations[0]
+                .rejected_calls
+                .as_ref()
+                .unwrap()[0]
+                .attempts,
+            Some(1),
+            "the operator receipt keeps the refused call's attempt count"
+        );
         // A re-asked call stays recognisable on the public receipt: the
         // refused call, its code and the corrective's digest are kept.
         let text =
@@ -1036,7 +1051,15 @@ mod tests {
         for inv in &public.model_invocations {
             assert_eq!(inv.rejected_calls.as_ref().map(Vec::len), Some(1));
             assert!(inv.corrective_sha256.is_some());
+            // The public receipt never shows an attempt count, a refused
+            // call's included.
+            let rejected = serde_json::to_string(&inv.rejected_calls).unwrap();
+            assert!(!rejected.contains(r#""attempts""#), "{rejected}");
         }
+        assert!(
+            !text.contains(r#""attempts""#),
+            "no attempt count anywhere on the public receipt: {text}"
+        );
         assert!(!public.model_invocations.is_empty());
         for inv in &public.model_invocations {
             assert!(inv.prompt_sha256.is_none());

@@ -879,8 +879,9 @@ archived run keep their recorded hashes, and they read, replay and verify unchan
 new fields are absent from them; `research_archive` and `research_receipts` are green, and
 a test reads every M-run invocation back byte for byte). Receipts of runs made after the
 deploy carry the freeze-3 digests, and a run that re-asked carries the extra fields and
-summed tokens: they are not call-for-call comparable with the archived runs. The
-integrator tags the merge commit `prompt-freeze-3` locally.
+summed tokens: they are not call-for-call comparable with the archived runs. Phase 1 was
+never deployed alone: it merged together with phase 2 (§6.5) on `integrate/r8`, so the
+deployed digests are prompt-freeze-4's.
 
 ### 6.5 prompt-freeze-4 (2026-11-01, phase 2: keyed contradiction verdicts)
 
@@ -941,9 +942,10 @@ including the round-7 Critic on `muse-spark-1.3`, must run on these schemas, and
 without objections still sends an empty `item_verdicts` object (`"properties": {}`), which
 has not been sent live either (`evaluation_schema` in `crates/consensus-api/src/meta.rs`;
 the A10 placeholder is held back until a smoke rejects it). Archives:
-as in §6.4, nothing under `research/` changed. If phase 2 merges together with phase 1,
-the integrator may tag the result `prompt-freeze-3` alone; the digests above are then the
-freeze-3 values for the Critic and the Evaluator.
+as in §6.4, nothing under `research/` changed. Phases 1 and 2 merged together
+(`integrate/r8`, merge `a238576`); the integrator tags that tree's merge commit
+`prompt-freeze-4` locally (never pushed). The freeze-3 digests of §6.4 exist only on the
+lane branch's history.
 
 ## 7. Single-agent baseline (plan; **not run yet**)
 
@@ -1127,9 +1129,10 @@ with its disagreements.
 The first public live run (`run-d589e1a9`, preset `R01-reference`) failed at its first call:
 `run_failed`, stage `propose`, code `model_malformed_output` (the draft had no claims), after
 281 input and 2,695 output tokens (2,500 of them reasoning), finish reason `stop`, $0.055.
-The protocol (schema 1.3, policy 1.2) did not change for it; the Proposer's prompt and schema
-did (`prompt-freeze-3`, §6.4: a proposal always carries a claim, and a claimless or
-unreadable answer is asked again once). This section is about what a failure tells its
+The protocol (schema 1.3, policy 1.2) did not change for it; the Proposer's and reviser's
+prompts and schemas, the Critic's schema and the Evaluator's prompt and schema did
+(`prompt-freeze-4`, §6.4-§6.5: a proposal always carries a claim, a claimless or
+unreadable answer is asked again once, and a carried contradiction must be judged by key). This section is about what a failure tells its
 visitor and its operator, and what it costs the visitor's daily quota (lane C,
 `fix/r8-failure-ux`).
 
@@ -1161,7 +1164,14 @@ visitor and its operator, and what it costs the visitor's daily quota (lane C,
   fields, `client_daily` and `invite_code_daily` (the figures the live form's rule states),
   so `contract_sha256` moves from `465f4117d8a12365ed06bc594f5972f19160d3016b085bcb5836e75786ad760e`
   to `b16942c8ad40315a7a802ddc3ac5c40cbba3ba7bcf840b6a8740110f3d29cbb6`. The schema version
-  (1.3), the policy (1.2), the event log, the receipts and every archived run are unchanged.
+  (1.3), the policy (1.2), the event log, the receipt schema and every archived run are
+  unchanged (receipts of new runs that re-asked carry `rejected_calls` and
+  `corrective_sha256`, §6.4).
+- *Sessions across a restart.* The public listener keeps `{sha256(id), created_at,
+  expires_at}` per session in `sessions.json` under the run store (atomic rewrite, 500 ms
+  debounce, 5-minute sweep; the raw id is never on disk), so a restart no longer ends a
+  visitor's session (Privacy, "How long", session records). `export-ledger.sh` leaves the
+  file out of every export, so a session record never outlives its session in a backup.
 - *Sessions and the console.* The web client's `ensureSession` is one `POST /session` (which
   keeps a session its cookie names), and My runs asks `GET /session` only when this browser
   holds the session flag (`hc.session` in localStorage), so a visitor without a session sees

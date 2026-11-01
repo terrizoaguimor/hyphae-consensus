@@ -87,7 +87,7 @@
         },
         "technical": {
           "versions": "Ce sont les règles de la politique 1.2, que le protocole 1.3 conserve tout en élargissant leurs entrées. Sous le schéma 1.1, l’abstention primait sur toute contradiction ; le rejeu redérive chaque exécution enregistrée avec les règles de sa propre version de schéma.",
-          "final-round": "Dans les exécutions enregistrées sous le protocole 1.2, les règles ne lisaient que le dernier tour, et l’audit multi-agents (par IA) du 27 octobre 2026 a relevé deux voies d’échec en mode ouvert (MA-1, RT-1). Le protocole 1.3 rejette les identifiants inexacts et reporte chaque objection ouverte et chaque contradiction dans les tours suivants ; il n’a pas encore été revalidé en direct."
+          "final-round": "Dans les exécutions enregistrées sous le protocole 1.2, les règles ne lisaient que le dernier tour, et l’audit multi-agents (par IA) du 27 octobre 2026 a relevé deux voies d’échec en mode ouvert (MA-1, RT-1). Le protocole 1.3 rejette les identifiants inexacts et reporte chaque objection ouverte et chaque contradiction dans les tours suivants ; sa batterie en direct du 30 octobre 2026 (quatre exécutions) est documentée dans le dépôt."
         }
       },
       "verified-evidence": {

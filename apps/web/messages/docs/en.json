@@ -87,7 +87,7 @@
         },
         "technical": {
           "versions": "These are the rules of policy 1.2, which protocol 1.3 keeps while widening their inputs. Under schema 1.1, abstention ranked above every contradiction; replay re-derives each recorded run with the rules of its own schema version.",
-          "final-round": "In runs recorded under protocol 1.2 the rules read the final round only, and the multi-agent (AI) audit of 27 October 2026 found two fail-open paths (MA-1, RT-1). Protocol 1.3 rejects inexact ids and carries every open objection and contradiction into later rounds; it has not yet been re-validated live."
+          "final-round": "In runs recorded under protocol 1.2 the rules read the final round only, and the multi-agent (AI) audit of 27 October 2026 found two fail-open paths (MA-1, RT-1). Protocol 1.3 rejects inexact ids and carries every open objection and contradiction into later rounds; its live battery of 30 October 2026 (four runs) is documented in the repository."
         }
       },
       "verified-evidence": {

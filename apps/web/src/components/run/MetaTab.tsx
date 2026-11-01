@@ -13,7 +13,10 @@
 // contract publishes no prices, so no cost is shown; a live run of the public
 // surface says where its cost is counted instead (the public live budget,
 // failed runs included). A refused call's stage is named as the failure
-// panel names it (src/lib/run/failure.ts stageNameKey).
+// panel names it (src/lib/run/failure.ts stageNameKey). The contract's
+// invocation carries no re-ask record (only the receipt's rejected_calls
+// does), so whenever a real call is listed a note says that a row can stand
+// for a refused answer asked for again, its tokens summed over both.
 
 import { useFormatter, useTranslations } from "next-intl";
 import { useMemo } from "react";
@@ -216,6 +219,11 @@ export function MetaTab({ detail, frames, detailError, publicLive = false }: Met
               </>
             )}
             <p className="hc-supporting">{t("requestIds")}</p>
+            {totals.calls === 0 ? null : (
+              <p className="hc-supporting" data-meta-reask-note>
+                {t("reaskNote")}
+              </p>
+            )}
             {absent ? <p className="hc-supporting" data-meta-operator-only>{t("operatorOnly")}</p> : null}
             <p className="hc-supporting" data-meta-no-cost={publicLive ? "live" : "none"}>
               {publicLive ? t("noCostLive") : t("noCost")}

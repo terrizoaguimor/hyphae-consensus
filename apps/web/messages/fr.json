@@ -606,11 +606,11 @@
         "meta_config": "La configuration de la Model API du serveur n’a pas pu être utilisée.",
         "model_output_truncated": "La sortie du modèle a atteint sa limite de longueur avant que le document soit complet.",
         "model_refusal": "Le modèle a refusé de produire le document.",
-        "model_no_claims": "Le modèle a répondu par une proposition sans affirmations : elle a été refusée.",
+        "model_no_claims": "Le modèle a répondu par une proposition sans affirmations : elle a été refusée (le runtime redemande la réponse une fois quand l’exécution le permet encore).",
         "model_content_filtered": "Le filtre de contenu du fournisseur a retenu la réponse du modèle : aucun document n’est revenu.",
         "model_unexpected_finish": "Le modèle s’est arrêté avant d’avoir terminé son document, pour une raison que le runtime n’accepte pas : la réponse a été refusée.",
         "adapter_schema_error": "Le serveur n’a pas pu construire la requête destinée au modèle : aucun appel n’a été fait.",
-        "meta_bad_envelope": "La Model API de Meta a répondu par quelque chose qui n’est pas une réponse du modèle.",
+        "meta_bad_envelope": "La Model API de Meta a répondu par quelque chose qui n’est pas une réponse du modèle (le runtime redemande la réponse une fois quand l’exécution le permet encore).",
         "run_deadline_reached": "Le temps de l’exécution est écoulé : il en restait trop peu pour le prochain appel au modèle, ou un appel ne s’est pas terminé avant l’échéance de l’exécution."
       },
       "technical": "Détails techniques",
@@ -642,7 +642,7 @@
       },
       "roleCodes": {
         "model_malformed_output": "{role} a répondu, mais son document n’avait pas la forme exigée par le runtime : le runtime l’a refusé plutôt que de deviner.",
-        "model_no_claims": "{role} a répondu par une proposition sans affirmations : le runtime l’a refusée plutôt que de deviner.",
+        "model_no_claims": "{role} a répondu par une proposition sans affirmations : le runtime l’a refusée plutôt que de deviner (le runtime redemande la réponse une fois quand l’exécution le permet encore).",
         "model_content_filtered": "{role} n’a rendu aucun document : le filtre de contenu du fournisseur a retenu sa réponse, le runtime n’avait donc rien à vérifier.",
         "model_unexpected_finish": "{role} s’est arrêté avant d’avoir terminé son document, pour une raison que le runtime n’accepte pas : le runtime a refusé la réponse plutôt que de deviner."
       },
@@ -652,8 +652,8 @@
       "again": {
         "live": "Lancer une autre exécution en direct",
         "guided": "Lancer un autre exemple guidé",
-        "note": "Une nouvelle exécution est indépendante de celle-ci ; cette exécution échouée reste dans Mes exécutions {hours, plural, =0 {jusqu’à sa suppression} one {pendant # heure} other {pendant # heures}}.",
-        "noteShort": "Une nouvelle exécution est indépendante de celle-ci ; cette exécution échouée reste dans Mes exécutions."
+        "note": "Une nouvelle exécution est indépendante de celle-ci ; cette exécution échouée reste dans Mes exécutions {hours, plural, =0 {jusqu’à sa suppression} one {jusqu’à # heure après son lancement} other {jusqu’à # heures après son lancement}}, ou jusqu’à la fin de la session de ce navigateur si elle survient avant.",
+        "noteShort": "Une nouvelle exécution est indépendante de celle-ci ; cette exécution échouée reste dans Mes exécutions pour une durée limitée, au plus tant que dure la session de ce navigateur."
       }
     },
     "unavailable": {
@@ -925,7 +925,8 @@
       "requestIds": "Les id de requête sont ceux que l’environnement d’exécution a enregistrés pour l’API de Meta ; les journaux ne sont pas signés : ils montrent ce qui a été enregistré, pas que Meta l’a renvoyé.",
       "operatorOnly": "Aucune ligne ne porte la limite de sortie, le nombre de tentatives ni les empreintes du schéma et du prompt : la surface publique ne les publie pas.",
       "noCost": "Aucun coût n’est affiché : l’API ne publie aucun prix.",
-      "noCostLive": "Le coût de cette exécution n’est pas affiché ici ; ce qu’ont coûté ses appels à Meta est compté dans le budget public en direct, exécutions échouées comprises."
+      "noCostLive": "Le coût de cette exécution n’est pas affiché ici ; ce qu’ont coûté ses appels à Meta est compté dans le budget public en direct, exécutions échouées comprises.",
+      "reaskNote": "Une ligne peut correspondre à une réponse refusée puis redemandée (au plus 2 par exécution, jamais un jugement lisible). Ses jetons comprennent alors ceux de la réponse refusée, tandis que son id de requête et sa latence sont ceux de la dernière réponse. Le reçu de l’exécution liste chaque appel refusé sous rejected_calls."
     },
     "explain": {
       "heading": "Pourquoi la politique recommande cela",

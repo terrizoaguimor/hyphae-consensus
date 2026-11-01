@@ -148,7 +148,7 @@
         },
         "liveFailures": {
           "heading": "Una ejecución en vivo puede fallar",
-          "body": "Una ejecución en vivo puede fallar: el servicio de Meta puede agotar el tiempo o devolver una respuesta que el protocolo rechaza. Una ejecución fallida no decide nada, indica dónde se detuvo y puedes iniciar otra. Antes de que una ejecución falle, algunos fallos se reintentan. Dentro del límite de tiempo de una llamada: un límite de frecuencia o un servicio no disponible (HTTP 429 o 503) y, una vez, un error del servidor (HTTP 500 o 502) o una conexión perdida después de enviar la solicitud. Una respuesta sin ninguna afirmación utilizable, o que no se pudo leer, se vuelve a pedir una vez, como máximo dos veces por ejecución. Un juicio nunca se vuelve a pedir, y una llamada reintentada puede facturarse dos veces."
+          "body": "Una ejecución en vivo puede fallar: el servicio de Meta puede agotar el tiempo o devolver una respuesta que el protocolo rechaza. Una ejecución fallida no decide nada, indica dónde se detuvo y puedes iniciar otra. Antes de que una ejecución falle, algunos fallos se reintentan. Dentro del límite de tiempo de una llamada: un límite de frecuencia o un servicio no disponible (HTTP 429 o 503) y, una vez, un error del servidor (HTTP 500 o 502) o una conexión perdida después de enviar la solicitud. Una propuesta o revisión sin ninguna afirmación utilizable o con afirmaciones fuera de forma (más de 12, o una vacía), o una respuesta que no se pudo leer, se vuelve a pedir una vez, como máximo dos veces por ejecución y nunca cuando la ejecución ya se está deteniendo. Un juicio legible nunca se vuelve a pedir, y una llamada reintentada o vuelta a pedir puede facturarse más de una vez."
         },
         "labels": {
           "heading": "Las ejecuciones simuladas y grabadas están identificadas",
@@ -168,7 +168,7 @@
         },
         "prototype": {
           "heading": "Un prototipo",
-          "body": "Hyphae Consensus es un prototipo de hackathon. Las brechas que encontró su auditoría multiagente (con IA) del 27 de octubre de 2026 están documentadas en su repositorio. El protocolo 1.3 cierra las dos vías de fallo abierto que encontró la auditoría (MA-1, RT-1) y todavía no se ha vuelto a validar en vivo; las demás correcciones están en curso."
+          "body": "Hyphae Consensus es un prototipo de hackathon. Las brechas que encontró su auditoría multiagente (con IA) del 27 de octubre de 2026 están documentadas en su repositorio. El protocolo 1.3 cierra las dos vías de fallo abierto que encontró la auditoría (MA-1, RT-1); su batería en vivo del 30 de octubre de 2026 (cuatro ejecuciones) está documentada en el repositorio, y las demás correcciones están en curso."
         }
       }
     }

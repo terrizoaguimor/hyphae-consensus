@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# The restart gate (runbook 9.4): restarts consensus-public only once the
+# The restart gate (runbook 9.9): restarts consensus-public only once the
 # server reports no run in progress and none queued, then checks that the
 # restart left no live reservation open. Never restart the public server any
 # other way (a restart during a model call costs a settled attempt, and a

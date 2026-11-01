@@ -1750,12 +1750,15 @@ only while the unit runs), so stop it first; nothing else holds it.
 ### 9.5 Backups
 
 Back up `/var/lib/consensus/runs` and `/var/lib/consensus/ledger` only. Never the
+session table `/var/lib/consensus/runs/sessions.json` (the Privacy page says a session
+record is deleted within minutes after the session ends), never the
 snapshot directory (its witnesses are private operator artifacts and the owner
 already holds the capture), never `/etc/consensus/credentials`.
 `deploy/scripts/export-ledger.sh --include-runs` writes a tarball of the active ledger
 directory (`CONSENSUS_LIVE_LEDGER_DIR` from `public.env`; `--ledger-dir
 /var/lib/consensus/ledger` takes every ledger at once) and the run store, excluding
-`*.witness` and `*.proof` as a safeguard, with its sha256, under
+`*.witness`, `*.proof` and the session table `sessions.json` (with its
+`.sessions.json.<pid>.tmp` rewrite) as a safeguard, with its sha256, under
 `/root/consensus-exports/` (`0700`); the archive name carries the ledger directory's
 name (`consensus-ledger-public-runs-<stamp>.tar.gz`):
 

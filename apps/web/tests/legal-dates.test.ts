@@ -29,7 +29,7 @@ type LegalDocument = (typeof documents)[number];
 const PINNED: Record<LegalDocument, { date: string; sha256: string }> = {
   terms: { date: "2026-11-01", sha256: "ca1fdd8749bab9c68d7a96d6099606a70e1e89d7830e43f48dc197ec46115077" },
   privacy: { date: "2026-11-01", sha256: "5907bbc9bcda846c045062547aaa4f0b08a59828bbb339a4fc87635819692714" },
-  limitations: { date: "2026-11-01", sha256: "1b0bb1dd5107ccb91712dfbb0b5e9bebccfb6e88c5b0ae3263db2496c2846033" },
+  limitations: { date: "2026-11-01", sha256: "5cd7d5adceb626da7f9bfd2974640fd6ae9044e43dbbdb7266bc7e7d341b7363" },
   about: { date: "2026-10-27", sha256: "31f3dedb6371401c7e439f34bd4a538ee9cd0b39f437c2c7537230fc93a3c5be" },
 };
 

@@ -148,7 +148,7 @@
         },
         "liveFailures": {
           "heading": "Une exécution en direct peut échouer",
-          "body": "Une exécution en direct peut échouer : le service de Meta peut expirer ou renvoyer une réponse que le protocole refuse. Une exécution échouée ne décide rien, indique où elle s’est arrêtée, et vous pouvez en lancer une autre. Avant qu’une exécution échoue, certains incidents sont retentés. Dans la limite de temps d’un appel : une limite de débit ou un service indisponible (HTTP 429 ou 503) et, une fois, une erreur du serveur (HTTP 500 ou 502) ou une connexion perdue après l’envoi de la requête. Une réponse sans affirmation utilisable, ou illisible, est redemandée une fois, au plus deux fois par exécution. Un jugement n’est jamais redemandé, et un appel retenté peut être facturé deux fois."
+          "body": "Une exécution en direct peut échouer : le service de Meta peut expirer ou renvoyer une réponse que le protocole refuse. Une exécution échouée ne décide rien, indique où elle s’est arrêtée, et vous pouvez en lancer une autre. Avant qu’une exécution échoue, certains incidents sont retentés. Dans la limite de temps d’un appel : une limite de débit ou un service indisponible (HTTP 429 ou 503) et, une fois, une erreur du serveur (HTTP 500 ou 502) ou une connexion perdue après l’envoi de la requête. Une proposition ou une révision sans affirmation utilisable ou dont les affirmations n’ont pas la forme requise (plus de 12, ou une vide), ou une réponse illisible, est redemandée une fois, au plus deux fois par exécution et jamais une fois que l’exécution s’arrête. Un jugement lisible n’est jamais redemandé, et un appel retenté ou redemandé peut être facturé plus d’une fois."
         },
         "labels": {
           "heading": "Les exécutions simulées et enregistrées sont signalées",
@@ -168,7 +168,7 @@
         },
         "prototype": {
           "heading": "Un prototype",
-          "body": "Hyphae Consensus est un prototype de hackathon. Les lacunes relevées par son audit multi-agents (par IA) du 27 octobre 2026 sont documentées dans son dépôt. Le protocole 1.3 ferme les deux voies d’échec en mode ouvert relevées par l’audit (MA-1, RT-1) et n’a pas encore été revalidé en direct ; les autres corrections sont en cours."
+          "body": "Hyphae Consensus est un prototype de hackathon. Les lacunes relevées par son audit multi-agents (par IA) du 27 octobre 2026 sont documentées dans son dépôt. Le protocole 1.3 ferme les deux voies d’échec en mode ouvert relevées par l’audit (MA-1, RT-1) ; sa batterie en direct du 30 octobre 2026 (quatre exécutions) est documentée dans le dépôt, et les autres corrections sont en cours."
         }
       }
     }

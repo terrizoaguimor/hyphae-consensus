@@ -87,7 +87,7 @@
         },
         "technical": {
           "versions": "Estas são as regras da política 1.2, que o protocolo 1.3 mantém enquanto amplia as suas entradas. No esquema 1.1, a abstenção tinha prioridade sobre qualquer contradição; a reprodução deriva de novo cada execução gravada com as regras da sua própria versão de esquema.",
-          "final-round": "Nas execuções gravadas no protocolo 1.2, as regras liam só a rodada final, e a auditoria multiagente (com IA) de 27 de outubro de 2026 encontrou dois caminhos de falha aberta (MA-1, RT-1). O protocolo 1.3 rejeita identificadores inexatos e leva cada objeção aberta e cada contradição para as rodadas seguintes; ele ainda não foi validado de novo ao vivo."
+          "final-round": "Nas execuções gravadas no protocolo 1.2, as regras liam só a rodada final, e a auditoria multiagente (com IA) de 27 de outubro de 2026 encontrou dois caminhos de falha aberta (MA-1, RT-1). O protocolo 1.3 rejeita identificadores inexatos e leva cada objeção aberta e cada contradição para as rodadas seguintes; sua bateria ao vivo de 30 de outubro de 2026 (quatro execuções) está documentada no repositório."
         }
       },
       "verified-evidence": {

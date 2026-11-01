@@ -148,7 +148,7 @@
         },
         "liveFailures": {
           "heading": "Uma execução ao vivo pode falhar",
-          "body": "Uma execução ao vivo pode falhar: o serviço da Meta pode esgotar o tempo ou devolver uma resposta que o protocolo recusa. Uma execução que falha não decide nada, informa onde parou e você pode iniciar outra. Antes de uma execução falhar, algumas falhas são tentadas de novo. Dentro do limite de tempo de uma chamada: um limite de taxa ou um serviço indisponível (HTTP 429 ou 503) e, uma vez, um erro do servidor (HTTP 500 ou 502) ou uma conexão perdida depois do envio da solicitação. Uma resposta sem nenhuma afirmação utilizável, ou que não pôde ser lida, é pedida de novo uma vez, no máximo duas vezes por execução. Um julgamento nunca é pedido de novo, e uma chamada repetida pode ser cobrada duas vezes."
+          "body": "Uma execução ao vivo pode falhar: o serviço da Meta pode esgotar o tempo ou devolver uma resposta que o protocolo recusa. Uma execução que falha não decide nada, informa onde parou e você pode iniciar outra. Antes de uma execução falhar, algumas falhas são tentadas de novo. Dentro do limite de tempo de uma chamada: um limite de taxa ou um serviço indisponível (HTTP 429 ou 503) e, uma vez, um erro do servidor (HTTP 500 ou 502) ou uma conexão perdida depois do envio da solicitação. Uma proposta ou revisão sem nenhuma afirmação utilizável ou com afirmações fora do formato (mais de 12, ou uma vazia), ou uma resposta que não pôde ser lida, é pedida de novo uma vez, no máximo duas vezes por execução e nunca quando a execução já está parando. Um julgamento legível nunca é pedido de novo, e uma chamada repetida ou pedida de novo pode ser cobrada mais de uma vez."
         },
         "labels": {
           "heading": "Execuções simuladas e gravadas são identificadas",
@@ -168,7 +168,7 @@
         },
         "prototype": {
           "heading": "Um protótipo",
-          "body": "O Hyphae Consensus é um protótipo de hackathon. As lacunas encontradas pela auditoria multiagente (com IA) de 27 de outubro de 2026 estão documentadas no repositório do projeto. O protocolo 1.3 fecha os dois caminhos de falha aberta que a auditoria encontrou (MA-1, RT-1) e ainda não foi validado de novo ao vivo; as demais correções estão em andamento."
+          "body": "O Hyphae Consensus é um protótipo de hackathon. As lacunas encontradas pela auditoria multiagente (com IA) de 27 de outubro de 2026 estão documentadas no repositório do projeto. O protocolo 1.3 fecha os dois caminhos de falha aberta que a auditoria encontrou (MA-1, RT-1); sua bateria ao vivo de 30 de outubro de 2026 (quatro execuções) está documentada no repositório, e as demais correções estão em andamento."
         }
       }
     }

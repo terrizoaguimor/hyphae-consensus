@@ -6,7 +6,10 @@
 # append-only JSONL file per UTC day, lifetime.json, ledger.lock and perhaps
 # the kill-switch file (budget.rs); it holds no credential and no witness.
 # The run store export excludes *.witness and *.proof as a safeguard: no
-# witness leaves the server (ADR-0008). Nothing is deleted or modified.
+# witness leaves the server (ADR-0008). It also excludes the session table
+# (sessions.json and its .sessions.json.<pid>.tmp rewrite, session.rs): the
+# Privacy page says a session record stays only on the server and only until
+# the session ends, so no export carries one. Nothing is deleted or modified.
 # Runbook sections 4.5, 9.5 and 9.7.
 #
 #   sudo deploy/scripts/export-ledger.sh [--ledger-dir <dir>] [--out-dir /root/consensus-exports] [--include-runs]
@@ -32,7 +35,7 @@ while [ $# -gt 0 ]; do
     --runs-dir) RUNS_DIR="$2"; shift 2 ;;
     --env) ENV_FILE="$2"; shift 2 ;;
     --include-runs) INCLUDE_RUNS=1; shift ;;
-    -h|--help) sed -n '3,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,23p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 64 ;;
   esac
 done
@@ -56,8 +59,10 @@ if [ "$INCLUDE_RUNS" -eq 1 ]; then
 fi
 
 # tar reads the append-only files as they are; a record appended during the
-# export appears in the next one. Witnesses and proofs are never included.
-tar --exclude='*.witness' --exclude='*.proof' -czf "$OUT_DIR/$name.tar.gz" "${members[@]}"
+# export appears in the next one. Witnesses, proofs and the session table are
+# never included.
+tar --exclude='*.witness' --exclude='*.proof' \
+  --exclude='sessions.json' --exclude='.sessions.json.*.tmp' -czf "$OUT_DIR/$name.tar.gz" "${members[@]}"
 ( cd "$OUT_DIR" && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256" )
 chmod 0600 "$OUT_DIR/$name.tar.gz" "$OUT_DIR/$name.tar.gz.sha256"
 echo "wrote $OUT_DIR/$name.tar.gz (ledger: $LEDGER_DIR)"

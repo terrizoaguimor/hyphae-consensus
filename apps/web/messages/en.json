@@ -606,11 +606,11 @@
         "meta_config": "The server’s Model API configuration could not be used.",
         "model_output_truncated": "The model’s output reached its length limit before the document was complete.",
         "model_refusal": "The model declined to produce the document.",
-        "model_no_claims": "The model answered with a proposal that had no claims, so it was refused.",
+        "model_no_claims": "The model answered with a proposal that had no claims, so it was refused (the runtime asks again once when the run still allows it).",
         "model_content_filtered": "The provider’s content filter withheld the model’s answer, so no document came back.",
         "model_unexpected_finish": "The model stopped before finishing its document, for a reason the runtime does not accept, so the answer was refused.",
         "adapter_schema_error": "The server could not build the request for the model, so no call was made.",
-        "meta_bad_envelope": "Meta’s Model API answered with something that is not a model answer.",
+        "meta_bad_envelope": "Meta’s Model API answered with something that is not a model answer (the runtime asks again once when the run still allows it).",
         "run_deadline_reached": "The run’s time ran out: too little was left for the next model call, or a call did not finish before the run’s deadline."
       },
       "technical": "Technical details",
@@ -642,7 +642,7 @@
       },
       "roleCodes": {
         "model_malformed_output": "{role} answered, but its document did not have the form the runtime requires, so the runtime refused it rather than guess.",
-        "model_no_claims": "{role} answered with a proposal that had no claims, so the runtime refused it rather than guess.",
+        "model_no_claims": "{role} answered with a proposal that had no claims, so the runtime refused it rather than guess (the runtime asks again once when the run still allows it).",
         "model_content_filtered": "{role} produced no document: the provider’s content filter withheld its answer, so the runtime had nothing to check.",
         "model_unexpected_finish": "{role} stopped before finishing its document, for a reason the runtime does not accept, so the runtime refused the answer rather than guess."
       },
@@ -652,8 +652,8 @@
       "again": {
         "live": "Start another live run",
         "guided": "Run another guided example",
-        "note": "A new run is independent of this one; this failed run stays in My runs {hours, plural, =0 {until it is deleted} one {for # hour} other {for # hours}}.",
-        "noteShort": "A new run is independent of this one; this failed run stays in My runs."
+        "note": "A new run is independent of this one; this failed run stays in My runs {hours, plural, =0 {until it is deleted} one {for up to # hour after it started} other {for up to # hours after it started}}, or until this browser’s session ends if that comes first.",
+        "noteShort": "A new run is independent of this one; this failed run stays in My runs for a limited time, at most while this browser’s session lasts."
       }
     },
     "unavailable": {
@@ -925,7 +925,8 @@
       "requestIds": "Request ids are the ones the runtime recorded for Meta’s API; the logs are unsigned, so they show what was recorded, not that Meta returned it.",
       "operatorOnly": "No row carries the output bound, the attempt count or the schema and prompt digests: the public surface does not publish them.",
       "noCost": "No cost is shown: the API publishes no prices.",
-      "noCostLive": "The cost of this run is not shown here; what its Meta calls cost is counted in the public live budget, failed runs included."
+      "noCostLive": "The cost of this run is not shown here; what its Meta calls cost is counted in the public live budget, failed runs included.",
+      "reaskNote": "A row can stand for an answer that was refused and asked for again (at most 2 per run, never a readable judgment). Its tokens then include the refused answer’s, while its request id and latency are the last answer’s. The run’s receipt lists each refused call under rejected_calls."
     },
     "explain": {
       "heading": "Why the policy recommends this",

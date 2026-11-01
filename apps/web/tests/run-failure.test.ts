@@ -302,6 +302,7 @@ describe.each(routing.locales)("%s failure panel copy", (locale) => {
       "stage.failedHere",
       "stage.notReached",
       "meta.noCostLive",
+      "meta.reaskNote",
       "restartHint",
       ...ROLE_CODES.map((code) => `failure.roleCodes.${code}`),
       ...ROUND_8_CODES.map((code) => `failure.codes.${code}`),
@@ -315,6 +316,29 @@ describe.each(routing.locales)("%s failure panel copy", (locale) => {
     for (const code of ROLE_CODES) {
       expect(argumentsOf(lookup(run, `failure.roleCodes.${code}`)), code).toEqual(["role"]);
     }
+    // The re-askable codes end on the parenthesis saying the runtime asks
+    // again once, in every locale.
+    for (const key of [
+      "failure.codes.model_no_claims",
+      "failure.roleCodes.model_no_claims",
+      "failure.codes.meta_bad_envelope",
+    ]) {
+      expect(lookup(run, key), key).toMatch(/\(.*runtime.*\)\.$/);
+    }
+  });
+
+  it("says in English what a re-ask and the access window mean", () => {
+    for (const key of [
+      "failure.codes.model_no_claims",
+      "failure.roleCodes.model_no_claims",
+      "failure.codes.meta_bad_envelope",
+    ]) {
+      expect(lookup(english, key), key).toContain("asks again once");
+    }
+    // Access runs from the run's start, and ends with the session.
+    expect(lookup(english, "failure.again.note")).toContain("after it started");
+    expect(lookup(english, "failure.again.note")).toContain("session ends");
+    expect(lookup(english, "meta.reaskNote")).toContain("rejected_calls");
   });
 
   it("reads the first live failure as a sentence about the Proposer, at the proposal step", () => {

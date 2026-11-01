@@ -1008,6 +1008,45 @@ fn a_failed_critic_call_records_the_critics_model() {
     }
 }
 
+/// A Critic answer that cannot be read is asked for again (one re-ask),
+/// and the re-ask goes to the Critic's model too: both requests carry
+/// `CONSENSUS_MODEL_CRITIC`, and the accepted invocation records that
+/// model with the refused call under `rejected_calls` and its tokens
+/// summed over both generations.
+#[test]
+fn a_reasked_critic_call_keeps_the_critics_model() {
+    let server = serve(
+        [RUN_PROPOSAL, "not json", RUN_CHALLENGE, RUN_EVALUATION]
+            .into_iter()
+            .map(|draft| Reply::ok(envelope_without_model(draft)))
+            .collect(),
+    );
+    let cfg = config_from_vars(
+        &server.base_url,
+        &[("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3")],
+    );
+    let (agg, log, _) = run_through_adapter("critic-reask-model", cfg);
+    assert!(
+        agg.recommendation.is_some(),
+        "the re-asked run reaches its recommendation: {:?}",
+        log.all_events().last()
+    );
+    let critic_requests: Vec<String> = sent_models(&server)
+        .into_iter()
+        .filter(|(schema, _)| schema == "DraftChallenge")
+        .map(|(_, model)| model)
+        .collect();
+    assert_eq!(critic_requests, ["muse-spark-1.3", "muse-spark-1.3"]);
+    let challenge = &agg.invocations[1];
+    assert_eq!(challenge.schema_name.as_deref(), Some("DraftChallenge"));
+    assert_eq!(challenge.model, "muse-spark-1.3");
+    assert_eq!(challenge.rejected_calls.as_ref().map(Vec::len), Some(1));
+    assert_eq!(challenge.input_tokens, Some(200), "summed over both calls");
+    assert!(challenge.corrective_sha256.is_some());
+    let receipt = build_receipt(&log, &agg.run_id, "2026-10-27T09:00:00Z".into()).unwrap();
+    assert_eq!(receipt.model_invocations, agg.invocations);
+}
+
 // ---------------------------------------------------------------------
 // Round 8, lane provider-budget: 5xx retries, strict timeouts, the run
 // deadline and fresh connections (live runs M01, M02, K02).

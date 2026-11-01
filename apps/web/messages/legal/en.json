@@ -148,7 +148,7 @@
         },
         "liveFailures": {
           "heading": "A live run can fail",
-          "body": "A live run can fail: Meta’s service can time out or return an answer the protocol refuses. A failed run decides nothing, says where it stopped, and you can start another. Before a run fails, some faults are tried again. Within a call’s time limit: a rate limit or an unavailable service (HTTP 429 or 503), and once a server error (HTTP 500 or 502) or a connection lost after the request was sent. An answer without a usable claim, or one that could not be read, is asked for again once, at most twice per run. A judgment is never asked for again, and a retried call can be billed twice."
+          "body": "A live run can fail: Meta’s service can time out or return an answer the protocol refuses. A failed run decides nothing, says where it stopped, and you can start another. Before a run fails, some faults are tried again. Within a call’s time limit: a rate limit or an unavailable service (HTTP 429 or 503), and once a server error (HTTP 500 or 502) or a connection lost after the request was sent. A proposal or revision without a usable claim or with claims out of form (more than 12, or an empty one), or an answer that could not be read, is asked for again once, at most twice per run and never once the run is stopping. A readable judgment is never asked for again, and a retried or re-asked call can be billed more than once."
         },
         "labels": {
           "heading": "Simulated and recorded runs are labeled",
@@ -168,7 +168,7 @@
         },
         "prototype": {
           "heading": "A prototype",
-          "body": "Hyphae Consensus is a hackathon prototype. The gaps found by its multi-agent (AI) audit of 27 October 2026 are documented in its repository. Protocol 1.3 closes the two fail-open paths the audit found (MA-1, RT-1) and has not yet been re-validated live; other fixes are in progress."
+          "body": "Hyphae Consensus is a hackathon prototype. The gaps found by its multi-agent (AI) audit of 27 October 2026 are documented in its repository. Protocol 1.3 closes the two fail-open paths the audit found (MA-1, RT-1); its live battery of 30 October 2026 (four runs) is documented in the repository, and other fixes are in progress."
         }
       }
     }

@@ -1721,6 +1721,8 @@ test("the Meta API panel lists every invocation with its role; a scripted double
   await expect(page.locator("[data-meta-tab]")).not.toContainText("fake-propose-1");
   await expect(page.locator("[data-meta-no-call]")).toContainText("No model call was made");
   await expect(page.locator("[data-meta-no-cost]")).toHaveText(t("en", "Run.meta.noCost"));
+  // No real call, so no row can stand for a re-asked answer.
+  await expect(page.locator("[data-meta-reask-note]")).toHaveCount(0);
   await expectNoLive(page, "en");
 });
 
@@ -3100,6 +3102,8 @@ test("a live run's Meta tab says where its cost is counted; a guided run's says 
   await openRun(page, "en", LIVE_RUN_ID);
   await page.getByRole("tab", { name: t("en", "Run.tabs.meta") }).click();
   await expect(page.locator("[data-meta-no-cost='live']")).toHaveText(t("en", "Run.meta.noCostLive"));
+  // A row of a real call can stand for a re-asked answer: the note says so.
+  await expect(page.locator("[data-meta-reask-note]")).toHaveText(t("en", "Run.meta.reaskNote"));
   // The refused call is listed, at the stage the panel names.
   await expect(page.locator("[data-invocation-sequence='2']")).toContainText(
     t("en", "Run.meta.failedAt", { stage: t("en", "Run.failure.stageNames.propose") }),

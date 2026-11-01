@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# Self-test of restart-when-idle.sh (runbook 9.4), run by scripts/linux-gates.sh
+# Self-test of restart-when-idle.sh (runbook 9.9), run by scripts/linux-gates.sh
 # as the gate restart-selftest. Offline: `curl`, `systemctl`, `id` and
 # `journalctl` are replaced on PATH by stubs, and the ledger command by
 # HC_LEDGER_SH; restart-when-idle.sh runs unchanged against them.
@@ -68,13 +68,59 @@ busy_active='{"ready":true,"active_runs":1,"queued_runs":0,"shutting_down":false
 busy_queued='{"ready":true,"active_runs":0,"queued_runs":1,"shutting_down":false}'
 idle='{"ready":true,"active_runs":0,"queued_runs":0,"shutting_down":false}'
 not_ready='{"ready":false,"active_runs":0,"queued_runs":0,"shutting_down":false}'
+# The shape `consensus-api ledger status` prints (ledger_cli.rs): the
+# snapshot object first, then open_reservations as an array of
+# OpenReservation objects (live/budget.rs).
+snapshot='"snapshot": {
+    "day": "2026-11-01",
+    "daily_cap": "10.000000",
+    "daily_committed": "2.760000",
+    "daily_remaining": "7.240000",
+    "daily_available_now": "3.240000",
+    "lifetime_cap": "60.000000",
+    "lifetime_spent": "1.120000",
+    "lifetime_committed": "2.760000",
+    "lifetime_remaining": "56.120000",
+    "judge_slice": "15.000000",
+    "judge_committed": "0.000000",
+    "judge_remaining": "15.000000",
+    "judge_daily_cap": "6.000000",
+    "judge_daily_committed": "0.000000",
+    "judge_daily_remaining": "6.000000",
+    "run_worst_case": "2.760000",
+    "hourly_cap": 6,
+    "hourly_public": 1,
+    "hourly_judge": 0,
+    "max_concurrent": 1,
+    "active_public": 1,
+    "active_judge": 0,
+    "reservations": 3,
+    "unsettled_reservations": 0,
+    "tripped": false
+  }'
 no_open='{
   "ledger_dir": "/var/lib/consensus/ledger/public",
+  "kill_switch_file": "/var/lib/consensus/kill-switch",
+  "kill_switch_present": false,
+  '"$snapshot"',
   "open_reservations": []
 }'
 one_open='{
   "ledger_dir": "/var/lib/consensus/ledger/public",
-  "open_reservations": ["5f0c8a52-1d3e-4c43-9a59-0d6f3b1c2e7a"]
+  "kill_switch_file": "/var/lib/consensus/kill-switch",
+  "kill_switch_present": false,
+  '"$snapshot"',
+  "open_reservations": [
+    {
+      "id": "5f0c8a52-1d3e-4c43-9a59-0d6f3b1c2e7a",
+      "lane": "public",
+      "reserved_at": "2026-11-01T08:00:00Z",
+      "worst_case": "2.760000",
+      "spent": "0.055000",
+      "attempts": 1,
+      "unsettled_attempts": 0
+    }
+  ]
 }'
 
 failures=0

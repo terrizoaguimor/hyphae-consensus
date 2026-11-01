@@ -42,12 +42,19 @@ LoadCredential=turnstile.secret:/etc/consensus/credentials/turnstile.secret
 ExecStart=/usr/local/bin/consensus-api serve-public
 
 # SIGTERM to the main process only: the server cancels active runs and waits
-# for them to reach a checkpoint (shutdown grace 60 s), then exits; remaining
-# children (a hyphae verifier) get SIGKILL as soon as the main process exits
-# or TimeoutStopSec passes (systemd.kill(5), KillMode=mixed).
+# for them to reach a checkpoint (the public shutdown grace is one model call
+# budget plus 10 s, at least 60 s: 250 s at CONSENSUS_MODEL_TIMEOUT_SECS=240),
+# aborts a call still in progress after it, settles it and releases its
+# reservation (10 s, ABORT_SETTLE_WAIT), then exits; remaining children (a
+# hyphae verifier) get SIGKILL as soon as the main process exits or
+# TimeoutStopSec passes (systemd.kill(5), KillMode=mixed). TimeoutStopSec is
+# the grace plus 30 s: shorter, systemd kills the process before the abort
+# and the reservation stays open until an operator releases it (runbook 9.3).
+# The boot line `[startup] limits:` prints the stop timeout the grace needs.
+# Restart only through deploy/scripts/restart-when-idle.sh (runbook 9.9).
 KillMode=mixed
 KillSignal=SIGTERM
-TimeoutStopSec=90
+TimeoutStopSec=280
 Restart=on-failure
 RestartSec=5s
 

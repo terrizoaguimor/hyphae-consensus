@@ -5,7 +5,8 @@
 # target (glibc 2.39), with the repository mounted READ-ONLY, and exits
 # non-zero when any gate fails: fmt, clippy -D warnings, the workspace
 # tests, the demo crate's tests, the conformance example (evaluate) and
-# the sealed-snapshot tooling self-tests. Every gate runs even after one
+# the self-tests of the sealed-snapshot tooling and the deploy scripts
+# (verify-edge, restart-when-idle). Every gate runs even after one
 # has failed; each prints its summary lines (a failing one also the last
 # 60 lines of its log), and the run ends with the list of failed gates.
 # cargo-deny is not run here (it needs the advisory database): CI runs it
@@ -120,6 +121,7 @@ docker run --rm "$@" \
     gate manifest-selftest '^selftest' python3 -I scripts/snapshot_manifest.py selftest
     gate capture-selftest '^selftest' sh scripts/hyphae-container/capture-snapshot.sh --selftest
     gate edge-selftest '^selftest' bash deploy/scripts/verify-edge-selftest.sh
+    gate restart-selftest '^selftest' bash deploy/scripts/restart-when-idle-selftest.sh
     if [ -n \"\$failed\" ]; then
       echo \"== FAILED:\$failed\"
       exit 1

@@ -821,11 +821,18 @@ definition it was checked against. The choices:
   `User=`/`Group=` (`consensus:consensus`) and re-apply that ownership to an existing
   directory `[SD-1]`, putting the socket into the group `consensus` (section 2.3).
 - `ExecStart=/usr/local/bin/consensus-api serve-public` (`main.rs`).
-- `KillMode=mixed`, `KillSignal=SIGTERM`, `TimeoutStopSec=90`: on stop SIGTERM goes to
+- `KillMode=mixed`, `KillSignal=SIGTERM`, `TimeoutStopSec=280`: on stop SIGTERM goes to
   the main process only and SIGKILL to the rest of the control group after the
   timeout `[SD-3]`; the server handles SIGTERM by cancelling active runs and waiting
-  for their checkpoints with a 60 s grace (`server.rs` `graceful`, `BuildOptions`),
-  so 90 s is enough.
+  for their checkpoints with its shutdown grace (`server.rs` `graceful`, `BuildOptions`):
+  in public mode one model call budget plus 10 s, at least 60 s
+  (`public_config.rs` `public_shutdown_grace`: 250 s at `CONSENSUS_MODEL_TIMEOUT_SECS=240`).
+  A call still in progress after the grace is aborted, settled at its estimate and its
+  reservation released (`runs.rs`, `ABORT_SETTLE_WAIT` 10 s), so the stop needs grace +
+  10 s + the HTTP drain, 270 s, which the boot line `[startup] limits:` prints; 280 s
+  leaves a margin. (Until 2026-11-01 the grace was a fixed 60 s and the timeout 90 s.)
+  The timeout and `CONSENSUS_MODEL_TIMEOUT_SECS` are deployed together (section 9.11),
+  and the service is restarted only through the restart gate (section 9.9).
 - `Restart=on-failure`, `RestartSec=5s`: restart on a non-zero exit or a signal, "the
   recommended choice for long-running services"; `systemctl stop` never triggers it
   `[SD-2]`. Startup recovery then closes runs left mid-deliberation as failed,
@@ -1812,9 +1819,9 @@ Suspected key exposure, unexpected spend, or a compromised host:
 ```sh
 # a code leaked or a judge seat ends: delete its digest line, then restart (the file is read at startup only)
 sudoedit /etc/consensus/judge-codes.sha256
-sudo systemctl restart consensus-public.service
+sudo ~/consensus/deploy/scripts/restart-when-idle.sh          # the restart gate, section 9.9
 # every code at once: new codes replace the file (the old ones stop working at the restart)
-sudo ~/consensus/deploy/scripts/judge-codes.sh --count <seats> --force && sudo systemctl restart consensus-public.service
+sudo ~/consensus/deploy/scripts/judge-codes.sh --count <seats> --force && sudo ~/consensus/deploy/scripts/restart-when-idle.sh
 journalctl -u consensus-public.service --since -1d --no-pager | grep -E 'refused a (public|judge) run: the (client|code) started'
 ```
 
@@ -1828,7 +1835,109 @@ run cannot be built or its start fails, so a refusal consumes nothing. A restart
 them, so a client or a code may start its share again the same day; the ledger's caps are
 unaffected (they live in its files). A refusal logs one line without the client's address
 or the code (the `grep` above); the visitor sees `429 live_client_quota` with
-`Retry-After` until 00:00 UTC, a judge `429 live_budget_judge_daily`.
+`Retry-After` until 00:00 UTC, a judge `429 live_budget_judge_daily`. Since 2026-11-01 a
+run that fails with a provider or model code (`live/gate.rs` `GIVE_BACK_CODES`: a Meta
+timeout, outage or unreadable answer, a refused model document, an interruption, a
+shutdown, the run deadline cutting a call) before any recommendation also gives its count
+back, at most 2 times per client key or code and UTC day, and logs
+`[live-gate] daily count given back for a run that failed with <code>`; a cancellation,
+the run deadline (`deadline`), a `*_contract`, budget or token-budget code never does,
+and money is never given back.
+
+### 9.9 Restarts: the restart gate
+
+**Never restart `consensus-public` with live mode on except through the gate.** A restart
+during a model call costs a settled attempt, and a stop that systemd has to kill (one
+longer than `TimeoutStopSec`) strands the run's reservation at its worst case until an
+operator releases it (section 9.3). The plain `systemctl restart` lines elsewhere in this
+runbook apply while live mode is off (setup, sections 3-8).
+
+```sh
+sudo ~/consensus/deploy/scripts/restart-when-idle.sh                       # polls /ready every 15 s, up to 1 h
+sudo ~/consensus/deploy/scripts/restart-when-idle.sh --interval 5 --max-wait 900
+```
+
+`deploy/scripts/restart-when-idle.sh` reads `GET /api/v1/ready` on the socket as
+cloudflared sends it (`Host` = the first entry of `CONSENSUS_ALLOWED_HOSTS`,
+`CF-Connecting-IP`, `CF-IPCountry: US`) until it answers `"active_runs":0` and
+`"queued_runs":0` (an unreadable `/ready` counts as busy), then runs
+`systemctl restart consensus-public`, waits for `"ready":true`, prints the boot's
+`[startup] limits:` line and runs `ledger.sh status`. Exit 0: restarted, no reservation
+open. Exit 2: never idle within `--max-wait`, **not restarted** (try again later). Exit 3:
+restarted, and `open_reservations` lists a reservation: reconcile it as section 9.3 says
+(each counts at the run's worst case, $2.76 with the section 9.11 values, until
+released). Exit 4: restarted, `/ready` not ready within `--ready-wait` (120 s): read the
+journal (section 9.1). A run admitted between the idle answer and the stop signal is
+still settled: the shutdown grace (250 s at a 240 s call budget) lets its call finish or
+aborts and settles it, and `TimeoutStopSec=280` lets that happen before systemd kills
+anything (section 5). Its self-test (`bash deploy/scripts/restart-when-idle-selftest.sh`,
+gate `restart-selftest` of `scripts/linux-gates.sh`) runs it against stubbed `curl`,
+`systemctl` and ledger output: it restarts only after the idle answer, never when busy,
+and reports an open reservation.
+
+Rules:
+- Deploy between about 08:00 and 12:00 UTC (night in the Americas, before the European
+  afternoon): the fewest visitors, and the burst of the day (section 9.11) is not at stake.
+- After an unclean stop (a crash, a SIGKILL, a host reboot), run `ledger.sh status` and
+  release each stranded reservation once its run is closed (section 9.3).
+- Deploy everything of one round in ONE gated restart where possible: for round 8 the
+  round-7 build, the model-robustness, provider-budget and failure-ux changes and the
+  settings of section 9.11, the unit's `TimeoutStopSec=280` installed first
+  (`sudo systemctl daemon-reload` after copying the unit; a daemon-reload restarts
+  nothing).
+
+### 9.10 Patching freeze until 2026-11-05T02:00Z
+
+Until the end of the judging window, nothing restarts `consensus-public` or cloudflared
+but the owner:
+
+- Keep the apt egress window of section 2.4 closed until 2026-11-05T02:00Z; optionally
+  `sudo systemctl disable --now apt-daily-upgrade.timer` until then (re-enable it after).
+- Install `deploy/needrestart/90-consensus.conf` as
+  `/etc/needrestart/conf.d/90-consensus.conf` (root:root 0644): needrestart then lists
+  `consensus-*` and `cloudflared` as pending after a library upgrade instead of
+  restarting them (`$nrconf{override_rc}`), and the owner restarts them through the gate
+  (section 9.9).
+
+```sh
+sudo install -m 0644 -o root -g root ~/consensus/deploy/needrestart/90-consensus.conf /etc/needrestart/conf.d/90-consensus.conf
+systemctl show consensus-public -p NRestarts -p ExecMainStartTimestamp      # note both
+sudo needrestart -b -r l                                                    # lists consensus-public as pending, restarts nothing
+systemctl show consensus-public -p NRestarts -p ExecMainStartTimestamp      # unchanged
+```
+
+### 9.11 Live settings of 2026-11-01 (round 8)
+
+The live robustness plan of 2026-11-01 sets, in `public.env` (the block "Live robustness
+settings" of `deploy/etc/consensus/public.env.example`):
+
+| Variable | Value | Why |
+|---|---|---|
+| `CONSENSUS_MODEL_TIMEOUT_SECS` | `240` | 16,000 output tokens take about 129 s at the median live rate and 198 s at the slowest; M01 timed out at 120 s. Shutdown grace 250 s, stop timeout 280 s (section 5) |
+| `CONSENSUS_RUN_DEADLINE_SECS` | `1200` | with the pre-call guard (no call with less than 30 s left, `run_deadline_reached`) |
+| `CONSENSUS_LIVE_RUN_TOKEN_CAP` | `90000` | 70,000 was within 10% of a three-round run; worst case $2.76, the $15 judge slice holds five |
+| `CONSENSUS_LIVE_BURST_FRACTION` | `0.6` | $6.00 at 00:00 UTC (two worst cases) instead of $2.50, which held none at 90,000; the $10 daily and $60 lifetime caps are unchanged |
+| `CONSENSUS_LIVE_CONCURRENCY` | `2` | one public plus one judge run at once; `CONSENSUS_LIVE_MAX_CONCURRENT` stays `1`, so the money bound is unchanged |
+| `CONSENSUS_LIVE_CLIENT_DAILY` | optional `5` | owner decision; the live form states the figure from `/capabilities` |
+
+Left alone: `CONSENSUS_META_MAX_ATTEMPTS` (3), the output bound (16,000),
+`CONSENSUS_META_REASONING_EFFORT` (unset), `CONSENSUS_MODEL_CRITIC` (unset until the
+owner's Critic smoke) and `CONSENSUS_VISITOR_ACCESS_HOURS` (24).
+`cargo test -p consensus-api --test live_config` reads the example file and checks these
+values together: they parse, the budget validates with a $2.76 worst case and a $6.00
+burst, and the unit's `TimeoutStopSec` exceeds what the grace needs.
+
+Deployment, one gated restart (section 9.9): copy the new unit and `sudo systemctl
+daemon-reload`, edit `public.env`, then `restart-when-idle.sh`. Read-only checks after it:
+
+```sh
+systemctl show consensus-public -p Environment -p TimeoutStopUSec
+journalctl -u consensus-public -n 50 --no-pager | grep -F '[startup] limits:'   # 240 s, run deadline 1200 s, token cap 90000, grace 250 s, live concurrency 2, burst 0.6
+sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' \
+     -H 'CF-IPCountry: US' http://localhost/api/v1/capabilities | grep -o '"live_concurrency":[0-9]*'   # 2
+```
+
+and, at 00:01 UTC, `daily_available_now` in `/api/v1/capabilities` near `6.00`.
 
 ---
 

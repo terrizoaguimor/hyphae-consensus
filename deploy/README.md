@@ -24,6 +24,7 @@ ledger runs on the server.
 | `cloudflared/config.yml.example` | `/etc/cloudflared/config.yml` | | 6.3 |
 | `etc/consensus/public.env.example` | `/etc/consensus/public.env` | | 4.1 |
 | `etc/consensus/operator.env.example` | `/etc/consensus/operator.env` | | 4.1 |
+| `needrestart/90-consensus.conf` | `/etc/needrestart/conf.d/90-consensus.conf` (needrestart lists `consensus-*` and `cloudflared` as pending, never restarts them) | | 9.10 |
 | `scripts/install.sh` | run once as root (`--dry-run` first: prints every change, makes none; `--no-systemd` only in a rehearsal container) | server | 2–5 |
 | `scripts/verify-edge.sh` | gate G6: origin (socket, over SSH) vs edge, byte for byte; `cf-cache-status` | owner machine | 8.4 |
 | `scripts/sse-heartbeat-test.sh` | SSE heartbeat and resume test through the tunnel | owner machine | 8.5 |
@@ -32,6 +33,7 @@ ledger runs on the server.
 | `scripts/kill-switch.sh` | live-mode kill switch on / off / status (removing the file clears no trip) | server | 9.3 |
 | `scripts/ledger.sh` | the operator's `consensus-api ledger` subcommand (status, reset a trip, release a reservation a crash left open) as the unit runs it | server | 4.4, 8.8, 9.3 |
 | `scripts/judge-codes.sh` | judge-lane invite codes: generates them (140 random bits each), prints them once, installs only their SHA-256 digests (`root:consensus 0640`); never overwrites a digests file without `--force` | server | 1, 4.3, 9.8 |
+| `scripts/restart-when-idle.sh` | the restart gate: restarts `consensus-public` only once `/ready` shows no active or queued run, then lists any open ledger reservation (`restart-when-idle-selftest.sh`: offline self-test, a gate of `scripts/linux-gates.sh`) | server | 9.9 |
 | `scripts/export-ledger.sh` | checksummed export of a ledger directory (and optionally the runs) | server | 4.5, 9.5, 9.7 |
 
 Conventions: every script is bash with `set -euo pipefail`; destructive steps

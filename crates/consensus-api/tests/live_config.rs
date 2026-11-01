@@ -614,3 +614,84 @@ fn the_round_8_public_values_validate_and_still_fit_one_judge_run() {
     assert!(b.public_share() >= b.run_worst_case());
     assert_eq!(b.burst().micros() / b.run_worst_case().micros(), 2);
 }
+
+/// Round 8, lane D (D1): the live settings `deploy/etc/consensus/public.env.example`
+/// sets, read from the file itself, are the plan's values, parse as the
+/// servers parse them and validate together, and the unit's stop timeout
+/// covers the shutdown grace they imply.
+#[test]
+fn the_public_env_example_sets_the_round_8_values_and_they_hold_together() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text = std::fs::read_to_string(repo.join("deploy/etc/consensus/public.env.example"))
+        .expect("public.env.example");
+    let set: BTreeMap<String, String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let value = |name: &str| set.get(name).map(String::as_str);
+    assert_eq!(value("CONSENSUS_MODEL_TIMEOUT_SECS"), Some("240"));
+    assert_eq!(value("CONSENSUS_RUN_DEADLINE_SECS"), Some("1200"));
+    assert_eq!(value(vars::RUN_TOKEN_CAP), Some("90000"));
+    assert_eq!(value(vars::BURST_FRACTION), Some("0.6"));
+    assert_eq!(value("CONSENSUS_LIVE_CONCURRENCY"), Some("2"));
+    assert_eq!(value(vars::MAX_CONCURRENT), Some("1"));
+    // What D1 leaves alone stays unset (the defaults apply).
+    for untouched in [
+        "CONSENSUS_META_MAX_ATTEMPTS",
+        "CONSENSUS_META_MAX_COMPLETION_TOKENS",
+        "CONSENSUS_LIVE_MAX_COMPLETION_TOKENS",
+        "CONSENSUS_META_REASONING_EFFORT",
+        "CONSENSUS_MODEL_CRITIC",
+        "CONSENSUS_VISITOR_ACCESS_HOURS",
+        "CONSENSUS_LIVE_CLIENT_DAILY",
+    ] {
+        assert_eq!(value(untouched), None, "{untouched}");
+    }
+
+    // The call budget and what it implies for the stop.
+    let timeout =
+        consensus_api::config::parse_model_timeout(value("CONSENSUS_MODEL_TIMEOUT_SECS")).unwrap();
+    assert_eq!(timeout, std::time::Duration::from_secs(240));
+    let grace = consensus_api::public_config::public_shutdown_grace(timeout);
+    assert_eq!(grace.as_secs(), 250);
+    let needed = consensus_api::public_config::required_stop_timeout(grace);
+    let unit = std::fs::read_to_string(repo.join("deploy/systemd/consensus-public.service"))
+        .expect("consensus-public.service");
+    let stop: Vec<u64> = unit
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("TimeoutStopSec="))
+        .map(|v| v.trim().parse().unwrap())
+        .collect();
+    assert_eq!(stop, [280], "one TimeoutStopSec, in seconds");
+    assert!(stop[0] > needed.as_secs(), "{stop:?} vs {needed:?}");
+    // The output bound the call budget must cover (the boot warning's rule:
+    // 80 tokens a second).
+    assert!(timeout.as_secs() * 80 >= 16_000);
+
+    // The runtime figures, as serve-public reads them.
+    let get = |name: &str| set.get(name).cloned();
+    let rt = consensus_api::public_config::RuntimeConfig::from_env(&get).unwrap();
+    assert_eq!(rt.live_concurrency, 2);
+    assert_eq!(rt.run_deadline.as_secs(), 1200);
+
+    // The money: the live values on top of an enabled configuration.
+    let dir = TempDir::new("r8-public-env-example");
+    let mut e = enabled_env(&dir);
+    for name in [
+        vars::RUN_TOKEN_CAP,
+        vars::BURST_FRACTION,
+        vars::MAX_CONCURRENT,
+    ] {
+        e.insert(name, set[name].clone());
+    }
+    let cfg = load(Exposure::Public, &e).unwrap();
+    let b = &cfg.budget;
+    b.validate().unwrap();
+    assert_eq!(b.max_concurrent, 1);
+    assert_eq!(b.run_worst_case().to_fixed(), "2.760000");
+    assert_eq!(b.burst(), Usd::parse("6.00").unwrap());
+    assert!(b.judge_daily_cap >= b.run_worst_case());
+}

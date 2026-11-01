@@ -611,7 +611,7 @@
         "model_unexpected_finish": "The model stopped before finishing its document, for a reason the runtime does not accept, so the answer was refused.",
         "adapter_schema_error": "The server could not build the request for the model, so no call was made.",
         "meta_bad_envelope": "Meta’s Model API answered with something that is not a model answer.",
-        "run_deadline_reached": "Too little of the run’s time was left for the next model call, so it was not made."
+        "run_deadline_reached": "The run’s time ran out: too little was left for the next model call, or a call did not finish before the run’s deadline."
       },
       "technical": "Technical details",
       "where": "It stopped at the {stageName} step ({role}).",

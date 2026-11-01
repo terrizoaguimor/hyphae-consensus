@@ -56,7 +56,7 @@
         },
         "technical": {
           "rounds": "Una ejecución permite como máximo 2 rondas de revisión. Con el protocolo 1.3, deja de revisar cuando una ronda no resuelve ninguna de las objeciones que la evaluación anterior dejó abiertas; las ejecuciones grabadas con el protocolo 1.2 comparaban, en cambio, la cantidad de objeciones sin resolver.",
-          "bounds": "Cada ejecución tiene un límite de 9 llamadas a modelos, 20 registros de evidencia distintos y un presupuesto de tokens (150 000 tokens de entrada y salida por defecto). El entorno de ejecución revisa el presupuesto después de cada llamada, así que una ejecución puede superarlo en una llamada.",
+          "bounds": "Cada ejecución tiene un límite de 9 llamadas a modelos más 2 nuevas peticiones como máximo (una respuesta sin ninguna afirmación utilizable, o que no se pudo leer, se vuelve a pedir una vez; un juicio, nunca), 20 registros de evidencia distintos y un presupuesto de tokens (150 000 tokens de entrada y salida por defecto). El entorno de ejecución revisa el presupuesto después de cada llamada, así que una ejecución puede superarlo en una llamada.",
           "model": "En las ejecuciones en vivo, los tres roles los desempeña <code>muse-wonder-1.0</code> de Meta. Cada respuesta debe ajustarse a un esquema estricto con campos obligatorios; si no, la ejecución falla con un motivo registrado."
         }
       },

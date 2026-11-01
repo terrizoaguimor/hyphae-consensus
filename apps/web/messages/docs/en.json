@@ -56,7 +56,7 @@
         },
         "technical": {
           "rounds": "A run allows at most 2 revision rounds. Under protocol 1.3 it stops revising when a round resolves none of the objections the previous evaluation left open; runs recorded under protocol 1.2 compared the counts of unresolved objections instead.",
-          "bounds": "Each run is capped at 9 model calls, 20 distinct evidence records and a token budget (150,000 input and output tokens by default). The runtime checks the budget after each call, so a run can overshoot it by one call.",
+          "bounds": "Each run is capped at 9 model calls plus at most 2 re-asks (an answer without a usable claim, or one that could not be read, is asked for again once; a judgment never is), 20 distinct evidence records and a token budget (150,000 input and output tokens by default). The runtime checks the budget after each call, so a run can overshoot it by one call.",
           "model": "In live runs, all three roles are played by Meta’s <code>muse-wonder-1.0</code>. Each response must match a strict schema with required fields, or the run fails with a recorded reason."
         }
       },

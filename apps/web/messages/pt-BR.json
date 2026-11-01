@@ -611,7 +611,7 @@
         "model_unexpected_finish": "O modelo parou antes de terminar o documento, por um motivo que o runtime não aceita, então a resposta foi recusada.",
         "adapter_schema_error": "O servidor não conseguiu montar a requisição para o modelo, então nenhuma chamada foi feita.",
         "meta_bad_envelope": "A Model API da Meta respondeu com algo que não é uma resposta do modelo.",
-        "run_deadline_reached": "Restava pouco tempo da execução para a próxima chamada ao modelo, então ela não foi feita."
+        "run_deadline_reached": "O tempo da execução acabou: restava pouco para a próxima chamada ao modelo, ou uma chamada não terminou antes do prazo da execução."
       },
       "technical": "Detalhes técnicos",
       "where": "Ela parou na etapa de {stageName} ({role}).",

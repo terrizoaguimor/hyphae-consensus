@@ -611,7 +611,7 @@
         "model_unexpected_finish": "Le modèle s’est arrêté avant d’avoir terminé son document, pour une raison que le runtime n’accepte pas : la réponse a été refusée.",
         "adapter_schema_error": "Le serveur n’a pas pu construire la requête destinée au modèle : aucun appel n’a été fait.",
         "meta_bad_envelope": "La Model API de Meta a répondu par quelque chose qui n’est pas une réponse du modèle.",
-        "run_deadline_reached": "Il restait trop peu de temps à l’exécution pour le prochain appel au modèle : il n’a pas été fait."
+        "run_deadline_reached": "Le temps de l’exécution est écoulé : il en restait trop peu pour le prochain appel au modèle, ou un appel ne s’est pas terminé avant l’échéance de l’exécution."
       },
       "technical": "Détails techniques",
       "where": "Elle s’est arrêtée à l’étape « {stageName} » ({role}).",

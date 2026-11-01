@@ -611,7 +611,7 @@
         "model_unexpected_finish": "El modelo se detuvo antes de terminar su documento, por un motivo que el runtime no acepta, así que la respuesta fue rechazada.",
         "adapter_schema_error": "El servidor no pudo construir la solicitud para el modelo, así que no se hizo ninguna llamada.",
         "meta_bad_envelope": "La Model API de Meta respondió con algo que no es una respuesta del modelo.",
-        "run_deadline_reached": "Quedaba muy poco tiempo de la ejecución para la siguiente llamada al modelo, así que no se hizo."
+        "run_deadline_reached": "Se agotó el tiempo de la ejecución: quedaba muy poco para la siguiente llamada al modelo, o una llamada no terminó antes del plazo de la ejecución."
       },
       "technical": "Detalles técnicos",
       "where": "Se detuvo en el paso de {stageName} ({role}).",

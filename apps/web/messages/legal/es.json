@@ -148,7 +148,7 @@
         },
         "liveFailures": {
           "heading": "Una ejecución en vivo puede fallar",
-          "body": "Una ejecución en vivo puede fallar: el servicio de Meta puede agotar el tiempo o devolver una respuesta que el protocolo rechaza. Una ejecución fallida no decide nada, indica dónde se detuvo y puedes iniciar otra."
+          "body": "Una ejecución en vivo puede fallar: el servicio de Meta puede agotar el tiempo o devolver una respuesta que el protocolo rechaza. Una ejecución fallida no decide nada, indica dónde se detuvo y puedes iniciar otra. Antes de que una ejecución falle, algunos fallos se reintentan. Dentro del límite de tiempo de una llamada: un límite de frecuencia o un servicio no disponible (HTTP 429 o 503) y, una vez, un error del servidor (HTTP 500 o 502) o una conexión perdida después de enviar la solicitud. Una respuesta sin ninguna afirmación utilizable, o que no se pudo leer, se vuelve a pedir una vez, como máximo dos veces por ejecución. Un juicio nunca se vuelve a pedir, y una llamada reintentada puede facturarse dos veces."
         },
         "labels": {
           "heading": "Las ejecuciones simuladas y grabadas están identificadas",

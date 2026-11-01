@@ -148,7 +148,7 @@
         },
         "liveFailures": {
           "heading": "Uma execução ao vivo pode falhar",
-          "body": "Uma execução ao vivo pode falhar: o serviço da Meta pode esgotar o tempo ou devolver uma resposta que o protocolo recusa. Uma execução que falha não decide nada, informa onde parou e você pode iniciar outra."
+          "body": "Uma execução ao vivo pode falhar: o serviço da Meta pode esgotar o tempo ou devolver uma resposta que o protocolo recusa. Uma execução que falha não decide nada, informa onde parou e você pode iniciar outra. Antes de uma execução falhar, algumas falhas são tentadas de novo. Dentro do limite de tempo de uma chamada: um limite de taxa ou um serviço indisponível (HTTP 429 ou 503) e, uma vez, um erro do servidor (HTTP 500 ou 502) ou uma conexão perdida depois do envio da solicitação. Uma resposta sem nenhuma afirmação utilizável, ou que não pôde ser lida, é pedida de novo uma vez, no máximo duas vezes por execução. Um julgamento nunca é pedido de novo, e uma chamada repetida pode ser cobrada duas vezes."
         },
         "labels": {
           "heading": "Execuções simuladas e gravadas são identificadas",

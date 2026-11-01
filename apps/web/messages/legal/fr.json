@@ -148,7 +148,7 @@
         },
         "liveFailures": {
           "heading": "Une exécution en direct peut échouer",
-          "body": "Une exécution en direct peut échouer : le service de Meta peut expirer ou renvoyer une réponse que le protocole refuse. Une exécution échouée ne décide rien, indique où elle s’est arrêtée, et vous pouvez en lancer une autre."
+          "body": "Une exécution en direct peut échouer : le service de Meta peut expirer ou renvoyer une réponse que le protocole refuse. Une exécution échouée ne décide rien, indique où elle s’est arrêtée, et vous pouvez en lancer une autre. Avant qu’une exécution échoue, certains incidents sont retentés. Dans la limite de temps d’un appel : une limite de débit ou un service indisponible (HTTP 429 ou 503) et, une fois, une erreur du serveur (HTTP 500 ou 502) ou une connexion perdue après l’envoi de la requête. Une réponse sans affirmation utilisable, ou illisible, est redemandée une fois, au plus deux fois par exécution. Un jugement n’est jamais redemandé, et un appel retenté peut être facturé deux fois."
         },
         "labels": {
           "heading": "Les exécutions simulées et enregistrées sont signalées",

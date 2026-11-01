@@ -56,7 +56,7 @@
         },
         "technical": {
           "rounds": "Une exécution autorise au plus 2 tours de révision. Sous le protocole 1.3, elle cesse de réviser lorsqu’un tour ne résout aucune des objections laissées ouvertes par l’évaluation précédente ; les exécutions enregistrées sous le protocole 1.2 comparaient à la place le nombre d’objections non résolues.",
-          "bounds": "Chaque exécution est plafonnée à 9 appels de modèle, 20 enregistrements probants distincts et un budget de jetons (150 000 jetons d’entrée et de sortie par défaut). L’environnement d’exécution contrôle le budget après chaque appel : une exécution peut donc le dépasser d’un appel.",
+          "bounds": "Chaque exécution est plafonnée à 9 appels de modèle plus 2 nouvelles demandes au plus (une réponse sans affirmation utilisable, ou illisible, est redemandée une fois ; un jugement, jamais), 20 enregistrements probants distincts et un budget de jetons (150 000 jetons d’entrée et de sortie par défaut). L’environnement d’exécution contrôle le budget après chaque appel : une exécution peut donc le dépasser d’un appel.",
           "model": "Dans les exécutions en direct, les trois rôles sont tenus par <code>muse-wonder-1.0</code> de Meta. Chaque réponse doit respecter un schéma strict aux champs obligatoires ; sinon, l’exécution échoue avec un motif enregistré."
         }
       },

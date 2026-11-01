@@ -1584,6 +1584,10 @@ struct CallSpec {
     schema_name: &'static str,
     system: String,
     prompt_sha256: String,
+    /// The model the call is sent to: the role's (`CONSENSUS_MODEL_CRITIC` for
+    /// the Critic), or `CONSENSUS_MODEL` for a call that is not one of the
+    /// four roles (the single-agent baseline).
+    model: String,
 }
 
 pub struct MetaModelClient {
@@ -1951,6 +1955,7 @@ impl MetaModelClient {
             schema_name: role.schema_name(),
             system: role.system_prompt(),
             prompt_sha256: self.prompt_hash(role),
+            model: self.cfg.model_for(role).to_string(),
         };
         self.call_spec(spec, schema, user)
     }
@@ -1974,7 +1979,7 @@ impl MetaModelClient {
         // The role's model (`CONSENSUS_MODEL_CRITIC` for the Critic): sent,
         // and recorded when the API echoes none. Neither the prompt nor the
         // schema depends on it.
-        let model = self.cfg.model_for(role).to_string();
+        let model = spec.model.clone();
         let request = ChatRequest {
             model: &model,
             messages: [

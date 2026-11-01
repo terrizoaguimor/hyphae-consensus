@@ -321,6 +321,7 @@ impl BaselineModel for MetaModelClient {
             schema_name: BASELINE_SCHEMA_NAME,
             system: baseline_system_prompt(),
             prompt_sha256: baseline_prompt_sha256(),
+            model: self.cfg.model.clone(),
         };
         let (draft, inv) =
             self.call_spec::<DraftBaselineAssessment>(spec, schema, baseline_prompt(task, ctx))?;

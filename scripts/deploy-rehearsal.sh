@@ -478,7 +478,11 @@ for f in /tmp/serve-a.log; do grep -qF "$CANARY" "$f" && leaks=$((leaks + 1)); d
 grep -rqF "$CANARY" /var/lib/consensus/runs 2>/dev/null && leaks=$((leaks + 1))
 for p in /api/v1/health /api/v1/ready /api/v1/capabilities /en/; do c "http://localhost$p" | grep -qF "$CANARY" && leaks=$((leaks + 1)); done
 expect "G4: the canary key in no log, store file or response" 0 "$leaks"
-expect "the run store is the service user's, files 0640" "" "$(find /var/lib/consensus/runs -type f ! -perm 0640 | head -3)"
+# the session table (session.rs SESSIONS_FILE, written owner-only through a
+# temporary sibling) is 0600 by design; every other store file is 0640
+expect "the run store is the service user's, files 0640 (the session table aside)" "" "$(find /var/lib/consensus/runs -type f ! -perm 0640 ! -path /var/lib/consensus/runs/sessions.json ! -name '.sessions.json.*.tmp' | head -3)"
+expect "the session table is the service user's, 0600" "600 consensus:consensus" "$(stat -c '%a %U:%G' /var/lib/consensus/runs/sessions.json 2>&1)"
+expect "the session table keeps hashes only (no session id in it)" 0 "$(grep -cF "${CA#*=}" /var/lib/consensus/runs/sessions.json)"
 
 section "mode A: deploy-day.md A7's socket block, exactly as written, as the SSH user"
 # <hostname> filled in as the owner will; the canary-scan.sh line needs
@@ -509,8 +513,10 @@ expect "serve-public exits 0 on SIGTERM" 0 "$rc"
 expect_match "shutdown line" '\[shutdown\]' "$(cat /tmp/serve-a.log)"
 [ -e "$SOCK" ] && fail "the socket is left behind" || pass "the socket is removed on exit"
 if start_server /etc/consensus/public.env /tmp/serve-a2.log; then
-  # sessions live in memory (a restart ends them); the runs live in the store
-  expect "restart: the old session cookie is no longer a session" 401 "$(code -H "Cookie: $CA" http://localhost/api/v1/runs)"
+  # sessions persist across a restart (runs/sessions.json, runbook 9.5); the
+  # runs live in the store; a cookie the table never held is still no session
+  expect "restart: the old session cookie is still a session" 200 "$(code -H "Cookie: $CA" http://localhost/api/v1/runs)"
+  expect "restart: an unknown session cookie is no session" 401 "$(code -H "Cookie: ${CA%%=*}=$(printf '0%.0s' $(seq 64))" http://localhost/api/v1/runs)"
   expect "restart: the six runs of the first start are still in the store" 6 "$(find /var/lib/consensus/runs -name 'run-*.jsonl' | wc -l)"
   expect_match "restart: ready" '"ready":true' "$(c http://localhost/api/v1/ready)"
   stop_server || true

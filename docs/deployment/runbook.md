@@ -603,15 +603,24 @@ refused before anything is reserved.
 `CONSENSUS_MODEL_CRITIC` is optional and stays unset (the template leaves it commented
 out): unset, the Critic uses `CONSENSUS_MODEL` (itself unset, `muse-wonder-1.0`), as do
 the other roles. Set, it changes the model id of the Critic's calls only (`DraftChallenge`;
-`config.rs`, validated like `CONSENSUS_MODEL`, an invalid value stops startup naming it);
+`config.rs`, validated like `CONSENSUS_MODEL`: an invalid value stops `consensus-public`
+(live mode enabled) at startup naming it; `consensus-operator` reports it on each
+`model=meta` run, as for `CONSENSUS_MODEL`);
 the prompts, schemas and their digests do not change, and every call records the model it
 ran on. The ledger has one price table, whose defaults are `muse-wonder-1.0`'s, so with a
 Critic model other than `CONSENSUS_MODEL` both `CONSENSUS_META_PRICE_INPUT_PER_M` and
 `CONSENSUS_META_PRICE_OUTPUT_PER_M` must be set explicitly, to the highest price among
 the configured models: otherwise `consensus-public` (live mode enabled) and
 `consensus-operator` (ledger configured) refuse to start, naming the three variables
-(`live/config.rs`). Set it on this server only after authorized validation runs; to go
-back, remove the line and restart the unit.
+(`live/config.rs`). Until both preconditions below hold, the variable is set only on the
+loopback `consensus-operator` server, for the authorized validation runs, and never on
+`consensus-public`: (1) the authorized validation runs are done; (2) the public copy that
+names `muse-wonder-1.0` as the model of every role has been corrected, as a separate
+owner-approved change, in all four locales of `apps/web/messages/`,
+`apps/web/messages/docs/` and `apps/web/messages/legal/` (including the AI-generated
+content disclosure), in the README and in the video's claims. Otherwise the Meta API
+panel would show the Critic's model next to sentences that say every role runs on
+`muse-wonder-1.0`. To go back, remove the line and restart the unit.
 
 The server validates every variable at startup and stops with the variable's name on
 an invalid value (`public_config.rs`, `live/config.rs`); a failed start is visible with

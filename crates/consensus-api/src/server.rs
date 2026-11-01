@@ -777,6 +777,24 @@ pub fn require_operator_prices(
         .map_err(|e| format!("operator ledger: {e}"))
 }
 
+/// What `serve-operator` does with the ledger at boot: opens it
+/// ([`operator_ledger`]) and, when one is configured, applies the price
+/// guard ([`require_operator_prices`]) to the Meta configuration `meta`
+/// returns (the process environment's, on the server). An unusable or
+/// absent Meta configuration is reported per run, as before (`meta` then
+/// returns `None`); only a usable mixed-model one is priced here, and
+/// `meta` is called only when a ledger is configured.
+pub fn operator_boot_ledger(
+    env: &dyn EnvSource,
+    meta: impl FnOnce() -> Option<MetaConfig>,
+) -> Result<Option<Ledger>, String> {
+    let ledger = operator_ledger(env)?;
+    if ledger.is_some() {
+        require_operator_prices(env, meta().as_ref())?;
+    }
+    Ok(ledger)
+}
+
 /// The one line `serve-operator` prints about the metering of its
 /// `model=meta` runs.
 pub fn operator_metering_line(ledger: Option<&Ledger>) -> String {
@@ -804,15 +822,9 @@ pub async fn serve_operator() -> Result<(), Box<dyn std::error::Error>> {
     // The ledger's files are read and written under its lock: off the
     // async workers.
     let ledger = tokio::task::spawn_blocking(|| {
-        let env = crate::live::config::ProcessEnv;
-        let ledger = operator_ledger(&env)?;
-        if ledger.is_some() {
-            // An unusable or absent Meta configuration is reported per
-            // run, as before; only a usable mixed-model one is priced here.
-            let meta = MetaConfig::try_from_env().ok().flatten();
-            require_operator_prices(&env, meta.as_ref())?;
-        }
-        Ok::<_, String>(ledger)
+        operator_boot_ledger(&crate::live::config::ProcessEnv, || {
+            MetaConfig::try_from_env().ok().flatten()
+        })
     })
     .await
     .map_err(|e| format!("operator ledger setup: {e}"))??;

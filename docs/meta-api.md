@@ -10,10 +10,11 @@ The [README](../README.md) has a summary of this page.
   Optional and unset by default: `CONSENSUS_MODEL_CRITIC` sends the Critic's calls
   (`DraftChallenge`) to another model id (unset, it is `CONSENSUS_MODEL`); the other
   roles, every prompt and schema and their digests stay as they are, and each invocation
-  records the model of its own call. With the live ledger configured, a Critic model other
-  than `CONSENSUS_MODEL` needs both `CONSENSUS_META_PRICE_INPUT_PER_M` and
-  `CONSENSUS_META_PRICE_OUTPUT_PER_M` set explicitly (the ledger has one price table), or
-  the server refuses to start (`live/config.rs`).
+  records the model of its own call. A Critic model other than `CONSENSUS_MODEL` needs
+  both `CONSENSUS_META_PRICE_INPUT_PER_M` and `CONSENSUS_META_PRICE_OUTPUT_PER_M` set
+  explicitly (the ledger has one price table), or `consensus-public` with live mode
+  enabled, or `consensus-operator` with the ledger configured, refuses to start
+  (`live/config.rs`).
 - **Endpoint.** The Meta Model API's Chat Completions, `POST {base}/chat/completions` with
   base `https://api.meta.ai/v1` (`crates/consensus-api/src/meta.rs`, ADR-0002).
 - **Which roles call it.** All three roles, in four kinds of call with one strict schema

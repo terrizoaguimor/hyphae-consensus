@@ -908,3 +908,84 @@ fn the_critic_override_leaves_every_prompt_and_schema_hash_unchanged() {
     }
     assert_ne!(plain[1].model, mixed[1].model, "only the model moved");
 }
+
+/// A chat completion with the given message, finish reason and usage that
+/// echoes no model id.
+fn completion_without_model(
+    message: serde_json::Value,
+    finish_reason: &str,
+    usage: serde_json::Value,
+) -> String {
+    json!({
+        "id": "chatcmpl-test-5",
+        "choices": [{ "message": message, "finish_reason": finish_reason }],
+        "usage": usage
+    })
+    .to_string()
+}
+
+/// A Critic call that was answered but failed (truncated, refused, or its
+/// body timed out) is kept with the model it was sent to: the Critic's,
+/// never the other roles' model, in the RunFailed record, the run and the
+/// receipt.
+#[test]
+fn a_failed_critic_call_records_the_critics_model() {
+    let truncated = completion_without_model(
+        json!({"role": "assistant", "content": r#"{"items":[{"kind""#}),
+        "length",
+        usage(10, 16000),
+    );
+    let refusal = completion_without_model(
+        json!({"role": "assistant", "content": null,
+               "refusal": "I cannot critique this proposal."}),
+        "stop",
+        usage(80, 12),
+    );
+    let cases = [
+        (
+            "truncated",
+            Reply::ok(truncated),
+            "model_output_truncated",
+            None,
+        ),
+        ("refusal", Reply::ok(refusal), "model_refusal", None),
+        (
+            "body-timeout",
+            Reply::ok(envelope_without_model(RUN_CHALLENGE)).stalled(Duration::from_secs(8)),
+            "meta_timeout",
+            Some(Duration::from_secs(1)),
+        ),
+    ];
+    for (name, critique, expected_code, timeout) in cases {
+        let server = serve(vec![
+            Reply::ok(envelope_without_model(RUN_PROPOSAL)),
+            critique,
+        ]);
+        let mut cfg = config_from_vars(
+            &server.base_url,
+            &[("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3")],
+        );
+        if let Some(timeout) = timeout {
+            cfg.timeout = timeout;
+        }
+        let (agg, log, _) = run_through_adapter(&format!("critic-failed-{name}"), cfg);
+        let (stage, code, _, invocation) = run_failure(&log);
+        assert_eq!(
+            (stage.as_str(), code.as_deref()),
+            ("critique", Some(expected_code)),
+            "{name}"
+        );
+        let invocation = invocation.expect("the answered call is kept");
+        assert_eq!(
+            invocation.schema_name.as_deref(),
+            Some("DraftChallenge"),
+            "{name}"
+        );
+        assert_eq!(invocation.model, "muse-spark-1.3", "{name}");
+        let models: Vec<&str> = agg.invocations.iter().map(|i| i.model.as_str()).collect();
+        assert_eq!(models, ["muse-wonder-1.0", "muse-spark-1.3"], "{name}");
+        let receipt = build_receipt(&log, &agg.run_id, "2026-10-27T09:00:00Z".into()).unwrap();
+        assert_eq!(receipt.model_invocations, agg.invocations, "{name}");
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "{name}");
+    }
+}

@@ -143,7 +143,13 @@ test("new -> run -> frames -> decision -> receipt link @smoke", async ({ page, p
   // The guided run finished server-side: its frames replay, paced client-side.
   await expect(page.locator("[data-pacing='on']")).toBeVisible();
   await expect(page.getByText(t("en", "Run.pacing.label"), { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: t("en", "Run.pacing.skip") }).click();
+  // The control exists only while frames wait (14 frames, 650 ms apart, about
+  // 9 s). On a 4-CPU CI runner WebKit renders the glass in software so slowly
+  // that Playwright's stability check (two equal boxes in consecutive
+  // animation frames) took 10 s there, the replay ended first and the button
+  // left the DOM (reproduced 2026-10-31, docker --cpus 4). Click it without
+  // that wait; the assertions below still prove the click skipped the pacing.
+  await page.getByRole("button", { name: t("en", "Run.pacing.skip") }).click({ force: true });
   await expect(page.locator("[data-pacing='skipped']")).toBeVisible();
   await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
   // Once the stream ended the header follows the re-read detail.

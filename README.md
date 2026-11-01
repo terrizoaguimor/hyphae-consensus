@@ -40,7 +40,7 @@ development window October 26 – November 4, 2026 · Owner: Mario (independent 
 
 ## For judges
 
-**Video:** [VIDEO_URL] · **Demo:** [DEMO_URL] · **Repository:** [REPO_URL] · run it yourself in
+**Video:** [VIDEO_URL] · **Demo:** [DEMO_URL] · **Repository:** [github.com/terrizoaguimor/hyphae-consensus](https://github.com/terrizoaguimor/hyphae-consensus) · run it yourself in
 three commands: [Quick start](#quick-start) (no credential, no Meta call).
 
 **What it is.** Three Meta-model roles (Proposer, Critic, Evidence Evaluator; `muse-wonder-1.0`
@@ -142,7 +142,7 @@ flowchart LR
     RT -- "memory port" --> SNAP
     META --> MAPI
     HY --> HYPHAE
-    SNAP -. "files captured from" .-> HYPHAE
+    SNAP -.->|files captured from| HYPHAE
     CLI --> RT
 ```
 
@@ -169,14 +169,14 @@ deployed.** The images follow your GitHub theme; both sets are in
     </td>
   </tr>
   <tr>
-    <td width="50%">
+    <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/run-awaiting-dark.png">
         <img src="docs/assets/screenshots/run-awaiting-light.png" alt="Run workspace of a guided run waiting for a human decision, with the Proposer, Critic and Evidence Evaluator lanes">
       </picture>
       <br><sub><b>A run awaiting the decision.</b> A guided run (SCRIPTED, SIMULATED): the three roles, the provenance labels, the tabs.</sub>
     </td>
-    <td width="50%">
+    <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/decision-dark.png">
         <img src="docs/assets/screenshots/decision-light.png" alt="Decision tab: the policy's recommendation, the no-authority notice, a note field, Approve and Reject">
@@ -185,14 +185,14 @@ deployed.** The images follow your GitHub theme; both sets are in
     </td>
   </tr>
   <tr>
-    <td width="50%">
+    <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/recorded-chain-check-dark.png">
         <img src="docs/assets/screenshots/recorded-chain-check-light.png" alt="Audit trail: the in-browser chain check reports that all 181 records of the archived log hash and link as recorded">
       </picture>
-      <br><sub><b>The audit chain check.</b> Run in the browser over the archived log <code>research/2026-10-27/live-battery-2026-10-27.jsonl</code> (181 records, SHA-256 pinned by the manifest).</sub>
+      <br><sub><b>The audit chain check.</b> Run in the browser over the archived log <code>research/2026-10-27/live-battery-2026-10-27.jsonl</code> (181 records, SHA-256 pinned by the manifest); the receipt it compares with is the mock's fixture re-keyed to that run, so its generation time is not the archive's.</sub>
     </td>
-    <td width="50%">
+    <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/showcase-dark.png">
         <img src="docs/assets/screenshots/showcase-light.png" alt="Research showcase: recorded runs by battery, with the archive manifest digest checked in the browser">
@@ -206,7 +206,9 @@ deployed.** The images follow your GitHub theme; both sets are in
 image at 1440 px, over the end-to-end suite's mocked API (<code>apps/web/e2e/api-mock.ts</code>;
 no server, no network, no model call), reduced motion. The showcase lists 4 of the archive's
 runs, as the mock serves them; the archived log and <code>MANIFEST.json</code> are the real
-files from <code>research/</code>. Lossless greyscale PNGs.</sub>
+files from <code>research/</code>; run details and receipts, including those shown with the
+archived log, are contract fixtures (<code>contracts/api-v1/fixtures</code>), not the
+archive's. Lossless greyscale PNGs.</sub>
 
 | View | What it shows |
 |---|---|

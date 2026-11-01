@@ -1,7 +1,6 @@
 # How Hyphae Consensus uses Meta's API
 
-Moved here from the repository README on 2026-11-01 (text as of `3686bbe`, unchanged except for link paths and headings); the README keeps a summary.
-
+The [README](../README.md) has a summary of this page.
 
 - **Model.** `muse-wonder-1.0`, the default model id (`DEFAULT_META_MODEL` in
   `crates/consensus-api/src/config.rs`; `CONSENSUS_MODEL` overrides it). Every recorded

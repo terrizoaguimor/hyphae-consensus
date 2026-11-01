@@ -90,8 +90,8 @@ the git history (the operator's local time, UTC−05:00); the architecture is de
 | Round 4, heuristic-evaluation fixes: simulated never green (HE #1, #2, #16), no truncated outcome or evidence tag (HE #3, #24), decision prominence (HE #4, #12), integrity failures travel (HE #5, #7), guided cards SCRIPTED (HE #6), state copy and error headlines (HE #8, #18), phone width and contrast (HE #9, #10) | merges `e6cbbce` to `3b44b49` | `apps/web/README.md` (round 4) |
 | Round 5, the redesign (owner direction 2026-10-31): monochrome foundation (true greys only; status by fill, frame, hatch and icon), brushed glass, hue-free status tags, square-first shapes and the segmented theme control, the Quorum logo, favicons and Open Graph image | merges `888c618`, `48851f9`, `3c2d516`, `4436188`, `79a9214`; follow-ups to `a657531` | `apps/web/README.md` ("Monochrome", "Brushed glass", "Logo (Quorum)") |
 | UI frozen at `a657531` for the submission: no visual or layout change unless a gate fails | — | owner direction 2026-10-31 |
-| Tests at `a657531` on Windows: `cargo test --workspace --locked` 603 passed / 0 failed / 2 ignored; scripted conformance check 10/10; demo crate 2 passed; `pnpm check` passes (Vitest 42 files, 904 passed / 16 skipped); Playwright 501 tests, 500 passed in the full run, the 1 failure (a browser-context teardown past the 120 s timeout under load) passed on re-running `a11y.spec.ts` (19/19); axe 340 scans, 0 violations | — | README, "Status" |
-| Judge-facing documents: the README's "For judges" block and status, this roadmap | branch `docs/r6-judges-readme` | — |
+| Tests at `a657531` on Windows: `cargo test --workspace --locked` 603 passed / 0 failed / 2 ignored; scripted conformance check 10/10; demo crate 2 passed; `pnpm check` passes (Vitest 42 files, 904 passed / 16 skipped); Playwright 501 tests, 500 passed in the full run, the 1 failure (a browser-context teardown past the 120 s timeout under load) passed on re-running `a11y.spec.ts` (19/19); axe 340 scans, 0 violations | — | "Status on 2026-10-31" below |
+| Judge-facing documents: the README's "For judges" block, this roadmap and its status section | branch `docs/r6-judges-readme` | — |
 
 ## Remaining for tomorrow (2026-11-01)
 
@@ -155,12 +155,12 @@ the git history (the operator's local time, UTC−05:00); the architecture is de
   exposure of the portal (see "Deploy" for the replay-only exception that needs an owner
   decision); it is not needed for the submission, which can show the guided and recorded
   runs with live mode off.
-- **Deliverables, as of 2026-10-31.** Done: the README section on how the project uses
-  Meta's API; the third-party notices with the web packages, fonts and icons
+- **Deliverables, as of 2026-10-31.** Done: the account of how the project uses
+  Meta's API (`docs/meta-api.md`, moved from the README on 2026-11-01); the third-party notices with the web packages, fonts and icons
   (`THIRD_PARTY_NOTICES.md`); the video-production package (kept outside the repository
   since 2026-11-01); the judge-facing README block. Still open: the final engineering
   report (implemented, tested, passed, failed, incomplete, simulated, live), unless the
-  owner decides the README's "For judges" block and "Status" replace it (proposed on
+  owner decides the README's "For judges" block and the status section of this roadmap replace it (proposed on
   2026-10-31, not decided); re-checking the video script against the
   round 5 UI (its own lane); a Mission Control design specification in the repository
   (the design sources named in `apps/web/README.md` are outside it).

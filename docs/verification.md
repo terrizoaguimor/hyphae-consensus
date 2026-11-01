@@ -1,7 +1,6 @@
 # What is verified and what is not
 
-Moved here from the repository README on 2026-11-01 (text as of `3686bbe`, unchanged except for link paths and headings); the README keeps a summary.
-
+The [README](../README.md) has a summary of this page.
 
 ## Integrity proofs: what they do and do not establish
 

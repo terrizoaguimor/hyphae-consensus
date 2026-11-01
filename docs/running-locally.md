@@ -1,7 +1,6 @@
 # Run it locally
 
-Moved here from the repository README on 2026-11-01 (text as of `3686bbe`, unchanged except for link paths and headings); the README keeps a summary.
-
+The [README](../README.md) has a summary of this page.
 
 Prerequisites: Rust 1.99.1 via [rustup](https://rust-lang.org/tools/install), pinned in
 `rust-toolchain.toml` (on Windows with the MSVC build tools, see the

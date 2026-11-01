@@ -1,7 +1,6 @@
 # Results so far
 
-Moved here from the repository README on 2026-11-01 (text as of `3686bbe`, unchanged except for link paths and headings); the README keeps a summary. The source of every figure is [evaluation.md](evaluation.md) and [`research/`](../research/README.md).
-
+The [README](../README.md) has a summary of this page. The source of every figure is [evaluation.md](evaluation.md) and [`research/`](../research/README.md).
 
 All figures are from `docs/evaluation.md` and `research/`, as recorded. The scripted check
 and the live batteries are different things and are not pooled; neither is a baseline

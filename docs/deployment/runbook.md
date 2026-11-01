@@ -3,7 +3,9 @@
 Date: 2026-10-28 · Status: written against `feat/public-portal` at `b62adc0`; nothing
 is deployed yet · Audience: the owner-operator (Mario), who administers the server
 and owns the Cloudflare zone · Companion files: `deploy/` (templates and scripts,
-listed in `deploy/README.md`).
+listed in `deploy/README.md`). The ordered checklist for the deployment of 2026-11-01, with
+the two modes (A: guided and replay, live off; B: live on), the table of every value the
+owner provides and the results of the container rehearsal, is `docs/deployment/deploy-day.md`.
 
 This runbook is the "how" of the release gates in `docs/security/release-checklist.md`:
 G1 (old router never exposed), G3 (the edge rules), G4 (the credential file), G6 (the
@@ -389,6 +391,10 @@ after replacing it, restart the service.
 sh apps/web/scripts/in-docker.sh pnpm install --frozen-lockfile
 # optional: the public origin, for an absolute og:image (apps/web/README.md, "Logo (Quorum)")
 printf 'NEXT_PUBLIC_SITE_ORIGIN=https://<hostname>\n' > apps/web/.env.production.local
+# live mode only: the Turnstile SITE key (section 7.6) is baked into the export at build time;
+# without it the live form stays closed (apps/web/src/components/new/Turnstile.tsx), so a
+# build for live mode needs this line too, and adding the key later means rebuilding:
+# printf 'NEXT_PUBLIC_TURNSTILE_SITE_KEY=<sitekey>\n' >> apps/web/.env.production.local
 sh apps/web/scripts/in-docker.sh pnpm build
 ( cd apps/web/out && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum ) > web.SHA256SUMS
 tar -czf web.tar.gz -C apps/web/out .
@@ -399,13 +405,13 @@ scp web.tar.gz web.SHA256SUMS <server>:/tmp/
 # server
 sudo rm -rf /var/lib/consensus/web.new && sudo install -d -o consensus -g consensus -m 0750 /var/lib/consensus/web.new
 sudo tar -xzf /tmp/web.tar.gz -C /var/lib/consensus/web.new
-( cd /var/lib/consensus/web.new && sudo sha256sum -c --quiet /tmp/web.SHA256SUMS ) && echo "web export verified"
+sudo sh -c 'cd /var/lib/consensus/web.new && sha256sum -c --quiet /tmp/web.SHA256SUMS' && echo "web export verified"
 sudo chown -R consensus:consensus /var/lib/consensus/web.new
 sudo find /var/lib/consensus/web.new -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
 sudo rm -rf /var/lib/consensus/web.old
-[ -d /var/lib/consensus/web ] && sudo mv /var/lib/consensus/web /var/lib/consensus/web.old
+sudo test -d /var/lib/consensus/web && sudo mv /var/lib/consensus/web /var/lib/consensus/web.old
 sudo mv /var/lib/consensus/web.new /var/lib/consensus/web
-test -f /var/lib/consensus/web/csp-manifest.json && echo "csp manifest present"
+sudo test -f /var/lib/consensus/web/csp-manifest.json && echo "csp manifest present"
 rm /tmp/web.tar.gz /tmp/web.SHA256SUMS
 ```
 
@@ -425,7 +431,7 @@ scp research.tar.gz <server>:/tmp/
 ```sh
 # server
 sudo tar -xzf /tmp/research.tar.gz -C /var/lib/consensus --no-same-owner
-( cd /var/lib/consensus/research && sudo sha256sum -c --quiet SHA256SUMS ) && echo "research archive verified"
+sudo sh -c 'cd /var/lib/consensus/research && sha256sum -c --quiet SHA256SUMS' && echo "research archive verified"
 sudo chown -R consensus:consensus /var/lib/consensus/research
 sudo find /var/lib/consensus/research -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
 rm /tmp/research.tar.gz
@@ -446,7 +452,7 @@ scp -r <snapshot-id> <server>:/tmp/
 ```sh
 # server
 sudo mv /tmp/<snapshot-id> /var/lib/consensus/snapshots/<snapshot-id>
-( cd /var/lib/consensus/snapshots/<snapshot-id> && sudo sha256sum -c --quiet SHA256SUMS ) && echo "snapshot verified"
+sudo sh -c 'cd /var/lib/consensus/snapshots/<snapshot-id> && sha256sum -c --quiet SHA256SUMS' && echo "snapshot verified"
 sudo sha256sum /var/lib/consensus/snapshots/<snapshot-id>/manifest.json            # must print the published manifest digest: CONSENSUS_SNAPSHOT_MANIFEST_SHA256
 sudo grep -o '"binary_sha256": "[0-9a-f]*"' /var/lib/consensus/snapshots/<snapshot-id>/manifest.json   # must be the binary digest of 3.2: CONSENSUS_HYPHAE_BIN_SHA256
 sudo chown -R consensus:consensus /var/lib/consensus/snapshots
@@ -517,6 +523,7 @@ scp deploy.tar.gz <server>:/tmp/
 ```sh
 # server
 mkdir -p ~/consensus && tar -xzf /tmp/deploy.tar.gz -C ~/consensus
+sudo ~/consensus/deploy/scripts/install.sh --binary /tmp/consensus-api --sha256 "$(cut -d' ' -f1 /tmp/consensus-api.sha256)" --dry-run   # prints every change, makes none (sudo: only root sees inside /etc/consensus)
 sudo ~/consensus/deploy/scripts/install.sh --binary /tmp/consensus-api --sha256 "$(cut -d' ' -f1 /tmp/consensus-api.sha256)"
 rm /tmp/consensus-api /tmp/consensus-api.sha256 /tmp/deploy.tar.gz
 ```
@@ -548,7 +555,7 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_RESEARCH_DIR` | `/var/lib/consensus/research` | default is relative `research` |
 | `CONSENSUS_WEB_ROOT` | `/var/lib/consensus/web` | default is relative `apps/web/out`; the CSP manifest is found at `<web root>/csp-manifest.json` |
 | `CONSENSUS_PUBLIC_MODE` | `true` | refuses `CONSENSUS_META_DEBUG_DIR` and development-only behaviour (`config.rs`) |
-| `CONSENSUS_META_API_KEY_FILE` | `/run/credentials/consensus-public.service/meta.key` | parallel lane; the path systemd gives a `LoadCredential=meta.key:...` for this unit (`/run/credentials/UNITNAME`, `[SD-1]`) |
+| `CONSENSUS_META_API_KEY_FILE` | `/run/credentials/consensus-public.service/meta.key` | `config.rs`, read first of the key variables; the path systemd gives a `LoadCredential=meta.key:...` for this unit (`/run/credentials/UNITNAME`, `[SD-1]`); read only with live mode enabled (with it off the file is never opened, but the unit's `LoadCredential=` line still needs it to exist: a canary, section 4.2) |
 | `CONSENSUS_HYPHAE_BIN` | `/opt/hyphae/bin/hyphae` | section 3.2; an absolute path, which it must be with `CONSENSUS_HYPHAE_BIN_SHA256` set (a relative path or a bare name then stops startup naming it) |
 | `CONSENSUS_HYPHAE_BIN_SHA256` | the extracted binary's sha256, 64 hex (section 3.2) | required with live mode enabled on the unix socket (missing, startup stops naming it; a development TCP bind may leave it unset); commented out in the template until the snapshot is on the server (section 3.3); must equal the manifest's `hyphae.binary_sha256`; at boot another file is `verifier_binary_mismatch` and a snapshot of another build `capture_binary_mismatch`, either leaving live mode unavailable (section 8.6); with live mode enabled a malformed value stops startup naming it |
 | `CONSENSUS_HYPHAE_EXPECTED_ANCHOR` | the snapshot's anchor, 64 hex | mandatory for every non-simulated mode (ADR-0008 decision 5); commented out in the template until the snapshot is on the server (section 3.3); with live mode enabled a missing or malformed value stops startup naming it |
@@ -559,8 +566,8 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | `/etc/consensus/judge-codes.sha256`, set only once the file has at least one digest | an empty digest file is a configuration error (`live/judge.rs`) |
 | `CONSENSUS_LIVE_CLIENT_DAILY` | unset: the default `3` | public-lane live runs per client key (IPv4 /32, IPv6 /64) per UTC day; over it `429 live_client_quota` until 00:00 UTC; the judge lane is exempt; process-local, so a restart of `consensus-public` forgets the counts (`live/config.rs`, `live/gate.rs`) |
 | `CONSENSUS_LIVE_JUDGE_CODE_DAILY` | unset: the default `5` | judge-lane live runs per invite code per UTC day; over it the judge lane's daily refusal `429 live_budget_judge_daily`; process-local (`live/config.rs`, `live/gate.rs`) |
-| `CONSENSUS_TURNSTILE_SECRET_FILE` | `/run/credentials/consensus-public.service/turnstile.secret` | required when enabled |
-| `CONSENSUS_TURNSTILE_HOSTNAME` | `staging.<hostname>` during staging, `<hostname>` from go-live | one bare hostname; Siteverify's `hostname` must equal it (`live/turnstile.rs`) |
+| `CONSENSUS_TURNSTILE_SECRET_FILE` | `/run/credentials/consensus-public.service/turnstile.secret` | required when enabled; commented out in the template until then, because it is read and checked even with live mode off (`live/config.rs` `load_turnstile`): set over an empty or unreadable file, or over a Cloudflare test secret, it stops startup naming it; any other text, a placeholder included, is accepted, so check that the real secret replaced it (`deploy-day.md` B3); set it together with the hostname below or not at all |
+| `CONSENSUS_TURNSTILE_HOSTNAME` | `staging.<hostname>` during staging, `<hostname>` from go-live | one bare hostname; Siteverify's `hostname` must equal it (`live/turnstile.rs`); commented out in the template with the secret file above; an unreplaced `<hostname>` stops startup naming it |
 
 Everything else keeps its default, and the defaults are the owner decisions: $10.00 a
 UTC day, $60.00 lifetime, $15.00 judge slice (`CONSENSUS_LIVE_DAILY_USD`,
@@ -813,7 +820,7 @@ stat -c '%A %U:%G %n' /run/consensus                      # drwxr-s--- consensus
 sudo systemctl enable --now consensus-public.service
 systemctl status consensus-public.service --no-pager
 sudo ss -lxp | grep /run/consensus/public.sock          # the socket, owned by consensus-api
-stat -c '%A %U:%G %n' /run/consensus/public.sock          # srw-rw---- consensus:consensus-sock (the group inherited from the setgid directory)
+sudo stat -c '%A %U:%G %n' /run/consensus/public.sock     # srw-rw---- consensus:consensus-sock (the group inherited from the setgid directory)
 sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' \
      -H 'CF-Connecting-IP: 203.0.113.10' -H 'CF-IPCountry: US' http://localhost/api/v1/health   # without CF-IPCountry: 451 geo_unknown
 # least privilege of cloudflared: the socket yes, everything else no
@@ -826,8 +833,12 @@ done
 id -nG cloudflared | tr ' ' '\n' | grep -qx consensus && echo "WRONG: cloudflared is in group consensus (gpasswd -d cloudflared consensus)" || echo "ok: cloudflared not in group consensus"
 ```
 
-(`CF-Connecting-IP` is required on every request to the socket: the listener serves
-cloudflared only, `api/mod.rs`. If the socket's group is not `consensus-sock`, the
+(`CF-Connecting-IP` is the client key, required on every request that a per-client limit
+applies to: session creation, run creation and event streams are refused without it
+(`client_unidentified`, `api/mod.rs` `Client`: the listener serves cloudflared only);
+health, readiness and the static pages answer without it, as the rehearsal of
+`docs/deployment/deploy-day.md` observed. Send it anyway, as cloudflared does. If the
+socket's group is not `consensus-sock`, the
 directory lost its setgid bit or its group: re-run the `systemd-tmpfiles --create`
 line and restart the service; never fall back to adding cloudflared to `consensus`.)
 
@@ -1377,11 +1388,11 @@ heartbeats only.
 # server
 pgrep -a hyphae || echo "no hyphae process"                          # no daemon
 sudo ss -lxp | grep -c hyphae                                          # 0
-grep -E '^(HYPHAE_|CONSENSUS_HYPHAE_(PERSONAL|WORK|JOURNAL))' /etc/consensus/public.env || echo "no Hyphae daemon settings"
+sudo grep -E '^(HYPHAE_|CONSENSUS_HYPHAE_(PERSONAL|WORK|JOURNAL))' /etc/consensus/public.env || echo "no Hyphae daemon settings"
 sudo find / -xdev \( -name 'hyphae.sock' -o -path '*/.config/hyphae*' -o -path '*/.local/state/hyphae*' \) 2>/dev/null   # nothing
 getent group docker || echo "no docker group"; command -v docker || echo "docker not installed"
 ls -la /opt/hyphae/bin/ /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae      # owned by hyphae, 0755
-stat -c '%A %U:%G %n' /var/lib/consensus/snapshots                                     # drwx------ consensus:consensus: witnesses reachable by the service user only
+sudo stat -c '%A %U:%G %n' /var/lib/consensus/snapshots                                # drwx------ consensus:consensus: witnesses reachable by the service user only
 # no writer path: inside the service's mount namespace the snapshot directory is read-only (ProtectSystem=strict)
 pid=$(systemctl show -p MainPID --value consensus-public.service)
 sudo nsenter -t "$pid" -m -- touch /var/lib/consensus/snapshots/.probe 2>&1 | grep -q 'Read-only' && echo "snapshots: read-only in the sandbox"
@@ -1496,8 +1507,11 @@ policy, `contract_sha256`, `executor: disabled` (`api/types.rs`).
    no `lifetime.json` yet), `CONSENSUS_TURNSTILE_HOSTNAME=<hostname>`,
    `CONSENSUS_LIVE_ENABLED=true` (if live mode launches with the portal),
    `CONSENSUS_LIVE_JUDGE_CODES_FILE` set, `CONSENSUS_LIVE_LIFETIME_USD=60.00` (open
-   question 6), `CONSENSUS_SNAPSHOT_DIR` and `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`
-   uncommented (section 3.3); the real key in `meta.key`; `sudo systemctl restart
+   question 6), `CONSENSUS_SNAPSHOT_DIR`, `CONSENSUS_HYPHAE_EXPECTED_ANCHOR`,
+   `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` and `CONSENSUS_HYPHAE_BIN_SHA256` uncommented
+   (section 3.3), `CONSENSUS_TURNSTILE_SECRET_FILE` and `CONSENSUS_TURNSTILE_HOSTNAME`
+   uncommented (section 4.1); the web export rebuilt with the Turnstile site key (section
+   3.3); the real key in `meta.key`; `sudo systemctl restart
    consensus-public` and read `journalctl -u consensus-public -n 30` for a clean start:
    the `Sealed snapshot evidence:` line of 8.6 and no `[snapshot] live evidence
    unavailable` line (a snapshot that did not boot keeps the portal up with live mode

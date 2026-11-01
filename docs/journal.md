@@ -288,10 +288,12 @@ block). Newest first, as they stood in the README at `bc3b262`.
 
 *Added 2026-10-31:* the two blocks that follow, down to the dashed line, were the README's status from
 2026-10-29 and 2026-10-30 until `a657531`, moved here verbatim when the README's status
-was rewritten for the submission.
+was rewritten for the submission. One change: the target of the §6.3 link, which was
+relative to the README, now points to `evaluation.md` from this directory; its text is
+unchanged.
 
 > **2026-10-30 (nothing is deployed).** The counted protocol 1.3 battery ran on 2026-10-30,
-> spending the last 4 of the 8 authorized live runs ([`docs/evaluation.md` §6.3](docs/evaluation.md)):
+> spending the last 4 of the 8 authorized live runs ([`docs/evaluation.md` §6.3](evaluation.md#63-the-counted-battery-m01m04-2026-10-30)):
 > 2 runs lost to provider errors (a call past the battery's 120 s budget, where the smoke
 > runs had 240 s; an HTTP 500), 1 `supported` for a
 > revision that departs from the task (M03), 1 failed closed by the evaluation contract

@@ -7,7 +7,9 @@ deadline: Wednesday 2026-11-04, 21:00 ET = 2026-11-05T02:00Z (development window
 October 26 – November 4, 2026).
 
 Nothing is deployed. The public portal stays unexposed until every release gate G1–G12
-(`docs/security/release-checklist.md`) reads PASS. Dates below are the commit dates of
+(`docs/security/release-checklist.md`) reads PASS; the one exception under discussion, a
+replay-only portal for the judges, needs a recorded owner decision first (see "Remaining
+for tomorrow"). Dates below are the commit dates of
 the git history (the operator's local time, UTC−05:00) or the dated entries of
 `docs/journal.md`; the architecture is described in `docs/architecture/overview.md`.
 
@@ -95,17 +97,24 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
 ## Remaining for tomorrow (2026-11-01)
 
 - **Deploy** (owner; he provides the server and its variables). Per
-  `docs/deployment/runbook.md` and `deploy/`. The guided runs (SIMULATED) and the research
-  showcase (RECORDED) need no Meta key on the server; live mode stays off
-  (`CONSENSUS_LIVE_ENABLED=false`) unless every gate it depends on reads PASS. The URL then
-  replaces `[DEMO_URL]` in the README and the submission draft.
+  `docs/deployment/runbook.md` and `deploy/`: first as staging behind Cloudflare Access.
+  The guided runs (SIMULATED) and the research showcase (RECORDED) need no Meta key on the
+  server, and live mode stays off (`CONSENSUS_LIVE_ENABLED=false`). Exposing it to the
+  judges before every gate G1–G12 reads PASS departs from the exposure policy above and
+  from the release checklist, so it needs a recorded owner decision (not taken as of
+  2026-10-31) naming the gates that still apply to that replay-only surface; the
+  hackathon-rules analysis of 2026-10-31 (outside the repository) proposes at least the edge gates G1, G3, G6 and G8, and G2 and G7
+  also concern the public surface. Only after go-live or that recorded decision does the
+  URL replace `[DEMO_URL]` in the README and the submission draft; otherwise the
+  placeholder is removed.
 - **Video** (owner records and approves; the package is `docs/demo/`). Recorded on the
   frozen UI; every figure rendered from the run on screen or taken from
   `docs/evaluation.md`; scripted runs never presented as live, recorded runs captioned as
   recorded. The link then replaces `[VIDEO_URL]`.
 - **Push to GitHub with a CI run** (authorized by the owner on 2026-10-31; the integrator
-  pushes after the full-history secret scan). A green CI run is the evidence G12 still
-  lacks.
+  pushes after the full-history secret scan). A green CI run is the main evidence G12
+  still lacks (the workflow also has no `pnpm audit` step, and `cargo deny check` was not
+  run locally on 2026-10-29).
 
 ## Before the deadline (2026-11-02 to 2026-11-04)
 
@@ -143,14 +152,17 @@ the git history (the operator's local time, UTC−05:00) or the dated entries of
   (G4); no fuzzing harness exists (G5); no temp-directory sweep for the verifier exists,
   and the verbatim `/research` files carry 652 container paths (G9).
 - **The public live mode** (owner's key, presets, $10/day and $60 lifetime caps,
-  Turnstile, judge codes) goes live only once every gate G1–G12 reads PASS; it is not
-  needed for the submission, which can show the guided and recorded runs with live mode
-  off.
+  Turnstile, judge codes) goes live only once every gate G1–G12 reads PASS, like any
+  exposure of the portal (see "Deploy" for the replay-only exception that needs an owner
+  decision); it is not needed for the submission, which can show the guided and recorded
+  runs with live mode off.
 - **Deliverables, as of 2026-10-31.** Done: the README section on how the project uses
   Meta's API; the third-party notices with the web packages, fonts and icons
   (`THIRD_PARTY_NOTICES.md`); the demo package (`docs/demo/`; `docs/demo-script.md` now
-  only points there); the judge-facing README block, which replaces the planned final
-  engineering report. Still open: re-checking the demo script and shot list against the
+  only points there); the judge-facing README block. Still open: the final engineering
+  report (implemented, tested, passed, failed, incomplete, simulated, live), unless the
+  owner decides the README's "For judges" block and "Status" replace it (proposed on
+  2026-10-31, not decided); re-checking the demo script and shot list against the
   round 5 UI (its own lane); a Mission Control design specification in the repository
   (the design sources named in `apps/web/README.md` are outside it).
 - **Optional:** a single-model baseline battery (one Meta call per final-battery task on

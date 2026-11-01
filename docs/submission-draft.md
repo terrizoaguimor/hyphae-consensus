@@ -6,7 +6,7 @@ fields are only visible with the owner signed in, so the sections below follow t
 judging criteria of the Official Rules (Impact 30 %, Use of Meta AI Tooling 25 %,
 Technical Depth & Execution 20 %, Demo 25 %); cut or merge them to fit the fields.
 Every claim names the file where a judge can check it. Replace `[VIDEO_URL]`,
-`[DEMO_URL]` and `[REPO_URL]` before submitting; keep the wording of the figures as is
+`[DEMO_URL]` (or drop it, see "Links") and `[REPO_URL]` before submitting; keep the wording of the figures as is
 (they are copied from `docs/evaluation.md`, never rounded up).
 
 ## Name and tagline
@@ -19,7 +19,10 @@ memory; a fixed policy, not a vote, recommends; only a human decides.
 - Repository: [REPO_URL]
 - Demo video: [VIDEO_URL]
 - Live project: [DEMO_URL] (guided runs are SIMULATED and labelled so; research runs are
-  RECORDED; the public live mode is off unless its release gates pass)
+  RECORDED; the public live mode is off). Conditional: the release checklist exposes
+  nothing until every gate G1–G12 reads PASS, so this link exists only if that happens or
+  the owner records the decision to expose a replay-only portal earlier
+  (`docs/roadmap.md`, "Remaining for tomorrow"); otherwise drop this line.
 
 ## Short description
 
@@ -52,15 +55,25 @@ instead (3 attempts, jitter of at least 50 ms), and the run still ended `contest
 because the Critic kept 6 objections open (3 missing tests, 2 unsupported claims, 1
 security risk). The decision went to a human with all of that on screen.
 
-**Across the final battery** (F01–F06, same section): every first proposal had 1 to 3
-claims contradicted by stored records; each revision dropped or fixed them; no run ended
-`supported`, and in every final round every claim was corroborated by verified records it
-cites, so what remained was the Critic's open objections, mostly missing tests.
+**Across the 2026-10-27 final battery** (F01–F06, schema 1.2, same section): every first
+proposal had 1 to 3 claims contradicted by stored records; each revision dropped or fixed
+them; no run ended `supported`, and in every final round every claim was corroborated by
+verified records it cites, so what remained was the Critic's open objections, mostly
+missing tests.
 
-**Why `contested` is the right answer.** The value is that the system does not turn a
-plausible proposal into an approval: a contradiction outranks an abstention, an invalid
-proof blocks, and an objection stays open until the Evaluator judges it
-(`README.md`, "What is verified and what is not"; ADR-0010). A planted "SYSTEM OVERRIDE"
+**Under protocol 1.3** (M01–M04, 2026-10-30, `docs/evaluation.md` §6.3, the latest
+counted battery): 2 of the 4 runs were lost to provider errors (M01: a call past the
+battery's 120 s budget; M02: Meta HTTP 500), M04 failed closed (the evaluation contract
+refused an evaluation that left a carried contradiction unjudged), and M03, the only
+`supported` run, is `supported` for a revision that does not claim the exponential
+backoff the task asked for (as were the uncounted smoke runs K03 and K04, §6.2). With 2 of 4 runs
+lost, no rate of any outcome is claimed.
+
+**Why a human still decides.** The system never authorizes: `supported` attests that the
+claims are corroborated by verified records, not that the task was done, and even a
+`supported` recommendation (M03) waits for a human. A contradiction outranks an
+abstention, an invalid proof blocks, and an objection stays open until the Evaluator
+judges it (`README.md`, "What is verified and what is not"; ADR-0010). A planted "SYSTEM OVERRIDE"
 record with a valid proof was flagged by the Critic, recorded as contradicting evidence by
 the Evaluator and never obeyed (H01–H02, §5.4; two runs, one model, one note: not a
 robustness result).
@@ -88,7 +101,8 @@ comparative rate is claimed. A valid proof attests integrity, not truth.
   (`docs/evaluation.md`, "Request ids"); since protocol 1.3 each invocation also records
   the SHA-256 of the schema and of the prompt template it sent, `finish_reason`, the attempt
   count and the reasoning tokens. The protocol 1.3 battery made 25 Meta calls (23
-  answered, 0 retries), 37,363 input / 95,850 output tokens (§6.3). Measured cost on the
+  answered, 0 retries; the 2 unanswered ones, a call past its 120 s budget and an HTTP 500,
+  cost M01 and M02 their runs), 37,363 input / 95,850 output tokens (§6.3). Measured cost on the
   final code of 2026-10-27: $0.81 mean, $0.98 maximum per run (ADR-0007).
 - **Bounded.** `max_completion_tokens` 16,000; one time budget per call shared by up to 3
   attempts; only 429, 503 and transport failures retried (a request that may have been
@@ -120,7 +134,8 @@ comparative rate is claimed. A valid proof attests integrity, not truth.
 - **Tests at `a657531`** (2026-10-31, Windows): `cargo test --workspace --locked` 603
   passed / 0 failed / 2 ignored (the 2 live tests); the scripted protocol conformance
   check 10/10 (`cargo run -p consensus-tests --example evaluate`); Vitest 904 passed / 16
-  skipped in 42 files; 501 Playwright end-to-end tests in Chromium and WebKit (500 passed in
+  skipped in 42 files; 501 Playwright end-to-end tests in Chromium (desktop and mobile),
+  with a smoke subset in Firefox and WebKit (500 passed in
   the full run; the one failure, a browser-context teardown past the 120 s timeout under
   load, passed on a re-run), with 340 axe accessibility scans and 0 violations.
 - **Verbatim research archive**: 12 event logs with 48 runs (919 events) and 41 run
@@ -131,7 +146,7 @@ comparative rate is claimed. A valid proof attests integrity, not truth.
 
 - **Video**: [VIDEO_URL]. Recorded on the frozen UI; scripted runs are labelled
   SIMULATED, archived runs RECORDED, and nothing recorded is presented as running live.
-- **Live project**: [DEMO_URL].
+- **Live project**: [DEMO_URL] (conditional, see "Links").
 - **Run it locally** without any credential and without a Meta call (README, "For
   judges"): two `in-docker.sh` commands build the web export, and
   `cargo run -p consensus-api --locked -- serve-public` serves it with the guided runs and

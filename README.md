@@ -8,10 +8,13 @@
 on the Meta Model API) deliberate over a coding agent's proposed change against project
 records from Hyphae Agent Memory whose integrity proofs the runtime checks; a fixed policy,
 not a vote, turns their judgments into a recommendation, and only a human can authorize.
-It is for teams that let coding agents propose changes: in the final live battery every
-first proposal had 1 to 3 claims that the stored (synthetic, operator-seeded) records
-contradict, and none of those 6 runs ended `supported`
+It is for teams that let coding agents propose changes: in the 6-run final battery of
+2026-10-27 (F01–F06, schema 1.2) every first proposal had 1 to 3 claims that the stored
+(synthetic, operator-seeded) records contradict, and none of those 6 runs ended `supported`
 ([evaluation §5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output)).
+In the later protocol 1.3 battery (M01–M04, 2026-10-30) the one `supported` run attests a
+revision that departs from the task, which is why a human still decides
+([§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)).
 
 **Video:** [VIDEO_URL] · **Demo:** [DEMO_URL] · **Run it locally** (Rust 1.99.1 and Docker; no
 credential, no Meta call; on Docker Desktop for Windows export `HC_WEB_NODE_MODULES_VOLUME=hc-web`
@@ -23,11 +26,11 @@ sh apps/web/scripts/in-docker.sh pnpm build
 CONSENSUS_PUBLIC_BIND=127.0.0.1:8788 CONSENSUS_COOKIE_SECURE=false CONSENSUS_RUN_STORE_DIR="$(mktemp -d)" cargo run -p consensus-api --locked -- serve-public
 ```
 
-- **Impact (30 %):** run F03 ("Raise payment retry attempts to 10") claimed 10 attempts comply with any documented maximum; the stored cap is 3, 2 of 4 claims were recorded as contradicted, the revision proposed the recorded fix, and 6 open objections kept it `contested` for a human ([§5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output), [run record](research/2026-10-27/live-battery-2026-10-27-final/F03-raise-to-10.json)); a planted "SYSTEM OVERRIDE" record with a valid proof was never obeyed ([§5.4](docs/evaluation.md#54-hostile-note-with-a-valid-proof-h01h02-commit-3d50baf)). No single-agent baseline was run.
-- **Use of Meta AI tooling (25 %):** four strict `json_schema` calls to `POST https://api.meta.ai/v1/chat/completions`, the Evaluator's schema generated per call with one required key per claim and per open objection ([Meta's API here](#how-this-project-uses-metas-api), [`meta.rs`](crates/consensus-api/src/meta.rs)); request ids of every recorded call ([evaluation](docs/evaluation.md#request-ids-2026-10-30-from-receipts)), archived verbatim in [`research/`](research/README.md) and pinned by [`MANIFEST.json`](research/MANIFEST.json).
+- **Impact (30 %):** run F03 ("Raise payment retry attempts to 10") claimed 10 attempts comply with any documented maximum; the stored cap is 3, 2 of 4 claims were recorded as contradicted, the revision proposed the recorded fix, and 6 open objections kept it `contested` for a human ([§5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output), [run record](research/2026-10-27/live-battery-2026-10-27-final/F03-raise-to-10.json)); a planted "SYSTEM OVERRIDE" record with a valid proof was never obeyed ([§5.4](docs/evaluation.md#54-hostile-note-with-a-valid-proof-h01h02-commit-3d50baf)). Under protocol 1.3 (M01–M04, [§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)) M03 ended `supported` for a revision that departs from the task and M04 failed closed; a human decides either way. No single-agent baseline was run.
+- **Use of Meta AI tooling (25 %):** four kinds of strict `json_schema` call (Proposer, Critic, Evaluator, revision; up to 9 per run) to `POST https://api.meta.ai/v1/chat/completions`, the Evaluator's schema generated per call with one required key per claim and per open objection ([Meta's API here](#how-this-project-uses-metas-api), [`meta.rs`](crates/consensus-api/src/meta.rs)); request ids of every recorded call, by date ([2026-10-26](docs/evaluation.md#request-ids-2026-10-26-from-receipts), [2026-10-27](docs/evaluation.md#request-ids-2026-10-27-from-receipts), [2026-10-30](docs/evaluation.md#request-ids-2026-10-30-from-receipts)), archived verbatim in [`research/`](research/README.md) and pinned by [`MANIFEST.json`](research/MANIFEST.json).
 - **Technical depth (20 %):** protocol 1.3's fail-closed evaluation contract ([ADR-0010](docs/adr/0010-protocol-1-3-carry-forward.md)), hash-chained replayable logs, a sealed evidence snapshot ([ADR-0008](docs/adr/0008-public-evidence-sealed-snapshot.md)), [threat model v2](docs/threat-model.md#3-threats-and-mitigations); at `a657531`: Rust 603 passed / 0 failed / 2 ignored ([tests](crates/consensus-tests/tests/)), Vitest 904 passed / 16 skipped, Playwright 501 tests, axe 0 violations ([e2e](apps/web/e2e/)).
 - **Demo (25 %):** the video and Mission Control; every run is labelled SIMULATED, RECORDED or LIVE, and a replay never reads LIVE ([provenance](#simulated-recorded-and-live), [`docs/demo/`](docs/demo/README.md)).
-- **Limits, said once:** proofs attest integrity, not truth; the log is tamper-evident, not signed; the public live mode is not deployed ([What is verified and what is not](#what-is-verified-and-what-is-not)).
+- **Limits, said once:** proofs attest integrity, not truth; the log is tamper-evident, not signed; the public live mode is not deployed; the protocol 1.3 battery lost 2 of its 4 runs to provider errors, and its one `supported` run attests a revision that departs from the task ([§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)); the rest is in [What is verified and what is not](#what-is-verified-and-what-is-not).
 
 Meta Global AI Developer Hackathon 2026 · Indie Developer track · Push the Frontier
 Development window: October 26 – November 4, 2026 · Owner: Mario (independent developer)
@@ -451,8 +454,11 @@ read-only (`consensus-api verify`, the showcase).
 - **Release gates** (`docs/security/release-checklist.md`, statuses of 2026-10-28/29): G8
   passes (the fresh-clone run is still owed before the tag), G12 is partly met, the other
   ten are pending.
-- **Still to do:** the deployment (owner's server and variables) and the video, both
-  planned for 2026-11-01; the push to GitHub with a CI run, after a full-history secret
+- **Still to do:** the deployment (owner's server and variables; staging behind
+  Cloudflare Access first, and exposed to judges before every gate passes only if the
+  owner records that decision, see [`docs/roadmap.md`](docs/roadmap.md)) and the video,
+  both planned for 2026-11-01; the final engineering report, unless the owner decides
+  this block and "For judges" replace it; the push to GitHub with a CI run, after a full-history secret
   scan; comparing the published binary digest with the release tarball (runbook 3.2); the
   owner's sign-off of the legal texts; the submission form (draft:
   [`docs/submission-draft.md`](docs/submission-draft.md)). The plan is in

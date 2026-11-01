@@ -1,0 +1,78 @@
+# Run it locally
+
+Moved here from the repository README on 2026-11-01 (text as of `3686bbe`, unchanged except for link paths and headings); the README keeps a summary.
+
+
+Prerequisites: Rust 1.99.1 via [rustup](https://rust-lang.org/tools/install), pinned in
+`rust-toolchain.toml` (on Windows with the MSVC build tools, see the
+[rustup book](https://rust-lang.github.io/rustup/installation/windows-msvc.html)), and
+Docker for the web app. The commands below are for a POSIX shell (Git Bash on Windows),
+from the repository root. None needs a credential, and none calls Meta or Hyphae.
+
+```sh
+cargo build --workspace --locked
+cargo test --workspace --locked                           # deterministic; the 2 live tests are ignored
+cargo run -p consensus-tests --example evaluate           # scripted protocol conformance check (10/10)
+cargo run -p consensus-api --locked -- verify research/2026-10-27/live-battery-2026-10-27-final.jsonl   # read-only chain and policy check
+```
+
+**Scripted demo.** The `consensus-api` binary without a subcommand runs the reference
+scenario to `AwaitingHumanApproval`; `--approve` or `--reject` also records a decision
+(nothing is executed). It keeps its log in `scripted-demo/events.jsonl` under the current
+directory and replays the run it finds there instead of re-running, so run it from a
+scratch directory. It refuses to run inside `demo-run/` or `research/`, and any other
+argument prints the usage.
+
+```sh
+REPO=$(pwd); cd "$(mktemp -d)"
+"$REPO/target/debug/consensus-api"              # scripted run, stops at AwaitingHumanApproval
+"$REPO/target/debug/consensus-api" --approve    # replays it and records an approval
+```
+
+**Operator console** (loopback only; it must never be exposed):
+
+```sh
+CONSENSUS_RUN_STORE_DIR="$(mktemp -d)" cargo run -p consensus-api --locked -- serve-operator
+# http://127.0.0.1:8787/ ; the bearer token is printed once at startup (or read from CONSENSUS_OPERATOR_TOKEN_FILE)
+```
+
+`model=fake` runs the five guided scenarios with simulated proofs and needs nothing else.
+A non-loopback bind is refused, every `/api` route needs the bearer token, and approving a
+`blocked` or `abstained` run needs a note. Live modes (`model=meta`, `memory=hyphae`) need
+credentials from the environment (`.env.example`, `scripts/hyphae-container/README.md`),
+spend money on the Meta key, and without them the API names the missing variable instead
+of falling back. Secrets must come from environment variables, never files committed to
+this repository.
+
+**Web app and public server.** The Node toolchain runs only in throwaway containers, never
+on the host (`apps/web/README.md`, "Build only through Docker"):
+
+```sh
+sh apps/web/scripts/in-docker.sh pnpm install --frozen-lockfile
+sh apps/web/scripts/in-docker.sh pnpm build        # static export to apps/web/out
+sh apps/web/scripts/in-docker.sh pnpm check        # theme, contract types, typecheck, lint, Vitest, export
+sh apps/web/scripts/playwright-docker.sh           # end-to-end and axe tests against out/, API mocked
+CONSENSUS_PUBLIC_BIND=127.0.0.1:8788 CONSENSUS_COOKIE_SECURE=false \
+  CONSENSUS_RUN_STORE_DIR="$(mktemp -d)" cargo run -p consensus-api --locked -- serve-public
+# http://127.0.0.1:8788/ : guided runs and the research showcase; live mode stays off
+```
+
+`CONSENSUS_PUBLIC_BIND` is for development only (loopback; in production the public server
+listens on a unix socket behind cloudflared). The public server's variables are documented
+in `crates/consensus-api/src/public_config.rs` and `crates/consensus-api/src/live/config.rs`.
+Both servers keep one hash-chained log per run under `CONSENSUS_RUN_STORE_DIR` (default
+`consensus-store/`), never a log of `demo-run/` or `research/`. Request bodies are typed:
+unknown fields are rejected (`422`), `model` and `memory` are enums without defaults,
+`model=fake` with a non-fake memory is refused, and the public surface accepts no free
+text for any model (guided scenarios and live presets only; the optional decision note
+after a run is the one visitor text, and no model sees it).
+
+**Never delete `demo-run/`.** The git-ignored `demo-run/` holds the original live research
+data behind `docs/evaluation.md`: the battery logs, the run records with their receipts,
+the raw model drafts and the Hyphae recovery files. `research/` holds byte-identical copies
+of its event logs and run records; the raw drafts and the recovery files exist only in
+`demo-run/`. Never open a log in either place with a writing tool: `EventLog::open` opens a
+log read-write and can repair a torn tail. Earlier builds kept the CLI demo's log in
+`demo-run/events.jsonl`, which therefore holds the 2026-10-26 evening runs of
+`docs/evaluation.md` §4; the demo no longer opens it. The servers open archived logs
+read-only (`consensus-api verify`, the showcase).

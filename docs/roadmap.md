@@ -204,3 +204,45 @@ Only the owner can do these (runbook section 1, release checklist "Owner-only st
   capped at 4 MiB, ADR-0003).
 - A distinct `generation_failed` integrity status for proof-generation failures, an
   owner decision (ADR-0008 decision 7).
+
+## Status on 2026-10-31
+
+Moved here from the repository README on 2026-11-01 (text as of `3686bbe`; link paths adjusted).
+
+**2026-10-31 (branch `feat/public-portal` at `a657531`; nothing is deployed).**
+
+- **Implemented:** protocol 1.3 with policy rules 1.2, the public API v1, the loopback
+  operator console, the live-mode admission (two-phase gate, Turnstile, per-client quota,
+  USD ledger) and the sealed-snapshot evidence client. Live mode stays off until its
+  release gates pass.
+- **Mission Control:** every view is merged (lanes W1 and W2 and their review rounds; the
+  heuristic-evaluation fixes of round 4; the round 5 redesign of 2026-10-31: monochrome,
+  brushed glass, square-first shapes, the Quorum logo). The UI is frozen at `a657531` for
+  the submission.
+- **Live evidence:** the counted protocol 1.3 battery M01–M04 ran on 2026-10-30 and is
+  merged (`e4e4c73`; `research/2026-10-30/`, [`docs/evaluation.md` §6.3](evaluation.md#63-the-counted-battery-m01m04-2026-10-30)):
+  2 runs lost to provider errors, M03 `supported` for a revision that departs from the
+  task, M04 failed closed by the evaluation contract, all 41 verification records
+  `valid`. The authorized cap of 8 live re-validation runs is reached.
+- **Sealed snapshot:** `snap-2026-10-29-demo-repo` was captured on 2026-10-29
+  (`b0375df`; digests in the README, "Published snapshot digests"); the runtime boots it since the
+  fix `0515f29` (merged as `7e26866`). It is not on any server yet.
+- **Tests at `a657531`, run on 2026-10-31 on Windows:** `cargo test --workspace --locked`
+  603 passed / 0 failed / 2 ignored (the 2 live tests); the scripted conformance check
+  10/10; the demo crate 2 passed; `pnpm check` passes (Vitest: 42 files, 904 passed /
+  16 skipped); Playwright 501 tests, 500 passed in the full run and the 1 failure (a
+  browser-context teardown past the 120 s test timeout on a loaded machine, the axe check of
+  the tour and drawer in French, dark) passed when `a11y.spec.ts` was re-run (19/19); axe
+  340 scans, 0 violations. The last Linux parity run (7/7 gates) was on the tree
+  of `25c7867`.
+- **Release gates** (`docs/security/release-checklist.md`, statuses of 2026-10-28/29): G8
+  passes (the fresh-clone run is still owed before the tag), G12 is partly met, the other
+  ten are pending.
+- **Still to do:** the deployment (owner's server and variables; staging behind
+  Cloudflare Access first, and exposed to judges before every gate passes only if the
+  owner records that decision, see "Remaining for tomorrow (2026-11-01)" above) and the video,
+  both planned for 2026-11-01; the final engineering report, unless the owner decides
+  this block and "For judges" replace it; the push to GitHub with a CI run, after a full-history secret
+  scan; comparing the published binary digest with the release tarball (runbook 3.2); the
+  owner's sign-off of the legal texts; the submission form. The plan is in
+  this roadmap.

@@ -11,12 +11,15 @@
 #
 # --dry-run checks the templates and the binary's digest, then prints every
 # change it would make (users, groups, directories, files, systemd calls)
-# and makes none; it needs no root. --no-systemd is for a host or container
+# and makes none. It needs no root, but run it with sudo all the same: only
+# root sees inside /etc/consensus (0750), so without root an existing
+# public.env cannot be seen. --no-systemd is for a host or container
 # without a running systemd (the deploy-day rehearsal in ubuntu:24.04,
 # docs/deployment/deploy-day.md): everything is installed, but
 # /run/consensus is created by hand with the tmpfiles.d line's mode and
 # owners instead of `systemd-tmpfiles --create`, and `systemctl
-# daemon-reload` is skipped. On the real server use neither.
+# daemon-reload` is skipped; the systemd package need not be installed
+# (/etc/tmpfiles.d is created if missing). On the real server use neither.
 #
 # What it does (idempotent; nothing is started, no firewall rule is touched):
 #   1. system users and groups: consensus, hyphae, cloudflared, and the socket
@@ -51,9 +54,11 @@ usage: install.sh --binary <path> --sha256 <hex digest> [--deploy-dir <dir>] [--
   --sha256      sha256 of that binary as printed on the build host
   --deploy-dir  the repository's deploy/ directory (default: this script's parent)
   --yes         do not ask before replacing an existing binary or unit file
-  --dry-run     print every change, make none (no root needed)
-  --no-systemd  install without a running systemd (a rehearsal container):
-                /run/consensus by hand, no systemd-tmpfiles, no daemon-reload
+  --dry-run     print every change, make none (no root needed; run it with
+                sudo to see inside /etc/consensus)
+  --no-systemd  install without a running systemd (a rehearsal container;
+                the systemd package is optional): /run/consensus by hand,
+                no systemd-tmpfiles, no daemon-reload
 EOF
 }
 
@@ -86,6 +91,12 @@ for f in systemd/consensus-public.service systemd/consensus-operator.service \
 done
 
 [ "$DRY_RUN" -eq 1 ] && echo "== DRY RUN: nothing below is changed; every change is printed as 'would run'"
+
+say() {
+  # say <text>: a status line about a change; in a dry run it reads
+  # "would: <text>", because the change was only printed.
+  if [ "$DRY_RUN" -eq 1 ]; then echo "   would: $*"; else echo "   $*"; fi
+}
 
 run() {
   # run <command...>: runs it, or with --dry-run prints it instead.
@@ -128,7 +139,7 @@ ensure_group consensus-sock
 in_group cloudflared consensus-sock || run usermod -a -G consensus-sock cloudflared
 if in_group cloudflared consensus; then
   run gpasswd -d cloudflared consensus
-  echo "   removed cloudflared from the group consensus (restart cloudflared to apply)"
+  say "removed cloudflared from the group consensus (restart cloudflared to apply)"
 fi
 in_group consensus consensus-sock && echo "   note: consensus is in consensus-sock; not needed (the socket's owner is consensus)"
 # Nobody here may be in the docker group (gate G9: no daemon, no docker).
@@ -159,6 +170,7 @@ run install -d -o hyphae -g hyphae -m 0755 /opt/hyphae /opt/hyphae/bin
 run install -d -o root   -g cloudflared -m 0750 /etc/cloudflared
 # /run/consensus: 2750 consensus:consensus-sock, recreated at every boot by
 # systemd-tmpfiles-setup.service from the tmpfiles.d entry; applied now too.
+run install -d -o root -g root -m 0755 /etc/tmpfiles.d
 run install -o root -g root -m 0644 "$DEPLOY_DIR/tmpfiles.d/consensus.conf" /etc/tmpfiles.d/consensus.conf
 if [ "$NO_SYSTEMD" -eq 1 ]; then
   # No systemd-tmpfiles here: the same directory, mode and owners as the
@@ -183,7 +195,7 @@ if [ -e /usr/local/bin/consensus-api ] && ! cmp -s "$BINARY" /usr/local/bin/cons
   confirm "replace the existing /usr/local/bin/consensus-api?" || { echo "kept the existing binary"; exit 1; }
 fi
 run install -o root -g root -m 0755 "$BINARY" /usr/local/bin/consensus-api
-echo "   /usr/local/bin/consensus-api sha256 $actual (restart consensus-public if it is running)"
+say "/usr/local/bin/consensus-api sha256 $actual (restart consensus-public if it is running)"
 
 install_unit() {
   # install_unit <source> <destination>
@@ -191,10 +203,11 @@ install_unit() {
     confirm "overwrite $2?" || { echo "   kept $2"; return 0; }
   fi
   run install -o root -g root -m 0644 "$1" "$2"
-  echo "   $2"
+  say "$2"
 }
 
 echo "== systemd units"
+run install -d -o root -g root -m 0755 /etc/systemd/system
 install_unit "$DEPLOY_DIR/systemd/consensus-public.service"   /etc/systemd/system/consensus-public.service
 install_unit "$DEPLOY_DIR/systemd/consensus-operator.service" /etc/systemd/system/consensus-operator.service
 run install -d -o root -g root -m 0755 /etc/systemd/system/cloudflared.service.d
@@ -202,19 +215,22 @@ install_unit "$DEPLOY_DIR/systemd/cloudflared.service.d/10-consensus.conf" \
              /etc/systemd/system/cloudflared.service.d/10-consensus.conf
 
 echo "== configuration templates (an existing file is never overwritten)"
+if [ -d /etc/consensus ] && ! [ -x /etc/consensus ]; then
+  echo "   cannot inspect /etc/consensus without root: whether public.env and operator.env exist is unknown (run the dry run with sudo)"
+fi
 for f in public.env operator.env; do
   if [ -e "/etc/consensus/$f" ]; then
     echo "   /etc/consensus/$f exists; left as is (template: $DEPLOY_DIR/etc/consensus/$f.example)"
   else
     run install -o root -g consensus -m 0640 "$DEPLOY_DIR/etc/consensus/$f.example" "/etc/consensus/$f"
-    echo "   /etc/consensus/$f installed from the template: fill in every <placeholder>"
+    say "/etc/consensus/$f installed from the template: fill in every <placeholder>"
   fi
 done
 if [ -e /etc/cloudflared/config.yml ]; then
   echo "   /etc/cloudflared/config.yml exists; left as is (template: $DEPLOY_DIR/cloudflared/config.yml.example)"
 else
   run install -o root -g cloudflared -m 0640 "$DEPLOY_DIR/cloudflared/config.yml.example" /etc/cloudflared/config.yml
-  echo "   /etc/cloudflared/config.yml installed from the template: fill in <TUNNEL-UUID> and <hostname>"
+  say "/etc/cloudflared/config.yml installed from the template: fill in <TUNNEL-UUID> and <hostname>"
 fi
 
 if [ "$NO_SYSTEMD" -eq 1 ]; then

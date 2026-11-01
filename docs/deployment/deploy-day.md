@@ -9,7 +9,7 @@ This is the runbook cut down to an ordered checklist for one sitting, with two m
 
 | Mode | What the visitor gets | What the server holds | When |
 |---|---|---|---|
-| **A: replay + guided, live OFF** (recommended for the judging) | the static site; guided runs (SIMULATED evidence, scripted model); the research showcase (RECORDED runs of the real Meta model, replayed from `research/`) | no Meta key (a canary file), no Turnstile secret, no ledger in use, no snapshot needed | 2026-11-01 |
+| **A: replay + guided, live OFF** (recommended for the judging) | the static site; guided runs (SIMULATED evidence, scripted model); the research showcase (RECORDED runs replayed from `research/`: mostly real `muse-wonder-1.0` runs; the console runs C01, C02 and C05 include scripted model calls and simulated proofs, labelled as such) | no Meta key (a canary file), no Turnstile secret, no ledger in use, no snapshot needed | 2026-11-01 |
 | **B: live ON** (optional) | everything of A, plus live runs of `muse-wonder-1.0` on the owner's dedicated key over the sealed snapshot, behind Turnstile, the USD ledger and the judge codes | the dedicated Meta key, the Turnstile secret, the Hyphae 4.0.0 verifier, the sealed snapshot, the judge-code digests | only after A is green, and only if the owner decides so (plan: drop it if not stable by 2026-11-02 23:00 local) |
 
 Everything below was rehearsed on 2026-10-31 in a throwaway `ubuntu:24.04` container
@@ -50,7 +50,7 @@ start. "Mode" says which mode needs it; "A+B" is both.
 | 16 | Per-visitor quotas: 3 public live runs per client a day, 5 judge runs per code a day | B | defaults; `CONSENSUS_LIVE_CLIENT_DAILY`, `CONSENSUS_LIVE_JUDGE_CODE_DAILY` only to change them | runbook 4.1 |
 | 17 | `<seats>`: the number of judge invite codes | B | generated on the server by `judge-codes.sh --count <seats>` (step B4): the codes are printed ONCE and go only into the submission's testing instructions; the server keeps their SHA-256 in `/etc/consensus/judge-codes.sha256`, `root:consensus 0640`; `public.env`: `CONSENSUS_LIVE_JUDGE_CODES_FILE=/etc/consensus/judge-codes.sha256` | runbook 4.3 |
 | 18 | Allowed origins and hosts | A+B | `public.env`: `CONSENSUS_ALLOWED_ORIGINS=https://<hostname>` (comma-separated, scheme included, no path), `CONSENSUS_ALLOWED_HOSTS=<hostname>` (no scheme). Add `https://staging.<hostname>` / `staging.<hostname>` only if #8 is used. An unreplaced `<hostname>` in the hosts list is **accepted at startup** and then refuses every request (rehearsal): step A6 greps for it | `public_config.rs` |
-| 19 | Snapshot directory: `snap-2026-10-29-demo-repo` (the FULL capture: a git checkout lacks the `.proof`/`.witness` files and is refused with `checksums_incomplete`) | B | `/var/lib/consensus/snapshots/snap-2026-10-29-demo-repo/`, `consensus:consensus`, tree `0700`, files `0640`; `public.env`: `CONSENSUS_SNAPSHOT_DIR=/var/lib/consensus/snapshots/snap-2026-10-29-demo-repo` | the owner's main checkout `snapshots/snap-2026-10-29-demo-repo` (or the container's `/hyphae-home/snapshots/...`) |
+| 19 | Snapshot directory: `snap-2026-10-29-demo-repo` (the FULL capture: a git checkout lacks the `.proof`/`.witness` files and is refused with `checksums_incomplete`) | B | `/var/lib/consensus/snapshots/snap-2026-10-29-demo-repo/`, `consensus:consensus`, top directory `/var/lib/consensus/snapshots` `0700`, subdirectories `0750`, files `0640` (step B2); `public.env`: `CONSENSUS_SNAPSHOT_DIR=/var/lib/consensus/snapshots/snap-2026-10-29-demo-repo` | the owner's main checkout `snapshots/snap-2026-10-29-demo-repo` (or the container's `/hyphae-home/snapshots/...`) |
 | 20 | Snapshot anchor pin `43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02` | B | `public.env`: `CONSENSUS_HYPHAE_EXPECTED_ANCHOR=` | README "Published snapshot digests"; `manifest.json` `anchor_hex` |
 | 21 | Manifest pin `b731346c8464796ec17641d5099819cd1ff99525f1ee51409ac8ad790bc1014a` | B | `public.env`: `CONSENSUS_SNAPSHOT_MANIFEST_SHA256=`; `sudo sha256sum <dir>/manifest.json` must print it | README; take it from the publication, never from the copy in doubt |
 | 22 | Hyphae binary pin `79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f` | B | `public.env`: `CONSENSUS_HYPHAE_BIN_SHA256=`; `CONSENSUS_HYPHAE_BIN=/opt/hyphae/bin/hyphae` (already in the template) | README; `manifest.json` `hyphae.binary_sha256` |
@@ -139,15 +139,21 @@ scp dist/consensus-api dist/consensus-api.sha256 deploy.tar.gz web.tar.gz web.SH
 cd /tmp && sha256sum -c consensus-api.sha256                       # consensus-api: OK
 mkdir -p ~/consensus && tar -xzf /tmp/deploy.tar.gz -C ~/consensus
 D=$(cut -d' ' -f1 /tmp/consensus-api.sha256)
-~/consensus/deploy/scripts/install.sh --binary /tmp/consensus-api --sha256 "$D" --dry-run   # prints every change, makes none
+sudo ~/consensus/deploy/scripts/install.sh --binary /tmp/consensus-api --sha256 "$D" --dry-run   # prints every change, makes none
 sudo ~/consensus/deploy/scripts/install.sh --binary /tmp/consensus-api --sha256 "$D"
 ```
 
-Verify (the installer prints most of it; rehearsed):
+The dry run runs under `sudo` too: it changes nothing either way, but only root can see
+inside `/etc/consensus` (`0750 root:consensus`), so without `sudo` a re-run would report
+templates as missing that the real run leaves as they are.
+
+Verify (the installer prints most of it; rehearsed). Every path under `/etc/consensus`,
+`/var/lib/consensus` and `/run/consensus` is closed to the SSH user, so every check below
+and in A4, A7 and B2 runs under `sudo`:
 
 ```sh
 # server
-stat -c '%a %U:%G %n' /etc/consensus /etc/consensus/credentials /etc/consensus/public.env /var/lib/consensus/snapshots /run/consensus /usr/local/bin/consensus-api
+sudo stat -c '%a %U:%G %n' /etc/consensus /etc/consensus/credentials /etc/consensus/public.env /var/lib/consensus/snapshots /run/consensus /usr/local/bin/consensus-api
 # 750 root:consensus /etc/consensus; 700 root:root .../credentials; 640 root:consensus .../public.env;
 # 700 consensus:consensus .../snapshots; 2750 consensus:consensus-sock /run/consensus; 755 root:root .../consensus-api
 id -nG cloudflared                                                  # cloudflared consensus-sock (never consensus)
@@ -164,15 +170,15 @@ copy; the installer keeps none), then the same `install.sh` line (it asks before
 # server
 sudo rm -rf /var/lib/consensus/web.new && sudo install -d -o consensus -g consensus -m 0750 /var/lib/consensus/web.new
 sudo tar -xzf /tmp/web.tar.gz -C /var/lib/consensus/web.new
-( cd /var/lib/consensus/web.new && sudo sha256sum -c --quiet /tmp/web.SHA256SUMS ) && echo "web export verified"
+sudo sh -c 'cd /var/lib/consensus/web.new && sha256sum -c --quiet /tmp/web.SHA256SUMS' && echo "web export verified"
 sudo chown -R consensus:consensus /var/lib/consensus/web.new
 sudo find /var/lib/consensus/web.new -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
 sudo rm -rf /var/lib/consensus/web.old
-[ -d /var/lib/consensus/web ] && sudo mv /var/lib/consensus/web /var/lib/consensus/web.old
+sudo test -d /var/lib/consensus/web && sudo mv /var/lib/consensus/web /var/lib/consensus/web.old
 sudo mv /var/lib/consensus/web.new /var/lib/consensus/web
-test -f /var/lib/consensus/web/csp-manifest.json && echo "csp manifest present"
+sudo test -f /var/lib/consensus/web/csp-manifest.json && echo "csp manifest present"
 sudo tar -xzf /tmp/research.tar.gz -C /var/lib/consensus --no-same-owner
-( cd /var/lib/consensus/research && sudo sha256sum -c --quiet SHA256SUMS ) && echo "research archive verified"
+sudo sh -c 'cd /var/lib/consensus/research && sha256sum -c --quiet SHA256SUMS' && echo "research archive verified"
 sudo chown -R consensus:consensus /var/lib/consensus/research
 sudo find /var/lib/consensus/research -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
 rm -f /tmp/web.tar.gz /tmp/web.SHA256SUMS /tmp/research.tar.gz /tmp/deploy.tar.gz /tmp/consensus-api /tmp/consensus-api.sha256
@@ -214,8 +220,11 @@ Edit exactly this, nothing else:
 - leave `CONSENSUS_LIVE_ENABLED=false`
 - leave the snapshot lines, the Hyphae pins, `CONSENSUS_LIVE_JUDGE_CODES_FILE` and **both
   `CONSENSUS_TURNSTILE_*` lines commented out**: they are read and checked even with live mode
-  off, so a set `CONSENSUS_TURNSTILE_SECRET_FILE` over the placeholder file, or one of the two
-  lines without the other, stops startup naming the variable (rehearsed)
+  off. A set `CONSENSUS_TURNSTILE_SECRET_FILE` over an empty or unreadable file or a Cloudflare
+  test secret, `CONSENSUS_TURNSTILE_HOSTNAME=<hostname>` left as is, or one of the two lines
+  without the other stops startup naming the variable (rehearsed). The placeholder text of
+  A5 is **not** refused: with both lines set over it the server starts (rehearsed), which is
+  harmless with live mode off and is why B3 checks that the real secret replaced it
 - `operator.env` needs no edit
 
 Verify:
@@ -265,7 +274,7 @@ is missing. **[not rehearsed: systemd as PID 1 and the sandbox directives]**
 ```sh
 # server: one helper for the rest of this section
 S() { sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' -H 'CF-IPCountry: US' "$@"; }
-stat -c '%A %U:%G' /run/consensus/public.sock                                   # srw-rw---- consensus:consensus-sock
+sudo stat -c '%A %U:%G' /run/consensus/public.sock                                   # srw-rw---- consensus:consensus-sock
 S -o /dev/null -w '%{http_code}\n' http://localhost/api/v1/health               # 200
 S http://localhost/api/v1/health; echo                                          # "executor":"disabled", schema, policy, contract_sha256
 S http://localhost/api/v1/ready; echo                                           # "ready":true, run store ok, "showcase":{"entries":<n>,"ok":true}
@@ -279,7 +288,7 @@ RUN=$(S -H "Cookie: $CK" -X POST -H 'Origin: https://<hostname>' -H 'Content-Typ
 sleep 5; S -H "Cookie: $CK" "http://localhost/api/v1/runs/$RUN" | grep -o '"state":"[a-z_]*"' | head -1     # "state":"awaiting_human_approval"
 S -H "Cookie: $CK" -o /dev/null -w '%{http_code}\n' "http://localhost/api/v1/runs/$RUN/receipt"               # 200
 S -o /dev/null -w '%{http_code}\n' "http://localhost/api/v1/runs/$RUN"                                         # 401 without a session (another session's cookie: 404, gate G2)
-# the showcase (recorded Meta runs from research/)
+# the showcase (recorded runs from research/, provenance as labelled: C01, C02, C05 are scripted)
 S http://localhost/api/v1/showcase | grep -o '"run_id":"[^"]*"' | sort -u | wc -l                                # the number of recorded runs (> 0)
 SH=$(S http://localhost/api/v1/showcase | grep -o '"run_id":"[^"]*"' | head -1 | cut -d'"' -f4)
 S -o /dev/null -w '%{http_code}\n' "http://localhost/api/v1/showcase/$SH"                                      # 200
@@ -372,7 +381,8 @@ deploy/scripts/canary-scan.sh --responses-only --hostname "$H"                  
 Then in a browser (a private window), in each of the four languages once: the home page; New
 deliberation → a guided scenario runs to "awaiting human approval" with SIMULATED evidence
 labelled; the Showcase lists the recorded runs (RECORDED, never LIVE) and one opens with its
-receipt; the browser console shows no CSP violation. Record the date, the hostname, the
+receipt; a scripted console run (C01, C02 or C05) shows its scripted-model and SIMULATED proof
+labels, never a real-model or valid-looking proof; the browser console shows no CSP violation. Record the date, the hostname, the
 commit (`dist/consensus-api.commit`) and the results in `docs/reviews/` and the go-live time
 (UTC) in `docs/journal.md`.
 
@@ -449,7 +459,7 @@ sudo ln -sfn /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae /opt/hypha
 sha256sum /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae         # 79025e8758ee...a15f
 sudo -u consensus /opt/hyphae/bin/hyphae --version
 sudo mv /tmp/snap-2026-10-29-demo-repo /var/lib/consensus/snapshots/snap-2026-10-29-demo-repo
-( cd /var/lib/consensus/snapshots/snap-2026-10-29-demo-repo && sudo sha256sum -c --quiet SHA256SUMS ) && echo "snapshot verified"
+sudo sh -c 'cd /var/lib/consensus/snapshots/snap-2026-10-29-demo-repo && sha256sum -c --quiet SHA256SUMS' && echo "snapshot verified"
 sudo sha256sum /var/lib/consensus/snapshots/snap-2026-10-29-demo-repo/manifest.json   # b731346c...014a
 sudo chown -R consensus:consensus /var/lib/consensus/snapshots
 sudo find /var/lib/consensus/snapshots -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
@@ -479,7 +489,13 @@ configuration of B5 in `public.env`, so it runs in B6 **[not rehearsed: systemd-
 sudo sh -c 'cat > /etc/consensus/credentials/meta.key'          # the DEDICATED key (#13)
 sudo sh -c 'cat > /etc/consensus/credentials/turnstile.secret'  # the widget secret (#12)
 sudo ls -la /etc/consensus/credentials                           # -rw------- root root, three files
+# startup refuses an empty file and a Cloudflare test secret, NOT the placeholder of A5 or the canary:
+sudo grep -qx 'unused-while-live-mode-is-off' /etc/consensus/credentials/turnstile.secret && echo "STILL THE PLACEHOLDER: redo the turnstile.secret line" || echo "turnstile.secret replaced"
+sudo grep -q '^LLM_0_canary-' /etc/consensus/credentials/meta.key && echo "STILL THE CANARY: redo the meta.key line" || echo "meta.key replaced"
 ```
+
+Both lines must print "replaced". With the placeholder in place, live mode would boot and
+every Turnstile check would fail at Siteverify.
 
 ### B4. Judge codes (runbook 4.3)
 
@@ -498,7 +514,7 @@ sudo cp -p /etc/consensus/public.env /etc/consensus/public.env.mode-a    # rollb
 sudoedit /etc/consensus/public.env
 ```
 
-Uncomment and fill (rehearsed: exactly these lines change):
+Uncomment and fill (rehearsed: exactly these eight lines change):
 
 ```
 CONSENSUS_HYPHAE_BIN_SHA256=79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f
@@ -506,16 +522,16 @@ CONSENSUS_HYPHAE_EXPECTED_ANCHOR=43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b
 CONSENSUS_SNAPSHOT_DIR=/var/lib/consensus/snapshots/snap-2026-10-29-demo-repo
 CONSENSUS_SNAPSHOT_MANIFEST_SHA256=b731346c8464796ec17641d5099819cd1ff99525f1ee51409ac8ad790bc1014a
 CONSENSUS_LIVE_ENABLED=true
-CONSENSUS_LIVE_LEDGER_DIR=/var/lib/consensus/ledger/public
 CONSENSUS_LIVE_JUDGE_CODES_FILE=/etc/consensus/judge-codes.sha256
 CONSENSUS_TURNSTILE_SECRET_FILE=/run/credentials/consensus-public.service/turnstile.secret
 CONSENSUS_TURNSTILE_HOSTNAME=<hostname>
 ```
 
-The caps stay commented (their defaults are the owner decisions, #15). If you want the
-runbook's separate staging ledger for a first owner-only live run and the kill-switch
-rehearsal, set `CONSENSUS_LIVE_LEDGER_DIR=/var/lib/consensus/ledger/staging` for B7 and retire
-it as runbook 4.5 shows before the judges get their codes.
+`CONSENSUS_LIVE_LEDGER_DIR` stays at the template's
+`/var/lib/consensus/ledger/staging`: B6 and B7 (the owner's first live run, the kill-switch
+rehearsal of gate G11, one judge code) spend on the **staging** ledger, never on the
+production one, which must be empty at go-live (runbook 4.5). Step B7b switches to
+`ledger/public`. The caps stay commented (their defaults are the owner decisions, #15).
 
 ```sh
 # server
@@ -554,7 +570,35 @@ sudo ~/consensus/deploy/scripts/canary-scan.sh                     # G4 with the
    202) while a guided run still starts; `kill-switch.sh off --yes`; `ledger.sh status` still
    `"tripped": true`; `ledger.sh reset --by <owner>`; `/api/v1/ready` shows `"tripped":false`
    within two seconds.
-4. One judge code from B4 once in the browser's invite-code field (it spends the judge slice).
+4. One judge code from B4 once in the browser's invite-code field (it spends the judge slice
+   of the staging ledger).
+
+All of this spends on `ledger/staging` (B5), so the $60 production lifetime cap is untouched.
+
+### B7b. Go-live: retire the staging ledger, switch to `ledger/public` (runbook 4.5, 8.7) [not rehearsed]
+
+Mandatory before the submission (with the judge codes) goes out:
+
+```sh
+# server
+sudo ~/consensus/deploy/scripts/kill-switch.sh status          # note lifetime_spent_usd for the owner's accounting
+sudo ~/consensus/deploy/scripts/export-ledger.sh --ledger-dir /var/lib/consensus/ledger/staging
+sudo systemctl stop consensus-public.service; sudo systemctl stop consensus-operator.service 2>/dev/null || true
+sudo mv /var/lib/consensus/ledger/staging "/var/lib/consensus/ledger-archive/staging-$(date -u +%Y%m%dT%H%M%SZ)"
+sudo chown -R root:root /var/lib/consensus/ledger-archive && sudo chmod -R u=rwX,go= /var/lib/consensus/ledger-archive
+sudo test ! -e /var/lib/consensus/ledger/public/lifetime.json && echo "production ledger is empty"
+sudo cp -p /etc/consensus/public.env /etc/consensus/public.env.staging    # rollback copy
+sudoedit /etc/consensus/public.env          # CONSENSUS_LIVE_LEDGER_DIR=/var/lib/consensus/ledger/public (the only change)
+sudo grep -x 'CONSENSUS_LIVE_LEDGER_DIR=/var/lib/consensus/ledger/public' /etc/consensus/public.env
+sudo systemctl start consensus-public.service
+journalctl -u consensus-public -n 30 --no-pager                  # the two lines of B6 again, no "live evidence unavailable"
+S http://localhost/api/v1/ready; echo                             # "ready":true ... "live":{"ledger_ok":true,"tripped":false,"evidence_ok":true}
+sudo ~/consensus/deploy/scripts/kill-switch.sh status            # the production ledger: no spend yet, tripped: false
+```
+
+`CONSENSUS_LIVE_LIFETIME_USD` stays commented: its default is the $60.00 of runbook 8.7. Do
+not repeat the kill-switch rehearsal on `ledger/public`; a later trip there is reset with
+`ledger.sh reset` after its write-up (runbook 9.3).
 
 ### B8. Rollback from mode B
 
@@ -623,9 +667,13 @@ widget, a live run and the kill-switch rehearsal (B7), and the release tarball c
    line's mode and owners, no `daemon-reload`). Without either flag it behaves as before.
 2. `deploy/etc/consensus/public.env.example` set `CONSENSUS_TURNSTILE_SECRET_FILE` and
    `CONSENSUS_TURNSTILE_HOSTNAME=<hostname>` uncommented, and the code reads and checks both
-   even with live mode off (`live/config.rs` `load_turnstile`): mode A, with no widget secret,
-   could not start from the template. Both lines are now commented out with the reason, like
-   the snapshot lines, and uncommented in B5 (runbook 4.1 and 8.7 updated).
+   even with live mode off (`live/config.rs` `load_turnstile`): mode A from the template
+   started only once `<hostname>` was replaced and the secret file held some non-empty,
+   non-test text (an empty file stops startup). Both lines are now commented out with the
+   reason, like the snapshot lines, and uncommented in B5 (runbook 4.1 and 8.7 updated). The
+   check is weaker than an earlier draft of this text said: a placeholder secret is accepted
+   (`TurnstileSecret::new` refuses only an empty value, `load_turnstile` only a test secret
+   besides read errors), hence the "replaced" check of B3.
 3. The runbook's web build (3.3) did not mention `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, which the
    export needs at build time for the live form to open: added.
 4. Runbook 5.1 said `CF-Connecting-IP` is required on every request to the socket; the code

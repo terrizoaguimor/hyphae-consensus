@@ -405,13 +405,13 @@ scp web.tar.gz web.SHA256SUMS <server>:/tmp/
 # server
 sudo rm -rf /var/lib/consensus/web.new && sudo install -d -o consensus -g consensus -m 0750 /var/lib/consensus/web.new
 sudo tar -xzf /tmp/web.tar.gz -C /var/lib/consensus/web.new
-( cd /var/lib/consensus/web.new && sudo sha256sum -c --quiet /tmp/web.SHA256SUMS ) && echo "web export verified"
+sudo sh -c 'cd /var/lib/consensus/web.new && sha256sum -c --quiet /tmp/web.SHA256SUMS' && echo "web export verified"
 sudo chown -R consensus:consensus /var/lib/consensus/web.new
 sudo find /var/lib/consensus/web.new -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
 sudo rm -rf /var/lib/consensus/web.old
-[ -d /var/lib/consensus/web ] && sudo mv /var/lib/consensus/web /var/lib/consensus/web.old
+sudo test -d /var/lib/consensus/web && sudo mv /var/lib/consensus/web /var/lib/consensus/web.old
 sudo mv /var/lib/consensus/web.new /var/lib/consensus/web
-test -f /var/lib/consensus/web/csp-manifest.json && echo "csp manifest present"
+sudo test -f /var/lib/consensus/web/csp-manifest.json && echo "csp manifest present"
 rm /tmp/web.tar.gz /tmp/web.SHA256SUMS
 ```
 
@@ -431,7 +431,7 @@ scp research.tar.gz <server>:/tmp/
 ```sh
 # server
 sudo tar -xzf /tmp/research.tar.gz -C /var/lib/consensus --no-same-owner
-( cd /var/lib/consensus/research && sudo sha256sum -c --quiet SHA256SUMS ) && echo "research archive verified"
+sudo sh -c 'cd /var/lib/consensus/research && sha256sum -c --quiet SHA256SUMS' && echo "research archive verified"
 sudo chown -R consensus:consensus /var/lib/consensus/research
 sudo find /var/lib/consensus/research -type d -exec chmod 0750 {} + -o -type f -exec chmod 0640 {} +
 rm /tmp/research.tar.gz
@@ -452,7 +452,7 @@ scp -r <snapshot-id> <server>:/tmp/
 ```sh
 # server
 sudo mv /tmp/<snapshot-id> /var/lib/consensus/snapshots/<snapshot-id>
-( cd /var/lib/consensus/snapshots/<snapshot-id> && sudo sha256sum -c --quiet SHA256SUMS ) && echo "snapshot verified"
+sudo sh -c 'cd /var/lib/consensus/snapshots/<snapshot-id> && sha256sum -c --quiet SHA256SUMS' && echo "snapshot verified"
 sudo sha256sum /var/lib/consensus/snapshots/<snapshot-id>/manifest.json            # must print the published manifest digest: CONSENSUS_SNAPSHOT_MANIFEST_SHA256
 sudo grep -o '"binary_sha256": "[0-9a-f]*"' /var/lib/consensus/snapshots/<snapshot-id>/manifest.json   # must be the binary digest of 3.2: CONSENSUS_HYPHAE_BIN_SHA256
 sudo chown -R consensus:consensus /var/lib/consensus/snapshots
@@ -523,7 +523,7 @@ scp deploy.tar.gz <server>:/tmp/
 ```sh
 # server
 mkdir -p ~/consensus && tar -xzf /tmp/deploy.tar.gz -C ~/consensus
-~/consensus/deploy/scripts/install.sh --binary /tmp/consensus-api --sha256 "$(cut -d' ' -f1 /tmp/consensus-api.sha256)" --dry-run   # prints every change, makes none
+sudo ~/consensus/deploy/scripts/install.sh --binary /tmp/consensus-api --sha256 "$(cut -d' ' -f1 /tmp/consensus-api.sha256)" --dry-run   # prints every change, makes none (sudo: only root sees inside /etc/consensus)
 sudo ~/consensus/deploy/scripts/install.sh --binary /tmp/consensus-api --sha256 "$(cut -d' ' -f1 /tmp/consensus-api.sha256)"
 rm /tmp/consensus-api /tmp/consensus-api.sha256 /tmp/deploy.tar.gz
 ```
@@ -566,7 +566,7 @@ Fill in every `<placeholder>`:
 | `CONSENSUS_LIVE_JUDGE_CODES_FILE` | `/etc/consensus/judge-codes.sha256`, set only once the file has at least one digest | an empty digest file is a configuration error (`live/judge.rs`) |
 | `CONSENSUS_LIVE_CLIENT_DAILY` | unset: the default `3` | public-lane live runs per client key (IPv4 /32, IPv6 /64) per UTC day; over it `429 live_client_quota` until 00:00 UTC; the judge lane is exempt; process-local, so a restart of `consensus-public` forgets the counts (`live/config.rs`, `live/gate.rs`) |
 | `CONSENSUS_LIVE_JUDGE_CODE_DAILY` | unset: the default `5` | judge-lane live runs per invite code per UTC day; over it the judge lane's daily refusal `429 live_budget_judge_daily`; process-local (`live/config.rs`, `live/gate.rs`) |
-| `CONSENSUS_TURNSTILE_SECRET_FILE` | `/run/credentials/consensus-public.service/turnstile.secret` | required when enabled; commented out in the template until then, because it is read and checked even with live mode off (`live/config.rs` `load_turnstile`): set over an empty or placeholder file, or over a Cloudflare test secret, it stops startup naming it; set it together with the hostname below or not at all |
+| `CONSENSUS_TURNSTILE_SECRET_FILE` | `/run/credentials/consensus-public.service/turnstile.secret` | required when enabled; commented out in the template until then, because it is read and checked even with live mode off (`live/config.rs` `load_turnstile`): set over an empty or unreadable file, or over a Cloudflare test secret, it stops startup naming it; any other text, a placeholder included, is accepted, so check that the real secret replaced it (`deploy-day.md` B3); set it together with the hostname below or not at all |
 | `CONSENSUS_TURNSTILE_HOSTNAME` | `staging.<hostname>` during staging, `<hostname>` from go-live | one bare hostname; Siteverify's `hostname` must equal it (`live/turnstile.rs`); commented out in the template with the secret file above; an unreplaced `<hostname>` stops startup naming it |
 
 Everything else keeps its default, and the defaults are the owner decisions: $10.00 a
@@ -820,7 +820,7 @@ stat -c '%A %U:%G %n' /run/consensus                      # drwxr-s--- consensus
 sudo systemctl enable --now consensus-public.service
 systemctl status consensus-public.service --no-pager
 sudo ss -lxp | grep /run/consensus/public.sock          # the socket, owned by consensus-api
-stat -c '%A %U:%G %n' /run/consensus/public.sock          # srw-rw---- consensus:consensus-sock (the group inherited from the setgid directory)
+sudo stat -c '%A %U:%G %n' /run/consensus/public.sock     # srw-rw---- consensus:consensus-sock (the group inherited from the setgid directory)
 sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' \
      -H 'CF-Connecting-IP: 203.0.113.10' -H 'CF-IPCountry: US' http://localhost/api/v1/health   # without CF-IPCountry: 451 geo_unknown
 # least privilege of cloudflared: the socket yes, everything else no
@@ -1388,11 +1388,11 @@ heartbeats only.
 # server
 pgrep -a hyphae || echo "no hyphae process"                          # no daemon
 sudo ss -lxp | grep -c hyphae                                          # 0
-grep -E '^(HYPHAE_|CONSENSUS_HYPHAE_(PERSONAL|WORK|JOURNAL))' /etc/consensus/public.env || echo "no Hyphae daemon settings"
+sudo grep -E '^(HYPHAE_|CONSENSUS_HYPHAE_(PERSONAL|WORK|JOURNAL))' /etc/consensus/public.env || echo "no Hyphae daemon settings"
 sudo find / -xdev \( -name 'hyphae.sock' -o -path '*/.config/hyphae*' -o -path '*/.local/state/hyphae*' \) 2>/dev/null   # nothing
 getent group docker || echo "no docker group"; command -v docker || echo "docker not installed"
 ls -la /opt/hyphae/bin/ /opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae      # owned by hyphae, 0755
-stat -c '%A %U:%G %n' /var/lib/consensus/snapshots                                     # drwx------ consensus:consensus: witnesses reachable by the service user only
+sudo stat -c '%A %U:%G %n' /var/lib/consensus/snapshots                                # drwx------ consensus:consensus: witnesses reachable by the service user only
 # no writer path: inside the service's mount namespace the snapshot directory is read-only (ProtectSystem=strict)
 pid=$(systemctl show -p MainPID --value consensus-public.service)
 sudo nsenter -t "$pid" -m -- touch /var/lib/consensus/snapshots/.probe 2>&1 | grep -q 'Read-only' && echo "snapshots: read-only in the sandbox"

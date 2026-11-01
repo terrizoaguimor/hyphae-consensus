@@ -168,7 +168,9 @@ the git history (the operator's local time, UTC−05:00); the architecture is de
   the same evidence), only with the owner's spend approval. Without it, no comparative
   claim beyond what the recorded runs show is made. Approved by the owner on 2026-11-01
   (about 4 live runs, cap $5); the tooling and the comparison method are in
-  `docs/evaluation.md` §7; not run yet.
+  `docs/evaluation.md` §7; it ran on 2026-11-01 (B01–B04) and every run failed at its
+  one Meta call with HTTP 400, so no comparative claim exists (§7.7). A re-run needs a
+  fix and a new owner authorization.
 
 ### Owner actions
 

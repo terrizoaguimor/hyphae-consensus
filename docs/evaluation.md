@@ -1024,7 +1024,8 @@ no call timed out, failed or was refused. Every outcome is the policy's (rules 1
 **First live use of the `prompt-freeze-4` schemas (§6.5).** The API accepted all of them:
 the Evaluator's evidence-id `enum` lists (all 7 evaluations, each round having retrieved
 records), the Critic's `anyOf` claim id with both branches answered (a claim id on most
-items, `null` on V01's items 6, 7, 11 and 12), and the keyed `contradiction_verdicts`
+items, no claim id on V01's items 6, 7, 11 and 12, recorded without `claim_id`, i.e. the
+`null` branch, since the strict schema requires the field), and the keyed `contradiction_verdicts`
 object in the three rounds that carried a contradiction (V01 round 2: 2 carried, both
 `cleared`; V02 round 2: 1, `cleared`; V03 round 2: 4, all `cleared`; no `still_contradicts`).
 V03's round 2 is the shape on which M04 failed closed (§6.3: four contradictions carried
@@ -1155,8 +1156,9 @@ operator's, not checked against Meta's billing.
 it ran that day (§7.7): **each of the 4 runs failed at its one Meta call with HTTP 400**,
 before the agent produced anything, and per the owner's rule none was run again. So no
 baseline claim, objection or verdict exists, the comparison of §7.3–§7.4 cannot be made,
-and nothing here supports a comparative claim. §7.1–§7.6 are the plan as written before
-the runs; no number in them is a result.
+and nothing here supports a comparative claim. §7.1–§7.5 are the plan as written before
+the runs, and §7.6 lists the tooling (its archive bullet updated on 2026-11-01); no number
+in them is a result.
 
 **Question.** On the same tasks, with the same model and the same verified evidence, does
 one agent working alone, in one call, approve proposals that the three-role consensus
@@ -1400,7 +1402,8 @@ counts the other way: both need a baseline verdict, and there is none. This is n
 for or against the single agent, or for or against the consensus.
 
 **The HTTP 400, as far as it is known.** The archive records only the status. The adapter
-keeps the status and not the response body, and the driver does not keep the binary's
+keeps only the status unless its opt-in debug directory (`CONSENSUS_META_DEBUG_DIR`) is
+set, and it was not set for these runs; the driver does not keep the binary's
 stderr when it exits 0, so Meta's error message is not recorded anywhere. Minutes
 earlier (22:24–22:34 UTC) the same binary's role calls (§6.6) went through the same adapter path and were
 all accepted; what the baseline call sends differently is its own prompt and its

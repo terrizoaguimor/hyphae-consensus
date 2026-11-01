@@ -291,9 +291,9 @@ validation runs, not a battery whose outcomes are counted as rates.
     unlimited retries.
 - **Objections from earlier rounds.** None was left unjudged: each
   receipt's `earlier_round_objections_never_rejudged` is empty.
-- **Container paths.** 10, 12 and 10 occurrences of `/hyphae-home/…` in the
-  records and logs of V01, V02 and V03 (5, 6 and 5 distinct records
-  retrieved).
+- **Container paths.** 10, 12 and 10 occurrences of `/hyphae-home/…` in each of
+  the two files (run record and log) of V01, V02 and V03 (5, 6 and 5
+  distinct records retrieved).
 
 ## The 2026-11-01 baseline runs (B01–B04)
 

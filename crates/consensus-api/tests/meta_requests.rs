@@ -118,8 +118,15 @@ fn requests_carry_the_documented_parameters_and_invocations_record_them() {
     assert_eq!(inv.safety_identifier_sent, Some(false));
     assert_eq!(inv.attempts, Some(1));
     assert_eq!(inv.schema_name.as_deref(), Some("DraftProposal"));
-    // schema_sha256 is the digest of the strict schema exactly as sent.
-    let sent = serde_json::to_string(&body["response_format"]["json_schema"]["schema"]).unwrap();
+    // schema_sha256 is the digest of the strict schema exactly as sent
+    // (its bytes: since prompt-freeze-3 the properties are in an explicit
+    // order, which a parsed and re-serialized `Value` would re-sort).
+    let request = server.last_request();
+    let sent = raw_schema(&request, "DraftProposal");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(sent).unwrap(),
+        body["response_format"]["json_schema"]["schema"]
+    );
     assert_eq!(
         inv.schema_sha256,
         Some(hex(&Sha256::digest(sent.as_bytes())))

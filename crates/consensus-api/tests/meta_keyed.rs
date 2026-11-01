@@ -34,13 +34,15 @@ const CLAIM_IDS: [&str; 9] = [
 const ITEM_IDS: [&str; 2] = ["item-11", "item-12"];
 
 fn proposal_draft() -> String {
-    let claims: Vec<Value> = (1..=9)
+    let mut claims: Vec<Value> = (1..=9)
         .map(|n| {
             json!({"statement": format!("Retries are capped at 3 attempts with jitter (part {n})")})
         })
         .collect();
-    json!({"summary": "Cap retries at 3 with jitter", "plan_steps": ["Set the cap", "Add jitter"],
-        "claims": claims, "assumptions": [], "uncertainties": []})
+    let primary = claims.remove(0);
+    json!({"summary": "Cap retries at 3 with jitter", "primary_claim": primary,
+        "further_claims": claims, "plan_steps": ["Set the cap", "Add jitter"],
+        "assumptions": [], "uncertainties": []})
     .to_string()
 }
 
@@ -521,4 +523,127 @@ fn a_round_without_objections_keys_an_empty_verdict_object() {
         agg.recommendation.as_ref().map(|r| r.kind),
         Some(RecommendationKind::Supported)
     );
+}
+
+/// The top-level property names of the schema named `name` in a captured
+/// request, in the order sent.
+fn sent_property_order(request: &str, name: &str) -> Vec<String> {
+    let raw = support::raw_schema(request, name);
+    let schema = body_of(request)["response_format"]["json_schema"]["schema"].clone();
+    let mut names: Vec<(usize, String)> = schema["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|k| {
+            let at = raw
+                .find(&format!("\"{k}\":{{"))
+                .unwrap_or_else(|| panic!("{k} missing in {raw}"));
+            (at, k.clone())
+        })
+        .collect();
+    names.sort();
+    names.into_iter().map(|(_, k)| k).collect()
+}
+
+#[test]
+fn every_draft_schema_is_sent_in_its_explicit_order_and_requires_a_primary_claim() {
+    // Prompt-freeze-3 (live R01's empty claims, A1 and A4): the Proposer and
+    // reviser schemas require primary_claim and further_claims, and every
+    // schema lists the fields it most depends on first, in `properties` as
+    // sent and in `required`.
+    let complete = evaluation(&every_assessment(), &every_verdict());
+    let (_, _, server) = deliberate("order-sent", &[proposal_draft(), CRITIQUE.into(), complete]);
+    let requests = server.requests();
+    let propose = body_of(&requests[0])["response_format"]["json_schema"]["schema"].clone();
+    let order = [
+        "summary",
+        "primary_claim",
+        "further_claims",
+        "plan_steps",
+        "assumptions",
+        "uncertainties",
+    ];
+    assert_eq!(required(&propose), order);
+    assert_eq!(sent_property_order(&requests[0], "DraftProposal"), order);
+    assert_eq!(
+        propose["properties"]["primary_claim"]["type"],
+        json!("object")
+    );
+    assert_eq!(
+        propose["properties"]["primary_claim"]["required"],
+        json!(["statement"])
+    );
+    assert!(propose["properties"].get("claims").is_none());
+    assert_strict(&propose);
+
+    let evaluate_order = [
+        "assessments",
+        "item_verdicts",
+        "cleared_contradictions",
+        "abstain",
+        "abstain_reason",
+    ];
+    let evaluate = body_of(&requests[2])["response_format"]["json_schema"]["schema"].clone();
+    assert_eq!(required(&evaluate), evaluate_order);
+    assert_eq!(
+        sent_property_order(&requests[2], "DraftEvaluation"),
+        evaluate_order
+    );
+
+    // The reviser's schema, through the client alone.
+    use consensus_runtime::ports::{ModelClient, RoleContext};
+    let draft = r#"{"summary":"s","primary_claim":{"statement":"Retries are capped at 3"},"further_claims":[],"plan_steps":[],"addressed_items":[],"assumptions":[],"uncertainties":[]}"#;
+    let server = serve(vec![Reply::ok(envelope(draft))]);
+    let mut c = MetaModelClient::new(config(&server.base_url)).unwrap();
+    let earlier = Evaluation {
+        schema_version: SCHEMA_VERSION.into(),
+        run_id: RunId::new("run-1"),
+        target_proposal: ProposalId::new("prop-1"),
+        assessments: vec![],
+        unresolved_items: vec![],
+        item_verdicts: vec![],
+        cleared_contradictions: vec![],
+        abstain: false,
+        abstain_reason: None,
+        created_at: "2026-10-27T09:00:00Z".into(),
+    };
+    let proposal = Proposal {
+        schema_version: SCHEMA_VERSION.into(),
+        id: ProposalId::new("prop-1"),
+        run_id: RunId::new("run-1"),
+        author_role: AgentRole::Proposer,
+        summary: "s".into(),
+        plan_steps: vec![],
+        claims: vec![],
+        assumptions: vec![],
+        uncertainties: vec![],
+        created_at: "2026-10-27T09:00:00Z".into(),
+    };
+    let challenge = Challenge {
+        schema_version: SCHEMA_VERSION.into(),
+        id: ChallengeId::new("chal-1"),
+        run_id: RunId::new("run-1"),
+        target_proposal: ProposalId::new("prop-1"),
+        items: vec![],
+        created_at: "2026-10-27T09:00:00Z".into(),
+    };
+    c.revise(&proposal, &challenge, &earlier, &RoleContext::default())
+        .unwrap();
+    let revise_request = server.last_request();
+    let revise = body_of(&revise_request)["response_format"]["json_schema"]["schema"].clone();
+    let revise_order = [
+        "summary",
+        "primary_claim",
+        "further_claims",
+        "plan_steps",
+        "addressed_items",
+        "assumptions",
+        "uncertainties",
+    ];
+    assert_eq!(required(&revise), revise_order);
+    assert_eq!(
+        sent_property_order(&revise_request, "DraftRevision"),
+        revise_order
+    );
+    assert_strict(&revise);
 }

@@ -603,5 +603,16 @@ fn every_role_keeps_its_system_rules_and_protocol_instructions() {
     ));
     for (_, _, prompt) in [&seen[0], &seen[3]] {
         assert!(prompt.contains("checkable against the project's stored records"));
+        // Prompt-freeze-3 (live R01 proposed no claim at all): both ask
+        // for at least one claim, and say why records cannot be cited.
+        assert!(
+            prompt.contains("Give at least one and at most 12 claims."),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("You are not shown the stored records"),
+            "{prompt}"
+        );
     }
+    assert!(revise.contains("Replace a contradicted claim with the corrected checkable claim instead of only deleting it; the revision must contain at least one claim."));
 }

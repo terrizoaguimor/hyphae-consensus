@@ -54,6 +54,47 @@ pub struct ModelInvocation {
     /// Schema 1.3: HTTP attempts made for this call (retries included).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attempts: Option<u32>,
+    /// Protocol 1.3 hardening (prompt-freeze-3): the answered calls of
+    /// this role call whose output the adapter refused as a form defect or
+    /// as unreadable, and asked again for once (never a judgment). When
+    /// present, `input_tokens`, `output_tokens` and `reasoning_tokens`
+    /// above are the SUM over those calls and this one, so the run's token
+    /// budget charges every billed call; every other field is this call's
+    /// own. Absent on every record written before it existed. Not part of
+    /// the api-v1 contract schema in this window (`schemars(skip)`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub rejected_calls: Option<Vec<RejectedCall>>,
+    /// Protocol 1.3 hardening: SHA-256 (lowercase hex) of the fixed
+    /// corrective sentence appended to the user message of this call's
+    /// re-ask, when there was one. Never model text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub corrective_sha256: Option<String>,
+}
+
+/// An answered model call whose output the adapter refused before asking
+/// again (see [`ModelInvocation::rejected_calls`]): what was billed and
+/// why it was refused, by stable code. Never model text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RejectedCall {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// The refusal's stable code (`model_no_claims`, `meta_bad_envelope`,
+    /// `model_malformed_output`, ...).
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempts: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

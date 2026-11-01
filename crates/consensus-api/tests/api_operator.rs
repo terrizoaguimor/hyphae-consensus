@@ -459,7 +459,7 @@ async fn the_operator_ready_keeps_the_index_error_text_next_to_its_code() {
 /// over `memory=fake` (the reference records): one claim the records
 /// corroborate, an empty critique, an evaluation keyed by the id the
 /// adapter mints for the claim. Three calls.
-const DRAFT_PROPOSAL: &str = r#"{"summary":"Keep retries capped at 3 attempts with jitter","plan_steps":["add jitter to the payment client backoff"],"claims":[{"statement":"Payment timeouts correlate with retry bursts above 5 attempts"}],"assumptions":[],"uncertainties":[]}"#;
+const DRAFT_PROPOSAL: &str = r#"{"summary":"Keep retries capped at 3 attempts with jitter","plan_steps":["add jitter to the payment client backoff"],"primary_claim":{"statement":"Payment timeouts correlate with retry bursts above 5 attempts"},"further_claims":[],"assumptions":[],"uncertainties":[]}"#;
 const DRAFT_CHALLENGE: &str = r#"{"items":[]}"#;
 const DRAFT_EVALUATION: &str = r#"{"assessments":{"claim-2":{"corroborated":true,"relevant_evidence":["ev-fact"],"contradicting_evidence":[],"note":"ev-fact states the correlation"}},"item_verdicts":{},"cleared_contradictions":[],"abstain":false,"abstain_reason":null}"#;
 

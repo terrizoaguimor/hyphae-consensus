@@ -74,7 +74,7 @@ const INPUT_CAP_TOKENS: u64 = 16_000;
 /// claim the cited snapshot record states, an empty critique, and an
 /// evaluation keyed by the id the adapter mints for that claim (`prop-1`,
 /// then `claim-2`) citing a retrieved record. Supported in one round.
-const DRAFT_PROPOSAL: &str = r#"{"summary":"Keep retries capped at 3 attempts with jitter","plan_steps":["add jitter to the payment client backoff"],"claims":[{"statement":"Payment timeouts correlate with retry bursts above 5 attempts"}],"assumptions":[],"uncertainties":[]}"#;
+const DRAFT_PROPOSAL: &str = r#"{"summary":"Keep retries capped at 3 attempts with jitter","plan_steps":["add jitter to the payment client backoff"],"primary_claim":{"statement":"Payment timeouts correlate with retry bursts above 5 attempts"},"further_claims":[],"assumptions":[],"uncertainties":[]}"#;
 const DRAFT_CHALLENGE: &str = r#"{"items":[]}"#;
 
 fn draft_evaluation() -> String {
@@ -821,7 +821,7 @@ fn unverifiable(test: &str) -> SnapshotDir {
 const DRAFT_CHALLENGE_ONE_ITEM: &str = r#"{"items":[{"kind":"missing_test","claim_id":"claim-2","description":"No load test covers the jitter range","evidence_refs":[]}]}"#;
 /// The revision: the same claim (now `claim-6` of `prop-5`) and a plan
 /// with the test, the objection addressed.
-const DRAFT_REVISION: &str = r#"{"summary":"Keep retries capped at 3 attempts with jitter and add a load test","plan_steps":["add jitter to the payment client backoff","add a load test for the jitter range"],"claims":[{"statement":"Payment timeouts correlate with retry bursts above 5 attempts"}],"assumptions":[],"uncertainties":[],"addressed_items":["item-3"]}"#;
+const DRAFT_REVISION: &str = r#"{"summary":"Keep retries capped at 3 attempts with jitter and add a load test","plan_steps":["add jitter to the payment client backoff","add a load test for the jitter range"],"primary_claim":{"statement":"Payment timeouts correlate with retry bursts above 5 attempts"},"further_claims":[],"assumptions":[],"uncertainties":[],"addressed_items":["item-3"]}"#;
 
 /// An evaluation corroborating `claim` from the cited record, with one
 /// verdict on `item-3`.

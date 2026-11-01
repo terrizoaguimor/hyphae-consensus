@@ -765,6 +765,101 @@ record's `hash`; each receipt's `chain.head_hash` is the `hash` of its log's las
 policy re-derivation are the archive's tests (`research_archive`, `research_receipts`,
 added with the archive in `a6cef95`).
 
+### 6.4 prompt-freeze-3 (2026-11-01, after the R01 empty-claims failure)
+
+**Why.** The first public live run on the deployed portal (run `run-d589e1a9`, preset
+`R01-reference`, 2026-11-01; not one of the battery runs above, and not in `research/`)
+ended at its first step: `run_failed`, stage `propose`, code `model_malformed_output`,
+"model returned malformed structured output: draft has no claims". Model
+`muse-wonder-1.0`, 281 input and 2,695 output tokens (2,500 of them reasoning),
+`finish_reason` `stop`, `max_completion_tokens` 16,000, $0.055. Its prompt and schema
+digests were `prompt-freeze-2`'s (§6.3), so the empty `claims` list was a model outcome
+that the schema allowed, not a bad input or a truncation. With the earlier live failures
+(M01 `meta_timeout` and M02 `meta_unavailable` at critique, M04 `evaluation_contract` by
+design, §6.3), it shows that a single answer without claims, or one that cannot be read,
+ended a live run on the first try.
+
+**What changed (phase 1, branch `fix/r8-model-robustness`).**
+- *A claim is required by the schema.* `DraftProposal` and `DraftRevision` replace the
+  `claims` list with `primary_claim` (one required object, inline in the schema, described
+  as "The single most important checkable claim the plan depends on (a concrete value,
+  limit, timeout, retry count or documented rule).") and `further_claims` (a required list,
+  possibly empty, "Further checkable claims, at most 11."). The adapter merges them, primary
+  first, into `Proposal.claims`; the domain documents, the events, the state machine and
+  the runtime contract are unchanged. More than 12 claims, an empty statement and the
+  defensive empty-list check are still refused.
+- *Explicit property order* (the model writes its keys in schema order): Proposer `summary,
+  primary_claim, further_claims, plan_steps, assumptions, uncertainties`; reviser `summary,
+  primary_claim, further_claims, plan_steps, addressed_items, assumptions, uncertainties`;
+  Evaluator `assessments, item_verdicts, cleared_contradictions, abstain, abstain_reason`
+  (abstention last). `required` follows the same order.
+- *Prompts.* The claim guidance (Proposer and reviser) adds "Give at least one and at most
+  12 claims. You are not shown the stored records: state as claims the concrete values and
+  rules your plan depends on (limits, timeouts, retry counts, documented constraints) so
+  retrieved records can confirm or contradict them; only what no stored record could ever
+  settle goes under assumptions or uncertainties." The reviser adds "Replace a contradicted
+  claim with the corrected checkable claim instead of only deleting it; the revision must
+  contain at least one claim." The Critic and Evaluator prompts are unchanged.
+- *One bounded re-ask, in the adapter* (`crates/consensus-api/src/meta.rs`, module doc).
+  Retried once, with the same inputs and one fixed corrective sentence appended to the user
+  message (never model text): a form defect of a proposal or revision (no usable claim,
+  more than 12 claims, an empty statement) and an unreadable answer at any stage (a 2xx
+  body that is not a chat completion, or, with `finish_reason` `stop` or none, missing
+  content or content that does not parse as the draft). Never retried: every refusal of a
+  readable evaluation (unknown, repeated or missing keys, unretrieved or repeated
+  citations, bad clears), a degenerate Critic item, a refusal, a truncation, a filtered or
+  unexpected finish, an adapter fault, a timeout, any HTTP failure and every runtime
+  contract refusal (M04's shape gets exactly one evaluate call, as before). At most one
+  re-ask per role call and two per client (one client per run); the re-ask draws its own
+  attempt from the live ledger, and a refused draw fails the call with `budget_refused`
+  with the first, billed call still on record.
+- *Recording.* The accepted (or finally refused) call's `ModelInvocation` gains two
+  optional fields, absent from every earlier record: `rejected_calls` (request id, code,
+  finish reason, latency, tokens, attempts of the refused call) and `corrective_sha256`.
+  Its `input_tokens`, `output_tokens` and `reasoning_tokens` are the sum over both calls,
+  so the run's token budget charges both (a refused call that reported no usage adds
+  nothing; the ledger charged its attempt at its full estimate). The fields are in the
+  hash-chained log and the operator receipt; they are not part of the api-v1 contract
+  schema in this window (`contract_sha256` unchanged), and the public receipt drops them.
+  One operator line per re-ask: `[meta] re-ask stage=<stage> class=<code>
+  request_id=<id>`.
+- *Refusal reasons without model text.* A refused proposal or revision names its shape,
+  e.g. `draft has no claims (summary 412 chars, primary_claim.statement 0 chars,
+  further_claims 0, plan_steps 4, assumptions 3, uncertainties 2; content 1183 bytes,
+  sha256 1a2b3c4d)`; an unparseable draft adds its size, digest prefix and serde error
+  category. The public surface still shows only the fixed statement for the code.
+- *New failure codes* (new runs only; existing codes unchanged): `model_no_claims` (no
+  usable claim after the re-ask), `model_content_filtered` (`finish_reason`
+  `content_filter`), `model_unexpected_finish` (any other finish reason but `stop` or
+  `length`), `adapter_schema_error` (the adapter could not build its schema or request;
+  nothing is sent) and `meta_bad_envelope` (a 2xx body that is not a chat completion, after
+  the re-ask).
+
+**Digests.** Printed by `cargo test -p consensus-api --lib prompt_freeze_digests --
+--nocapture`. The Evaluator's schema is built per call (its keys are the call's claim and
+item ids); the value shown is for one claim and no objection.
+
+| Role | `prompt_sha256` freeze-2 | `prompt_sha256` freeze-3 | `schema_sha256` freeze-2 | `schema_sha256` freeze-3 |
+|---|---|---|---|---|
+| Proposer | `5107e606…` | `5d9d3593f6556b515ed396f58bb2df3b89701c19bc2ca5a265b93b771c4d4d9a` | `d5119c7c…` | `12d04b11a00e6d0e4085772b981d96cd02b1814c90c1d268d88e7b2ecfc78478` |
+| Critic | `06447d5d…` | unchanged (`06447d5d97f118a38af1b0f3394f694eaf3dd3590dd1d8c9a460f02327670edb`) | `b0d07159…` | unchanged (`b0d0715920223eb5823241670b853cda6f99c5d25719d41c635b858333f35cf9`) |
+| Evaluator | `1a5e2b59…` | unchanged (`1a5e2b598f67bece56fc1991e9b9491305adf2104f6d5e874fc296e482f16770`) | per call | per call (new key order; `1ccf6e2191a55b81a723da06c89d29b44772295acd9d5ff3b1792163f8771260` for one claim) |
+| reviser | `cd6ba25c…` | `b4e7d77d8f96a316761daeace2f8a4c5a2dcb5209042965b6455023f1420b40d` | `5833faa4…` | `e4d33c9346bed089a1d8c85dd736c6be892a3b32378d68047221a7a8a23e03bb` |
+
+Corrective sentences (`corrective_sha256`): `CORRECTIVE_NO_CLAIMS` `0aa416a4…`
+("Your previous answer had no usable claims; primary_claim must hold one concrete
+checkable claim."), `CORRECTIVE_CLAIM_FORM` `fd175af4…` (too many claims or an empty
+statement), `CORRECTIVE_UNREADABLE` `a05a080d…` ("Your previous answer could not be read as
+the required JSON document; answer with the document only.").
+
+**Archives.** Nothing under `research/` changed: the K, L, F, H and M runs and every other
+archived run keep their recorded hashes, and they read, replay and verify unchanged (the
+new fields are absent from them; `research_archive` and `research_receipts` are green, and
+a test reads every M-run invocation back byte for byte). Receipts of runs made after the
+deploy carry the freeze-3 digests, and a run that re-asked carries the extra fields and
+summed tokens: they are not call-for-call comparable with the archived runs. The
+integrator tags the merge commit `prompt-freeze-3` locally.
+
 ## Corrections (2026-10-27, independent audit)
 
 The independent audit of commit `72e422a`

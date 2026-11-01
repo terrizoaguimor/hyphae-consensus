@@ -64,7 +64,32 @@
 //! timeout or any other status could follow a generation that was already
 //! billed. `finish_reason` `length` is truncated output (code
 //! `model_output_truncated`); `message.refusal` is a refusal (code
-//! `model_refusal`).
+//! `model_refusal`); `content_filter` is `model_content_filtered` and any
+//! other finish reason but `stop` is `model_unexpected_finish`, both
+//! refused before the content is read.
+//!
+//! Re-ask (prompt-freeze-3, after live run R01 ended at propose on a draft
+//! with no claims): an answered call whose output is a *form defect* or
+//! *unreadable* is asked again exactly once, with the same inputs and one
+//! fixed corrective sentence ([`CORRECTIVE_NO_CLAIMS`],
+//! [`CORRECTIVE_CLAIM_FORM`], [`CORRECTIVE_UNREADABLE`]) appended to the
+//! user message; model text is never sent back. Form defects are a
+//! proposal or revision with no usable claim (code `model_no_claims`),
+//! more than [`MAX_CLAIMS_PER_PROPOSAL`] claims, or an empty claim
+//! statement. Unreadable is a 2xx body that is not a chat completion
+//! (`meta_bad_envelope`), or, with `finish_reason` `stop` (or none), a
+//! missing `message.content` or content that does not parse as the
+//! draft. Nothing that judges is ever resampled: every refusal of a
+//! readable evaluation (unknown, repeated or missing keys, uncited or
+//! unretrieved citations, bad clears), a degenerate Critic item, a
+//! refusal, a truncation, a filtered or unexpected finish, an adapter
+//! fault (`adapter_schema_error`), a timeout, any HTTP failure and every
+//! runtime contract refusal end the run as before. One re-ask per role
+//! call and at most [`MAX_REASKS_PER_CLIENT`] per client (one client per
+//! run); the re-ask draws its own attempt on the meter. The accepted (or
+//! finally refused) call's invocation lists the refused one under
+//! `rejected_calls` and carries the corrective's digest, its token counts
+//! summed over both calls so the run's token budget charges both.
 //!
 //! Errors (MA-4, SEC-9): every failure carries a stable code ([`codes`])
 //! and a fixed short message for its class. No response body, and no URL,
@@ -173,7 +198,23 @@ const CHECKABLE_CLAIMS: &str = "\
 Each claim must be checkable against the project's stored records (documented constraints, facts, decisions, incident history): \
 state the concrete value, rule, or fact that such a record could confirm or contradict. \
 Put expectations, implementation guesses, and anything no stored record could settle under assumptions or uncertainties instead of claims. \
-Prefer a few precise claims over many broad ones.";
+Prefer a few precise claims over many broad ones. \
+Give at least one and at most 12 claims. \
+You are not shown the stored records: state as claims the concrete values and rules your plan depends on (limits, timeouts, retry counts, documented constraints) so retrieved records can confirm or contradict them; \
+only what no stored record could ever settle goes under assumptions or uncertainties.";
+
+/// The fixed sentences a re-ask appends to the user message, one per
+/// retryable class (see the module doc). Constants, hashed into the
+/// invocation's `corrective_sha256`; never model text.
+pub const CORRECTIVE_NO_CLAIMS: &str = "Your previous answer had no usable claims; primary_claim must hold one concrete checkable claim.";
+pub const CORRECTIVE_CLAIM_FORM: &str = "Your previous answer broke the claim rules; give one primary_claim and at most 11 further_claims, each with a non-empty checkable statement.";
+pub const CORRECTIVE_UNREADABLE: &str = "Your previous answer could not be read as the required JSON document; answer with the document only.";
+
+/// Re-asks one client (one run) may make in all.
+pub const MAX_REASKS_PER_CLIENT: u32 = 2;
+/// Most claims a proposal or revision may carry: `primary_claim` plus at
+/// most 11 `further_claims`.
+pub const MAX_CLAIMS_PER_PROPOSAL: usize = 12;
 
 /// Evaluator guidance. Corroboration needs a Valid record that directly
 /// states the claim; an unsettled claim is reported per claim (the policy
@@ -226,11 +267,20 @@ const MIN_RETRY_HEADROOM: Duration = Duration::from_secs(1);
 // is malformed output, never an empty answer. Unknown extra fields (even a
 // model-invented `recommendation`) are ignored: they cannot reach a decision.
 
+// Prompt-freeze-3: a proposal's claims are `primary_claim` (required, one
+// object) plus `further_claims` (required, possibly empty), so a draft
+// with no claim at all is structurally impossible under strict mode (live
+// R01 returned `claims: []` under the list schema). `build_proposal`
+// merges them, primary first, into the domain `Proposal.claims`. The
+// property order the model sees is set explicitly ([`proposal_schema`]).
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftProposal {
     pub summary: String,
+    /// The single most important checkable claim the plan depends on (a concrete value, limit, timeout, retry count or documented rule).
+    pub primary_claim: DraftClaim,
+    /// Further checkable claims, at most 11.
+    pub further_claims: Vec<DraftClaim>,
     pub plan_steps: Vec<String>,
-    pub claims: Vec<DraftClaim>,
     pub assumptions: Vec<String>,
     pub uncertainties: Vec<String>,
 }
@@ -345,12 +395,15 @@ impl<T: JsonSchema> JsonSchema for Keyed<T> {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftRevision {
     pub summary: String,
+    /// The single most important checkable claim the plan depends on (a concrete value, limit, timeout, retry count or documented rule).
+    pub primary_claim: DraftClaim,
+    /// Further checkable claims, at most 11.
+    pub further_claims: Vec<DraftClaim>,
     pub plan_steps: Vec<String>,
-    pub claims: Vec<DraftClaim>,
-    pub assumptions: Vec<String>,
-    pub uncertainties: Vec<String>,
     /// Challenge ITEM ids this revision addresses.
     pub addressed_items: Vec<String>,
+    pub assumptions: Vec<String>,
+    pub uncertainties: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -559,6 +612,136 @@ pub fn draft_schema<T: JsonSchema>() -> Result<OrderedJson, String> {
     Ok(schema.into())
 }
 
+/// The Proposer's property order, as sent: the model writes its keys in
+/// schema order, so the claims come right after the summary, before the
+/// plan, the assumptions and the uncertainties.
+pub const PROPOSAL_ORDER: [&str; 6] = [
+    "summary",
+    "primary_claim",
+    "further_claims",
+    "plan_steps",
+    "assumptions",
+    "uncertainties",
+];
+/// The reviser's property order, as sent.
+pub const REVISION_ORDER: [&str; 7] = [
+    "summary",
+    "primary_claim",
+    "further_claims",
+    "plan_steps",
+    "addressed_items",
+    "assumptions",
+    "uncertainties",
+];
+/// The Evaluator's property order, as sent: the judgments first, the
+/// abstention last.
+pub const EVALUATION_ORDER: [&str; 5] = [
+    "assessments",
+    "item_verdicts",
+    "cleared_contradictions",
+    "abstain",
+    "abstain_reason",
+];
+
+/// The Proposer's strict schema: [`draft_schema`] of [`DraftProposal`],
+/// `primary_claim` an inline object (no `allOf`), properties and
+/// `required` in [`PROPOSAL_ORDER`].
+pub fn proposal_schema() -> Result<OrderedJson, String> {
+    let mut schema = draft_schema::<DraftProposal>()?;
+    inline_definition(&mut schema, "primary_claim")?;
+    order_properties(&mut schema, &PROPOSAL_ORDER)?;
+    Ok(schema)
+}
+
+/// The reviser's strict schema, as [`proposal_schema`], in
+/// [`REVISION_ORDER`].
+pub fn revision_schema() -> Result<OrderedJson, String> {
+    let mut schema = draft_schema::<DraftRevision>()?;
+    inline_definition(&mut schema, "primary_claim")?;
+    order_properties(&mut schema, &REVISION_ORDER)?;
+    Ok(schema)
+}
+
+/// Puts the top-level `properties` of `schema` in `order`, and its
+/// `required` list too (every property, in that order). The names must
+/// be exactly the schema's properties: a field added to a draft type
+/// without its place in the order is an error, never sent unordered.
+fn order_properties(schema: &mut OrderedJson, order: &[&str]) -> Result<(), String> {
+    let Some(OrderedJson::Object(members)) = schema.get_mut("properties") else {
+        return Err("the schema has no properties".into());
+    };
+    let mut have: Vec<&str> = members.iter().map(|(k, _)| k.as_str()).collect();
+    let mut want: Vec<&str> = order.to_vec();
+    have.sort_unstable();
+    want.sort_unstable();
+    if have != want {
+        return Err(format!(
+            "property order {want:?} does not match the properties {have:?}"
+        ));
+    }
+    let mut ordered = Vec::with_capacity(members.len());
+    for name in order {
+        if let Some(at) = members.iter().position(|(k, _)| k == name) {
+            ordered.push(members.remove(at));
+        }
+    }
+    *members = ordered;
+    schema.set(
+        "required",
+        OrderedJson::Array(
+            order
+                .iter()
+                .map(|name| OrderedJson::Scalar(serde_json::Value::String(name.to_string())))
+                .collect(),
+        ),
+    );
+    Ok(())
+}
+
+/// Replaces the top-level property `field`, a reference to a definition
+/// (`{"$ref"}`, or `{"description", "allOf": [{"$ref"}]}` as schemars
+/// writes a documented field), with that definition inline, its
+/// description first: a plain object schema, the most basic strict-mode
+/// form. The definition stays for other uses (`further_claims` items).
+fn inline_definition(schema: &mut OrderedJson, field: &str) -> Result<(), String> {
+    let property = schema
+        .get("properties")
+        .and_then(|p| p.get(field))
+        .ok_or_else(|| format!("{field}: no such property in the schema"))?;
+    let reference = property
+        .get("$ref")
+        .or_else(|| match property.get("allOf") {
+            Some(OrderedJson::Array(parts)) if parts.len() == 1 => parts[0].get("$ref"),
+            _ => None,
+        });
+    let name = match reference {
+        Some(OrderedJson::Scalar(serde_json::Value::String(r))) => r
+            .strip_prefix("#/definitions/")
+            .ok_or_else(|| format!("{field}: unexpected reference {r}"))?
+            .to_string(),
+        _ => return Err(format!("{field}: not a reference to a definition")),
+    };
+    let definition = schema
+        .get("definitions")
+        .and_then(|d| d.get(&name))
+        .cloned()
+        .ok_or_else(|| format!("{field}: no definition {name}"))?;
+    let OrderedJson::Object(body) = definition else {
+        return Err(format!(
+            "{field}: definition {name} is not an object schema"
+        ));
+    };
+    let mut inline = Vec::with_capacity(body.len() + 1);
+    if let Some(description) = property.get("description").cloned() {
+        inline.push(("description".to_string(), description));
+    }
+    inline.extend(body.into_iter().filter(|(k, _)| k != "description"));
+    if let Some(properties) = schema.get_mut("properties") {
+        properties.set(field, OrderedJson::Object(inline));
+    }
+    Ok(())
+}
+
 /// The Evaluator's strict schema for one call: [`draft_schema`] of
 /// [`DraftEvaluation`] with `assessments` an object whose properties are
 /// exactly `claim_ids` (in that order, the proposal's) and `item_verdicts`
@@ -581,6 +764,7 @@ pub fn evaluation_schema(claim_ids: &[&str], item_ids: &[&str]) -> Result<Ordere
     let mut schema = draft_schema::<DraftEvaluation>()?;
     key_property(&mut schema, "assessments", claim_ids)?;
     key_property(&mut schema, "item_verdicts", item_ids)?;
+    order_properties(&mut schema, &EVALUATION_ORDER)?;
     Ok(schema)
 }
 
@@ -1011,7 +1195,7 @@ Unresolved item ids: {unresolved}
 Evidence:
 {evidence}
 
-Revise the proposal to address every open objection. In addressed_items, list by ITEM id which objections the revision fixes. Drop or fix claims the evidence contradicts and respect documented constraints found in the evidence. {checkable_claims}";
+Revise the proposal to address every open objection. In addressed_items, list by ITEM id which objections the revision fixes. Drop or fix claims the evidence contradicts and respect documented constraints found in the evidence. Replace a contradicted claim with the corrected checkable claim instead of only deleting it; the revision must contain at least one claim. {checkable_claims}";
 
 fn propose_prompt(task: &Task) -> String {
     fill(
@@ -1181,6 +1365,16 @@ pub enum Role {
 
 impl Role {
     pub const ALL: [Role; 4] = [Role::Propose, Role::Critique, Role::Evaluate, Role::Revise];
+
+    /// The orchestrator's stage name for the role's call.
+    pub fn stage(self) -> &'static str {
+        match self {
+            Role::Propose => "propose",
+            Role::Critique => "critique",
+            Role::Evaluate => "evaluate",
+            Role::Revise => "revise",
+        }
+    }
 
     /// Name of the strict structured-output schema the role is asked for.
     pub fn schema_name(self) -> &'static str {
@@ -1575,6 +1769,172 @@ fn config_error(e: ConfigError) -> ModelError {
     provider(codes::CONFIG, e.to_string())
 }
 
+/// The adapter's own fault (a schema or request it could not build):
+/// never retried, and loud in the operator log.
+fn adapter_fault(what: &str, detail: impl std::fmt::Display) -> ModelError {
+    eprintln!("[meta] ALERT adapter_schema_error: {what}: {detail}");
+    provider(
+        run_codes::ADAPTER_SCHEMA_ERROR,
+        format!("the adapter could not build its {what}: {detail}"),
+    )
+}
+
+/// Which corrective sentence a re-ask appends (see the module doc).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Corrective {
+    /// No usable claim (`model_no_claims`).
+    NoClaims,
+    /// Too many claims, or an empty claim statement.
+    ClaimForm,
+    /// The answer could not be read as the draft.
+    Unreadable,
+}
+
+impl Corrective {
+    fn text(self) -> &'static str {
+        match self {
+            Corrective::NoClaims => CORRECTIVE_NO_CLAIMS,
+            Corrective::ClaimForm => CORRECTIVE_CLAIM_FORM,
+            Corrective::Unreadable => CORRECTIVE_UNREADABLE,
+        }
+    }
+}
+
+/// Whether a refused answer may be asked again (once). Internal to this
+/// adapter: the runtime's [`ModelError`] does not change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetryClass {
+    /// A form defect or an unreadable answer: nothing was judged.
+    Retryable(Corrective),
+    /// Everything else, every judgment in particular.
+    Never,
+}
+
+/// A refused call and whether it may be asked again.
+#[derive(Debug)]
+struct Rejection {
+    error: ModelError,
+    retry: RetryClass,
+}
+
+impl From<ModelError> for Rejection {
+    /// Never retried unless said otherwise.
+    fn from(error: ModelError) -> Self {
+        Rejection {
+            error,
+            retry: RetryClass::Never,
+        }
+    }
+}
+
+impl Rejection {
+    fn retryable(error: ModelError, corrective: Corrective) -> Self {
+        Rejection {
+            error,
+            retry: RetryClass::Retryable(corrective),
+        }
+    }
+}
+
+/// Size and digest of an answer's content, for refusal reasons that must
+/// never quote model text (A3).
+#[derive(Debug, Clone)]
+struct ContentPrint {
+    bytes: usize,
+    sha256_prefix: String,
+}
+
+impl ContentPrint {
+    fn of(content: &[u8]) -> Self {
+        ContentPrint {
+            bytes: content.len(),
+            sha256_prefix: sha256_hex(content)[..8].to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for ContentPrint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "content {} bytes, sha256 {}",
+            self.bytes, self.sha256_prefix
+        )
+    }
+}
+
+/// The serde category of a draft parse error (never its text, which can
+/// quote the model's).
+fn serde_category(e: &serde_json::Error) -> &'static str {
+    match e.classify() {
+        serde_json::error::Category::Io => "io",
+        serde_json::error::Category::Syntax => "syntax",
+        serde_json::error::Category::Data => "data",
+        serde_json::error::Category::Eof => "eof",
+    }
+}
+
+/// The shape of a proposal or revision draft, with no model text: field
+/// lengths and counts, then the content's size and digest.
+fn draft_shape(d: &DraftProposal, addressed_items: Option<usize>, print: &ContentPrint) -> String {
+    let addressed = addressed_items
+        .map(|n| format!(", addressed_items {n}"))
+        .unwrap_or_default();
+    format!(
+        "summary {} chars, primary_claim.statement {} chars, further_claims {}, plan_steps {}{addressed}, assumptions {}, uncertainties {}; {print}",
+        d.summary.chars().count(),
+        d.primary_claim.statement.chars().count(),
+        d.further_claims.len(),
+        d.plan_steps.len(),
+        d.assumptions.len(),
+        d.uncertainties.len(),
+    )
+}
+
+/// `accepted` plus `extra`, when `accepted` is known: a call that
+/// reported no usage stays without (the run's budget refuses it), and a
+/// refused call that reported none adds nothing (the ledger charged its
+/// attempt at its full estimate).
+fn add_tokens(accepted: Option<u64>, extra: Option<u64>) -> Option<u64> {
+    accepted.map(|n| n.saturating_add(extra.unwrap_or(0)))
+}
+
+/// The record of a refused call that was asked again.
+fn rejected_call(call: &ModelInvocation, code: &str) -> RejectedCall {
+    RejectedCall {
+        request_id: call.request_id.clone(),
+        code: code.to_string(),
+        finish_reason: call.finish_reason.clone(),
+        latency_ms: call.latency_ms,
+        input_tokens: call.input_tokens,
+        output_tokens: call.output_tokens,
+        reasoning_tokens: call.reasoning_tokens,
+        attempts: call.attempts,
+    }
+}
+
+/// The invocation of a re-ask (`second`, accepted or finally refused):
+/// its own fields, the refused first call under `rejected_calls`, the
+/// corrective's digest, and its token counts SUMMED over both calls, so
+/// the orchestrator's token budget charges both billed calls.
+fn with_rejected(
+    second: ModelInvocation,
+    first: &ModelInvocation,
+    code: &str,
+    corrective: Corrective,
+) -> ModelInvocation {
+    let mut rejected = second.rejected_calls.clone().unwrap_or_default();
+    rejected.push(rejected_call(first, code));
+    ModelInvocation {
+        input_tokens: add_tokens(second.input_tokens, first.input_tokens),
+        output_tokens: add_tokens(second.output_tokens, first.output_tokens),
+        reasoning_tokens: add_tokens(second.reasoning_tokens, first.reasoning_tokens),
+        rejected_calls: Some(rejected),
+        corrective_sha256: Some(sha256_hex(corrective.text().as_bytes())),
+        ..second
+    }
+}
+
 pub struct MetaModelClient {
     cfg: MetaConfig,
     http: reqwest::blocking::Client,
@@ -1592,6 +1952,8 @@ pub struct MetaModelClient {
     /// The live ledger's per-attempt meter, when this client spends a
     /// public reservation (see the module doc).
     meter: Option<Arc<dyn AttemptMeter>>,
+    /// Re-asks made so far ([`MAX_REASKS_PER_CLIENT`]; one client per run).
+    reasks: u32,
 }
 
 impl MetaModelClient {
@@ -1630,6 +1992,7 @@ impl MetaModelClient {
             calls: 0,
             failed: None,
             meter: None,
+            reasks: 0,
         })
     }
 
@@ -1929,20 +2292,22 @@ impl MetaModelClient {
     /// (per call for the Evaluator) that `T` parses (see the module doc
     /// for retries, the time budget and errors). Once the API has
     /// answered, a refused answer carries the call's invocation
-    /// ([`ModelError::after_call`]).
+    /// ([`ModelError::after_call`]); a refusal that may be asked again
+    /// says so ([`RetryClass`]), and the parsed draft comes with its
+    /// content's size and digest.
     fn call<T: DeserializeOwned>(
         &mut self,
         role: Role,
         schema: OrderedJson,
         user: String,
-    ) -> Result<(T, ModelInvocation), ModelError> {
+    ) -> Result<(T, ModelInvocation, ContentPrint), Rejection> {
         self.failed = None;
         self.calls += 1;
         let schema_name = role.schema_name();
         // The digest is of these bytes, and the request body embeds the
         // same serialization of the same document.
         let schema_text = serde_json::to_string(&schema)
-            .map_err(|e| ModelError::malformed(format!("schema build: {e}")))?;
+            .map_err(|e| adapter_fault(&format!("{schema_name} schema"), e))?;
         let request = ChatRequest {
             model: &self.cfg.model,
             messages: [
@@ -1968,7 +2333,7 @@ impl MetaModelClient {
             safety_identifier: self.cfg.safety_identifier.as_deref(),
         };
         let body = serde_json::to_vec(&request)
-            .map_err(|e| ModelError::malformed(format!("request build: {e}")))?;
+            .map_err(|e| adapter_fault(&format!("{schema_name} request"), e))?;
         drop(request);
         let base = ModelInvocation {
             provider: "meta".into(),
@@ -1986,6 +2351,8 @@ impl MetaModelClient {
             reasoning_effort: self.cfg.reasoning_effort.clone(),
             safety_identifier_sent: Some(self.cfg.safety_identifier.is_some()),
             attempts: None,
+            rejected_calls: None,
+            corrective_sha256: None,
         };
         let started = Instant::now();
         let deadline = started + self.cfg.timeout;
@@ -2012,14 +2379,15 @@ impl MetaModelClient {
                         "the Meta API answered but its response did not arrive within the {} s budget",
                         self.cfg.timeout.as_secs()
                     ),
-                ));
+                )
+                .into());
             }
             Err(BodyFailure::TooLarge) => {
                 self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
                 let refused = ModelError::malformed(format!(
                     "response body exceeds {MAX_RESPONSE_BYTES} bytes"
                 ));
-                return Err(self.refused(refused, call));
+                return Err(self.refused(refused, call).into());
             }
             Err(BodyFailure::Read) => {
                 self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
@@ -2027,21 +2395,30 @@ impl MetaModelClient {
                 return Err(provider(
                     codes::TRANSPORT,
                     "the Meta API answered but its response could not be read",
-                ));
+                )
+                .into());
             }
         };
         // An unreadable envelope names no request id or usage: the call is
         // recorded with what is known (its tokens stay unknown). Its text
-        // is upstream text, so only its digest is quoted.
+        // is upstream text, so only its size and digest are quoted. Nothing
+        // was judged: asked again once.
         let parsed = match serde_json::from_slice::<ChatResponse>(&bytes) {
             Ok(parsed) => parsed,
             Err(_) => {
                 self.settle_answered(draw, Outcome::SuccessWithoutUsage, &call)?;
-                let refused = ModelError::malformed(format!(
-                    "response envelope is not a chat completion (body sha256 {})",
-                    &sha256_hex(&bytes)[..16]
+                let refused = ModelError::malformed_with_code(
+                    run_codes::META_BAD_ENVELOPE,
+                    format!(
+                        "response envelope is not a chat completion (body {} bytes, sha256 {})",
+                        bytes.len(),
+                        &sha256_hex(&bytes)[..16]
+                    ),
+                );
+                return Err(Rejection::retryable(
+                    self.refused(refused, call),
+                    Corrective::Unreadable,
                 ));
-                return Err(self.refused(refused, call));
             }
         };
         let choice = parsed.choices.into_iter().next();
@@ -2075,8 +2452,11 @@ impl MetaModelClient {
         };
         self.settle_answered(draw, outcome, &invocation)?;
         let Some(choice) = choice else {
-            let refused = ModelError::malformed("missing choices[0].message.content");
-            return Err(self.refused(refused, invocation));
+            let refused = ModelError::malformed("missing choices[0].message.content (no choice)");
+            return Err(Rejection::retryable(
+                self.refused(refused, invocation),
+                Corrective::Unreadable,
+            ));
         };
         // Opt-in diagnostics: keep the raw structured output (model text
         // only; never the prompt or the key) to audit what the adapter
@@ -2095,7 +2475,9 @@ impl MetaModelClient {
             .as_deref()
             .is_some_and(|r| !r.trim().is_empty())
         {
-            return Err(self.refused(ModelError::Refused { invocation: None }, invocation));
+            return Err(self
+                .refused(ModelError::Refused { invocation: None }, invocation)
+                .into());
         }
         if invocation.finish_reason.as_deref() == Some("length") {
             let refused = ModelError::malformed_with_code(
@@ -2105,19 +2487,119 @@ impl MetaModelClient {
                     self.cfg.max_completion_tokens
                 ),
             );
-            return Err(self.refused(refused, invocation));
+            return Err(self.refused(refused, invocation).into());
         }
+        // Any other stop but `stop` (or none reported) is refused before
+        // the content is read, whatever it holds; never asked again. The
+        // raw value decides: one `api_identifier` would not keep still
+        // counts as unexpected.
+        match choice.finish_reason.as_deref() {
+            None | Some("stop") | Some("length") => {}
+            Some("content_filter") => {
+                let refused = ModelError::malformed_with_code(
+                    run_codes::MODEL_CONTENT_FILTERED,
+                    "model_content_filtered: the provider stopped the output with finish_reason content_filter",
+                );
+                return Err(self.refused(refused, invocation).into());
+            }
+            Some(_) => {
+                let shown = invocation
+                    .finish_reason
+                    .clone()
+                    .unwrap_or_else(|| "(unreadable)".into());
+                let refused = ModelError::malformed_with_code(
+                    run_codes::MODEL_UNEXPECTED_FINISH,
+                    format!(
+                        "model_unexpected_finish: the output stopped with finish_reason {shown}"
+                    ),
+                );
+                return Err(self.refused(refused, invocation).into());
+            }
+        }
+        // From here on the output ended normally: what cannot be read as
+        // the draft was never judged, so it is asked again once.
         let Some(content) = choice.message.content else {
             let refused = ModelError::malformed("missing choices[0].message.content");
-            return Err(self.refused(refused, invocation));
+            return Err(Rejection::retryable(
+                self.refused(refused, invocation),
+                Corrective::Unreadable,
+            ));
         };
+        let print = ContentPrint::of(content.as_bytes());
         // Parse errors can quote the model's text (an invalid value, say):
         // bounded, since the reason is persisted.
         match serde_json::from_str::<T>(&content) {
-            Ok(draft) => Ok((draft, invocation)),
+            Ok(draft) => Ok((draft, invocation, print)),
             Err(e) => {
-                let reason = format!("draft parse: {}", truncate(&e.to_string(), 300));
-                Err(self.refused(ModelError::malformed(reason), invocation))
+                let reason = format!(
+                    "draft parse: {} ({print}, serde category {})",
+                    truncate(&e.to_string(), 300),
+                    serde_category(&e)
+                );
+                Err(Rejection::retryable(
+                    self.refused(ModelError::malformed(reason), invocation),
+                    Corrective::Unreadable,
+                ))
+            }
+        }
+    }
+
+    /// One role call with at most one re-ask (see the module doc).
+    /// `attempt` makes the call and builds the document from `user`, the
+    /// user message; a [`RetryClass::Retryable`] refusal of an answered
+    /// call is asked again with the same message and the class's fixed
+    /// corrective sentence appended, while this client has re-asks left.
+    /// The re-ask's result is final, whatever it is: its invocation then
+    /// lists the refused call ([`with_rejected`]). A re-ask that got no
+    /// readable answer at all (a refused draw, a timeout) fails with its
+    /// own error, and the refused first call stays on the record through
+    /// [`ModelClient::take_failed_invocation`].
+    fn with_reask<D>(
+        &mut self,
+        role: Role,
+        user: String,
+        mut attempt: impl FnMut(&mut Self, String) -> Result<(D, ModelInvocation), Rejection>,
+    ) -> Result<(D, ModelInvocation), ModelError> {
+        let first = match attempt(self, user.clone()) {
+            Ok(done) => return Ok(done),
+            Err(rejection) => rejection,
+        };
+        let corrective = match first.retry {
+            RetryClass::Retryable(c) if self.reasks < MAX_REASKS_PER_CLIENT => c,
+            _ => return Err(first.error),
+        };
+        let Some(first_call) = first.error.invocation().cloned() else {
+            return Err(first.error);
+        };
+        self.reasks += 1;
+        let code = first
+            .error
+            .code()
+            .unwrap_or(run_codes::MODEL_MALFORMED_OUTPUT);
+        eprintln!(
+            "[meta] re-ask stage={} class={code} request_id={}",
+            role.stage(),
+            first_call.request_id.as_deref().unwrap_or("none")
+        );
+        let asked_again = format!("{user}\n\n{}", corrective.text());
+        match attempt(self, asked_again) {
+            Ok((document, call)) => {
+                Ok((document, with_rejected(call, &first_call, code, corrective)))
+            }
+            Err(second) => {
+                let error = second.error;
+                if let Some(call) = error.invocation().cloned() {
+                    let call = with_rejected(call, &first_call, code, corrective);
+                    self.failed = Some(call.clone());
+                    Err(error.after_call(call))
+                } else {
+                    let kept = self.failed.take();
+                    self.failed = Some(match kept {
+                        Some(call) => with_rejected(call, &first_call, code, corrective),
+                        None => first_call,
+                    });
+                    Err(error)
+                }
             }
         }
     }
@@ -2127,18 +2609,17 @@ impl MetaModelClient {
     /// instead, so the billed call is still recorded (TC-7).
     fn answered<D>(
         &mut self,
-        built: Result<D, ModelError>,
+        built: Result<D, Rejection>,
         invocation: ModelInvocation,
-    ) -> Result<(D, ModelInvocation), ModelError> {
+    ) -> Result<(D, ModelInvocation), Rejection> {
         match built {
             Ok(document) => Ok((document, invocation)),
-            Err(e) => Err(self.refused(e, invocation)),
+            Err(r) => Err(Rejection {
+                error: self.refused(r.error, invocation),
+                retry: r.retry,
+            }),
         }
     }
-
-    /// A model emitting unbounded claims would drive unbounded memory
-    /// calls and prompt growth; reject drafts past the cap as malformed.
-    const MAX_CLAIMS_PER_PROPOSAL: usize = 12;
 
     /// Words that only name a challenge category. A description made of
     /// nothing else (live run L02 returned bare `constraint_conflict`
@@ -2177,26 +2658,60 @@ impl MetaModelClient {
         words.len() < 3 || words.iter().all(|w| Self::CATEGORY_WORDS.contains(w))
     }
 
-    fn build_proposal(&mut self, run_id: &RunId, d: DraftProposal) -> Result<Proposal, ModelError> {
-        if d.claims.len() > Self::MAX_CLAIMS_PER_PROPOSAL {
-            return Err(ModelError::malformed(format!(
-                "draft has {} claims (cap {})",
-                d.claims.len(),
-                Self::MAX_CLAIMS_PER_PROPOSAL
-            )));
+    /// The domain proposal of a draft: `primary_claim` then
+    /// `further_claims`, ids minted only once the draft is accepted. A
+    /// model emitting unbounded claims would drive unbounded memory calls
+    /// and prompt growth, so more than [`MAX_CLAIMS_PER_PROPOSAL`] is
+    /// refused; an empty primary statement (or no claim at all) is
+    /// `model_no_claims`, any other empty statement a form defect. Each
+    /// refusal is asked again once, and its reason ends with the draft's
+    /// `shape` ([`draft_shape`]), never its text.
+    fn build_proposal(
+        &mut self,
+        run_id: &RunId,
+        d: DraftProposal,
+        shape: &str,
+    ) -> Result<Proposal, Rejection> {
+        let total = 1 + d.further_claims.len();
+        if total > MAX_CLAIMS_PER_PROPOSAL {
+            return Err(Rejection::retryable(
+                ModelError::malformed(format!(
+                    "draft has {total} claims (cap {MAX_CLAIMS_PER_PROPOSAL}) ({shape})"
+                )),
+                Corrective::ClaimForm,
+            ));
         }
-        if d.claims.is_empty() {
-            return Err(ModelError::malformed("draft has no claims"));
+        let no_claims = || {
+            Rejection::retryable(
+                ModelError::malformed_with_code(
+                    run_codes::MODEL_NO_CLAIMS,
+                    format!("draft has no claims ({shape})"),
+                ),
+                Corrective::NoClaims,
+            )
+        };
+        if d.primary_claim.statement.trim().is_empty() {
+            return Err(no_claims());
         }
-        if let Some(n) = d.claims.iter().position(|c| c.statement.trim().is_empty()) {
-            return Err(ModelError::malformed(format!(
-                "draft claim {} has an empty statement",
-                n + 1
-            )));
+        let mut drafted = Vec::with_capacity(total);
+        drafted.push(d.primary_claim);
+        drafted.extend(d.further_claims);
+        // Unreachable since the claims are primary + further; kept as the
+        // defense it was.
+        if drafted.is_empty() {
+            return Err(no_claims());
+        }
+        if let Some(n) = drafted.iter().position(|c| c.statement.trim().is_empty()) {
+            return Err(Rejection::retryable(
+                ModelError::malformed(format!(
+                    "draft claim {} has an empty statement ({shape})",
+                    n + 1
+                )),
+                Corrective::ClaimForm,
+            ));
         }
         let id = ProposalId::new(self.next_id("prop"));
-        let claims = d
-            .claims
+        let claims = drafted
             .into_iter()
             .map(|c| Claim {
                 id: ClaimId::new(self.next_id("claim")),
@@ -2418,16 +2933,20 @@ impl MetaModelClient {
 /// A schema that could not be built: this adapter's own fault, before any
 /// call, so no invocation stands behind it.
 fn schema_error(e: String) -> ModelError {
-    ModelError::malformed(format!("schema build: {e}"))
+    adapter_fault("schema", e)
 }
 
 impl ModelClient for MetaModelClient {
     fn propose(&mut self, task: &Task) -> Result<(Proposal, ModelInvocation), ModelError> {
-        let schema = draft_schema::<DraftProposal>().map_err(schema_error)?;
-        let (draft, inv) =
-            self.call::<DraftProposal>(Role::Propose, schema, propose_prompt(task))?;
-        let built = self.build_proposal(&task.run_id.clone(), draft);
-        self.answered(built, inv)
+        let schema = proposal_schema().map_err(schema_error)?;
+        let run_id = task.run_id.clone();
+        self.with_reask(Role::Propose, propose_prompt(task), |s, user| {
+            let (draft, inv, print) =
+                s.call::<DraftProposal>(Role::Propose, schema.clone(), user)?;
+            let shape = draft_shape(&draft, None, &print);
+            let built = s.build_proposal(&run_id, draft, &shape);
+            s.answered(built, inv)
+        })
     }
 
     fn critique(
@@ -2436,10 +2955,97 @@ impl ModelClient for MetaModelClient {
         ctx: &RoleContext,
     ) -> Result<(Challenge, ModelInvocation), ModelError> {
         let schema = draft_schema::<DraftChallenge>().map_err(schema_error)?;
-        let (draft, inv) =
-            self.call::<DraftChallenge>(Role::Critique, schema, critique_prompt(proposal, ctx))?;
-        // Label-only items (live L02) passed schema validation but say
-        // nothing; the whole document is rejected, never silently trimmed.
+        let user = critique_prompt(proposal, ctx);
+        self.with_reask(Role::Critique, user, |s, user| {
+            let (draft, inv, _) = s.call::<DraftChallenge>(Role::Critique, schema.clone(), user)?;
+            s.challenge_from_draft(proposal, ctx, draft, inv)
+        })
+    }
+
+    fn evaluate(
+        &mut self,
+        proposal: &Proposal,
+        challenge: &Challenge,
+        ctx: &RoleContext,
+    ) -> Result<(Evaluation, ModelInvocation), ModelError> {
+        // The schema is keyed by exactly the ids the prompt shows, in the
+        // order it shows them: the proposal's claims, then the objections
+        // under evaluation (carried first, then this round's).
+        let expected = under_evaluation(ctx, challenge);
+        let expected_ids: Vec<&str> = expected.iter().map(|(i, _)| i.id.as_str()).collect();
+        let claim_ids: Vec<&str> = proposal.claims.iter().map(|c| c.id.as_str()).collect();
+        let schema = evaluation_schema(&claim_ids, &expected_ids).map_err(schema_error)?;
+        let user = evaluate_prompt(proposal, challenge, ctx);
+        // Only an unreadable answer is asked again: every refusal of a
+        // readable evaluation is a judgment, never resampled.
+        self.with_reask(Role::Evaluate, user, |s, user| {
+            let (draft, inv, _) =
+                s.call::<DraftEvaluation>(Role::Evaluate, schema.clone(), user)?;
+            let built = s
+                .evaluation_from_draft(proposal, ctx, &expected_ids, draft)
+                .map_err(Rejection::from);
+            s.answered(built, inv)
+        })
+    }
+
+    fn revise(
+        &mut self,
+        proposal: &Proposal,
+        challenge: &Challenge,
+        evaluation: &Evaluation,
+        ctx: &RoleContext,
+    ) -> Result<(Revision, ModelInvocation), ModelError> {
+        let schema = revision_schema().map_err(schema_error)?;
+        let user = revise_prompt(proposal, challenge, evaluation, ctx);
+        let expected = under_evaluation(ctx, challenge);
+        let known_items: Vec<&str> = expected.iter().map(|(item, _)| item.id.as_str()).collect();
+        self.with_reask(Role::Revise, user, |s, user| {
+            let (draft, inv, print) =
+                s.call::<DraftRevision>(Role::Revise, schema.clone(), user)?;
+            let addressed_count = draft.addressed_items.len();
+            let addressed: Vec<String> = draft
+                .addressed_items
+                .into_iter()
+                .filter(|id| known_items.contains(&id.as_str()))
+                .collect();
+            let draft = DraftProposal {
+                summary: draft.summary,
+                primary_claim: draft.primary_claim,
+                further_claims: draft.further_claims,
+                plan_steps: draft.plan_steps,
+                assumptions: draft.assumptions,
+                uncertainties: draft.uncertainties,
+            };
+            let shape = draft_shape(&draft, Some(addressed_count), &print);
+            let built = s
+                .build_proposal(&proposal.run_id, draft, &shape)
+                .map(|new_proposal| Revision {
+                    schema_version: SCHEMA_VERSION.into(),
+                    proposal: new_proposal,
+                    supersedes: proposal.id.clone(),
+                    addressed_items: addressed,
+                });
+            s.answered(built, inv)
+        })
+    }
+
+    fn take_failed_invocation(&mut self) -> Option<ModelInvocation> {
+        self.failed.take()
+    }
+}
+
+impl MetaModelClient {
+    /// The challenge a Critic draft states. Label-only items (live L02)
+    /// passed schema validation but say nothing; the whole document is
+    /// refused, never silently trimmed, and never asked again (it is the
+    /// Critic's judgment). Unknown claim and record ids are dropped.
+    fn challenge_from_draft(
+        &mut self,
+        proposal: &Proposal,
+        ctx: &RoleContext,
+        draft: DraftChallenge,
+        inv: ModelInvocation,
+    ) -> Result<(Challenge, ModelInvocation), Rejection> {
         if let Some((n, item)) = draft
             .items
             .iter()
@@ -2452,7 +3058,7 @@ impl ModelClient for MetaModelClient {
                 draft.items.len(),
                 truncate(&item.description, 80)
             ));
-            return Err(self.refused(refused, inv));
+            return Err(self.refused(refused, inv).into());
         }
         let known_claims: Vec<&ClaimId> = proposal.claims.iter().map(|c| &c.id).collect();
         let known_evidence: Vec<&EvidenceId> = ctx.evidence.iter().map(|e| &e.id).collect();
@@ -2487,72 +3093,6 @@ impl ModelClient for MetaModelClient {
             },
             inv,
         ))
-    }
-
-    fn evaluate(
-        &mut self,
-        proposal: &Proposal,
-        challenge: &Challenge,
-        ctx: &RoleContext,
-    ) -> Result<(Evaluation, ModelInvocation), ModelError> {
-        // The schema is keyed by exactly the ids the prompt shows, in the
-        // order it shows them: the proposal's claims, then the objections
-        // under evaluation (carried first, then this round's).
-        let expected = under_evaluation(ctx, challenge);
-        let expected_ids: Vec<&str> = expected.iter().map(|(i, _)| i.id.as_str()).collect();
-        let claim_ids: Vec<&str> = proposal.claims.iter().map(|c| c.id.as_str()).collect();
-        let schema = evaluation_schema(&claim_ids, &expected_ids).map_err(schema_error)?;
-        let (draft, inv) = self.call::<DraftEvaluation>(
-            Role::Evaluate,
-            schema,
-            evaluate_prompt(proposal, challenge, ctx),
-        )?;
-        let built = self.evaluation_from_draft(proposal, ctx, &expected_ids, draft);
-        self.answered(built, inv)
-    }
-
-    fn revise(
-        &mut self,
-        proposal: &Proposal,
-        challenge: &Challenge,
-        evaluation: &Evaluation,
-        ctx: &RoleContext,
-    ) -> Result<(Revision, ModelInvocation), ModelError> {
-        let schema = draft_schema::<DraftRevision>().map_err(schema_error)?;
-        let (draft, inv) = self.call::<DraftRevision>(
-            Role::Revise,
-            schema,
-            revise_prompt(proposal, challenge, evaluation, ctx),
-        )?;
-        let expected = under_evaluation(ctx, challenge);
-        let known_items: Vec<&str> = expected.iter().map(|(item, _)| item.id.as_str()).collect();
-        let addressed: Vec<String> = draft
-            .addressed_items
-            .into_iter()
-            .filter(|id| known_items.contains(&id.as_str()))
-            .collect();
-        let built = self
-            .build_proposal(
-                &proposal.run_id.clone(),
-                DraftProposal {
-                    summary: draft.summary,
-                    plan_steps: draft.plan_steps,
-                    claims: draft.claims,
-                    assumptions: draft.assumptions,
-                    uncertainties: draft.uncertainties,
-                },
-            )
-            .map(|new_proposal| Revision {
-                schema_version: SCHEMA_VERSION.into(),
-                proposal: new_proposal,
-                supersedes: proposal.id.clone(),
-                addressed_items: addressed,
-            });
-        self.answered(built, inv)
-    }
-
-    fn take_failed_invocation(&mut self) -> Option<ModelInvocation> {
-        self.failed.take()
     }
 }
 
@@ -2850,16 +3390,10 @@ mod tests {
             json!(["string", "null"]),
             "optional values stay nullable"
         );
-        assert_eq!(
-            value["required"],
-            json!([
-                "abstain",
-                "abstain_reason",
-                "assessments",
-                "cleared_contradictions",
-                "item_verdicts"
-            ])
-        );
+        // Prompt-freeze-3: the judgments first, the abstention last, in
+        // `properties` as sent and in `required`.
+        assert_eq!(value["required"], json!(EVALUATION_ORDER));
+        assert_eq!(top_level_keys(&schema), EVALUATION_ORDER);
         assert_strict(&value);
 
         // No claims and no objections: empty objects, still strict.
@@ -2894,6 +3428,117 @@ mod tests {
         ] {
             assert_strict(&schema.to_value());
         }
+    }
+
+    fn top_level_keys(schema: &OrderedJson) -> Vec<String> {
+        match schema.get("properties") {
+            Some(OrderedJson::Object(members)) => members.iter().map(|(k, _)| k.clone()).collect(),
+            other => panic!("no properties: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn proposals_and_revisions_require_a_primary_claim_in_an_explicit_order() {
+        for (schema, order) in [
+            (proposal_schema().unwrap(), &PROPOSAL_ORDER[..]),
+            (revision_schema().unwrap(), &REVISION_ORDER[..]),
+        ] {
+            let value = schema.to_value();
+            // As sent: the properties and `required` in the order given,
+            // never serde's alphabetical one.
+            assert_eq!(top_level_keys(&schema), order);
+            assert_eq!(value["required"], json!(order));
+            let text = serde_json::to_string(&schema).unwrap();
+            let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle}"));
+            for pair in order.windows(2) {
+                assert!(
+                    at(&format!("\"{}\":{{", pair[0])) < at(&format!("\"{}\":{{", pair[1])),
+                    "{} before {} in {text}",
+                    pair[0],
+                    pair[1]
+                );
+            }
+            // The primary claim is one required inline object (no allOf),
+            // described; further claims are a described list.
+            let primary = &value["properties"]["primary_claim"];
+            assert_eq!(primary["type"], json!("object"), "{primary}");
+            assert_eq!(primary["required"], json!(["statement"]));
+            assert_eq!(primary["additionalProperties"], json!(false));
+            assert!(primary.get("allOf").is_none() && primary.get("$ref").is_none());
+            assert_eq!(
+                primary["description"],
+                json!("The single most important checkable claim the plan depends on (a concrete value, limit, timeout, retry count or documented rule).")
+            );
+            let further = &value["properties"]["further_claims"];
+            assert_eq!(further["type"], json!("array"));
+            assert_eq!(
+                further["items"],
+                json!({"$ref": "#/definitions/DraftClaim"})
+            );
+            assert_eq!(
+                further["description"],
+                json!("Further checkable claims, at most 11.")
+            );
+            assert!(value["properties"].get("claims").is_none());
+            assert_strict(&value);
+        }
+        // A property without its place in the order is refused, never
+        // sent unordered.
+        let mut schema = draft_schema::<DraftProposal>().unwrap();
+        let err = order_properties(&mut schema, &PROPOSAL_ORDER[..5]).unwrap_err();
+        assert!(err.contains("does not match"), "{err}");
+    }
+
+    /// Prompt-freeze record (docs/evaluation.md): the prompt and schema
+    /// digests per role. `cargo test -p consensus-api --lib
+    /// prompt_freeze_digests -- --nocapture` prints them; the Evaluator's
+    /// schema is per call, shown for one claim and no objection.
+    #[test]
+    fn prompt_freeze_digests() {
+        let evaluate = evaluation_schema(&["claim-1"], &[]).unwrap();
+        for (role, schema) in [
+            (Role::Propose, proposal_schema().unwrap()),
+            (Role::Critique, draft_schema::<DraftChallenge>().unwrap()),
+            (Role::Evaluate, evaluate),
+            (Role::Revise, revision_schema().unwrap()),
+        ] {
+            let schema_sha = sha256_hex(serde_json::to_string(&schema).unwrap().as_bytes());
+            println!(
+                "{:<8} prompt_sha256 {} schema_sha256 {}",
+                role.stage(),
+                role.prompt_sha256(),
+                schema_sha
+            );
+            assert_eq!(schema_sha.len(), 64);
+        }
+        for (name, text) in [
+            ("CORRECTIVE_NO_CLAIMS", CORRECTIVE_NO_CLAIMS),
+            ("CORRECTIVE_CLAIM_FORM", CORRECTIVE_CLAIM_FORM),
+            ("CORRECTIVE_UNREADABLE", CORRECTIVE_UNREADABLE),
+        ] {
+            println!("{name} sha256 {}", sha256_hex(text.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn a_draft_shape_names_counts_and_never_text() {
+        let draft = DraftProposal {
+            summary: "SECRET-SENTINEL summary".into(),
+            primary_claim: DraftClaim {
+                statement: String::new(),
+            },
+            further_claims: vec![],
+            plan_steps: vec!["SECRET-SENTINEL step".into(); 4],
+            assumptions: vec!["a".into(); 3],
+            uncertainties: vec!["u".into(); 2],
+        };
+        let print = ContentPrint::of(b"{\"summary\":\"SECRET-SENTINEL\"}");
+        let shape = draft_shape(&draft, Some(5), &print);
+        assert!(
+            shape.starts_with("summary 23 chars, primary_claim.statement 0 chars, further_claims 0, plan_steps 4, addressed_items 5, assumptions 3, uncertainties 2; content 29 bytes, sha256 "),
+            "{shape}"
+        );
+        assert!(!shape.contains("SECRET"), "{shape}");
     }
 
     #[test]

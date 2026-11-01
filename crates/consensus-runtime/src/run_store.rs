@@ -2663,6 +2663,8 @@ mod tests {
                     reasoning_effort: None,
                     safety_identifier_sent: None,
                     attempts: None,
+                    rejected_calls: None,
+                    corrective_sha256: None,
                 },
             },
         }

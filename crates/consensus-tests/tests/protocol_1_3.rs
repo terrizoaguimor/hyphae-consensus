@@ -293,7 +293,7 @@ fn rt1_round_two_silence_cannot_reach_supported() {
         ],
         false,
     );
-    let (agg, log, _) = rt1_run("rt1-contradiction.jsonl", verdicts_only);
+    let (agg, log, orch) = rt1_run("rt1-contradiction.jsonl", verdicts_only);
     assert!(agg.recommendation.is_none());
     let (stage, code, reason) = failure(&log);
     assert_eq!(
@@ -302,6 +302,16 @@ fn rt1_round_two_silence_cannot_reach_supported() {
     );
     assert!(reason.contains("carried_contradiction_judged"), "{reason}");
     assert!(reason.contains("\"ev-cap\""), "{reason}");
+    // Live M04's shape, fail-closed by design: the refused judgment is
+    // never asked for again (one evaluate call per round).
+    assert_eq!(
+        orch.model
+            .calls
+            .iter()
+            .filter(|c| c.as_str() == "evaluate")
+            .count(),
+        2
+    );
 
     // An explicit judgment keeps the plan-step conflict open: contested.
     let explicit = Evaluation {
@@ -1501,6 +1511,8 @@ fn fully_populated_1_3_events(run: &RunId) -> Vec<NewEvent> {
         reasoning_effort: Some("medium".into()),
         safety_identifier_sent: Some(true),
         attempts: Some(2),
+        rejected_calls: None,
+        corrective_sha256: None,
     };
     let request = ProofRequest {
         operation: "list".into(),

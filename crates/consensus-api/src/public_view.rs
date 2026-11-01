@@ -735,6 +735,11 @@ pub fn sanitize_receipt(mut receipt: RunReceiptV2, surface: Surface) -> RunRecei
         inv.schema_sha256 = None;
         inv.prompt_sha256 = None;
         inv.attempts = None;
+        // Prompt-freeze-3's re-ask record is outside the api-v1 contract
+        // in this window: the operator receipt carries it, the public one
+        // keeps its schema (the summed tokens stay).
+        inv.rejected_calls = None;
+        inv.corrective_sha256 = None;
     }
     receipt
 }
@@ -1000,9 +1005,28 @@ mod tests {
             inv.schema_name = Some("proposal".into());
             inv.max_completion_tokens = Some(4096);
             inv.attempts = Some(2);
+            inv.corrective_sha256 = Some("c".repeat(64));
+            inv.rejected_calls = Some(vec![RejectedCall {
+                request_id: Some("chatcmpl-rejected".into()),
+                code: "model_no_claims".into(),
+                finish_reason: Some("stop".into()),
+                latency_ms: Some(9),
+                input_tokens: Some(3),
+                output_tokens: Some(4),
+                reasoning_tokens: None,
+                attempts: Some(1),
+            }]);
         }
         let operator = sanitize_receipt(receipt.clone(), Surface::Operator);
         assert!(operator.model_invocations[0].prompt_sha256.is_some());
+        assert!(operator.model_invocations[0].rejected_calls.is_some());
+        assert!(operator.model_invocations[0].corrective_sha256.is_some());
+        let text =
+            serde_json::to_string(&sanitize_receipt(receipt.clone(), Surface::Public)).unwrap();
+        assert!(
+            !text.contains("rejected_calls") && !text.contains("corrective_sha256"),
+            "{text}"
+        );
         let public = sanitize_receipt(receipt, Surface::Public);
         assert!(!public.model_invocations.is_empty());
         for inv in &public.model_invocations {

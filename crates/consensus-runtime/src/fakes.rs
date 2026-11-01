@@ -27,6 +27,10 @@ pub struct FakeModelClient {
     pub tokens_per_call: (u64, u64),
     /// Report no usage at all, like a provider that omits it.
     pub omit_usage: bool,
+    /// Invocations to report instead of the generated one, one per call in
+    /// call order while any is left (e.g. an adapter's re-asked call with
+    /// its `rejected_calls`).
+    pub scripted_invocations: VecDeque<ModelInvocation>,
 }
 
 impl FakeModelClient {
@@ -34,7 +38,10 @@ impl FakeModelClient {
         Self::default()
     }
 
-    fn invocation(&self, stage: &str) -> ModelInvocation {
+    fn invocation(&mut self, stage: &str) -> ModelInvocation {
+        if let Some(scripted) = self.scripted_invocations.pop_front() {
+            return scripted;
+        }
         let (input, output) = self.tokens_per_call;
         ModelInvocation {
             provider: "fake".into(),
@@ -56,6 +63,8 @@ impl FakeModelClient {
             reasoning_effort: None,
             safety_identifier_sent: None,
             attempts: None,
+            rejected_calls: None,
+            corrective_sha256: None,
         }
     }
 

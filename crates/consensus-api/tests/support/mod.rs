@@ -119,6 +119,36 @@ pub fn body_of(raw: &str) -> Value {
     serde_json::from_str(body).expect("JSON request body")
 }
 
+/// The raw text of the strict schema named `name` inside a captured
+/// request, exactly as sent (a parsed `Value` would re-sort its keys):
+/// what `schema_sha256` digests.
+pub fn raw_schema<'a>(request: &'a str, name: &str) -> &'a str {
+    let body = request
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b)
+        .expect("a body");
+    let marker = format!("\"json_schema\":{{\"name\":\"{name}\",\"schema\":");
+    let start = body.find(&marker).expect("the named schema") + marker.len();
+    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
+    for (n, &b) in body.as_bytes()[start..].iter().enumerate() {
+        match (in_string, b) {
+            (true, b'\\') if !escaped => escaped = true,
+            (true, b'"') if !escaped => in_string = false,
+            (true, _) => escaped = false,
+            (false, b'"') => in_string = true,
+            (false, b'{') => depth += 1,
+            (false, b'}') => {
+                depth -= 1;
+                if depth == 0 {
+                    return &body[start..=start + n];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unbalanced schema in {body}")
+}
+
 /// Serves `replies` in order, repeating the last one; each connection is
 /// answered on its own thread.
 pub fn serve(replies: Vec<Reply>) -> FakeServer {
@@ -237,7 +267,7 @@ pub fn config(base_url: &str) -> MetaConfig {
     cfg
 }
 
-pub const DRAFT_PROPOSAL: &str = r#"{"summary":"Raise retries","plan_steps":["edit config"],"claims":[{"statement":"Timeouts come from too few retries"}],"assumptions":["upstream is tolerant"],"uncertainties":[]}"#;
+pub const DRAFT_PROPOSAL: &str = r#"{"summary":"Raise retries","plan_steps":["edit config"],"primary_claim":{"statement":"Timeouts come from too few retries"},"further_claims":[],"assumptions":["upstream is tolerant"],"uncertainties":[]}"#;
 
 pub fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("hyphae-consensus-{name}-{}", std::process::id()));

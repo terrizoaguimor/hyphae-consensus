@@ -819,15 +819,28 @@ ended a live run on the first try.
   Its `input_tokens`, `output_tokens` and `reasoning_tokens` are the sum over both calls,
   so the run's token budget charges both (a refused call that reported no usage adds
   nothing; the ledger charged its attempt at its full estimate). The fields are in the
-  hash-chained log and the operator receipt; they are not part of the api-v1 contract
-  schema in this window (`contract_sha256` unchanged), and the public receipt drops them.
-  One operator line per re-ask: `[meta] re-ask stage=<stage> class=<code>
-  request_id=<id>`.
+  hash-chained log and on both the operator and the public receipt (they hold codes,
+  request ids, token counts and a constant's digest, never model text; without them a
+  re-asked call would read publicly as one clean call). They are not named in the api-v1
+  contract schema in this window, which allows extra members (`contract_sha256`
+  unchanged), and the public event stream (`ModelInvocationV1`) does not carry them. A
+  re-ask that gets no answer at all (a refused draw, a timeout) fails with its own code,
+  its reason naming the refusal being asked again, and the billed first call is the
+  record, listed under its own `rejected_calls`. No re-ask is made once the run is
+  cancelled or past `CONSENSUS_RUN_DEADLINE_SECS` (the orchestrator hands the client the
+  run's control). One operator line per re-ask: `[meta] re-ask stage=<stage>
+  class=<code> request_id=<id>`.
+- *Readable Evaluator documents are never re-asked.* For the Evaluator only a syntax or
+  end-of-input parse error counts as unreadable; complete JSON that serde refuses on its
+  data (a repeated member, an invalid value) is a judgment and ends the run.
 - *Refusal reasons without model text.* A refused proposal or revision names its shape,
   e.g. `draft has no claims (summary 412 chars, primary_claim.statement 0 chars,
   further_claims 0, plan_steps 4, assumptions 3, uncertainties 2; content 1183 bytes,
-  sha256 1a2b3c4d)`; an unparseable draft adds its size, digest prefix and serde error
-  category. The public surface still shows only the fixed statement for the code.
+  sha256 1a2b3c4d)`; an unparseable draft names only the fixed parts of the serde message
+  (e.g. `invalid type: string, expected a sequence`, `unknown variant`, `missing field
+  ...`; never a quoted value), its serde category, line and column, and the content's
+  size and digest prefix; a degenerate Critic item names its description's length. The
+  public surface still shows only the fixed statement for the code.
 - *New failure codes* (new runs only; existing codes unchanged): `model_no_claims` (no
   usable claim after the re-ask), `model_content_filtered` (`finish_reason`
   `content_filter`), `model_unexpected_finish` (any other finish reason but `stop` or
@@ -835,9 +848,10 @@ ended a live run on the first try.
   nothing is sent) and `meta_bad_envelope` (a 2xx body that is not a chat completion, after
   the re-ask).
 
-**Digests.** Printed by `cargo test -p consensus-api --lib prompt_freeze_digests --
---nocapture`. The Evaluator's schema is built per call (its keys are the call's claim and
-item ids); the value shown is for one claim and no objection.
+**Digests.** Printed and asserted by `cargo test -p consensus-api --lib
+prompt_freeze_digests -- --nocapture`: a prompt or schema edit fails that test until this
+table is updated with it. The Evaluator's schema is built per call (its keys are the
+call's claim and item ids); the value shown is for one claim and no objection.
 
 | Role | `prompt_sha256` freeze-2 | `prompt_sha256` freeze-3 | `schema_sha256` freeze-2 | `schema_sha256` freeze-3 |
 |---|---|---|---|---|

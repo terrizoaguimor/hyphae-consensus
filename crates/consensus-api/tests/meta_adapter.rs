@@ -1942,12 +1942,44 @@ fn a_readable_judgment_or_a_terminal_stop_is_never_asked_again() {
         envelope(&draft_challenge("constraint_conflict")),
     )]);
     let mut c = client(server.base_url.clone());
-    c.critique(
-        &one_claim_proposal("Raise retries to 10"),
-        &RoleContext::default(),
-    )
-    .unwrap_err();
+    let err = c
+        .critique(
+            &one_claim_proposal("Raise retries to 10"),
+            &RoleContext::default(),
+        )
+        .unwrap_err();
     assert_eq!(hits(&server), 1);
+    // Its size, never its text.
+    let reason = err.to_string();
+    assert!(reason.contains("(description 19 chars)"), "{reason}");
+    assert!(!reason.contains("constraint_conflict"), "{reason}");
+
+    // (d') A syntactically complete evaluation that serde refuses on its
+    // data (a repeated member, an invalid value) is a readable judgment:
+    // never asked again, and its value is never quoted.
+    for draft in [
+        r#"{"assessments":{"claim-1":{"corroborated":true,"note":"n","relevant_evidence":["ev-1"],"contradicting_evidence":[]}},"assessments":{},"item_verdicts":{"item-5":{"status":"unresolved","reason":"r"}},"cleared_contradictions":[],"abstain":false,"abstain_reason":null}"#,
+        r#"{"assessments":{"claim-1":{"corroborated":true,"note":"n","relevant_evidence":["ev-1"],"contradicting_evidence":[]}},"item_verdicts":{"item-5":{"status":"unresolved","reason":"r"}},"cleared_contradictions":[],"abstain":"SECRET-SENTINEL","abstain_reason":null}"#,
+    ] {
+        let server = serve(vec![
+            (200, envelope(draft)),
+            (
+                200,
+                envelope(&evaluation_draft(
+                    &[draft_assessment("claim-1", true, &["ev-1"], &[])],
+                    &[draft_verdict("item-5", "unresolved", "no test")],
+                    serde_json::json!([]),
+                )),
+            ),
+        ]);
+        let mut c = client(server.base_url.clone());
+        let err = c.evaluate(&proposal, &challenge, &ctx).unwrap_err();
+        assert_eq!(hits(&server), 1, "{err}");
+        let reason = err.to_string();
+        assert!(reason.contains("serde category data"), "{reason}");
+        assert!(!reason.contains("SECRET-SENTINEL"), "{reason}");
+        assert!(err.invocation().unwrap().rejected_calls.is_none());
+    }
 
     // (f) Truncation and refusal.
     for (label, message, finish, code) in [
@@ -2045,9 +2077,60 @@ fn a_refused_re_ask_draw_fails_with_budget_refused_and_keeps_the_first_call() {
     let settled = meter.settled.lock().unwrap().clone();
     assert_eq!(settled.len(), 1, "{settled:?}");
     assert!(settled[0].starts_with("Success("), "{settled:?}");
+    // The reason says what was being asked again, the code is the
+    // re-ask's own.
+    assert!(
+        err.to_string()
+            .contains("(while asking again after model_no_claims)"),
+        "{err}"
+    );
     let kept = c.take_failed_invocation().expect("the billed first call");
     assert_eq!(kept.request_id.as_deref(), Some("chatcmpl-test-1"));
     assert_eq!(kept.input_tokens, Some(100));
+    // The first call is listed under its own rejected_calls with its
+    // refusal code (its tokens counted once), with the corrective's
+    // digest: the record shows a refused answer and a failed re-ask.
+    let rejected = kept.rejected_calls.as_deref().expect("the refused call");
+    assert_eq!(rejected.len(), 1);
+    assert_eq!(rejected[0].request_id.as_deref(), Some("chatcmpl-test-1"));
+    assert_eq!(rejected[0].code, "model_no_claims");
+    assert_eq!(
+        kept.corrective_sha256.as_deref(),
+        Some(sha256_hex(consensus_api::meta::CORRECTIVE_NO_CLAIMS).as_str())
+    );
+}
+
+#[test]
+fn no_re_ask_once_the_run_is_cancelled_or_past_its_deadline() {
+    use consensus_runtime::{CancelReason, RunControl};
+    for control in [
+        {
+            let c = RunControl::new();
+            c.cancel(CancelReason::Owner);
+            c
+        },
+        RunControl::with_deadline(std::time::Instant::now()),
+    ] {
+        let server = serve(vec![
+            (200, envelope(R01_EMPTY_PRIMARY)),
+            (200, envelope(DRAFT_PROPOSAL)),
+        ]);
+        let mut c = client(server.base_url.clone());
+        c.observe_control(&control);
+        let err = c.propose(&task()).unwrap_err();
+        assert_eq!(err.code(), Some("model_no_claims"), "{err}");
+        assert_eq!(hits(&server), 1, "no second billed call");
+        assert!(err.invocation().unwrap().rejected_calls.is_none());
+    }
+    // A control that has not tripped leaves the re-ask in place.
+    let server = serve(vec![
+        (200, envelope(R01_EMPTY_PRIMARY)),
+        (200, envelope(DRAFT_PROPOSAL)),
+    ]);
+    let mut c = client(server.base_url.clone());
+    c.observe_control(&consensus_runtime::RunControl::new());
+    c.propose(&task()).unwrap();
+    assert_eq!(hits(&server), 2);
 }
 
 #[test]
@@ -2074,6 +2157,42 @@ fn an_unparseable_draft_reason_names_its_size_digest_and_category() {
     assert!(reason.contains("draft parse: missing field"), "{reason}");
     assert!(reason.contains("content 29 bytes, sha256 "), "{reason}");
     assert!(reason.contains("serde category data"), "{reason}");
+    assert!(!reason.contains("SECRET-SENTINEL"), "{reason}");
+    // serde messages that would quote a value (an invalid type, an
+    // unknown variant) keep only their fixed parts.
+    for (draft, kept) in [
+        (
+            r#"{"summary":"s","primary_claim":{"statement":"x"},"further_claims":"SECRET-SENTINEL","plan_steps":[],"assumptions":[],"uncertainties":[]}"#,
+            "draft parse: invalid type: string, expected a sequence (serde category data, line 1 column ",
+        ),
+        (
+            r#"{"summary":"s","primary_claim":"SECRET-SENTINEL","further_claims":[],"plan_steps":[],"assumptions":[],"uncertainties":[]}"#,
+            "draft parse: invalid type: string, expected struct DraftClaim",
+        ),
+    ] {
+        let server = serve(vec![(200, envelope(draft))]);
+        let mut c = client(server.base_url.clone());
+        let err = c.propose(&task()).unwrap_err();
+        let reason = err.to_string();
+        assert!(reason.contains(kept), "{reason}");
+        assert!(!reason.contains("SECRET-SENTINEL"), "{reason}");
+        let rejected = err.invocation().unwrap().rejected_calls.clone().unwrap();
+        assert_eq!(rejected.len(), 1, "an unreadable proposal is asked again once");
+    }
+    let critique = r#"{"items":[{"kind":"SECRET-SENTINEL","claim_id":null,"description":"A full objection sentence here","evidence_refs":[]}]}"#;
+    let server = serve(vec![(200, envelope(critique))]);
+    let mut c = client(server.base_url.clone());
+    let reason = c
+        .critique(
+            &one_claim_proposal("Raise retries to 10"),
+            &RoleContext::default(),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(
+        reason.contains("draft parse: unknown variant ("),
+        "{reason}"
+    );
     assert!(!reason.contains("SECRET-SENTINEL"), "{reason}");
 }
 

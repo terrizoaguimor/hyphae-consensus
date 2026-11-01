@@ -297,9 +297,18 @@ call past the deadline. The 60 s shutdown grace is shorter than one default call
 **T6. Silent degradation (timeouts, malformed output, truncated or refused output,
 missing fields).** Every model failure fails the run with a stable code next to its reason
 (`orchestrator.rs::codes`, `meta.rs::codes`); `finish_reason: length` is
-`model_output_truncated`, `message.refusal` is `model_refusal`; label-only Critic items and
-empty claims are malformed; a call refused after the provider answered keeps its
-invocation on the record (TC-7). Tests: `model_timeout_fails_run_safely_with_reason`,
+`model_output_truncated`, `message.refusal` is `model_refusal`, `content_filter` is
+`model_content_filtered` and any other finish reason but `stop` is
+`model_unexpected_finish`; a 2xx body that is not a chat completion is
+`meta_bad_envelope`, a schema or request the adapter cannot build is
+`adapter_schema_error`; label-only Critic items and empty claims are malformed, and a
+proposal or revision with no usable claim is `model_no_claims`; a call refused after the
+provider answered keeps its invocation on the record (TC-7). Since `prompt-freeze-3`
+(`docs/evaluation.md` §6.4) a form defect (no usable claim, more than 12 claims, an
+empty statement) or an unreadable answer is asked again once with a fixed corrective
+sentence, never model text, at most twice per run and never once the run has stopped;
+every judgment and every other failure above still ends the run on the first answer.
+Refusal reasons quote no model text (shape counts, sizes, digests, serde categories). Tests: `model_timeout_fails_run_safely_with_reason`,
 `malformed_model_output_fails_at_that_stage`, `label_only_challenge_items_are_malformed`,
 `empty_claim_statement_is_malformed`, `truncated_output_has_its_own_code_and_keeps_the_billed_call`,
 `a_refusal_has_its_own_code_keeps_the_call_and_never_its_text`,
@@ -1029,7 +1038,10 @@ missing ledger directory instead of creating one. Tests:
 reset need shell access to the server; a trip from one 401/402/403 stops live mode until
 an operator resets it.
 
-**T31. Duplicate billing on retries (audit MA-8, TC-7).** Only 429 and 503 are retried,
+**T31. Duplicate billing on retries (audit MA-8, TC-7).** Besides the one bounded re-ask
+of a form defect or an unreadable answer (T6; a second billed generation with its own
+request id and ledger draw, at most two per run, recorded under `rejected_calls` with
+summed tokens on both receipts), only 429 and 503 are retried,
 after `Retry-After` when it fits within 30 s and leaves the retry at least a second, else
 full-jitter backoff from 500 ms, within one time budget per call (default 120 s; 1–3600)
 that also covers the body read; a connection that never opened is retried; a connection

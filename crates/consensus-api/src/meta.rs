@@ -79,7 +79,10 @@
 //! statement. Unreadable is a 2xx body that is not a chat completion
 //! (`meta_bad_envelope`), or, with `finish_reason` `stop` (or none), a
 //! missing `message.content` or content that does not parse as the
-//! draft. Nothing that judges is ever resampled: every refusal of a
+//! draft (for the Evaluator only a syntax or end-of-input error: a
+//! complete JSON evaluation that serde refuses on its data, a duplicate
+//! member say, is a readable judgment). Nothing that judges is ever
+//! resampled: every refusal of a
 //! readable evaluation (unknown, repeated or missing keys, uncited or
 //! unretrieved citations, bad clears), a degenerate Critic item, a
 //! refusal, a truncation, a filtered or unexpected finish, an adapter
@@ -89,7 +92,16 @@
 //! run); the re-ask draws its own attempt on the meter. The accepted (or
 //! finally refused) call's invocation lists the refused one under
 //! `rejected_calls` and carries the corrective's digest, its token counts
-//! summed over both calls so the run's token budget charges both.
+//! summed over both calls so the run's token budget charges both. A
+//! re-ask that got no answer at all (a refused draw, a timeout, a
+//! transport failure) fails with its own code, its reason naming the
+//! refusal being asked again, and the billed first call is the record,
+//! listed under its own `rejected_calls` with its refusal code. No re-ask
+//! is made once the run's [`RunControl`] has tripped (a cancel, the
+//! shutdown or `CONSENSUS_RUN_DEADLINE_SECS`; handed over through
+//! [`ModelClient::observe_control`]): the first refusal then stands.
+//! Refusal reasons never quote model text: a draft parse error names its
+//! serde category, line and column and the content's size and digest.
 //!
 //! Errors (MA-4, SEC-9): every failure carries a stable code ([`codes`])
 //! and a fixed short message for its class. No response body, and no URL,
@@ -135,6 +147,7 @@ use consensus_domain::*;
 use consensus_runtime::contract::{quote, OpenItem};
 use consensus_runtime::orchestrator::codes as run_codes;
 use consensus_runtime::ports::{ModelClient, ModelError, RoleContext};
+use consensus_runtime::RunControl;
 use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER};
 use schemars::JsonSchema;
 use serde::de::{DeserializeOwned, Deserializer, MapAccess, Visitor};
@@ -1874,6 +1887,51 @@ fn serde_category(e: &serde_json::Error) -> &'static str {
     }
 }
 
+/// What a draft parse error says, with every part that could quote the
+/// model's text removed (A3). Kept whole: syntax and end-of-input
+/// messages (fixed texts) and `missing field` / `duplicate field` (the
+/// field is this adapter's own name). `invalid type` and `invalid value`
+/// keep the kind of value found (its first word: `string`, `integer`,
+/// `sequence`, ...) and what was expected (this adapter's type, the text
+/// after the last `, expected `, which follows any quoted value).
+/// `unknown variant` and `unknown field` name neither the variant nor
+/// the field. Any other data message is reduced to `data error`.
+fn serde_summary(e: &serde_json::Error) -> String {
+    let full = e.to_string();
+    // serde_json appends " at line L column C" when it knows the
+    // position; the position is reported separately.
+    let message = match full.rfind(" at line ") {
+        Some(at) if e.line() != 0 => &full[..at],
+        _ => full.as_str(),
+    };
+    use serde_json::error::Category;
+    if matches!(e.classify(), Category::Syntax | Category::Eof) {
+        return truncate(message, 120);
+    }
+    if message.starts_with("missing field `") || message.starts_with("duplicate field `") {
+        return truncate(message, 120);
+    }
+    for prefix in ["invalid type: ", "invalid value: "] {
+        if let Some(rest) = message.strip_prefix(prefix) {
+            let kind: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphabetic())
+                .collect();
+            let expected = message
+                .rsplit_once(", expected ")
+                .map(|(_, expected)| format!(", expected {}", truncate(expected, 80)))
+                .unwrap_or_default();
+            return format!("{prefix}{kind}{expected}");
+        }
+    }
+    for prefix in ["unknown variant", "unknown field", "invalid length"] {
+        if message.starts_with(prefix) {
+            return prefix.to_string();
+        }
+    }
+    "data error".to_string()
+}
+
 /// The shape of a proposal or revision draft, with no model text: field
 /// lengths and counts, then the content's size and digest.
 fn draft_shape(d: &DraftProposal, addressed_items: Option<usize>, print: &ContentPrint) -> String {
@@ -1935,6 +1993,28 @@ fn with_rejected(
     }
 }
 
+/// `error`, a re-ask's failure before any answer, with its reason saying
+/// which refusal was being asked again (its code is unchanged).
+fn after_failed_reask(error: ModelError, refused_code: &str) -> ModelError {
+    let note = format!(" (while asking again after {refused_code})");
+    match error {
+        ModelError::Provider { code, message } => ModelError::Provider {
+            code,
+            message: format!("{message}{note}"),
+        },
+        ModelError::MalformedOutput {
+            reason,
+            invocation,
+            code,
+        } => ModelError::MalformedOutput {
+            reason: format!("{reason}{note}"),
+            invocation,
+            code,
+        },
+        other => other,
+    }
+}
+
 pub struct MetaModelClient {
     cfg: MetaConfig,
     http: reqwest::blocking::Client,
@@ -1954,6 +2034,9 @@ pub struct MetaModelClient {
     meter: Option<Arc<dyn AttemptMeter>>,
     /// Re-asks made so far ([`MAX_REASKS_PER_CLIENT`]; one client per run).
     reasks: u32,
+    /// The run's stop handle ([`ModelClient::observe_control`]): a re-ask
+    /// is skipped once it trips.
+    control: Option<RunControl>,
 }
 
 impl MetaModelClient {
@@ -1993,6 +2076,7 @@ impl MetaModelClient {
             failed: None,
             meter: None,
             reasks: 0,
+            control: None,
         })
     }
 
@@ -2526,20 +2610,30 @@ impl MetaModelClient {
             ));
         };
         let print = ContentPrint::of(content.as_bytes());
-        // Parse errors can quote the model's text (an invalid value, say):
-        // bounded, since the reason is persisted.
+        // A serde message can quote the model's text (`invalid type:
+        // string "..."`, an unknown variant or field) and the reason is
+        // persisted, so only its fixed parts are kept ([`serde_summary`]),
+        // with its category, position and the content's size and digest
+        // (A3).
         match serde_json::from_str::<T>(&content) {
             Ok(draft) => Ok((draft, invocation, print)),
             Err(e) => {
                 let reason = format!(
-                    "draft parse: {} ({print}, serde category {})",
-                    truncate(&e.to_string(), 300),
-                    serde_category(&e)
+                    "draft parse: {} (serde category {}, line {} column {}; {print})",
+                    serde_summary(&e),
+                    serde_category(&e),
+                    e.line(),
+                    e.column()
                 );
-                Err(Rejection::retryable(
-                    self.refused(ModelError::malformed(reason), invocation),
-                    Corrective::Unreadable,
-                ))
+                let refused = self.refused(ModelError::malformed(reason), invocation);
+                // A syntactically complete evaluation that serde refuses on
+                // its data (a duplicate member, say) is a readable
+                // judgment: never resampled. Everything else here could
+                // not be read at all and is asked again once.
+                if role == Role::Evaluate && e.classify() == serde_json::error::Category::Data {
+                    return Err(refused.into());
+                }
+                Err(Rejection::retryable(refused, Corrective::Unreadable))
             }
         }
     }
@@ -2552,8 +2646,10 @@ impl MetaModelClient {
     /// The re-ask's result is final, whatever it is: its invocation then
     /// lists the refused call ([`with_rejected`]). A re-ask that got no
     /// readable answer at all (a refused draw, a timeout) fails with its
-    /// own error, and the refused first call stays on the record through
-    /// [`ModelClient::take_failed_invocation`].
+    /// own error, its reason naming the refusal being asked again, and the
+    /// refused first call stays on the record through
+    /// [`ModelClient::take_failed_invocation`], listed under its own
+    /// `rejected_calls`. No re-ask once the run's control has tripped.
     fn with_reask<D>(
         &mut self,
         role: Role,
@@ -2571,11 +2667,22 @@ impl MetaModelClient {
         let Some(first_call) = first.error.invocation().cloned() else {
             return Err(first.error);
         };
-        self.reasks += 1;
         let code = first
             .error
             .code()
             .unwrap_or(run_codes::MODEL_MALFORMED_OUTPUT);
+        // A run that was cancelled, or reached its deadline, during the
+        // first call gets no second billed call: the refusal stands and
+        // the orchestrator records it.
+        if self.control.as_ref().and_then(RunControl::check).is_some() {
+            eprintln!(
+                "[meta] re-ask skipped stage={} class={code} request_id={}: the run is stopping",
+                role.stage(),
+                first_call.request_id.as_deref().unwrap_or("none")
+            );
+            return Err(first.error);
+        }
+        self.reasks += 1;
         eprintln!(
             "[meta] re-ask stage={} class={code} request_id={}",
             role.stage(),
@@ -2593,12 +2700,26 @@ impl MetaModelClient {
                     self.failed = Some(call.clone());
                     Err(error.after_call(call))
                 } else {
-                    let kept = self.failed.take();
-                    self.failed = Some(match kept {
-                        Some(call) => with_rejected(call, &first_call, code, corrective),
-                        None => first_call,
-                    });
-                    Err(error)
+                    match self.failed.take() {
+                        Some(call) => {
+                            self.failed = Some(with_rejected(call, &first_call, code, corrective));
+                            Err(error)
+                        }
+                        // The re-ask got no answer (a refused draw, a
+                        // timeout, a transport failure): the billed first
+                        // call is the record, listed under its own
+                        // `rejected_calls` with its refusal code (its
+                        // tokens counted once) and the corrective's
+                        // digest, and the reason says a re-ask failed.
+                        None => {
+                            self.failed = Some(ModelInvocation {
+                                rejected_calls: Some(vec![rejected_call(&first_call, code)]),
+                                corrective_sha256: Some(sha256_hex(corrective.text().as_bytes())),
+                                ..first_call
+                            });
+                            Err(after_failed_reask(error, code))
+                        }
+                    }
                 }
             }
         }
@@ -3032,6 +3153,10 @@ impl ModelClient for MetaModelClient {
     fn take_failed_invocation(&mut self) -> Option<ModelInvocation> {
         self.failed.take()
     }
+
+    fn observe_control(&mut self, control: &RunControl) {
+        self.control = Some(control.clone());
+    }
 }
 
 impl MetaModelClient {
@@ -3052,11 +3177,12 @@ impl MetaModelClient {
             .enumerate()
             .find(|(_, i)| Self::is_degenerate_description(&i.description))
         {
+            // Its size, never its text (A3): the reason is persisted.
             let refused = ModelError::malformed(format!(
-                "challenge item {} of {} states no objection (description {:?})",
+                "challenge item {} of {} states no objection (description {} chars)",
                 n + 1,
                 draft.items.len(),
-                truncate(&item.description, 80)
+                item.description.chars().count()
             ));
             return Err(self.refused(refused, inv).into());
         }
@@ -3489,35 +3615,106 @@ mod tests {
         assert!(err.contains("does not match"), "{err}");
     }
 
-    /// Prompt-freeze record (docs/evaluation.md): the prompt and schema
-    /// digests per role. `cargo test -p consensus-api --lib
-    /// prompt_freeze_digests -- --nocapture` prints them; the Evaluator's
-    /// schema is per call, shown for one claim and no objection.
+    /// Prompt-freeze record (docs/evaluation.md section 6.4): the prompt
+    /// and schema digests per role, asserted, so a prompt or schema edit
+    /// fails here until the freeze record is updated with it. `cargo test
+    /// -p consensus-api --lib prompt_freeze_digests -- --nocapture` prints
+    /// them; the Evaluator's schema is per call, recorded for one claim
+    /// (`claim-1`) and no objection.
     #[test]
     fn prompt_freeze_digests() {
         let evaluate = evaluation_schema(&["claim-1"], &[]).unwrap();
-        for (role, schema) in [
-            (Role::Propose, proposal_schema().unwrap()),
-            (Role::Critique, draft_schema::<DraftChallenge>().unwrap()),
-            (Role::Evaluate, evaluate),
-            (Role::Revise, revision_schema().unwrap()),
+        // (role, schema, recorded prompt_sha256, recorded schema_sha256)
+        for (role, schema, prompt_sha, schema_sha) in [
+            (
+                Role::Propose,
+                proposal_schema().unwrap(),
+                "5d9d3593f6556b515ed396f58bb2df3b89701c19bc2ca5a265b93b771c4d4d9a",
+                "12d04b11a00e6d0e4085772b981d96cd02b1814c90c1d268d88e7b2ecfc78478",
+            ),
+            (
+                Role::Critique,
+                draft_schema::<DraftChallenge>().unwrap(),
+                "06447d5d97f118a38af1b0f3394f694eaf3dd3590dd1d8c9a460f02327670edb",
+                "b0d0715920223eb5823241670b853cda6f99c5d25719d41c635b858333f35cf9",
+            ),
+            (
+                Role::Evaluate,
+                evaluate,
+                "1a5e2b598f67bece56fc1991e9b9491305adf2104f6d5e874fc296e482f16770",
+                "1ccf6e2191a55b81a723da06c89d29b44772295acd9d5ff3b1792163f8771260",
+            ),
+            (
+                Role::Revise,
+                revision_schema().unwrap(),
+                "b4e7d77d8f96a316761daeace2f8a4c5a2dcb5209042965b6455023f1420b40d",
+                "e4d33c9346bed089a1d8c85dd736c6be892a3b32378d68047221a7a8a23e03bb",
+            ),
         ] {
-            let schema_sha = sha256_hex(serde_json::to_string(&schema).unwrap().as_bytes());
+            let actual_schema = sha256_hex(serde_json::to_string(&schema).unwrap().as_bytes());
+            let actual_prompt = role.prompt_sha256();
             println!(
                 "{:<8} prompt_sha256 {} schema_sha256 {}",
                 role.stage(),
-                role.prompt_sha256(),
-                schema_sha
+                actual_prompt,
+                actual_schema
             );
-            assert_eq!(schema_sha.len(), 64);
+            assert_eq!(
+                actual_prompt,
+                prompt_sha,
+                "{} prompt changed: update the freeze record in docs/evaluation.md",
+                role.stage()
+            );
+            assert_eq!(
+                actual_schema,
+                schema_sha,
+                "{} schema changed: update the freeze record in docs/evaluation.md",
+                role.stage()
+            );
         }
-        for (name, text) in [
-            ("CORRECTIVE_NO_CLAIMS", CORRECTIVE_NO_CLAIMS),
-            ("CORRECTIVE_CLAIM_FORM", CORRECTIVE_CLAIM_FORM),
-            ("CORRECTIVE_UNREADABLE", CORRECTIVE_UNREADABLE),
+        // The corrective sentences, recorded by digest prefix.
+        for (name, text, prefix) in [
+            ("CORRECTIVE_NO_CLAIMS", CORRECTIVE_NO_CLAIMS, "0aa416a4"),
+            ("CORRECTIVE_CLAIM_FORM", CORRECTIVE_CLAIM_FORM, "fd175af4"),
+            ("CORRECTIVE_UNREADABLE", CORRECTIVE_UNREADABLE, "a05a080d"),
         ] {
-            println!("{name} sha256 {}", sha256_hex(text.as_bytes()));
+            let digest = sha256_hex(text.as_bytes());
+            println!("{name} sha256 {digest}");
+            assert!(digest.starts_with(prefix), "{name} changed: {digest}");
         }
+    }
+
+    #[test]
+    fn a_serde_summary_keeps_fixed_parts_and_never_model_text() {
+        let summary = |text: &str| {
+            let e = serde_json::from_str::<DraftProposal>(text).unwrap_err();
+            serde_summary(&e)
+        };
+        // A string where a list belongs: the value is not quoted, even
+        // when it imitates the expected part.
+        let s = summary(
+            r#"{"summary":"s","primary_claim":{"statement":"x"},"further_claims":"SECRET-SENTINEL, expected nothing","plan_steps":[],"assumptions":[],"uncertainties":[]}"#,
+        );
+        assert_eq!(s, "invalid type: string, expected a sequence");
+        let s = summary(r#"{"summary":true}"#);
+        assert_eq!(s, "invalid type: boolean, expected a string");
+        let s = summary(r#"{"summary":"SECRET-SENTINEL"}"#);
+        assert!(s.starts_with("missing field `"), "{s}");
+        let s = summary(r#"{"summary":"SECRET-SENTINEL", "#);
+        assert!(s.starts_with("EOF while parsing"), "{s}");
+        assert!(!s.contains("line"), "{s}");
+        // An unknown variant names neither itself nor the alternatives.
+        let e = serde_json::from_str::<DraftChallenge>(
+            r#"{"items":[{"kind":"SECRET-SENTINEL","claim_id":null,"description":"d","evidence_refs":[]}]}"#,
+        )
+        .unwrap_err();
+        assert_eq!(serde_summary(&e), "unknown variant");
+        // A key a backtick could hide inside is never shown either.
+        let e = serde_json::from_str::<DraftChallenge>(
+            r#"{"items":[{"kind":"a`SECRET-SENTINEL`b","claim_id":null,"description":"d","evidence_refs":[]}]}"#,
+        )
+        .unwrap_err();
+        assert!(!serde_summary(&e).contains("SECRET"));
     }
 
     #[test]

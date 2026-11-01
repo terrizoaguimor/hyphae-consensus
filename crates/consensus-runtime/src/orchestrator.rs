@@ -385,6 +385,10 @@ impl<M: ModelClient, Mem: MemoryClient, V: ProofVerifier, C: Clock, I: IdGen>
             calls: 0,
         };
 
+        // The client learns the run's stop handle (its bounded re-ask is
+        // skipped once the run stops).
+        self.model.observe_control(control);
+
         // Stage 1: proposal.
         if let Some(stop) = control.check() {
             return self.stop(sink, agg, stop, "propose call");
@@ -1134,6 +1138,8 @@ mod tests {
         inner: FakeModelClient,
         control: RunControl,
         cancel_during: usize,
+        /// The stop handle the orchestrator handed over.
+        observed: Option<RunControl>,
     }
 
     impl CancellingModel {
@@ -1180,6 +1186,9 @@ mod tests {
             self.after_call();
             out
         }
+        fn observe_control(&mut self, control: &RunControl) {
+            self.observed = Some(control.clone());
+        }
     }
 
     #[test]
@@ -1200,6 +1209,7 @@ mod tests {
                 inner: s.model,
                 control: control.clone(),
                 cancel_during,
+                observed: None,
             };
             let name = format!("cancel-during-call-{cancel_during}.jsonl");
             let mut log = EventLog::open(temp_log(&name)).unwrap();
@@ -1210,6 +1220,10 @@ mod tests {
             // The call in flight completed and its document was recorded;
             // no later call was made.
             assert_eq!(orch.model.inner.calls.len(), cancel_during);
+            // The client was handed the run's own stop handle (the Meta
+            // adapter skips its re-ask once it trips).
+            let observed = orch.model.observed.as_ref().expect("the run's control");
+            assert!(observed.check().is_some(), "{name}: the same handle");
             assert_eq!(agg.invocations.len(), cancel_during, "{name}");
             let reason = format!("cancelled by the run's owner before the {next_checkpoint}");
             assert_eq!(failure(&log), ("cancelled", reason.as_str()), "{name}");

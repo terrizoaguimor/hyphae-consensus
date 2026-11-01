@@ -113,7 +113,10 @@ a changed snapshot is refused at admission before any model call (ADR-0007, ADR-
   revising when no previously open objection was resolved in the last round (set-based
   since protocol 1.3, with run-unique item ids; schema 1.2 runs used a count-based rule,
   audit finding RT-7). A revision may also follow an abstention that still lists
-  unresolved items. At most 9 model calls, 20 distinct evidence records, and
+  unresolved items. At most 9 role calls plus at most 2 bounded re-asks per run (the
+  Meta adapter asks again, once per role call, only an answer with no usable claim or one
+  it could not read, never a judgment; [evaluation.md §6.4](evaluation.md)), 20 distinct
+  evidence records, and
   `CONSENSUS_MAX_RUN_TOKENS` (default 150,000) input + output tokens per run (public live
   runs use `CONSENSUS_LIVE_RUN_TOKEN_CAP`, default 70,000), enforced by the runtime after each call, so a run can overshoot
   by one call; at most 12 claims per proposal from the Meta adapter. A run that crosses

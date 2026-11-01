@@ -2029,4 +2029,78 @@ mod tests {
         assert_eq!(log.len(), len);
         assert_eq!(orch.model.calls.len(), calls, "no model call was made");
     }
+
+    /// Live run M01 (2026-10-30, `research/2026-10-30/.../M01.json`): the
+    /// seven answered calls' (input, output) tokens, then two p90 round-3
+    /// calls (critique 2.5k in + 5.8k out, evaluate 2.5k in + 6.4k out)
+    /// in place of the critique that timed out: a full three-round run.
+    const M01_THREE_ROUNDS: [(&str, u64, u64); 9] = [
+        ("propose", 281, 2_936),
+        ("critique", 1_159, 4_458),
+        ("evaluate", 1_977, 6_003),
+        ("revise", 2_542, 2_995),
+        ("critique", 2_004, 6_780),
+        ("evaluate", 2_563, 7_086),
+        ("revise", 2_108, 3_050),
+        ("critique", 2_500, 5_800),
+        ("evaluate", 2_500, 6_400),
+    ];
+
+    /// The first call after which a run capped at `cap` fails its token
+    /// budget, if any.
+    fn first_over_budget(cap: u64) -> Option<(usize, &'static str)> {
+        let mut budget = TokenBudget {
+            cap,
+            used: 0,
+            calls: 0,
+        };
+        M01_THREE_ROUNDS
+            .iter()
+            .enumerate()
+            .find_map(|(i, (stage, input, output))| {
+                let call = ModelInvocation {
+                    provider: "meta".into(),
+                    model: "muse-wonder-1.0".into(),
+                    request_id: None,
+                    latency_ms: None,
+                    input_tokens: Some(*input),
+                    output_tokens: Some(*output),
+                    finish_reason: Some("stop".into()),
+                    reasoning_tokens: None,
+                    max_completion_tokens: Some(16_000),
+                    schema_name: None,
+                    schema_sha256: None,
+                    prompt_sha256: None,
+                    reasoning_effort: None,
+                    safety_identifier_sent: Some(true),
+                    attempts: Some(1),
+                };
+                budget.charge(stage, &call).map(|(code, _)| {
+                    assert_eq!(code, codes::TOKEN_BUDGET_EXCEEDED);
+                    (i, *stage)
+                })
+            })
+    }
+
+    #[test]
+    fn a_three_round_m01_run_fits_the_90k_cap_with_room_and_the_70k_cap_barely() {
+        let total: u64 = M01_THREE_ROUNDS.iter().map(|(_, i, o)| i + o).sum();
+        // M01's seven calls used 45,942 tokens (docs/evaluation.md §6.3).
+        let m01: u64 = M01_THREE_ROUNDS[..7].iter().map(|(_, i, o)| i + o).sum();
+        assert_eq!(m01, 45_942);
+        assert_eq!(total, 63_142);
+        // 90,000 (round 8, public.env): no token_budget_exceeded, with
+        // 26,858 tokens to spare.
+        assert_eq!(first_over_budget(90_000), None);
+        // 70,000, the cap deployed on 2026-11-01: these p90 figures still
+        // fit, but with 6,858 tokens (under 10 %) to spare...
+        assert_eq!(first_over_budget(70_000), None);
+        assert!((70_000 - total) * 10 < 70_000);
+        // ...and the budget is checked after each call: a cap one token
+        // below the total fails the run after its last, already billed,
+        // evaluation (M01's own round-2 evaluation was 9,649 tokens, 749
+        // above the p90 used here).
+        assert_eq!(first_over_budget(total - 1), Some((8, "evaluate")));
+        assert_eq!(first_over_budget(total), None, "the cap is inclusive");
+    }
 }

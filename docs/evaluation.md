@@ -622,6 +622,13 @@ M03, the runs with a recorded round-2 evaluation; M02 and M04 recorded one evalu
   would leave nothing on the record, so M02's call made at least 1 HTTP attempt. Both runs had already produced judged rounds (M01 two,
   M02 one) whose verification records are all `valid`; their last revision was never
   critiqued or evaluated.
+  *Note, 2026-11-01 (after this battery; its records are unchanged):* the adapter now
+  retries HTTP 500 and 502 once per call (`docs/meta-api.md`, ADR-0002 note of
+  2026-11-01), so M02's HTTP 500 would now be retried once; a call answered after such a
+  retry records `attempts: 2`, and the failed attempt may bill one duplicate generation.
+  A timeout like M01's is still never retried. A call is also bounded by the run's
+  deadline now (code `run_deadline_reached`). None of this changes the schemas, the
+  prompts, the events or the policy.
 - **Protocol (2 runs).** M03: the policy (rules 1.2) returned `supported` under rule
   `all_checks_passed`. M04: the evaluation contract refused the round-2 evaluation and failed
   the run (`evaluation_contract`), before the evaluation was recorded.

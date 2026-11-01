@@ -187,3 +187,32 @@ decisions are kept as history; the current behaviour is:
   `attempts: 2` on the answering call (smoke run K02 motivated this). The
   request also bounds the output (`max_completion_tokens`, 16,000 by default)
   and records `finish_reason`, `refusal` and the reasoning tokens.
+
+## Note — 2026-11-01: 5xx retries, the run deadline and shutdown
+
+After the first public live runs (M01 `meta_timeout` and M02 `meta_unavailable`
+HTTP 500, both at critique; `docs/evaluation.md` §6.3):
+
+- **Decision 4 (retries), amended**: HTTP 500 and 502 are retried **once per
+  call**, within the attempt budget, the call's time budget and the 1 s headroom
+  rule, after `Retry-After` when it fits (else the call fails at once with that
+  status) or after the full-jitter backoff. The failed attempt may already have
+  been billed: it stays settled at its full estimate on the live ledger, and the
+  retry can bill **at most one duplicate generation per call**, which no
+  invocation records (the answering call shows `attempts: 2`). 504 is still never
+  retried (the gateway gave up on a generation that may have completed upstream),
+  nor are timeouts or 400/401/402/403/404/413. 429 and 503 keep their retries up
+  to the attempt budget; 503 is still charged at the estimate.
+- **Run deadline**: the run manager binds the client to the run's control
+  (`ModelClient::bind_run_control`). A call's budget is
+  `min(started + timeout, run deadline)`; with less than `MIN_CALL_WINDOW` (30 s)
+  left the call is refused before any ledger draw or request, code
+  `run_deadline_reached`, which a call cut short by the run deadline also gets.
+- **Shutdown**: a call still in progress once the shutdown grace has passed
+  (public server: one call budget plus 10 s, at least 60 s) is abandoned when the
+  run's `RunControl::abort_in_flight` is set: the attempt is settled at its
+  estimate and the run fails with code `shutdown`, so its reservation is released
+  before the server returns.
+- **Connections**: pooled connections idle for more than 5 s are never reused.
+- **`CONSENSUS_MODEL_TIMEOUT_SECS`** is strict (1 to 3600 whole seconds); an
+  invalid value stops the server instead of falling back to 120 s.

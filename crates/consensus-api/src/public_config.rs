@@ -27,7 +27,7 @@
 //! | `CONSENSUS_SESSION_MAX` | `50000` | Bound of the server-side session table (LRU eviction). |
 //! | `CONSENSUS_GUIDED_CONCURRENCY` | `4` | Guided deliberations running at once. |
 //! | `CONSENSUS_LIVE_CONCURRENCY` | `1` | Live (Meta) deliberations running at once. |
-//! | `CONSENSUS_RUN_DEADLINE_SECS` | `900` | Wall-clock deadline of one deliberation; the run fails at its next checkpoint once reached. |
+//! | `CONSENSUS_RUN_DEADLINE_SECS` | `900` | Wall-clock deadline of one deliberation; the run fails at its next checkpoint once reached. A model call never outlives it: each call's budget is cut to it, and a call with less than 30 s left is not made (code `run_deadline_reached`, nothing drawn or sent; `crate::meta::MIN_CALL_WINDOW`). |
 //! | `CONSENSUS_SSE_MAX_PER_RUN` | `8` | Concurrent event streams per run. |
 //! | `CONSENSUS_SSE_MAX_PER_CLIENT` | `8` | Concurrent event streams per client key (IPv4 /32 or IPv6 /64). |
 //! | `CONSENSUS_SSE_MAX_GLOBAL` | `512` | Concurrent event streams in the process. |
@@ -63,6 +63,27 @@ pub const DEFAULT_PUBLIC_SOCKET: &str = "/run/consensus/public.sock";
 pub const DEFAULT_OPERATOR_BIND: &str = "127.0.0.1:8787";
 /// Request body limit on every API route, in bytes.
 pub const BODY_LIMIT_BYTES: usize = 16 * 1024;
+/// The least a server waits at shutdown for its runs to reach a
+/// checkpoint.
+pub const SHUTDOWN_GRACE_FLOOR: Duration = Duration::from_secs(60);
+/// What the public server's shutdown grace adds to one model call's
+/// budget.
+pub const SHUTDOWN_GRACE_MARGIN: Duration = Duration::from_secs(10);
+
+/// The public server's shutdown grace with live mode enabled: one model
+/// call's whole budget plus [`SHUTDOWN_GRACE_MARGIN`], at least
+/// [`SHUTDOWN_GRACE_FLOOR`] (250 s at the 240 s public timeout). A call in
+/// progress at the stop signal can then be answered and recorded; one
+/// still in progress after the grace is abandoned and settled at its
+/// estimate, and its reservation released, before the server returns
+/// ([`crate::runs::RunManager::shutdown`]). The service's stop timeout
+/// must exceed the grace plus [`crate::runs::ABORT_SETTLE_WAIT`] (the
+/// unit's `TimeoutStopSec=280` at 250 s).
+pub fn public_shutdown_grace(model_timeout: Duration) -> Duration {
+    model_timeout
+        .saturating_add(SHUTDOWN_GRACE_MARGIN)
+        .max(SHUTDOWN_GRACE_FLOOR)
+}
 
 /// Where `serve-public` listens.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -594,5 +615,23 @@ mod tests {
         assert_eq!(hosts, ["127.0.0.1:8787", "localhost:8787"]);
         assert_eq!(origins, ["http://127.0.0.1:8787", "http://localhost:8787"]);
         assert!(cfg.token_file.is_none());
+    }
+
+    #[test]
+    fn the_public_shutdown_grace_is_one_call_budget_plus_ten_seconds() {
+        let secs = Duration::from_secs;
+        // The public timeout: 240 s, so a 250 s grace (TimeoutStopSec=280).
+        assert_eq!(public_shutdown_grace(secs(240)), secs(250));
+        assert_eq!(
+            public_shutdown_grace(secs(240)),
+            secs(240) + SHUTDOWN_GRACE_MARGIN
+        );
+        assert_eq!(public_shutdown_grace(secs(120)), secs(130));
+        // Never below the 60 s floor the servers had.
+        assert_eq!(public_shutdown_grace(secs(1)), secs(60));
+        assert_eq!(public_shutdown_grace(secs(50)), secs(60));
+        assert_eq!(public_shutdown_grace(secs(51)), secs(61));
+        // Grace, the abort's settle wait and a margin fit the unit's 280 s.
+        assert!(public_shutdown_grace(secs(240)) + crate::runs::ABORT_SETTLE_WAIT < secs(280));
     }
 }

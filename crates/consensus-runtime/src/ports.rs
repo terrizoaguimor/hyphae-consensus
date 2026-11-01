@@ -174,6 +174,17 @@ pub trait ModelClient {
     fn take_failed_invocation(&mut self) -> Option<ModelInvocation> {
         None
     }
+
+    /// The control of the run this client is about to serve, handed over
+    /// before its first call by the server's run manager
+    /// (`consensus-api`'s `runs.rs`): a client may bound each call by the
+    /// run's deadline ([`RunControl::deadline`]) and give up a call in
+    /// progress once [`RunControl::in_flight_aborted`] is set. The default
+    /// ignores it.
+    ///
+    /// [`RunControl::deadline`]: crate::control::RunControl::deadline
+    /// [`RunControl::in_flight_aborted`]: crate::control::RunControl::in_flight_aborted
+    fn bind_run_control(&mut self, _control: &crate::control::RunControl) {}
 }
 
 /// One recall as the memory backend answered it ([`MemoryClient::recall_with_proof`]).

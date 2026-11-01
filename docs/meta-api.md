@@ -24,13 +24,36 @@ The [README](../README.md) has a summary of this page.
   Each invocation records the SHA-256 of the schema it sent and of its role's prompt
   template, `finish_reason`, the attempt count and the reasoning tokens.
 - **Request bounds and retries** (`meta.rs`, `config.rs`). `max_completion_tokens`
-  16,000 by default; one 120 s time budget per call (`CONSENSUS_MODEL_TIMEOUT_SECS`)
-  shared by up to 3 attempts. Only 429 and 503 are retried, after `Retry-After` when it
-  fits or after a full-jitter backoff from 500 ms; a connection that failed before the
-  request was sent may be retried too; a connection that broke after the request was sent
-  is retried exactly once (it may have been billed). Timeouts, 504 and other 4xx are never
-  retried. `finish_reason: length` and `refusal` are recorded as failures with stable
-  codes; no response body or URL reaches an error, event or receipt.
+  16,000 by default; one 120 s time budget per call (`CONSENSUS_MODEL_TIMEOUT_SECS`, a
+  whole number of seconds from 1 to 3600: any other value, `180s` say, stops the server
+  at boot naming the variable; the public server warns at boot when the budget is below
+  `max_completion_tokens / 80` seconds) shared by up to 3 attempts. 429 and 503 are
+  retried up to that budget, after `Retry-After` when it fits or after a full-jitter
+  backoff from 500 ms; a connection that failed before the request was sent may be retried
+  too. HTTP 500 and 502 are retried **once** per call (since 2026-11-01, after live run
+  M02's HTTP 500 at critique), under the same `Retry-After`, backoff and headroom rules;
+  a connection that broke after the request was sent is retried exactly once too. Both
+  failed attempts may have been billed, so each of these retries can bill one duplicate
+  generation that no invocation records: the failed attempt is charged at its full
+  estimate on the live ledger, and the answering call records `attempts: 2` (an invocation
+  can now show `attempts: 2` after a 5xx). Timeouts, 504 (the gateway gave up on a
+  generation that may have completed upstream) and every other 4xx are never retried.
+  Pooled connections idle for more than 5 s are dropped, so a call never reuses a
+  connection a middlebox has silently closed (smoke run K02). `finish_reason: length` and
+  `refusal` are recorded as failures with stable codes; no response body or URL reaches an
+  error, event or receipt.
+- **Run deadline and shutdown** (`meta.rs`, `runs.rs`). The server's run manager binds each
+  run's model client to the run's control: a call's budget is cut to the run's deadline
+  (`CONSENSUS_RUN_DEADLINE_SECS`), a call with less than 30 s left before it is not made
+  (code **`run_deadline_reached`**, nothing drawn on the ledger or sent; a call the deadline
+  cuts short fails with the same code and is charged like a timeout), and at shutdown a
+  call still in progress when the grace runs out (the public server's grace is one call
+  budget plus 10 s, at least 60 s: 250 s at a 240 s budget) is abandoned, charged at its
+  estimate and fails its run with code `shutdown`, so the run's reservation is released
+  before the process exits. The public server prints its effective limits at boot (one
+  `[startup] limits:` line on stderr: per-call and connect timeouts, attempts, output
+  bound, `reasoning_effort` set or unset, run deadline, run token cap, shutdown grace,
+  live concurrency, burst fraction, daily quotas; no key).
 - **Prompts.** Everything a role did not write itself sits in separate `<UNTRUSTED_*>`
   blocks; a mitigation, not a boundary (details in [verification.md](verification.md#safety-invariants-enforced-in-code-covered-by-tests)).
 - **The public live mode (on the owner's key; not deployed).** Decided in ADR-0007,

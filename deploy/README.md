@@ -1,6 +1,9 @@
 # deploy/ — templates and scripts for the public portal
 
-The runbook is `docs/deployment/runbook.md`. Read it first: it is the "how" of
+The deploy-day checklist is `docs/deployment/deploy-day.md` (two modes, every value
+the owner provides, the rehearsal's results); `scripts/deploy-rehearsal.sh` repeats
+that rehearsal in a throwaway `ubuntu:24.04` container with no network. The runbook
+is `docs/deployment/runbook.md`. Read it first: it is the "how" of
 the release gates G1, G3 (edge rules), G4 (credential file), G6 (edge settings),
 G9, G10 (geo rules) and G11 of `docs/security/release-checklist.md`, and every
 file here is referenced from a numbered section of it. Nothing in this
@@ -21,7 +24,7 @@ ledger runs on the server.
 | `cloudflared/config.yml.example` | `/etc/cloudflared/config.yml` | | 6.3 |
 | `etc/consensus/public.env.example` | `/etc/consensus/public.env` | | 4.1 |
 | `etc/consensus/operator.env.example` | `/etc/consensus/operator.env` | | 4.1 |
-| `scripts/install.sh` | run once as root | server | 2–5 |
+| `scripts/install.sh` | run once as root (`--dry-run` first: prints every change, makes none; `--no-systemd` only in a rehearsal container) | server | 2–5 |
 | `scripts/verify-edge.sh` | gate G6: origin (socket, over SSH) vs edge, byte for byte; `cf-cache-status` | owner machine | 8.4 |
 | `scripts/sse-heartbeat-test.sh` | SSE heartbeat and resume test through the tunnel | owner machine | 8.5 |
 | `scripts/canary-scan.sh` | gate G4: environments, files, journal (server); public responses (`--responses-only`, owner machine) | both | 8.3 |

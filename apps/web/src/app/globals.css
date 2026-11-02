@@ -2217,13 +2217,21 @@
     margin: 0;
   }
 
+  /* The three roles side by side only where each card gets about 19rem:
+     measured on the stage's own width (a container query), not the
+     viewport's, since the sidebar takes 16rem of a 64rem screen. Below
+     that the cards stack. */
+  .hc-stage-tab {
+    container-type: inline-size;
+  }
+
   .hc-stage {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--spacing-4);
   }
 
-  @media (min-width: 64rem) {
+  @container (min-width: 60rem) {
     .hc-stage {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
@@ -2271,11 +2279,32 @@
     color: var(--color-text-secondary);
   }
 
+  /* A card's text never reaches past its frame: record ids (39 digits) and
+     model prose break anywhere rather than widen the column, and every
+     piece of a list item (its id, its tag, its text) may shrink. */
+  .hc-stage-card,
+  .hc-stage-body {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .hc-stage-body .hc-list > li {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: var(--spacing-2);
+    min-width: 0;
+  }
+
+  .hc-stage-body .hc-list > li > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Framed tags draw their frame as an outline (up to 3px outside the box):
+     inside a list the margin keeps that frame off the text around it. */
+  .hc-list .astryx-badge[data-variant] {
+    margin-block: 3px;
   }
 
   .hc-frame-badge {

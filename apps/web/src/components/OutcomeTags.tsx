@@ -34,9 +34,8 @@ export function OutcomeTags({ outcome, variant, icon, evidence }: OutcomeTagsPro
   const label = evidenceLabel(evidence);
   return (
     <span className="hc-outcome-tags" data-outcome-tags>
-      <Tag className="hc-tag" variant={variant} icon={icon} label={outcome} data-outcome-tag="outcome" />{" "}
+      <Tag variant={variant} icon={icon} label={outcome} data-outcome-tag="outcome" />{" "}
       <Tag
-        className="hc-tag"
         variant={label.variant}
         labelKey={label.key}
         label={t("outcomeEvidence", { evidence: tProvenance(label.key) })}
@@ -49,5 +48,5 @@ export function OutcomeTags({ outcome, variant, icon, evidence }: OutcomeTagsPro
 
 /** A status word as a tag that wraps instead of truncating (the runs list's "awaiting your decision"). */
 export function StatusTag({ label, variant, role }: { label: string; variant: TagVariant; role?: TagRole }) {
-  return <Tag className="hc-tag" variant={variant} role={role} label={label} data-status-tag />;
+  return <Tag variant={variant} role={role} label={label} data-status-tag />;
 }

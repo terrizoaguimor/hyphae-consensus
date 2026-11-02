@@ -8,7 +8,8 @@
 // role's family. A view may name a role or an icon, but only one its
 // variant allows: no tag can be drawn verified, LIVE or simulated by an
 // override. LIVE has no icon: its 8px square is the mark. Tags are
-// rectangles (radius 2), never pills.
+// rectangles (radius 2), never pills, and always `hc-tag`: a long label
+// wraps inside its frame instead of overflowing Astryx's fixed height.
 
 import { Badge } from "@astryxdesign/core/Badge";
 import type { ReactNode } from "react";
@@ -37,7 +38,7 @@ export function Tag({ variant, label, role, icon, labelKey, className, ...data }
     <Badge
       variant={variant}
       label={label}
-      className={className}
+      className={className === undefined ? "hc-tag" : `hc-tag ${className}`}
       icon={look.icon === null ? undefined : <Icon name={look.icon} size={12} className="hc-tag-icon" />}
       data-tag-role={look.role}
       {...data}

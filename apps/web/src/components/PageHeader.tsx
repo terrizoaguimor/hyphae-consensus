@@ -11,11 +11,16 @@ type PageHeaderProps = {
   /** Shown above the title, e.g. a status badge. */
   eyebrow?: ReactNode;
   children?: ReactNode;
+  /**
+   * The page's column is wide (80rem, .hc-page-header--wide in globals.css),
+   * set by the page itself, so the width is final from the first paint.
+   */
+  wide?: boolean;
 };
 
-export function PageHeader({ title, lead, eyebrow, children }: PageHeaderProps) {
+export function PageHeader({ title, lead, eyebrow, children, wide = false }: PageHeaderProps) {
   return (
-    <header className="hc-page-header">
+    <header className={wide ? "hc-page-header hc-page-header--wide" : "hc-page-header"}>
       {eyebrow}
       <h1 tabIndex={-1} className="hc-page-title">
         {title}

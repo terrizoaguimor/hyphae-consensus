@@ -727,6 +727,56 @@
       "description": "Run record for V03 (task R04-remove-cap), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
     },
     {
+      "path": "2026-11-01/live-battery-2026-11-01-proposer-spark/runs/run-884f0def-881b-4684-9835-5c6e285cff04.jsonl",
+      "source": "demo-run/validation-2026-11-02-proposer-spark/store/runs/run-884f0def-881b-4684-9835-5c6e285cff04.jsonl",
+      "bytes": 67321,
+      "sha256": "b5ba733dfc1a65ae0a77488997df45cc5720c60bdc633918944819bba05de864",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "events": 40,
+      "description": "Validation run V04 of 2026-11-01 (task R07-exp-backoff; the driver's name P01) with the Proposer and reviser on Meta muse-spark-1.3 (CONSENSUS_MODEL_PROPOSER) and the Critic and Evaluator on muse-wonder-1.0, schema 1.3, tag prompt-freeze-4's prompts: this run's chained records from genesis, as the operator server's run store wrote them (consensus-api serve-operator built at commit 7e4801a); byte-identical to the copy GET /api/v1/runs/{id}/events.ndjson served, demo-run/validation-2026-11-02-proposer-spark/results/P01.jsonl. Live Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README)."
+    },
+    {
+      "path": "2026-11-01/live-battery-2026-11-01-proposer-spark/P01.json",
+      "source": "demo-run/validation-2026-11-02-proposer-spark/results/P01.json",
+      "bytes": 165644,
+      "sha256": "90af1909686472950698eed2e41e4397d807e8375112c654084b4b92bb7fae9c",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for V04 (task R07-exp-backoff; the driver's name P01), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
+    },
+    {
+      "path": "2026-11-01/live-battery-2026-11-01-proposer-spark/runs/run-6e252754-a127-4f29-a6e5-b7c6bec8798f.jsonl",
+      "source": "demo-run/validation-2026-11-02-proposer-spark/store/runs/run-6e252754-a127-4f29-a6e5-b7c6bec8798f.jsonl",
+      "bytes": 108865,
+      "sha256": "221cc075a7fada559d96f3a56fe58cd992d929e8f5b0c48b1649533e1b50b5ab",
+      "kind": "event_log",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "events": 58,
+      "description": "Validation run V05 of 2026-11-01 (task R01-reference; the driver's name P02) with the Proposer and reviser on Meta muse-spark-1.3 (CONSENSUS_MODEL_PROPOSER) and the Critic and Evaluator on muse-wonder-1.0, schema 1.3, tag prompt-freeze-4's prompts: this run's chained records from genesis, as the operator server's run store wrote them (consensus-api serve-operator built at commit 7e4801a); byte-identical to the copy GET /api/v1/runs/{id}/events.ndjson served, demo-run/validation-2026-11-02-proposer-spark/results/P02.jsonl. Live Hyphae demo store; proofs verified at run time with hyphae proof verify against the pinned demo-store anchor (see README)."
+    },
+    {
+      "path": "2026-11-01/live-battery-2026-11-01-proposer-spark/P02.json",
+      "source": "demo-run/validation-2026-11-02-proposer-spark/results/P02.json",
+      "bytes": 273750,
+      "sha256": "d5022fd48ae22a75013ab3511744ed2e7cbe4011b4a6ec904a3888e43fab4524",
+      "kind": "run_record",
+      "schema_versions": [
+        "1.3"
+      ],
+      "runs": 1,
+      "description": "Run record for V05 (task R01-reference; the driver's name P02), in the format scripts/live_battery.py writes for the operator server: the task key and text, the status and body of POST /api/v1/operator/runs, the run detail polled until the run rested (summary, events, model invocations), the receipt (v2) downloaded after the run, the status of the events.ndjson download, and the wall time."
+    },
+    {
       "path": "2026-11-01/baseline-2026-11-01/runs/baseline-805e18f3-64e7-4ea2-8235-6b7139f22fa4.jsonl",
       "source": "demo-run/baseline-2026-11-01/runs/baseline-805e18f3-64e7-4ea2-8235-6b7139f22fa4.jsonl",
       "bytes": 21658,
@@ -825,6 +875,106 @@
       ],
       "runs": 1,
       "description": "Run record for the single-agent baseline run B04 (task R04-remove-cap), as scripts/baseline_battery.py writes it: the task key and text, the paired consensus run (label, archived log, sha256), the exit code of consensus-api baseline run, the summary it printed (read back from the run's log) and the wall time. Not a consensus run: no recommendation, no decision."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01-r10/runs/baseline-dc690467-3088-4e23-820b-1c694fc055d8.jsonl",
+      "source": "demo-run/baseline-2026-11-02-r10/runs/baseline-dc690467-3088-4e23-820b-1c694fc055d8.jsonl",
+      "bytes": 37507,
+      "sha256": "e83cc6720d57f92ae56f7311008623ecdce57848afcf2b36054f0418978d50bb",
+      "kind": "baseline_log",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "events": 25,
+      "description": "Single-agent baseline run B05 of 2026-11-01 (task R01-reference; the driver's name B01), schema baseline-1.0, run_kind single_agent_baseline, chained from genesis with the consensus recipe, as consensus-api baseline run (built at commit 7e4801a, round 9's schema) wrote it. Live Hyphae demo store; proofs verified with hyphae proof verify against the pinned demo-store anchor (see README). The run completed: it holds the agent's one assessment (its own verdict, not a recommendation). Not a consensus run: the consensus event log refuses it."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01-r10/B01.json",
+      "source": "demo-run/baseline-2026-11-02-r10/B01.json",
+      "bytes": 6183,
+      "sha256": "e82b7b39e19b2509d5527222205970a6d5578676d6ccbf379d456d18f4823142",
+      "kind": "baseline_record",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "description": "Run record for the single-agent baseline run B05 (task R01-reference; the driver's name B01), as scripts/baseline_battery.py writes it: the task key and text, the paired consensus run (label, archived log, sha256), the exit code of consensus-api baseline run, the summary it printed (read back from the run's log) and the wall time. Not a consensus run: no recommendation, no decision."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01-r10/runs/baseline-32a1d5fd-48b1-4cdf-a3c5-8109415733c7.jsonl",
+      "source": "demo-run/baseline-2026-11-02-r10/runs/baseline-32a1d5fd-48b1-4cdf-a3c5-8109415733c7.jsonl",
+      "bytes": 38478,
+      "sha256": "4c65a2c4d4a539eeacfc1da304e9d7cd67ad11a0901770ebeefe4f019a6373c9",
+      "kind": "baseline_log",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "events": 24,
+      "description": "Single-agent baseline run B06 of 2026-11-01 (task R05-add-jitter; the driver's name B02), schema baseline-1.0, run_kind single_agent_baseline, chained from genesis with the consensus recipe, as consensus-api baseline run (built at commit 7e4801a, round 9's schema) wrote it. Live Hyphae demo store; proofs verified with hyphae proof verify against the pinned demo-store anchor (see README). The run completed: it holds the agent's one assessment (its own verdict, not a recommendation). Not a consensus run: the consensus event log refuses it."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01-r10/B02.json",
+      "source": "demo-run/baseline-2026-11-02-r10/B02.json",
+      "bytes": 6431,
+      "sha256": "8eb5a37c714e9521873babe457ac8463442aedac9193453f05b20654bc56847b",
+      "kind": "baseline_record",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "description": "Run record for the single-agent baseline run B06 (task R05-add-jitter; the driver's name B02), as scripts/baseline_battery.py writes it: the task key and text, the paired consensus run (label, archived log, sha256), the exit code of consensus-api baseline run, the summary it printed (read back from the run's log) and the wall time. Not a consensus run: no recommendation, no decision."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01-r10/runs/baseline-71d3eba5-c4ad-43a1-8615-928e8cc28801.jsonl",
+      "source": "demo-run/baseline-2026-11-02-r10/runs/baseline-71d3eba5-c4ad-43a1-8615-928e8cc28801.jsonl",
+      "bytes": 38862,
+      "sha256": "6050f62ec8442985fb1be8fe7ff6ee761e30e04a9c48502732769fac80494545",
+      "kind": "baseline_log",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "events": 25,
+      "description": "Single-agent baseline run B07 of 2026-11-01 (task R07-exp-backoff; the driver's name B03), schema baseline-1.0, run_kind single_agent_baseline, chained from genesis with the consensus recipe, as consensus-api baseline run (built at commit 7e4801a, round 9's schema) wrote it. Live Hyphae demo store; proofs verified with hyphae proof verify against the pinned demo-store anchor (see README). The run completed: it holds the agent's one assessment (its own verdict, not a recommendation). Not a consensus run: the consensus event log refuses it."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01-r10/B03.json",
+      "source": "demo-run/baseline-2026-11-02-r10/B03.json",
+      "bytes": 6380,
+      "sha256": "8a7cca0893c19cb97e5555cee9ba4025e38f8d297a3442c09b2dd9b0c32c3af3",
+      "kind": "baseline_record",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "description": "Run record for the single-agent baseline run B07 (task R07-exp-backoff; the driver's name B03), as scripts/baseline_battery.py writes it: the task key and text, the paired consensus run (label, archived log, sha256), the exit code of consensus-api baseline run, the summary it printed (read back from the run's log) and the wall time. Not a consensus run: no recommendation, no decision."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01-r10/runs/baseline-26b956fd-f544-4ff3-b342-68d8aeef7f10.jsonl",
+      "source": "demo-run/baseline-2026-11-02-r10/runs/baseline-26b956fd-f544-4ff3-b342-68d8aeef7f10.jsonl",
+      "bytes": 40079,
+      "sha256": "ac3e97cbc2613396cdcac66ee97fb38e5323dbd48a72fe11872b69f669b45045",
+      "kind": "baseline_log",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "events": 26,
+      "description": "Single-agent baseline run B08 of 2026-11-01 (task R04-remove-cap; the driver's name B04), schema baseline-1.0, run_kind single_agent_baseline, chained from genesis with the consensus recipe, as consensus-api baseline run (built at commit 7e4801a, round 9's schema) wrote it. Live Hyphae demo store; proofs verified with hyphae proof verify against the pinned demo-store anchor (see README). The run completed: it holds the agent's one assessment (its own verdict, not a recommendation). Not a consensus run: the consensus event log refuses it."
+    },
+    {
+      "path": "2026-11-01/baseline-2026-11-01-r10/B04.json",
+      "source": "demo-run/baseline-2026-11-02-r10/B04.json",
+      "bytes": 6654,
+      "sha256": "707500a9f645ac617ce40fc2ffecdb54ce9de2a6ef5e90301b9baff51c435d9d",
+      "kind": "baseline_record",
+      "schema_versions": [
+        "baseline-1.0"
+      ],
+      "runs": 1,
+      "description": "Run record for the single-agent baseline run B08 (task R04-remove-cap; the driver's name B04), as scripts/baseline_battery.py writes it: the task key and text, the paired consensus run (label, archived log, sha256), the exit code of consensus-api baseline run, the summary it printed (read back from the run's log) and the wall time. Not a consensus run: no recommendation, no decision."
     }
   ],
   "runs": [
@@ -1439,6 +1589,32 @@
       "schema_version": "1.3",
       "file": "2026-11-01/live-battery-2026-11-01-spark/runs/run-a3f3b3aa-5e23-4303-a68e-73c855031712.jsonl",
       "record": "2026-11-01/live-battery-2026-11-01-spark/V03.json"
+    },
+    {
+      "run_id": "run-884f0def-881b-4684-9835-5c6e285cff04",
+      "label": "V04",
+      "battery": "live-battery-2026-11-01-proposer-spark",
+      "task_title": "Exponential backoff for payment retries",
+      "project": "demo-repo",
+      "outcome": "supported",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-11-01/live-battery-2026-11-01-proposer-spark/runs/run-884f0def-881b-4684-9835-5c6e285cff04.jsonl",
+      "record": "2026-11-01/live-battery-2026-11-01-proposer-spark/P01.json",
+      "driver_name": "P01"
+    },
+    {
+      "run_id": "run-6e252754-a127-4f29-a6e5-b7c6bec8798f",
+      "label": "V05",
+      "battery": "live-battery-2026-11-01-proposer-spark",
+      "task_title": "Fix payment client timeouts",
+      "project": "demo-repo",
+      "outcome": "contested",
+      "authorization": "pending",
+      "schema_version": "1.3",
+      "file": "2026-11-01/live-battery-2026-11-01-proposer-spark/runs/run-6e252754-a127-4f29-a6e5-b7c6bec8798f.jsonl",
+      "record": "2026-11-01/live-battery-2026-11-01-proposer-spark/P02.json",
+      "driver_name": "P02"
     }
   ],
   "baseline_runs": [
@@ -1497,6 +1673,66 @@
       "schema_version": "baseline-1.0",
       "file": "2026-11-01/baseline-2026-11-01/runs/baseline-79c9accc-706e-49e9-ad22-45c250c49345.jsonl",
       "record": "2026-11-01/baseline-2026-11-01/B04.json"
+    },
+    {
+      "run_id": "baseline-dc690467-3088-4e23-820b-1c694fc055d8",
+      "label": "B05",
+      "battery": "baseline-2026-11-01-r10",
+      "run_kind": "single_agent_baseline",
+      "task_title": "Fix payment client timeouts",
+      "project": "demo-repo",
+      "outcome": "abstained",
+      "consensus_label": "M01",
+      "evidence": "live_hyphae",
+      "schema_version": "baseline-1.0",
+      "file": "2026-11-01/baseline-2026-11-01-r10/runs/baseline-dc690467-3088-4e23-820b-1c694fc055d8.jsonl",
+      "record": "2026-11-01/baseline-2026-11-01-r10/B01.json",
+      "driver_name": "B01"
+    },
+    {
+      "run_id": "baseline-32a1d5fd-48b1-4cdf-a3c5-8109415733c7",
+      "label": "B06",
+      "battery": "baseline-2026-11-01-r10",
+      "run_kind": "single_agent_baseline",
+      "task_title": "Add jitter to payment retries",
+      "project": "demo-repo",
+      "outcome": "supported",
+      "consensus_label": "M02",
+      "evidence": "live_hyphae",
+      "schema_version": "baseline-1.0",
+      "file": "2026-11-01/baseline-2026-11-01-r10/runs/baseline-32a1d5fd-48b1-4cdf-a3c5-8109415733c7.jsonl",
+      "record": "2026-11-01/baseline-2026-11-01-r10/B02.json",
+      "driver_name": "B02"
+    },
+    {
+      "run_id": "baseline-71d3eba5-c4ad-43a1-8615-928e8cc28801",
+      "label": "B07",
+      "battery": "baseline-2026-11-01-r10",
+      "run_kind": "single_agent_baseline",
+      "task_title": "Exponential backoff for payment retries",
+      "project": "demo-repo",
+      "outcome": "supported",
+      "consensus_label": "M03",
+      "evidence": "live_hyphae",
+      "schema_version": "baseline-1.0",
+      "file": "2026-11-01/baseline-2026-11-01-r10/runs/baseline-71d3eba5-c4ad-43a1-8615-928e8cc28801.jsonl",
+      "record": "2026-11-01/baseline-2026-11-01-r10/B03.json",
+      "driver_name": "B03"
+    },
+    {
+      "run_id": "baseline-26b956fd-f544-4ff3-b342-68d8aeef7f10",
+      "label": "B08",
+      "battery": "baseline-2026-11-01-r10",
+      "run_kind": "single_agent_baseline",
+      "task_title": "Remove the retry cap from the payment client",
+      "project": "demo-repo",
+      "outcome": "contested",
+      "consensus_label": "M04",
+      "evidence": "live_hyphae",
+      "schema_version": "baseline-1.0",
+      "file": "2026-11-01/baseline-2026-11-01-r10/runs/baseline-26b956fd-f544-4ff3-b342-68d8aeef7f10.jsonl",
+      "record": "2026-11-01/baseline-2026-11-01-r10/B04.json",
+      "driver_name": "B04"
     }
   ]
 }

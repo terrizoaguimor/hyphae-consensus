@@ -1,0 +1,182 @@
+{
+ "name": "B01",
+ "task_key": "R01-reference",
+ "task": {
+  "project": "demo-repo",
+  "title": "Fix payment client timeouts",
+  "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints."
+ },
+ "consensus": {
+  "label": "M01",
+  "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-aa966e9f-db00-455d-bc04-8f714d8839ad.jsonl",
+  "sha256": "faaf46b9e506f90f53217ef9eac189f68b13af7ffe4c9afe81bc3e8a23fad6ee",
+  "run_id": "run-aa966e9f-db00-455d-bc04-8f714d8839ad"
+ },
+ "memory": "hyphae",
+ "exit_code": 0,
+ "summary": {
+  "agent_verdict": "abstained",
+  "counts": {
+   "agent_verdict": "abstained",
+   "claims": 4,
+   "claims_corroborated": 4,
+   "claims_with_contradicting_evidence": 0,
+   "integrity": {
+    "invalid": 0,
+    "not_checked": 0,
+    "unavailable": 0,
+    "valid": 7,
+    "verification_error": 0
+   },
+   "objections": 1,
+   "objections_open": 0,
+   "records": 7
+  },
+  "event_count": 25,
+  "evidence": {
+   "recall_proven": 7,
+   "retrieved": [
+    "237412834382378687445660534362297845298",
+    "328114099256634798832222840773545327795",
+    "161896895843658017381255677281559699870",
+    "8864874238917673930644756936982232317",
+    "295729039551322334710406856728557559035",
+    "287567405605917891851290763137356115373",
+    "186670067796945807561772405393844769735"
+   ],
+   "unavailable": []
+  },
+  "evidence_mode": "live_hyphae",
+  "evidence_warning": null,
+  "failure": null,
+  "format": "hyphae-consensus-baseline-summary-v1",
+  "head_hash": "e7094daa819f407db44f21ddd373a0db9bd795115f83578a481c29658fb3ec71",
+  "log": "runs/baseline-dc690467-3088-4e23-820b-1c694fc055d8.jsonl",
+  "log_sha256": "e83cc6720d57f92ae56f7311008623ecdce57848afcf2b36054f0418978d50bb",
+  "model_invocations": [
+   {
+    "attempts": 1,
+    "finish_reason": "stop",
+    "input_tokens": 1183,
+    "latency_ms": 44053,
+    "max_completion_tokens": 16000,
+    "model": "muse-wonder-1.0",
+    "output_tokens": 5406,
+    "prompt_sha256": "c08b610ef1cdeeedaab3e7e387e72a43753df383ae475f488db745c5f7c88f29",
+    "provider": "meta",
+    "reasoning_tokens": 4757,
+    "request_id": "chatcmpl-01a19a14-05bc-7527-ad20-b38970118e0c",
+    "safety_identifier_sent": false,
+    "schema_name": "DraftBaselineAssessment",
+    "schema_sha256": "e6629750219fb6aef9ac746747e011deec92f29fda30a299700feb5b9dd8c943"
+   }
+  ],
+  "note": "Single-agent baseline: one model call, no Critic, no Evaluator, no policy rounds. The agent's verdict is its own statement and policy_reading is a comparison aid; neither is a recommendation, nothing was executed and no human decision is recorded.",
+  "outcome": "abstained",
+  "policy_reading": {
+   "kind": "abstained",
+   "rule": "abstention",
+   "version": "1.2"
+  },
+  "recall": {
+   "limit_per_query": 5,
+   "max_records": 20,
+   "queries": 7,
+   "source": {
+    "kind": "consensus_log",
+    "log_sha256": "faaf46b9e506f90f53217ef9eac189f68b13af7ffe4c9afe81bc3e8a23fad6ee",
+    "run_id": "run-aa966e9f-db00-455d-bc04-8f714d8839ad"
+   }
+  },
+  "run_id": "baseline-dc690467-3088-4e23-820b-1c694fc055d8",
+  "run_kind": "single_agent_baseline",
+  "schema_version": "baseline-1.0",
+  "task": {
+   "description": "Payment requests intermittently time out under load. Propose a safe fix consistent with the existing retry constraints.",
+   "mode": {
+    "evidence": "live_hyphae",
+    "model": "meta",
+    "origin": "cli"
+   },
+   "project_id": "demo-repo",
+   "title": "Fix payment client timeouts"
+  },
+  "verdict_reason": "Final synthesis was withheld in the gateway record, so the retained claims and objections were not closed into a supported decision in this public object.",
+  "verifications": [
+   {
+    "evidence_id": "237412834382378687445660534362297845298",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "328114099256634798832222840773545327795",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "161896895843658017381255677281559699870",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "8864874238917673930644756936982232317",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "295729039551322334710406856728557559035",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "287567405605917891851290763137356115373",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "186670067796945807561772405393844769735",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   }
+  ]
+ },
+ "wall_seconds": 49.9,
+ "parity": {
+  "consensus": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "baseline": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "equal": true
+ }
+}

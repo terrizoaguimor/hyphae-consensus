@@ -1,0 +1,182 @@
+{
+ "name": "B03",
+ "task_key": "R07-exp-backoff",
+ "task": {
+  "project": "demo-repo",
+  "title": "Exponential backoff for payment retries",
+  "description": "Replace fixed-delay payment retries with exponential backoff while staying within the documented attempt limit."
+ },
+ "consensus": {
+  "label": "M03",
+  "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-85a826e6-478c-412c-a6c8-baf56721a9d7.jsonl",
+  "sha256": "fa5b4174a87e9e5887e04fa0b4ae43285e52497ab207b419342055c407996118",
+  "run_id": "run-85a826e6-478c-412c-a6c8-baf56721a9d7"
+ },
+ "memory": "hyphae",
+ "exit_code": 0,
+ "summary": {
+  "agent_verdict": "supported",
+  "counts": {
+   "agent_verdict": "supported",
+   "claims": 3,
+   "claims_corroborated": 3,
+   "claims_with_contradicting_evidence": 0,
+   "integrity": {
+    "invalid": 0,
+    "not_checked": 0,
+    "unavailable": 0,
+    "valid": 7,
+    "verification_error": 0
+   },
+   "objections": 5,
+   "objections_open": 0,
+   "records": 7
+  },
+  "event_count": 25,
+  "evidence": {
+   "recall_proven": 7,
+   "retrieved": [
+    "186670067796945807561772405393844769735",
+    "287567405605917891851290763137356115373",
+    "161896895843658017381255677281559699870",
+    "328114099256634798832222840773545327795",
+    "295729039551322334710406856728557559035",
+    "8864874238917673930644756936982232317",
+    "237412834382378687445660534362297845298"
+   ],
+   "unavailable": []
+  },
+  "evidence_mode": "live_hyphae",
+  "evidence_warning": null,
+  "failure": null,
+  "format": "hyphae-consensus-baseline-summary-v1",
+  "head_hash": "4b422f2f1ea693848ee2222a83505ad04e9814a98aeba852cb83218b11851d88",
+  "log": "runs/baseline-71d3eba5-c4ad-43a1-8615-928e8cc28801.jsonl",
+  "log_sha256": "6050f62ec8442985fb1be8fe7ff6ee761e30e04a9c48502732769fac80494545",
+  "model_invocations": [
+   {
+    "attempts": 1,
+    "finish_reason": "stop",
+    "input_tokens": 1180,
+    "latency_ms": 74985,
+    "max_completion_tokens": 16000,
+    "model": "muse-wonder-1.0",
+    "output_tokens": 8444,
+    "prompt_sha256": "c08b610ef1cdeeedaab3e7e387e72a43753df383ae475f488db745c5f7c88f29",
+    "provider": "meta",
+    "reasoning_tokens": 6518,
+    "request_id": "chatcmpl-01a19a16-e6b4-7781-b0a7-61d22fb0cbcd",
+    "safety_identifier_sent": false,
+    "schema_name": "DraftBaselineAssessment",
+    "schema_sha256": "e6629750219fb6aef9ac746747e011deec92f29fda30a299700feb5b9dd8c943"
+   }
+  ],
+  "note": "Single-agent baseline: one model call, no Critic, no Evaluator, no policy rounds. The agent's verdict is its own statement and policy_reading is a comparison aid; neither is a recommendation, nothing was executed and no human decision is recorded.",
+  "outcome": "supported",
+  "policy_reading": {
+   "kind": "supported",
+   "rule": "all_checks_passed",
+   "version": "1.2"
+  },
+  "recall": {
+   "limit_per_query": 5,
+   "max_records": 20,
+   "queries": 7,
+   "source": {
+    "kind": "consensus_log",
+    "log_sha256": "fa5b4174a87e9e5887e04fa0b4ae43285e52497ab207b419342055c407996118",
+    "run_id": "run-85a826e6-478c-412c-a6c8-baf56721a9d7"
+   }
+  },
+  "run_id": "baseline-71d3eba5-c4ad-43a1-8615-928e8cc28801",
+  "run_kind": "single_agent_baseline",
+  "schema_version": "baseline-1.0",
+  "task": {
+   "description": "Replace fixed-delay payment retries with exponential backoff while staying within the documented attempt limit.",
+   "mode": {
+    "evidence": "live_hyphae",
+    "model": "meta",
+    "origin": "cli"
+   },
+   "project_id": "demo-repo",
+   "title": "Exponential backoff for payment retries"
+  },
+  "verdict_reason": "Claims 1 and 2 are directly corroborated by Valid decision record 328114099256634798832222840773545327795 and constraint record 186670067796945807561772405393844769735, claim 3 is directly corroborated by Valid record 161896895843658017381255677281559699870, no record contradicts any claim, and all listed objections are addressed.",
+  "verifications": [
+   {
+    "evidence_id": "186670067796945807561772405393844769735",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "287567405605917891851290763137356115373",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "161896895843658017381255677281559699870",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "328114099256634798832222840773545327795",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "295729039551322334710406856728557559035",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "8864874238917673930644756936982232317",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "237412834382378687445660534362297845298",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   }
+  ]
+ },
+ "wall_seconds": 80.8,
+ "parity": {
+  "consensus": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "baseline": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "equal": true
+ }
+}

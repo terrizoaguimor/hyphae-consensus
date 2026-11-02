@@ -100,7 +100,7 @@ impl Drop for TempDir {
 /// evaluation never listed, and how many of them the evaluation of their
 /// own round had listed as unresolved. Counted independently from the
 /// raw JSONL (2026-10-27). Before protocol 1.3 nothing judged them again.
-const NEVER_REJUDGED: [(&str, usize, usize); 51] = [
+const NEVER_REJUDGED: [(&str, usize, usize); 53] = [
     ("C01", 2, 2),
     ("C02", 2, 2),
     ("C03", 0, 0),
@@ -162,6 +162,11 @@ const NEVER_REJUDGED: [(&str, usize, usize); 51] = [
     ("V01", 0, 0),
     ("V02", 0, 0),
     ("V03", 0, 0),
+    // The validation runs of 2026-11-01 with the Proposer on
+    // muse-spark-1.3 (research/README.md; the driver's P01 and P02): the
+    // same, V04 two rounds and V05 three.
+    ("V04", 0, 0),
+    ("V05", 0, 0),
 ];
 
 /// Receipt v2 of every MANIFEST run, keyed by label.
@@ -454,7 +459,7 @@ fn recorded_receipts_agree_with_receipt_v2() {
         assert_eq!(verifications, flat, "{label}");
         compared += 1;
     }
-    assert_eq!(compared, 44);
+    assert_eq!(compared, 46);
 }
 
 #[test]
@@ -541,6 +546,54 @@ fn the_validation_runs_of_2026_11_01_put_only_the_critic_on_spark() {
                 "muse-spark-1.3"
             } else {
                 "muse-wonder-1.0"
+            };
+            assert_eq!(inv.provider, "meta", "{label}");
+            assert_eq!(inv.model, expected, "{label}: {:?}", inv.schema_name);
+            assert_eq!(inv.attempts, Some(1), "{label}");
+            assert_eq!(inv.finish_reason.as_deref(), Some("stop"), "{label}");
+            assert!(inv.rejected_calls.is_none(), "{label}: no re-ask");
+        }
+    }
+}
+
+#[test]
+fn the_validation_runs_of_2026_11_01_put_only_the_proposer_on_spark() {
+    let tmp = TempDir::new("proposer-spark");
+    let m = manifest();
+    let receipts = receipts(&tmp.open_all(&m), &m);
+    // (label, outcome, rounds, calls) as research/README.md states them;
+    // V04 and V05 are the driver's P01 and P02 (P03 never ran).
+    for (label, outcome, rounds, calls) in [("V04", "supported", 2, 6), ("V05", "contested", 3, 9)]
+    {
+        let r = &receipts[label];
+        let rec = r.recommendation.as_ref().expect("recommendation");
+        assert_eq!(name!(rec.kind), outcome, "{label}");
+        assert_eq!(r.deliberation.rounds, rounds, "{label}");
+        assert_eq!(r.model_invocations.len(), calls, "{label}");
+        assert!(
+            r.deliberation
+                .earlier_round_objections_never_rejudged
+                .is_empty(),
+            "{label}"
+        );
+        // The Proposer's two schemas (propose, revise) on Spark: one
+        // proposal and one revision per round but the last.
+        let proposer = r
+            .model_invocations
+            .iter()
+            .filter(|i| {
+                matches!(
+                    i.schema_name.as_deref(),
+                    Some("DraftProposal") | Some("DraftRevision")
+                )
+            })
+            .count();
+        assert_eq!(proposer, rounds as usize, "{label}: propose + revisions");
+        for inv in &r.model_invocations {
+            let expected = match inv.schema_name.as_deref() {
+                Some("DraftProposal") | Some("DraftRevision") => "muse-spark-1.3",
+                Some("DraftChallenge") | Some("DraftEvaluation") => "muse-wonder-1.0",
+                other => panic!("{label}: unexpected schema {other:?}"),
             };
             assert_eq!(inv.provider, "meta", "{label}");
             assert_eq!(inv.model, expected, "{label}: {:?}", inv.schema_name);

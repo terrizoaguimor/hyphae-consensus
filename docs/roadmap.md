@@ -169,8 +169,10 @@ the git history (the operator's local time, UTC−05:00); the architecture is de
   claim beyond what the recorded runs show is made. Approved by the owner on 2026-11-01
   (about 4 live runs, cap $5); the tooling and the comparison method are in
   `docs/evaluation.md` §7; it ran on 2026-11-01 (B01–B04) and every run failed at its
-  one Meta call with HTTP 400, so no comparative claim exists (§7.7). A re-run needs a
-  fix and a new owner authorization.
+  one Meta call with HTTP 400 (§7.7). After the round-9 schema fix and a new owner
+  authorization it ran again that evening (B05–B08) and every run recorded an
+  assessment; the per-task comparison is §7.8, from the models' own records (the planned
+  independent readers' check was not made, one run per task, no rate).
 
 ### Owner actions
 

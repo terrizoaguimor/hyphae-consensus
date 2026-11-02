@@ -4,8 +4,10 @@ The [README](../README.md) has a summary of this page. The source of every figur
 
 All figures are from `docs/evaluation.md` and `research/`, as recorded. The scripted check
 and the live batteries are different things and are not pooled; neither is a baseline
-comparison (the single-agent baseline ran on 2026-11-01, but each of its 4 runs failed at
-its one Meta call, so no comparison exists).
+comparison. The single-agent baseline ran twice on 2026-11-01: its first 4 runs each failed
+at their one Meta call, and its re-run recorded an assessment in all 4, compared per task in
+§7.8 from the models' own records only (the planned independent readers' check was not
+made; one run per task).
 
 - **Scripted protocol conformance check** (deterministic doubles; not an experiment):
   the runtime produced the author-defined outcome in 10/10 cases
@@ -77,12 +79,34 @@ its one Meta call, so no comparison exists).
 - **Single-agent baseline, B01–B04** ([§7.7](evaluation.md); 2026-11-01), one Meta call per
   task, paired with M01–M04: **all 4 failed at that call with HTTP 400**
   (`meta_bad_request`), with no invocation and no token recorded, so the single agent
-  produced no claim, objection or verdict and the planned comparison cannot be made. The
-  cause is not recorded; the operator's offline guess (one schema field) is unconfirmed.
+  produced no claim, objection or verdict. The cause is not recorded; the operator's
+  offline guess (one schema field) is unconfirmed.
+- **Validation runs V04–V05 with the Proposer on `muse-spark-1.3`** ([§6.7](evaluation.md);
+  2026-11-02, 02:08–02:20 UTC, the evening of 2026-11-01 local time), through
+  `consensus-api serve-operator` built at `7e4801a`, on the `prompt-freeze-4` prompts, with
+  the Critic and Evaluator on `muse-wonder-1.0` and a 240 s budget per call, on the tasks of
+  V01 and V02. Three runs were planned; the operator's spend guard stopped the driver
+  before the third (`R04-remove-cap`, cap $3), which was not run again. **No call failed
+  and none was retried or asked again** (15 calls, 5 of them the Proposer's on
+  `muse-spark-1.3`; 31,017 / 80,483 tokens; $1.4749 at the operator's prices). V04
+  (exponential backoff) ended `supported` for a revision that claims no exponential
+  schedule, as M03; V05 (payment timeouts) ended `contested` with 8 open objections after
+  two revisions that keep the cap of 3. All 35 verification records `valid`. Two runs: no
+  rate, and no comparison of the two models.
+- **Single-agent baseline, B05–B08** ([§7.8](evaluation.md); 2026-11-01), the same pairs on
+  round 9's schema, a probe first: **every run recorded an assessment** (one call each,
+  answered at the first attempt; 4,734 / 30,632 tokens; $0.6316). The agent's own verdicts:
+  B05 `abstained`, on a reason that names nothing in the task or the records; B06 and B07
+  `supported`, for proposals that depart from their task text (B06 changes the attempt
+  limit the task said to keep, B07 claims no exponential schedule), as M03's does; B08
+  proposed removing the cap and found it `contested` itself (5 open objections). Each
+  `policy_reading` equals the verdict. Under the conditions of §7.4 that can be applied, no
+  task counts as "the baseline approved what the consensus caught"; the condition that
+  needs the two readers stays open, since their reading was not made.
 
 No run self-authorized; every battery run's authorization is `pending`. The archive holds
-15 event logs with 51 runs (1,005 events) and 44 run records, and 4 baseline logs with their
-4 run records, byte-identical to the originals
+17 event logs with 53 runs (1,103 events) and 46 run records, and 8 baseline logs with their
+8 run records, byte-identical to the originals
 and pinned by `research/MANIFEST.json` and `research/SHA256SUMS`; the raw model drafts and
 the Hyphae proof witnesses are not published (`research/README.md` explains why and what a
 third party can and cannot check).

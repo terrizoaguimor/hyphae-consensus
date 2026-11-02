@@ -1,0 +1,182 @@
+{
+ "name": "B04",
+ "task_key": "R04-remove-cap",
+ "task": {
+  "project": "demo-repo",
+  "title": "Remove the retry cap from the payment client",
+  "description": "Retries keep exhausting before the upstream recovers. Remove the retry cap so payment requests retry until they succeed."
+ },
+ "consensus": {
+  "label": "M04",
+  "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451.jsonl",
+  "sha256": "cee9daee9a52b06630c8ac0c71f3618236c482a349a1d237495a0cb4a5ab452c",
+  "run_id": "run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451"
+ },
+ "memory": "hyphae",
+ "exit_code": 0,
+ "summary": {
+  "agent_verdict": "contested",
+  "counts": {
+   "agent_verdict": "contested",
+   "claims": 2,
+   "claims_corroborated": 0,
+   "claims_with_contradicting_evidence": 2,
+   "integrity": {
+    "invalid": 0,
+    "not_checked": 0,
+    "unavailable": 0,
+    "valid": 7,
+    "verification_error": 0
+   },
+   "objections": 5,
+   "objections_open": 5,
+   "records": 7
+  },
+  "event_count": 26,
+  "evidence": {
+   "recall_proven": 8,
+   "retrieved": [
+    "161896895843658017381255677281559699870",
+    "237412834382378687445660534362297845298",
+    "328114099256634798832222840773545327795",
+    "186670067796945807561772405393844769735",
+    "287567405605917891851290763137356115373",
+    "295729039551322334710406856728557559035",
+    "8864874238917673930644756936982232317"
+   ],
+   "unavailable": []
+  },
+  "evidence_mode": "live_hyphae",
+  "evidence_warning": null,
+  "failure": null,
+  "format": "hyphae-consensus-baseline-summary-v1",
+  "head_hash": "5302cc575a4d30d2160bf156584b94001bad4432b14c69ada6c6eea38ed20489",
+  "log": "runs/baseline-26b956fd-f544-4ff3-b342-68d8aeef7f10.jsonl",
+  "log_sha256": "ac3e97cbc2613396cdcac66ee97fb38e5323dbd48a72fe11872b69f669b45045",
+  "model_invocations": [
+   {
+    "attempts": 1,
+    "finish_reason": "stop",
+    "input_tokens": 1187,
+    "latency_ms": 43657,
+    "max_completion_tokens": 16000,
+    "model": "muse-wonder-1.0",
+    "output_tokens": 5577,
+    "prompt_sha256": "c08b610ef1cdeeedaab3e7e387e72a43753df383ae475f488db745c5f7c88f29",
+    "provider": "meta",
+    "reasoning_tokens": 4406,
+    "request_id": "chatcmpl-01a19a17-aa63-70d7-9c9e-af6488696dcc",
+    "safety_identifier_sent": false,
+    "schema_name": "DraftBaselineAssessment",
+    "schema_sha256": "e6629750219fb6aef9ac746747e011deec92f29fda30a299700feb5b9dd8c943"
+   }
+  ],
+  "note": "Single-agent baseline: one model call, no Critic, no Evaluator, no policy rounds. The agent's verdict is its own statement and policy_reading is a comparison aid; neither is a recommendation, nothing was executed and no human decision is recorded.",
+  "outcome": "contested",
+  "policy_reading": {
+   "kind": "contested",
+   "rule": "recorded_contradiction",
+   "version": "1.2"
+  },
+  "recall": {
+   "limit_per_query": 5,
+   "max_records": 20,
+   "queries": 8,
+   "source": {
+    "kind": "consensus_log",
+    "log_sha256": "cee9daee9a52b06630c8ac0c71f3618236c482a349a1d237495a0cb4a5ab452c",
+    "run_id": "run-c912672a-f72c-4f7e-bf5c-1d2bcf91f451"
+   }
+  },
+  "run_id": "baseline-26b956fd-f544-4ff3-b342-68d8aeef7f10",
+  "run_kind": "single_agent_baseline",
+  "schema_version": "baseline-1.0",
+  "task": {
+   "description": "Retries keep exhausting before the upstream recovers. Remove the retry cap so payment requests retry until they succeed.",
+   "mode": {
+    "evidence": "live_hyphae",
+    "model": "meta",
+    "origin": "cli"
+   },
+   "project_id": "demo-repo",
+   "title": "Remove the retry cap from the payment client"
+  },
+  "verdict_reason": "contested because retrieved evidence contradicts removing the cap: decision 328114099256634798832222840773545327795 fixes max_attempts = 3 with jitter_ms >= 50 and forbids raising the cap above 3, constraint 186670067796945807561772405393844769735 caps outbound retries at 3 with jitter, test fact 237412834382378687445660534362297845298 shows the guard test fails above 3, and incident facts 295729039551322334710406856728557559035 and 8864874238917673930644756936982232317 link unbounded/high-attempt retry bursts to the 2026-08 outage, leaving all assessed objections open.",
+  "verifications": [
+   {
+    "evidence_id": "161896895843658017381255677281559699870",
+    "factual_status": "contradicted",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "237412834382378687445660534362297845298",
+    "factual_status": "contradicted",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "328114099256634798832222840773545327795",
+    "factual_status": "contradicted",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "186670067796945807561772405393844769735",
+    "factual_status": "contradicted",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "287567405605917891851290763137356115373",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "295729039551322334710406856728557559035",
+    "factual_status": "contradicted",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "8864874238917673930644756936982232317",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   }
+  ]
+ },
+ "wall_seconds": 49.7,
+ "parity": {
+  "consensus": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "baseline": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "equal": true
+ }
+}

@@ -153,6 +153,25 @@ STORE_BATTERIES = [
             "pinned demo-store anchor (see README)."
         ),
     },
+    {
+        "dir": "2026-11-01/live-battery-2026-11-01-proposer-spark",
+        "source": "demo-run/validation-2026-11-02-proposer-spark",
+        "battery": "live-battery-2026-11-01-proposer-spark",
+        # The driver named these runs P01 and P02, which label the pre-fix
+        # runs of 2026-10-27; the archive calls them V04 and V05 (the file
+        # names and each record's "name" stay as written).
+        "labels": {"P01": "V04", "P02": "V05"},
+        "description": (
+            "Validation run {label} of 2026-11-01 (task {task}; the driver's name {name}) with the "
+            "Proposer and reviser on Meta muse-spark-1.3 (CONSENSUS_MODEL_PROPOSER) and the Critic "
+            "and Evaluator on muse-wonder-1.0, schema 1.3, tag prompt-freeze-4's prompts: this "
+            "run's chained records from genesis, as the operator server's run store wrote them "
+            "(consensus-api serve-operator built at commit 7e4801a); byte-identical to the copy "
+            "GET /api/v1/runs/{{id}}/events.ndjson served, {source}/results/{name}.jsonl. Live "
+            "Hyphae demo store; proofs verified at run time with hyphae proof verify against the "
+            "pinned demo-store anchor (see README)."
+        ),
+    },
 ]
 
 # Single-agent baseline batteries (docs/evaluation.md, "Single-agent
@@ -184,6 +203,23 @@ BASELINE_BATTERIES = [
             "store; proofs verified with hyphae proof verify against the pinned demo-store anchor "
             "(see README). The run failed at its one Meta call (HTTP 400), so it holds no "
             "assessment. Not a consensus run: the consensus event log refuses it."
+        ),
+    },
+    {
+        "dir": "2026-11-01/baseline-2026-11-01-r10",
+        "source": "demo-run/baseline-2026-11-02-r10",
+        "battery": "baseline-2026-11-01-r10",
+        # The driver named these runs B01-B04 again; the archive calls them
+        # B05-B08 (the file names and each record's "name" stay as written).
+        "labels": {"B01": "B05", "B02": "B06", "B03": "B07", "B04": "B08"},
+        "description": (
+            "Single-agent baseline run {label} of 2026-11-01 (task {task}; the driver's name "
+            "{name}), schema baseline-1.0, run_kind single_agent_baseline, chained from genesis "
+            "with the consensus recipe, as consensus-api baseline run (built at commit 7e4801a, "
+            "round 9's schema) wrote it. Live Hyphae demo store; proofs verified with hyphae proof "
+            "verify against the pinned demo-store anchor (see README). The run completed: it holds "
+            "the agent's one assessment (its own verdict, not a recommendation). Not a consensus "
+            "run: the consensus event log refuses it."
         ),
     },
 ]
@@ -293,8 +329,10 @@ def store_battery(store, files, runs_out):
         rel = base + "/" + name
         rdata = read(rel)
         rec = json.loads(rdata.decode("utf-8"))
-        label = rec["name"]
-        assert label == name[:-5], rel
+        driver_name = rec["name"]
+        assert driver_name == name[:-5], rel
+        label = store.get("labels", {}).get(driver_name, driver_name)
+        named = "" if label == driver_name else f"; the driver's name {driver_name}"
         rid = rec["detail"]["summary"]["run_id"]
         log_name = rid + ".jsonl"
         log_rel = base + "/runs/" + log_name
@@ -330,7 +368,7 @@ def store_battery(store, files, runs_out):
             "runs": 1,
             "events": len(events),
             "description": store["description"].format(
-                label=label, task=rec["task_key"], source=store["source"]
+                label=label, name=driver_name, task=rec["task_key"], source=store["source"]
             ),
         })
         files.append({
@@ -342,14 +380,14 @@ def store_battery(store, files, runs_out):
             "schema_versions": record_versions(rec),
             "runs": 1,
             "description": (
-                f"Run record for {label} (task {rec['task_key']}), in the format "
+                f"Run record for {label} (task {rec['task_key']}{named}), in the format "
                 "scripts/live_battery.py writes for the operator server: the task key and text, "
                 "the status and body of POST /api/v1/operator/runs, the run detail polled until "
                 "the run rested (summary, events, model invocations), the receipt (v2) downloaded "
                 "after the run, the status of the events.ndjson download, and the wall time."
             ),
         })
-        runs_out.append({
+        run = {
             "run_id": rid,
             "label": label,
             "battery": store["battery"],
@@ -360,7 +398,10 @@ def store_battery(store, files, runs_out):
             "schema_version": r["schema_version"],
             "file": log_rel,
             "record": rel,
-        })
+        }
+        if label != driver_name:
+            run["driver_name"] = driver_name
+        runs_out.append(run)
     assert logs_used == logs_on_disk, (base, logs_on_disk - logs_used)
 
 
@@ -402,8 +443,10 @@ def baseline_battery(entry, files, baseline_runs, consensus_runs):
         rel = base + "/" + name
         rdata = read(rel)
         rec = json.loads(rdata.decode("utf-8"))
-        label = rec["name"]
-        assert label == name[:-5], rel
+        driver_name = rec["name"]
+        assert driver_name == name[:-5], rel
+        label = entry.get("labels", {}).get(driver_name, driver_name)
+        named = "" if label == driver_name else f"; the driver's name {driver_name}"
         summary = rec["summary"]
         assert rec["exit_code"] == 0 and summary["format"] == BASELINE_SUMMARY, rel
         rid = summary["run_id"]
@@ -458,7 +501,9 @@ def baseline_battery(entry, files, baseline_runs, consensus_runs):
             "schema_versions": [BASELINE_SCHEMA],
             "runs": 1,
             "events": len(records),
-            "description": entry["description"].format(label=label, task=rec["task_key"]),
+            "description": entry["description"].format(
+                label=label, name=driver_name, task=rec["task_key"]
+            ),
         })
         files.append({
             "path": rel,
@@ -469,14 +514,14 @@ def baseline_battery(entry, files, baseline_runs, consensus_runs):
             "schema_versions": [BASELINE_SCHEMA],
             "runs": 1,
             "description": (
-                f"Run record for the single-agent baseline run {label} (task {rec['task_key']}), "
+                f"Run record for the single-agent baseline run {label} (task {rec['task_key']}{named}), "
                 "as scripts/baseline_battery.py writes it: the task key and text, the paired "
                 "consensus run (label, archived log, sha256), the exit code of consensus-api "
                 "baseline run, the summary it printed (read back from the run's log) and the "
                 "wall time. Not a consensus run: no recommendation, no decision."
             ),
         })
-        baseline_runs.append({
+        run = {
             "run_id": rid,
             "label": label,
             "battery": entry["battery"],
@@ -489,7 +534,10 @@ def baseline_battery(entry, files, baseline_runs, consensus_runs):
             "schema_version": BASELINE_SCHEMA,
             "file": log_rel,
             "record": rel,
-        })
+        }
+        if label != driver_name:
+            run["driver_name"] = driver_name
+        baseline_runs.append(run)
     assert logs_used == logs_on_disk, (base, logs_on_disk - logs_used)
 
 

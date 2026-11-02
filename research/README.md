@@ -1,9 +1,9 @@
 # Research archive
 
 Verbatim copies of every recorded Hyphae Consensus run from 2026-10-26,
-2026-10-27, 2026-10-30 and 2026-11-01: 15 event logs holding 51 runs (1,005
-events), and 44 run records; and, kept apart from them, the 4 single-agent
-baseline runs of 2026-11-01 (4 baseline logs holding 68 records, and 4 run
+2026-10-27, 2026-10-30 and 2026-11-01: 17 event logs holding 53 runs (1,103
+events), and 46 run records; and, kept apart from them, the 8 single-agent
+baseline runs of 2026-11-01 (8 baseline logs holding 168 records, and 8 run
 records). Each file was copied byte for byte with `cp` from `demo-run/`,
 which is git-ignored and remains the unmodified original, and each copy was
 checked against its source with SHA-256. Nothing was edited, redacted or
@@ -15,7 +15,11 @@ are UTC, so the 2026-10-26 battery's events read `2026-10-27T04:26Z` to
 directory named for the day it was planned; its events read
 `2026-10-30T18:52Z` to `19:08Z`. The 2026-11-01 validation runs read
 `2026-11-01T22:24Z` to `22:34Z`, the baseline runs `22:37:26Z` to
-`22:37:49Z`.
+`22:37:49Z`. The later runs of that local evening read `2026-11-02T02:08Z` to
+`02:20Z` (V04–V05) and `02:25:16Z` to `02:30:04Z` (B05–B08); their source
+directories in `demo-run/` are named for the UTC date
+(`validation-2026-11-02-proposer-spark/`, `baseline-2026-11-02-r10/`), and
+their archive directories for the local one.
 
 ## Files in research/ must never be edited
 
@@ -45,7 +49,9 @@ directory named for the day it was planned; its events read
 | `2026-10-27/live-battery-2026-10-27-pf2-smoke.jsonl` and `-pf2-smoke/` | Protocol 1.3 smoke runs on tag `prompt-freeze-2`, §6.2; not counted as validation | K03–K04 | 1.3 |
 | `2026-10-30/live-battery-2026-10-30-p13/` | Protocol 1.3 battery through the operator server's run store: one log per run in `runs/<run_id>.jsonl`, one run record per run in `M01.json`–`M04.json` (see "The 2026-10-30 battery" below) | M01–M04 | 1.3 |
 | `2026-11-01/live-battery-2026-11-01-spark/` | Validation runs with the Critic on `muse-spark-1.3`, laid out as the 2026-10-30 battery: `runs/<run_id>.jsonl` and `V01.json`–`V03.json` (see "The 2026-11-01 validation runs" below) | V01–V03 | 1.3 |
+| `2026-11-01/live-battery-2026-11-01-proposer-spark/` | Validation runs with the Proposer on `muse-spark-1.3`, laid out as the 2026-10-30 battery: `runs/<run_id>.jsonl` and the driver's `P01.json`–`P02.json` (see "The validation runs V04–V05" below) | V04–V05 | 1.3 |
 | `2026-11-01/baseline-2026-11-01/` | Single-agent baseline runs (`docs/evaluation.md` §7): one baseline log per run in `runs/<run_id>.jsonl`, one run record per run in `B01.json`–`B04.json`; listed under `baseline_runs` in `MANIFEST.json`, never under `runs` (see "The 2026-11-01 baseline runs" below) | B01–B04 | baseline-1.0 |
+| `2026-11-01/baseline-2026-11-01-r10/` | Single-agent baseline re-run on round 9's schema, laid out as the first: `runs/<run_id>.jsonl` and the driver's `B01.json`–`B04.json`; under `baseline_runs` (see "The baseline runs B05–B08" below) | B05–B08 | baseline-1.0 |
 | `MANIFEST.json` | Per data file: path, original path, bytes, SHA-256, kind, schema versions, runs (and events, for logs). Per run: run id, label, battery, task title, project, outcome (recommendation kind or `failed:<stage>`), authorization, schema version, log, run record. Per baseline run (`baseline_runs`): run id, label, battery, run kind, task title, project, outcome (`failed:<stage>` or the agent's own verdict), the paired consensus run's label, evidence mode, schema version, log, run record | | |
 | `SHA256SUMS` | The same digests, for `sha256sum -c` | | |
 
@@ -63,6 +69,12 @@ V01–V03 and B01–B04 are likewise the names the drivers were given on
 2026-11-01 (`V01=R07-exp-backoff`, `V02=R01-reference`,
 `V03=R04-remove-cap`; the baseline driver's planned pairs `B01=R01-reference`
 with M01 to `B04=R04-remove-cap` with M04).
+The later runs of 2026-11-01 were again given names already in use (the
+validation driver's `P01=R07-exp-backoff`, `P02=R01-reference`, its planned
+`P03=R04-remove-cap` never started; the baseline driver's B01–B04 with the
+same pairs as before), so the archive calls them V04–V05 and B05–B08: the
+files and each record's `name` keep the driver's names, and `MANIFEST.json`
+gives the driver's name of each such run as `driver_name`.
 The console runs have no labels elsewhere: C01–C07 are assigned here, in
 log order.
 
@@ -86,8 +98,8 @@ the server had stopped. The driver also saved the records the server served
 at `GET /api/v1/runs/{id}/events.ndjson` as `results/M0N.jsonl`; for every
 run that copy has the same SHA-256 as the store's file, so it is not
 archived twice. The 2026-11-01 validation records come from the same driver
-and have the same fields; their served `results/V0N.jsonl` copies likewise
-have the SHA-256 of the store's files.
+and have the same fields; their served `results/V0N.jsonl` and
+`results/P0N.jsonl` copies likewise have the SHA-256 of the store's files.
 
 The baseline records come from `scripts/baseline_battery.py`: the task key
 and text, the paired consensus run (label, archived log path, SHA-256, run
@@ -108,20 +120,24 @@ copies, `commit.txt`, `consensus-api.sha256`, `settings.txt` and the
 operator's `spend-guard.log`; the baseline directory's driver and verify
 logs, `commit.txt`, `consensus-api.sha256`, `settings.txt` and its
 `consensus/` copies of the M01–M04 logs, which have the SHA-256 of the
-archived ones). The values of `commit.txt`, `consensus-api.sha256` and
-`settings.txt` are quoted below.
+archived ones). The later sets of that evening leave out the same kinds of
+file, `results/P0N.jsonl` in place of `results/V0N.jsonl`, plus the baseline
+set's own `spend-guard.log`. The values of `commit.txt`,
+`consensus-api.sha256` and `settings.txt` are quoted below.
 
 ## How the runs were produced
 
 - **Model.** Live runs called Meta's `muse-wonder-1.0` through the Meta
   Model API (Chat Completions with structured output); in V01–V03 the
-  Critic's calls went to `muse-spark-1.3` instead (the other roles stayed on
+  Critic's calls went to `muse-spark-1.3` instead, and in V04–V05 the
+  Proposer's (propose and revise; the other roles stayed on
   `muse-wonder-1.0`). Each completed call
   is recorded as an invocation with `provider: meta`, the model id, the
-  API's request id, latency and token counts: 228 calls in this archive, in
-  48 runs of the 15 logs, each with its own request id (165 before the smoke
+  API's request id, latency and token counts: 243 calls in this archive, in
+  50 runs of the 17 logs, each with its own request id (165 before the smoke
   runs K01–K04 added 7 and 12; 184 before M01–M04 added 7, 4, 6 and 6; 207
-  before V01–V03 added 9, 6 and 6, 7 of those 21 on `muse-spark-1.3`). The
+  before V01–V03 added 9, 6 and 6, 7 of those 21 on `muse-spark-1.3`; 228
+  before V04–V05 added 6 and 9, 5 of those 15 on `muse-spark-1.3`). The
   count is of records whose payload carries an invocation with
   `provider: meta` and a request id, as the server lists a run's
   `meta_request_ids`: one per call that got an answer (a retried call is one
@@ -132,8 +148,11 @@ archived ones). The values of `commit.txt`, `consensus-api.sha256` and
   answer arrived but was refused by the protocol 1.3 contract records its
   invocation on the `run_failed` record, so it is counted: M04's evaluate
   call. Scripted calls record `provider: fake` (18, in C01, C02 and C05) and
-  are not counted. The baseline logs are not in this count: their one call
-  each was refused with HTTP 400 and recorded no invocation.
+  are not counted. The baseline logs are not in this count: the one call of
+  each of B01–B04 was refused with HTTP 400 and recorded no invocation; the
+  one call of each of B05–B08 was answered, on `muse-wonder-1.0`, and is
+  recorded with its request id on that run's `baseline_assessed` record (4
+  more ids, listed in `docs/evaluation.md`).
 - **Memory.** Hyphae 4.0.0 Agent Memory, Linux build, in the operator's
   local Docker container (`docs/evaluation.md` §2 and §5). Its records are
   operator-seeded demo memories (`scripts/hyphae-container/seed*.sh`), not
@@ -167,7 +186,11 @@ archived ones). The values of `commit.txt`, `consensus-api.sha256` and
   every proof before its one model call, but it writes the
   `evidence_verified` records (which also carry the agent's factual reading)
   only after a recorded assessment; each run failed at that call, so the
-  results of its proof checks are not in its log.
+  results of its proof checks are not in its log. The later runs of that
+  evening used the same store and anchor (read out of band again before
+  them, unchanged): all 35 verification records of V04–V05 (14 and 21) and
+  all 28 of the baseline runs B05–B08 (7 each, written after each recorded
+  assessment) are `valid`, with the same verifier and `verified_anchor`.
 - **Policy.** The runtime derived every recommendation with the rules of
   its schema version (`crates/consensus-runtime/src/policy.rs`). A human
   decision only records the decision; nothing is executed. Every battery
@@ -325,6 +348,83 @@ rule none was run again. Written up in `docs/evaluation.md` §7.7.
   summary equals the run record's.
 - **Container paths.** 14 occurrences in each baseline log (7 records),
   none in the run records.
+
+## The validation runs V04–V05 (2026-11-01, Proposer on `muse-spark-1.3`)
+
+Owner-authorized live runs (3 planned, cap $3) to validate the round-10
+option of a separate Proposer model (`CONSENSUS_MODEL_PROPOSER=muse-spark-1.3`,
+for propose and revise) on the `prompt-freeze-4` prompts and schemas, on the
+tasks of V01–V03. Two ran; the operator's spend guard stopped the driver
+before the third (`R04-remove-cap`), which was never posted and was not run
+again. Written up in `docs/evaluation.md` §6.7. Validation runs, not a battery
+whose outcomes are counted as rates.
+
+- **When.** Events from `2026-11-02T02:08:07Z` (V04's first) to `02:20:00Z`
+  (V05's last), one run after the other.
+- **Server.** `consensus-api serve-operator` on loopback, built at commit
+  `7e4801aecf09b2fabd6764acea330c13441dc486` (`commit.txt`); SHA-256 of the
+  binary `86a0e724549803ea32ea096f733866f823546833ec3ad6865c92f1e9e409901d`
+  (`consensus-api.sha256`, recorded in upper case). Driver
+  `scripts/live_battery.py`. The server's stdout says the same as on
+  2026-10-30. The operator's `settings.txt` reads
+  `CONSENSUS_MODEL_TIMEOUT_SECS=240`, `CONSENSUS_MODEL` unset (default
+  `muse-wonder-1.0`), `CONSENSUS_MODEL_CRITIC` unset,
+  `CONSENSUS_MODEL_PROPOSER=muse-spark-1.3` and the pinned anchor.
+- **Model.** Every Proposer invocation (`DraftProposal` 2, `DraftRevision` 3)
+  records `muse-spark-1.3`; every Critic and Evaluator invocation (10) records
+  `muse-wonder-1.0`. All 15 have `attempts: 1`, `finish_reason: stop`,
+  `max_completion_tokens` 16000 and no `rejected_calls` (no re-ask).
+- **Memory.** The demo store, anchor `27943f61…f42347c`.
+- **Tasks**, the driver's task texts: V04 (`P01.json`) `R07-exp-backoff`, V05
+  (`P02.json`) `R01-reference`, on project `demo-repo`.
+- **Outcomes, as the records say them.** Every authorization is `pending`;
+  both runs rest in `awaiting_human_approval`.
+  - V04 (`run-884f0def-881b-4684-9835-5c6e285cff04`, 40 events): `supported`
+    after two rounds and one revision, rule `all_checks_passed`: "Supported:
+    7/7 claims corroborated; proofs: 7 valid, 0 invalid, 0
+    unavailable/error; 0 unresolved challenges." The task asked for
+    exponential backoff; the revision sets `max_attempts=3` with
+    `jitter_ms>=50` and none of its 7 claims states an exponential schedule.
+  - V05 (`run-6e252754-a127-4f29-a6e5-b7c6bec8798f`, 58 events): `contested`
+    after three rounds and two revisions, rule `unresolved_items`:
+    "Contested: 7/7 claims corroborated; proofs: 7 valid, 0 invalid, 0
+    unavailable/error; 8 unresolved challenges."
+- **Objections from earlier rounds.** None was left unjudged: each
+  receipt's `earlier_round_objections_never_rejudged` is empty.
+- **Container paths.** 14 occurrences of `/hyphae-home/…` in each of the
+  four files (7 records retrieved per run).
+
+## The baseline runs B05–B08 (2026-11-01, round 9's schema)
+
+The single-agent baseline run again after the round-9 fix of its schema
+(`docs/evaluation.md` §7.7 and §7.8), with the owner's authorization of a
+probe first (B05, `R01-reference` paired with M01) and the other three only
+if it produced an assessment; cap $5. It did, so all four ran, one driver
+invocation each, with the same pairs and `--queries-from` logs as B01–B04.
+**Every run recorded an assessment.**
+
+- **When.** Records from `2026-11-02T02:25:16Z` (B05's first) to
+  `02:30:04Z` (B08's last).
+- **Binary.** `consensus-api baseline run`, the build of V04–V05
+  (`commit.txt` and `consensus-api.sha256` as above). Driver
+  `scripts/baseline_battery.py` at the same commit. The finished set was
+  copied as a new directory to `demo-run/baseline-2026-11-02-r10/`, from
+  which these files were copied. The operator's `settings.txt` reads
+  `CONSENSUS_MODEL_TIMEOUT_SECS=120`, `CONSENSUS_MODEL`,
+  `CONSENSUS_MODEL_CRITIC`, `CONSENSUS_MODEL_PROPOSER`,
+  `CONSENSUS_META_MAX_COMPLETION_TOKENS` and `CONSENSUS_META_REASONING_EFFORT`
+  unset, and the pinned anchor. Each record's `parity` block is `equal`.
+- **Outcomes, as the records say them** (the agent's own verdict, never a
+  recommendation; exit code 0 each): B05 (`B01.json`) `abstained`, B06
+  (`B02.json`) `supported`, B07 (`B03.json`) `supported`, B08 (`B04.json`)
+  `contested`; each `policy_reading` is the same kind. One call each, on
+  `muse-wonder-1.0`, answered at the first attempt; wall time 49.9, 106.8,
+  80.8 and 49.7 s. Each run planned 7, 6, 7 and 8 recall queries, recorded as
+  many `recall_proven` records, retrieved all 7 records of the store and
+  recorded 7 verification records. `consensus-api baseline verify` accepts
+  each log, and its summary equals the run record's.
+- **Container paths.** 14 occurrences in each baseline log, none in the run
+  records.
 
 ## Notes and corrections (as of 2026-10-30)
 

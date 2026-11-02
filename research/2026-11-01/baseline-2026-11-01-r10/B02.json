@@ -1,0 +1,182 @@
+{
+ "name": "B02",
+ "task_key": "R05-add-jitter",
+ "task": {
+  "project": "demo-repo",
+  "title": "Add jitter to payment retries",
+  "description": "Retry storms align under load. Add randomized jitter to the existing payment retry backoff without changing the attempt limit."
+ },
+ "consensus": {
+  "label": "M02",
+  "file": "2026-10-30/live-battery-2026-10-30-p13/runs/run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615.jsonl",
+  "sha256": "a76dc21718ca0341bea3cedebe4859dd81856e5421de5046f2eb79570bade427",
+  "run_id": "run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615"
+ },
+ "memory": "hyphae",
+ "exit_code": 0,
+ "summary": {
+  "agent_verdict": "supported",
+  "counts": {
+   "agent_verdict": "supported",
+   "claims": 3,
+   "claims_corroborated": 3,
+   "claims_with_contradicting_evidence": 0,
+   "integrity": {
+    "invalid": 0,
+    "not_checked": 0,
+    "unavailable": 0,
+    "valid": 7,
+    "verification_error": 0
+   },
+   "objections": 3,
+   "objections_open": 0,
+   "records": 7
+  },
+  "event_count": 24,
+  "evidence": {
+   "recall_proven": 6,
+   "retrieved": [
+    "237412834382378687445660534362297845298",
+    "295729039551322334710406856728557559035",
+    "328114099256634798832222840773545327795",
+    "161896895843658017381255677281559699870",
+    "287567405605917891851290763137356115373",
+    "8864874238917673930644756936982232317",
+    "186670067796945807561772405393844769735"
+   ],
+   "unavailable": []
+  },
+  "evidence_mode": "live_hyphae",
+  "evidence_warning": null,
+  "failure": null,
+  "format": "hyphae-consensus-baseline-summary-v1",
+  "head_hash": "c10e2791b8ae2b66a23ae431117c982632e942e89be9fbc84a07d060efec2af4",
+  "log": "runs/baseline-32a1d5fd-48b1-4cdf-a3c5-8109415733c7.jsonl",
+  "log_sha256": "4c65a2c4d4a539eeacfc1da304e9d7cd67ad11a0901770ebeefe4f019a6373c9",
+  "model_invocations": [
+   {
+    "attempts": 1,
+    "finish_reason": "stop",
+    "input_tokens": 1184,
+    "latency_ms": 101272,
+    "max_completion_tokens": 16000,
+    "model": "muse-wonder-1.0",
+    "output_tokens": 11205,
+    "prompt_sha256": "c08b610ef1cdeeedaab3e7e387e72a43753df383ae475f488db745c5f7c88f29",
+    "provider": "meta",
+    "reasoning_tokens": 10248,
+    "request_id": "chatcmpl-01a19a15-a92f-760e-9971-97c9ce64bf24",
+    "safety_identifier_sent": false,
+    "schema_name": "DraftBaselineAssessment",
+    "schema_sha256": "e6629750219fb6aef9ac746747e011deec92f29fda30a299700feb5b9dd8c943"
+   }
+  ],
+  "note": "Single-agent baseline: one model call, no Critic, no Evaluator, no policy rounds. The agent's verdict is its own statement and policy_reading is a comparison aid; neither is a recommendation, nothing was executed and no human decision is recorded.",
+  "outcome": "supported",
+  "policy_reading": {
+   "kind": "supported",
+   "rule": "all_checks_passed",
+   "version": "1.2"
+  },
+  "recall": {
+   "limit_per_query": 5,
+   "max_records": 20,
+   "queries": 6,
+   "source": {
+    "kind": "consensus_log",
+    "log_sha256": "a76dc21718ca0341bea3cedebe4859dd81856e5421de5046f2eb79570bade427",
+    "run_id": "run-a529264a-8aa0-4dfd-92e6-4b55d9d6c615"
+   }
+  },
+  "run_id": "baseline-32a1d5fd-48b1-4cdf-a3c5-8109415733c7",
+  "run_kind": "single_agent_baseline",
+  "schema_version": "baseline-1.0",
+  "task": {
+   "description": "Retry storms align under load. Add randomized jitter to the existing payment retry backoff without changing the attempt limit.",
+   "mode": {
+    "evidence": "live_hyphae",
+    "model": "meta",
+    "origin": "cli"
+   },
+   "project_id": "demo-repo",
+   "title": "Add jitter to payment retries"
+  },
+  "verdict_reason": "Claims 1 and 2 are directly corroborated by Valid records 328114099256634798832222840773545327795, 186670067796945807561772405393844769735, and 237412834382378687445660534362297845298; claim 3 is directly corroborated by Valid record 161896895843658017381255677281559699870; no retrieved record is Invalid or contradicts a claim, and all listed objections are addressed.",
+  "verifications": [
+   {
+    "evidence_id": "237412834382378687445660534362297845298",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "295729039551322334710406856728557559035",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "328114099256634798832222840773545327795",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "161896895843658017381255677281559699870",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "287567405605917891851290763137356115373",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "8864874238917673930644756936982232317",
+    "factual_status": "not_assessed",
+    "integrity_status": "valid",
+    "relevance_status": "irrelevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   },
+   {
+    "evidence_id": "186670067796945807561772405393844769735",
+    "factual_status": "corroborated",
+    "integrity_status": "valid",
+    "relevance_status": "relevant",
+    "verified_anchor": "27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c",
+    "verifier": "hyphae proof verify"
+   }
+  ]
+ },
+ "wall_seconds": 106.8,
+ "parity": {
+  "consensus": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "baseline": [
+   {
+    "model": "muse-wonder-1.0",
+    "max_completion_tokens": 16000,
+    "reasoning_effort": null
+   }
+  ],
+  "equal": true
+ }
+}

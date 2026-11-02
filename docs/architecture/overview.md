@@ -50,7 +50,7 @@ against a running Hyphae deployment; that mode is never public.
 | `crates/consensus-tests` | Integration and adversarial scenarios, the scripted conformance check (`--example evaluate`), replay of the `research/` archive | 0001, 0010 |
 | `apps/web` | Mission Control: Next.js static export served by `serve-public` | 0009 |
 | `contracts/api-v1` | Generated JSON Schemas and fixtures of the public API (section 7) | 0006 |
-| `research/` | Byte-identical archive of the recorded runs with `MANIFEST.json` and `SHA256SUMS` (15 event logs, 51 runs, 1,005 events, 44 run records, plus 4 baseline logs with 4 run records; `research/README.md`) | 0006 |
+| `research/` | Byte-identical archive of the recorded runs with `MANIFEST.json` and `SHA256SUMS` (17 event logs, 53 runs, 1,103 events, 46 run records, plus 8 baseline logs with 8 run records; `research/README.md`) | 0006 |
 | `deploy/`, `docs/deployment/runbook.md` | systemd units, cloudflared ingress, tmpfiles, environment templates and operator scripts; nothing deployed | 0006–0008 |
 | `scripts/` | `linux-gates.sh` (Linux parity), `live_battery.py`, `snapshot_manifest.py`, `make_research_manifest.py`, `third_party_notices.py`, `hyphae-container/` (container runbook, `capture-snapshot.sh`) | 0003, 0008 |
 

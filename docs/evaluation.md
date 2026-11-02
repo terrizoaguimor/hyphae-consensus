@@ -15,8 +15,9 @@ also committed as byte-identical copies under `research/` (`research/README.md`,
 `research/MANIFEST.json`, `research/SHA256SUMS`); the raw model drafts and the
 Hyphae recovery files exist only in `demo-run/`. The counted protocol 1.3 battery of
 2026-10-30 (M01–M04) is in §6.3, the validation runs of 2026-11-01 with the Critic on
-`muse-spark-1.3` (V01–V03) in §6.6, and the single-agent baseline runs of 2026-11-01
-(B01–B04, each failed at its one call) in §7.7.
+`muse-spark-1.3` (V01–V03) in §6.6, those with the Proposer on `muse-spark-1.3` (V04–V05)
+in §6.7, and the single-agent baseline runs of 2026-11-01 in §7.7 (B01–B04, each failed at
+its one call) and §7.8 (B05–B08, each recorded an assessment).
 
 ## 1. Scripted protocol conformance check (deterministic doubles)
 
@@ -1150,15 +1151,214 @@ estimated $1.613 from these tokens at $4.00 / $20.00 per million input / output 
 price ($1.450 and $0.163; per run $0.733, $0.447 and $0.433). Those prices are the
 operator's, not checked against Meta's billing.
 
-## 7. Single-agent baseline (plan; ran 2026-11-01, **no assessment recorded**)
+### 6.7 Validation with the Proposer on `muse-spark-1.3`: V04–V05 (2026-11-01)
+
+**In short.** The owner authorized 3 live runs (spend cap $3) with the Proposer's two
+calls, propose and revise, on Meta `muse-spark-1.3` (`CONSENSUS_MODEL_PROPOSER`, round 10)
+and the Critic and the Evaluator on `muse-wonder-1.0`, on the tasks of V01–V03 so that they
+can be set side by side. **2 of the 3 ran; both ended with a recommendation, and no call
+failed, was retried or was asked again.** V04 (`R07-exp-backoff`) is `supported`, for a
+revision that claims no exponential schedule (as M03's, §6.3, and V01's revisions); V05
+(`R01-reference`) is `contested`, with 8 open objections after the two revisions the round
+bound allows. The third run (`R04-remove-cap`) never started: the operator's spend guard
+stopped the driver before it (below), and per the owner's rule it was not run again. All 35
+verification records are `valid`. Two runs, one per task: no rate of any outcome is claimed,
+and nothing here compares `muse-spark-1.3` with `muse-wonder-1.0` as a Proposer.
+
+**Setup.** `consensus-api serve-operator` on loopback, built at commit `7e4801a`
+(`commit.txt`: `7e4801aecf09b2fabd6764acea330c13441dc486`; binary SHA-256
+`86a0e724549803ea32ea096f733866f823546833ec3ad6865c92f1e9e409901d`, recorded in upper case;
+the operator ran a copy of the binary, not the build output), driven by
+`scripts/live_battery.py` (`P01=R07-exp-backoff P02=R01-reference P03=R04-remove-cap`)
+through `POST /api/v1/operator/runs`, one run after the other. The driver's names P01 and
+P02 already label the pre-fix runs of §5.1, so the archive calls these runs **V04** and
+**V05** (the files keep the driver's names; `MANIFEST.json` lists the driver's name as
+`driver_name`). The server's stdout says what it said on 2026-10-30 (executor disabled,
+per-run token cap 150000, operator Meta runs unmetered). The operator's `settings.txt` (not
+archived) reads `CONSENSUS_MODEL_TIMEOUT_SECS=240`, `CONSENSUS_MODEL` unset (default
+`muse-wonder-1.0`), `CONSENSUS_MODEL_CRITIC` unset, `CONSENSUS_MODEL_PROPOSER=muse-spark-1.3`
+and the anchor `27943f61e6c23de192288067436d70a38234a652dc309d4f7fcf57c04f42347c` pinned as
+`CONSENSUS_HYPHAE_EXPECTED_ANCHOR`; according to the operator, the max-tokens,
+reasoning-effort, `CONSENSUS_MAX_RUN_TOKENS` and debug-directory variables were unset too.
+The operator read the anchor out of band with one proven recall at 02:05 UTC on 2026-11-02,
+before the runs: the same value as M01–M04's. Every invocation records the freeze-4 prompt
+digests of §6.4–§6.5 (Proposer `5d9d3593…`, Critic `06447d5d…`, Evaluator `01d3164e…`,
+reviser `b4e7d77d…`) and the fixed schema digests (Proposer `12d04b11…`, reviser
+`e4d33c93…`), the digests of V01–V03: the Proposer was sent the same prompts and schemas on
+the other model. Every task has `Task.mode` `{model: meta, evidence: live_hyphae, origin:
+operator}`. Raw data: `demo-run/validation-2026-11-02-proposer-spark/` (git-ignored, named
+for the UTC date), archived verbatim as
+`research/2026-11-01/live-battery-2026-11-01-proposer-spark/`: `P01.json` and `P02.json`
+(run records with the API v1 detail and the receipt v2) and `runs/<run_id>.jsonl` (the run
+store's logs; the served `results/P0N.jsonl` copies have the same SHA-256). No raw Meta
+drafts were captured. Events from 02:08:07 UTC (V04's first) to 02:20:00 UTC (V05's last)
+on 2026-11-02, the evening of 2026-11-01 in the operator's time zone (UTC−05:00).
+
+**The spend guard, and the run that did not start.** Under the per-run cap of 150,000
+tokens, one run's worst case at `muse-wonder-1.0` prices is more than the whole $3 cap, so
+the operator's script (outside the repository, not archived) bounded the spend in two
+ways: while a run was in flight it summed the store logs' invocations every second and
+would have stopped the server if the spend plus $0.88 (one in-flight Wonder call of 16,000
+output and 30,000 input tokens, doubled for a possible retry) exceeded $3; and before each
+run it required the spend plus the costliest run so far (at least $0.75) plus $0.88 to stay
+within $3. Its log (`spend-guard.log`, not archived) reads, after V05: "stopping before the
+next run: spent 1.4749 + next run allowance 2.0070 > cap 3". The store holds the two runs
+only: the third task was never posted. This is a deviation from the plan of 3 runs, caused
+by the guard, not by the provider or the protocol.
+
+| Run | Task (project) | Outcome | Revisions | Critic items per round | Evaluator per round (corroborated/claims, open items) | Integrity (all rounds) | Calls | Model latency | Tokens in/out (reasoning) |
+|---|---|---|---|---|---|---|---|---|---|
+| V04 | Exponential backoff for payment retries (`demo-repo`) | **supported** (for a revision that claims no exponential schedule, see below) | 1 | 9 → 0 | 0/4, 9 open → 7/7, 0 open | 14 valid | 6 (2 Proposer) | 144.6 s | 10,851 / 19,991 (16,180) |
+| V05 | Fix payment client timeouts (`demo-repo`) | **contested** | 2 | 11 → 4 → 6 | 1/6, 11 open → 6/6, 6 open → 7/7, 8 open | 21 valid | 9 (3 Proposer) | 541.5 s | 20,166 / 60,492 (52,545) |
+
+Totals: 2 runs, 98 events, 15 Meta calls, every one answered and recorded with its own
+request id (listed below), each `attempts: 1`, `finish_reason: stop`,
+`max_completion_tokens` 16,000, `safety_identifier_sent: false`, no `rejected_calls`: 0
+retries, 0 re-asks. 31,017 input / 80,483 output tokens (68,725 of them reasoning), 686.1 s
+of model latency. 35 verification records, all `valid`. Outcomes: 1 `supported`, 1
+`contested`; every authorization `pending`, every run resting in `awaiting_human_approval`.
+Every receipt's `earlier_round_objections_never_rejudged` is empty.
+
+**The two models, as recorded.** The 5 Proposer calls (2 `DraftProposal`, 3
+`DraftRevision`) all record `muse-spark-1.3`: 9,894 / 14,708 tokens (11,667 reasoning),
+64.3 s, 6.8–18.7 s per call. The 10 Critic (`DraftChallenge`) and Evaluator
+(`DraftEvaluation`) calls all record `muse-wonder-1.0`: 21,123 / 65,775 (57,058), 621.8 s;
+the Critic took 28.0–116.2 s per call and the Evaluator 25.4–102.8 s, V05's six of them
+51.7–116.2 s, under the 240 s budget. In V01–V03 the Proposer on `muse-wonder-1.0` took
+29.3–66.4 s and the reviser 14.8–26.5 s (§6.6); those are other calls with other inputs, so
+no latency or quality comparison between the models is drawn from them.
+
+**What the provider caused, and what the protocol decided.** The provider caused nothing:
+no call timed out, failed or was refused. Both outcomes are the policy's (rules 1.2): V04
+`supported` under rule `all_checks_passed`, V05 `contested` under rule `unresolved_items`.
+
+**Per run, from the records.**
+
+- **V04** (`run-884f0def-881b-4684-9835-5c6e285cff04`, task `R07-exp-backoff`, 40 events;
+  wall time 156.1 s). Task text: "Replace fixed-delay payment retries with exponential
+  backoff while staying within the documented attempt limit." Round 1 (`prop-1`, summary
+  "Replace fixed-delay payment retries with capped exponential backoff with jitter while
+  enforcing the documented attempt limit and timeouts."; 5 plan steps; 4 claims, each
+  stating a documented value: a limit of "5 total attempts per payment", a 10-second
+  per-attempt gateway timeout, a 300-second total budget, and a rule to reuse the same
+  idempotency key across retries; the first draft is written before any record is
+  retrieved): the Critic raised 9 items (4 contradictory evidence, 4 unsupported claim, 1
+  missing test; `item-14` names the fixed-delay premise against the default-policy record);
+  the Evaluator corroborated 0 of 4 claims, cited 3 records as contradicting the 5-attempt
+  claim (the constraint `186670067796945807561772405393844769735`, the test record
+  `237412834382378687445660534362297845298` and the 2026-09 decision
+  `328114099256634798832222840773545327795`), found no record for the other three, and left
+  all 9 items `unresolved`. Revision `prop-16` (summary: "Set payment-client RetryPolicy to
+  max_attempts=3 with jitter_ms>=50, preserve Timeout-only retry, and use bounded jittered
+  backoff within that cap to avoid burst regression."; 4 plan steps) listed all 9 as
+  addressed; its 7 claims each restate one stored record (the decision, the constraint, the
+  default policy, the retry-only-timeouts fact, the test record, the outage, the
+  burst correlation). Round 2: the Critic raised 0 items; the Evaluator corroborated 7 of 7,
+  resolved the 9 carried items and cleared the 3 carried contradictions, each with a reason.
+  Recommendation: `supported`, rule `all_checks_passed`, rationale "Supported: 7/7 claims
+  corroborated; proofs: 7 valid, 0 invalid, 0 unavailable/error; 0 unresolved challenges.";
+  2 unresolved assumptions (the first: "Backoff base interval and exponential factor are new
+  implementation choices not set by existing records"), 3 unresolved uncertainties.
+  *Scope.* None of `prop-16`'s 7 claims states an exponential schedule; one plan step says
+  to "implement bounded backoff between Timeout retries that preserves the >=50ms jitter
+  floor and never exceeds 3 attempts". So `supported` attests the stored decision's values
+  and no exponential backoff, as for M03; the human sees that next to the outcome.
+  *The test record.* `claim-21` restates seeded record `237412…` (Corrections, item 3), the
+  record that misdescribes the fixture test.
+- **V05** (`run-6e252754-a127-4f29-a6e5-b7c6bec8798f`, task `R01-reference`, 58 events; wall
+  time 558.0 s). Task text: "Payment requests intermittently time out under load. Propose a
+  safe fix consistent with the existing retry constraints." Round 1 (`prop-1`, summary
+  "Increase per-attempt timeout to 5s while holding 3-attempt retry limit with
+  idempotency-keyed exponential backoff to reduce timeouts under load without
+  duplicate-charge risk."; 6 claims: a documented 3-attempt limit, a current per-attempt
+  timeout of 2000 ms, a constraint forbidding a retried `POST /charges` without an
+  Idempotency-Key, the API's support for that header, a 10-second gateway deadline, and an
+  incident correlation with load above 200 requests per second): 11 Critic items (6
+  contradictory evidence, 5 missing test); the Evaluator corroborated 1 of 6 (the 3-attempt
+  cap, while citing the default-policy record `287567405605917891851290763137356115373`
+  against it as the current setting), cited `287567…` and the burst-correlation record
+  `8864874238917673930644756936982232317` as contradicting, and left all 11 `unresolved`.
+  Revision `prop-20` (`max_attempts` from the default 1 to 3 with `jitter_ms` 75,
+  timeout-only retries, no timeout change, `POST /charges` retried only once Idempotency-Key
+  support is verified, burst alerts) listed the 11 as addressed. Round 2: the Critic raised
+  4 items (1 contradictory evidence, 3 missing test); the Evaluator corroborated 6 of 6,
+  resolved 9 of the 11 carried items, kept `item-14` (the increase from 1 to 3 attempts
+  against the outage record) and `item-18` (missing tests) `unresolved`, cleared both carried
+  contradictions with a reason, and left the 4 new items `unresolved`. Revision `prop-32` (the
+  second and last the round bound allows; summary "Enforce capped timeout-only retries at 3
+  with jitter 75, with defined aggregate burst counting and automatic
+  throttling/circuit-break, gated idempotency, and compliance plus load/pool/deadline tests,
+  without raising cap or timeouts."; 6 plan steps, 7 claims restating stored records)
+  addressed those 6. Round 3: the Critic raised 6 items (3 missing test, 1 unsupported claim,
+  1 regression risk, 1 security risk), aimed at what the revisions had added (how the burst
+  window counts attempts and groups instances, the breaker's thresholds, a test that
+  `POST /charges` is not retried while Idempotency-Key support is unconfirmed, the jitter
+  floor between 1 and 49 ms, which the cap test does not catch); the Evaluator corroborated 7
+  of 7, resolved 4 carried items, kept `item-14` and `item-29` (Idempotency-Key generation,
+  binding and storage) `unresolved` and left the 6 new ones `unresolved` (no contradiction
+  was carried into round 3). Recommendation: `contested`, rule `unresolved_items`, rationale
+  "Contested: 7/7 claims corroborated; proofs: 7 valid, 0 invalid, 0 unavailable/error; 8
+  unresolved challenges."; open items `item-14`, `item-29` and `item-40`–`item-45`; 4
+  unresolved assumptions, 7 unresolved uncertainties. Every proposal of the run keeps the
+  attempt cap of 3, and the revisions drop the first draft's timeout increase.
+
+**Verification records.** 35 in all: V04 14, V05 21 (7 per round). Every one has
+`integrity_status: valid`, verifier `hyphae proof verify`, `verified_anchor` = the pinned
+anchor, report `status: verified`, `kind: memory`, `scope: semantic_reexecution`, and no
+`simulated` flag. Factual statuses (the Evaluator's reading): V04 7 corroborated, 3
+contradicted, 4 not assessed; V05 16 corroborated, 2 contradicted, 3 not assessed; every
+`not_assessed` record is marked `irrelevant`. With 4 to 7 claims per proposal, both runs
+retrieved all 7 records of the store (`retrieval: live_recall`, `backend_project:
+demo-repo`, a `proof_ref` and a `proof_request` on each) and recorded 11 and 19
+`RecallProven` events, one per claim and round, each returning 5 records; V01–V03, with one
+claim per proposal, retrieved 5, 6 and 5.
+
+**Beside V01–V03 and M01–M04, on the same tasks (descriptive only).** One run per task and
+configuration, on different days, budgets and binaries; the same task text has ended
+differently on two runs of one configuration (R01 and R02, §5.2), so no difference below is
+attributed to the Proposer's model.
+
+| Task | M01–M04 (2026-10-30, all roles on Wonder, 120 s) | V01–V03 (Critic on Spark, 240 s) | V04–V05 (Proposer on Spark, 240 s) |
+|---|---|---|---|
+| `R07-exp-backoff` | M03 `supported`, 1 revision, Critic 7 → 0, 6 calls, 193.4 s, 9,334 / 22,674 tokens | V01 `contested`, 2 revisions, 5 → 3 → 2, 9 calls, 254.0 s, 13,410 / 49,058 | V04 `supported`, 1 revision, 9 → 0, 6 calls, 144.6 s, 10,851 / 19,991 |
+| `R01-reference` | M01 failed at its round-3 critique (120 s timeout), 2 revisions, 7 → 3, 7 answered calls, 288.9 s, 12,634 / 33,308 | V02 `supported`, 1 revision, 5 → 0, 6 calls, 155.2 s, 8,484 / 26,039 | V05 `contested`, 2 revisions, 11 → 4 → 6, 9 calls, 541.5 s, 20,166 / 60,492 |
+| `R04-remove-cap` | M04 failed closed (evaluation contract), 1 revision, 8 → 0 | V03 `supported` for a proposal that keeps the cap | not run (spend guard) |
+
+What the records show in common: on `R07-exp-backoff` the last proposal of all three runs
+sets `max_attempts = 3` with `jitter_ms` of 50 or at least 50 and claims no exponential
+schedule; on `R01-reference` the last proposal of all three keeps the cap of 3 with a
+jitter of at least 50 (50, at least 50, 75). V04's and V05's first drafts carried 4 and 6
+claims, most of them values no stored record states (above); V01's and V02's first drafts
+carried one claim each, and M03's and M01's three.
+
+**How the numbers were counted.** As in §6.3 and §6.6, from the archived files only, with
+one script over the logs cross-checked against each receipt (its `model_invocations` equal
+the log's in request ids and order). `consensus-api verify <log> --receipt <the run
+record's receipt>`, run with the binary of these runs on copies of the archived files,
+prints "VERIFIED: 1/1 run(s) verified, receipt matches" for both, with rules
+`supported.all_checks_passed` and `contested.unresolved_items` and head hashes `dca9ac53…`
+and `a2443f83…`. Wall time is the run record's `wall_seconds`.
+
+**Cost.** Not recorded in the archive (operator Meta runs are unmetered). At the operator's
+prices of §6.6 ($4.00 / $20.00 per million input / output tokens for `muse-wonder-1.0`,
+$1.25 / $4.25 for `muse-spark-1.3`, reasoning tokens at the output price) these tokens cost
+$1.4749 of the $3 cap: V04 $0.3479, V05 $1.1270; $0.0749 on `muse-spark-1.3` and $1.4000 on
+`muse-wonder-1.0`. Not checked against Meta's billing.
+
+## 7. Single-agent baseline (plan; ran twice on 2026-11-01, the second time with an assessment per run)
 
 **Status.** The owner approved the battery on 2026-11-01 (4 live runs, spend cap $5) and
 it ran that day (§7.7): **each of the 4 runs failed at its one Meta call with HTTP 400**,
-before the agent produced anything, and per the owner's rule none was run again. So no
-baseline claim, objection or verdict exists, the comparison of §7.3–§7.4 cannot be made,
-and nothing here supports a comparative claim. §7.1–§7.5 are the plan as written before
-the runs, and §7.6 lists the tooling (its archive bullet updated on 2026-11-01); no number
-in them is a result.
+before the agent produced anything, and per the owner's rule none was run again. After the
+round-9 schema fix the owner authorized a re-run the same evening (a probe on the first
+task, then the other three only if it produced an assessment; cap $5): **all 4 runs,
+B05–B08, recorded an assessment** (§7.8), and §7.8 makes the per-task comparison of
+§7.3–§7.4 with what the records allow. The two readers' reading that §7.3 item 2(b) plans
+was not made, so the comparison rests on the models' own records and on the record and
+task texts, and its first counting rule of §7.4 stays open. One baseline run per task: no
+rate, no significance (§7.5). §7.1–§7.5 are the plan as written before the runs, and §7.6
+lists the tooling (its archive bullet updated on 2026-11-01); no number in them is a
+result.
 
 **Question.** On the same tasks, with the same model and the same verified evidence, does
 one agent working alone, in one call, approve proposals that the three-role consensus
@@ -1324,7 +1524,7 @@ with its disagreements.
   draft checks). `crates/consensus-api/src/baseline_cli.rs`: the operator-only
   `consensus-api baseline run | verify` subcommand; no route, no change to `/api/v1`.
 - `scripts/baseline_battery.py` (driver), `scripts/make_research_manifest.py`
-  (`BASELINE_BATTERIES`; one entry since 2026-11-01), `crates/consensus-tests/tests/research_baseline.rs`
+  (`BASELINE_BATTERIES`; two entries since 2026-11-01), `crates/consensus-tests/tests/research_baseline.rs`
   (archive checks, on the archived battery and on a synthetic one).
 - Offline tests: `cargo test -p consensus-runtime baseline` (a scripted model double:
   record order, chain, the same evidence as a consensus run with that run's queries,
@@ -1417,7 +1617,12 @@ do not contain: `DraftBaselineObjection.claim_number` (`Option<u32>` in
 the role schemas. That is the operator's best guess at the cause, **unconfirmed**. A
 re-run needs a fix and a new owner authorization; none is made here.
 
-**The fix, after the runs (round 9, offline; not yet tried against the live API).** The
+*Update, the same evening (§7.8):* the round-9 schema below was sent live in four calls
+and the API accepted every one. That is consistent with the operator's guess but does not
+confirm it (the binary changed in other ways too, §7.8); the HTTP 400's cause itself
+remains unrecorded.
+
+**The fix, after the runs (round 9, offline when written; tried live in §7.8).** The
 baseline schema now writes `claim_number` in the Critic's live-accepted form, `anyOf` of a
 string `enum` of the claim positions `"1"`..`"12"` and null (`baseline_schema` in
 `crates/consensus-api/src/meta/baseline.rs`), so it holds no `integer`, `format` or
@@ -1435,6 +1640,166 @@ remaining pairs.
 
 **Spend.** The four rejected requests reported no usage, so no token was recorded and the
 recorded cost is $0.00; this has not been checked against Meta's billing.
+
+### 7.8 The battery of round 9: B05–B08 (2026-11-01, every run recorded an assessment)
+
+**In short.** The re-run the owner authorized after the round-9 fix: first one probe
+(`R01-reference` paired with M01), then, only because the probe recorded an assessment,
+the other three pairs, one driver invocation each; cap $5. The driver named the runs B01–B04
+again; the archive calls them **B05–B08** (the files keep the driver's names; `MANIFEST.json`
+lists the driver's name as `driver_name`). **All 4 calls were answered at the first attempt
+and every run recorded the agent's assessment:** B05 `abstained`, B06 `supported`, B07
+`supported`, B08 `contested`. Below, per §7.3, what the single agent claimed and decided is
+set beside what the paired consensus run recorded. Two limits apply throughout: the two
+readers' reading of §7.3 item 2(b) was not made (this section was written by the integrator
+after seeing every verdict, which that reading excludes), and each side is one run per
+task (§7.5). The agent's verdict is its own statement, never a recommendation; nothing was
+executed and no human decision is recorded.
+
+**Setup** (§7.2). Step 1: `consensus-api` built at `7e4801a`, the binary of §6.7 (SHA-256
+`86a0e724…901d`), so the round-9 schema (`claim_number` as an `anyOf` of a string `enum`
+and null) and the round-9 driver. Step 2: the anchor the operator read out of band at 02:05
+UTC (§6.7) was `27943f61…f42347c`, so the store was M01–M04's. Step 3:
+`scripts/baseline_battery.py`, one invocation per pair, each with `--queries-from` the
+archived M log (the copies in the set's `consensus/` directory have the archived logs'
+SHA-256) and the binary's pre-call parity check; the operator's `settings.txt` reads
+`CONSENSUS_MODEL_TIMEOUT_SECS=120` (M01–M04's budget), `CONSENSUS_MODEL`,
+`CONSENSUS_MODEL_CRITIC`, `CONSENSUS_MODEL_PROPOSER`, `CONSENSUS_META_MAX_COMPLETION_TOKENS`
+and `CONSENSUS_META_REASONING_EFFORT` unset, and the pinned anchor. Every record's `parity`
+block lists the same settings on both sides (`muse-wonder-1.0`, 16,000, no reasoning effort)
+and `equal: true`. The driver wrote outside the repository, and the finished set was copied
+as a new directory to `demo-run/baseline-2026-11-02-r10/` (named for the UTC date). Step 4:
+`consensus-api baseline verify` accepts every log (exit 0) and prints the summary the run
+record holds (the record adds the log's path). Step 5: archived as
+`research/2026-11-01/baseline-2026-11-01-r10/` (`B01.json`–`B04.json` and `runs/`, not the
+`consensus/` copies), listed under `baseline_runs`. Records from 02:25:16 UTC on 2026-11-02
+(B05's first) to 02:30:04 UTC (B08's last), the evening of 2026-11-01 in the operator's time
+zone.
+
+| Run | Paired | Task | Recall queries (= `recall_proven`) | Records retrieved | Agent verdict (`policy_reading`, rule) | Claims (corroborated, with contradicting evidence) | Objections (open) | The one call: tokens in/out (reasoning), latency | Wall time |
+|---|---|---|---|---|---|---|---|---|---|
+| B05 (`baseline-dc690467-3088-4e23-820b-1c694fc055d8`) | M01 | `R01-reference` | 7 | all 7 | **abstained** (abstained, `abstention`) | 4 (4, 0) | 1 (0) | 1,183 / 5,406 (4,757), 44.1 s | 49.9 s |
+| B06 (`baseline-32a1d5fd-48b1-4cdf-a3c5-8109415733c7`) | M02 | `R05-add-jitter` | 6 | all 7 | **supported** (supported, `all_checks_passed`) | 3 (3, 0) | 3 (0) | 1,184 / 11,205 (10,248), 101.3 s | 106.8 s |
+| B07 (`baseline-71d3eba5-c4ad-43a1-8615-928e8cc28801`) | M03 | `R07-exp-backoff` | 7 | all 7 | **supported** (supported, `all_checks_passed`) | 3 (3, 0) | 5 (0) | 1,180 / 8,444 (6,518), 75.0 s | 80.8 s |
+| B08 (`baseline-26b956fd-f544-4ff3-b342-68d8aeef7f10`) | M04 | `R04-remove-cap` | 8 | all 7 | **contested** (contested, `recorded_contradiction`) | 2 (0, 2) | 5 (5) | 1,187 / 5,577 (4,406), 43.7 s | 49.7 s |
+
+Each log holds `task_created`, `recall_planned` (the paired run's claim statements, its
+source naming the paired log's SHA-256 and run id), the `evidence_retrieved` and
+`recall_proven` records, `baseline_assessed` (the agent's document and its one
+invocation), one `evidence_verified` per retrieved record and `baseline_completed`: 25, 24,
+25 and 26 records. Every invocation records `provider: meta`, `muse-wonder-1.0`,
+`schema_name` `DraftBaselineAssessment`, `attempts: 1`, `finish_reason: stop`,
+`max_completion_tokens` 16,000, `safety_identifier_sent: false`, the schema digest
+`e6629750…` (round 9's) and the prompt digest `c08b610e…`. All 28 verification records are
+`valid` (verifier `hyphae proof verify`, the pinned anchor); the agent's factual reading:
+B05 5 corroborated, 2 not assessed; B06 and B07 4 corroborated, 3 not assessed; B08 5
+contradicted, 2 not assessed. Totals: 4 calls, 4,734 / 30,632 tokens (25,929 reasoning),
+264.0 s of model latency, 0 retries, no failure, so there is no failure stage, code or API
+message to record.
+
+**Two texts in the agents' documents that belong to neither the task nor the records.**
+B05's verdict reason, verbatim: "Final synthesis was withheld in the gateway record, so the
+retained claims and objections were not closed into a supported decision in this public
+object."; its one objection's description: "25 additional entries omitted because
+finalizer withheld upstream body; see retained evidence assessment." B07's three
+assessment notes are one sentence, verbatim, three times: "Decision 328... provides a
+direct corroboration check: operational impact remains uncertain and untested regions plus
+workload drift can invalidate a one-time approval". No task text and none of the 7 records
+mentions a gateway, a public object, a finalizer, workload drift or a one-time approval. The
+baseline's contract checks the document's form, not whether its prose is on topic, so both
+were recorded as written. B05's `abstained` therefore rests on a reason that names nothing
+in the run, next to 4 corroborated claims and no open objection.
+
+**Per §7.3, task by task.**
+
+1. *Evidence actually seen.* The same on both sides: each baseline run retrieved the 7
+   records its paired M run retrieved (identical ids), with the queries B01–B04 had planned.
+   The prompt itself is not archived (only its digest); the agents' documents cite record
+   ids, which the prompt carries only in its evidence block (`baseline_prompt` in
+   `crates/consensus-api/src/meta/baseline.rs`: the task, that block and fixed rules; B08
+   cites all 7), and each call's
+   1,180–1,187 input tokens are in the range of V04's and V05's round-1 Critic calls (1,088
+   and 1,111 tokens), whose prompts held the same 7 records and a proposal. That is
+   consistent with the records being in the prompt; it is not a check of the prompt's text.
+2. *Claims that contradict the stored records.* (a) As the models recorded them:
+
+   | Task | Baseline: claims, and its own `contradicting_evidence` | Paired run: first proposal, as its Evaluator recorded it | Paired run: last proposal |
+   |---|---|---|---|
+   | `R01-reference` | B05: 4 claims (`max_attempts` 3, `jitter_ms` 50, the default policy of 1 and 0, the retry-only-timeouts rule), none with contradicting evidence | M01 `prop-1` (mitigate through connection pooling and timeouts, no retry change): 0 of 3 corroborated, 5 records cited as contradicting (`161896…`, `186670…`, `237412…`, `287567…`, `328114…`) | `prop-21` (3 attempts, jitter 50) never evaluated (the round-3 critique timed out); `prop-13`, the last judged, 3 of 3, none contradicting |
+   | `R05-add-jitter` | B06: 3 claims (`max_attempts` 3, `jitter_ms` at least 50, keep the retry-only-timeouts rule), none with contradicting evidence | M02 `prop-1` (jitter added to an existing backoff, attempt limit unchanged): 0 of 3, 2 records cited (`287567…` the default policy, `328114…` the decision) | `prop-14` (from 1 and 0 to 3 and 50) never evaluated (HTTP 500 at its critique) |
+   | `R07-exp-backoff` | B07: 3 claims (`max_attempts` 3, `jitter_ms` 50, keep the retry-only-timeouts rule), none with contradicting evidence | M03 `prop-1`: 2 of 3, `287567…` cited against claim 2's fixed-delay premise | `prop-13` (3 and 50, no exponential schedule): 4 of 4 |
+   | `R04-remove-cap` | B08: 2 claims (the cap removed so a request is retried until it succeeds; more than 3 attempts, or no limit, permitted), both uncorroborated and both with contradicting evidence (`328114…`, `186670…`, `237412…`; and those with `161896…` and `295729…`) | M04 `prop-1`: 1 of 4, 4 records cited (`186670…`, `237412…`, `287567…`, `328114…`) | `prop-15` (3 and 50) not recorded: its evaluation was refused by the contract |
+
+   (b) The two readers' reading was not made, for the reason above.
+   What the records show beside the table: B05, B06 and B07 never put forward the change
+   their paired runs' first proposals made; from their one call they proposed the stored
+   decision's values, which is what M01–M04's revisions moved to. This is the first
+   asymmetry §7.1 names: the baseline saw all 7 records in its one call, the consensus
+   Proposer's first draft saw none. So the contradictions M01–M03's Evaluators cited in
+   round 1 were against premises the baseline never asserted. B08 alone proposed what its
+   task asked, removing the cap, and recorded the contradictions itself.
+3. *Objections raised.* Baseline: B05 1 (`missing_test`, `addressed`, the off-topic text
+   above), B06 3 (2 `regression_risk`, 1 `missing_test`, all `addressed`), B07 5 (all
+   `constraint_conflict`, all `addressed`), B08 5 (1 `contradictory_evidence`, 1
+   `constraint_conflict`, 2 `regression_risk`, 1 `missing_test`, all `open`). Consensus
+   round 1 (§6.3): 7, 8, 7 and 8 Critic items, every one `unresolved` after its round's
+   evaluation. The named conflicts of §7.3 item 3: for `R04-remove-cap`, the attempt cap,
+   B08 raised it twice (`obj-4`, the 2026-09 decision; `obj-5`, the constraint), both open;
+   for `R07-exp-backoff`, the default policy, no B07 objection names `287567…` or a
+   fixed-delay premise (and no B07 claim asserts one; the agent read `287567…` as not
+   assessed, irrelevant); for `R01-reference`, the 5 records M01's round-1 Evaluator cited,
+   B05's one objection names none, and its claims cite 4 of them and `161896…` as
+   corroborating; for `R05-add-jitter`, M02's two, B06's `obj-5` cites both (the risk of
+   raising `max_attempts` from the default 1 to 3), marked `addressed`.
+4. *The final verdict.* B05 `abstained` against M01, which failed (provider, round-3
+   critique) and had recorded by its last judged round 3 of 3 claims corroborated, all 5
+   contradictions cleared and 3 items open. B06 `supported` against M02, which failed
+   (provider, round-2 critique) and had recorded in its one judged round 0 of 3
+   corroborated, 2 contradicting records and 8 open items. B07 `supported` against M03
+   `supported`. B08 `contested` against M04, which failed closed (evaluation contract) and
+   had recorded in its one judged round 1 of 4 corroborated, 4 contradicting records and 8
+   open items. None of these consensus figures is a recommendation the consensus did not
+   issue.
+5. *The agent against its own findings.* `policy_reading` equals `agent_verdict` in all
+   four (rules 1.2): `abstained` by rule `abstention` (the agent's own abstention),
+   `supported` and `supported` by `all_checks_passed`, `contested` by
+   `recorded_contradiction`. In no run did the agent decide against what its own
+   assessments, objections and the verification records yield.
+6. *Cost.* Baseline: 4 calls, 4,734 / 30,632 tokens (25,929 reasoning), 264.0 s; per task
+   1,183 / 5,406, 1,184 / 11,205, 1,180 / 8,444 and 1,187 / 5,577. Consensus M01–M04: 23
+   answered calls, 37,363 / 95,850 (81,046), 795.3 s; per task 12,634 / 33,308, 5,546 /
+   17,324, 9,334 / 22,674 and 9,849 / 22,544 (§6.3). As planned, these are reported as
+   recorded, not normalized: three of the consensus runs stopped before a recommendation,
+   and the baseline saw in its one call the records the consensus accumulated over its
+   rounds.
+
+**Per §7.4.** The agent's verdict was `supported` in two tasks, `R05-add-jitter` (B06) and
+`R07-exp-backoff` (B07). Of the three conditions: the first (a baseline claim the readers
+record as contradicted by a record the consensus cited) cannot be applied, since the
+readers' reading was not made; the models' own records show no contradicting evidence on
+any claim of B06 or B07. The second does not hold as the records state it: B07 asserts no
+fixed-delay premise and does not do what M03 revised away from, and B06 proposes what M02's
+revision proposed. The third does not hold: both `policy_reading`s are `supported`. So under
+the two conditions that can be applied, no task counts as "the baseline approved what the
+consensus caught"; under the first, the count is open. The converse does not occur: M03,
+the only consensus `supported`, has a baseline `supported` beside it (B07).
+
+**What §7.4 does not count, as recorded.** Both `supported` baseline proposals depart from
+their task's text, as K03, K04, M03 and V04 did on the consensus side: `R05-add-jitter` asks
+to add jitter "without changing the attempt limit", and B06 sets `max_attempts` to 3 where
+its own `obj-5` states that the default is 1 (M02's unevaluated revision did the same);
+`R07-exp-backoff` asks for exponential backoff, and none of B07's 3 claims states an
+exponential schedule (its plan step reads "Implement exponential backoff for payment retries
+within the documented limits: set the payment-client RetryPolicy max_attempts to 3, set
+jitter_ms to 50, and retry only SendError::Timeout", and its uncertainty says no record
+specifies the base delay, multiplier or maximum delay). The human sees that next to the
+verdict, on either side. B08 proposed the task as written and did not approve it.
+
+**Spend.** At the operator's prices for `muse-wonder-1.0` (§6.6; reasoning at the output
+price): B05 $0.1129, B06 $0.2288, B07 $0.1736, B08 $0.1163, $0.6316 of the $5 cap. The
+baseline is not metered by the live ledger (§7.2 step 3), so this figure comes from the
+recorded tokens; it has not been checked against Meta's billing. At the same prices
+M01–M04's recorded calls come to $2.066.
 
 ## 8. A failed public live run, as the visitor and the operator see it (2026-11-01, round 8)
 
@@ -1674,9 +2039,17 @@ In call order, from each receipt's `model_invocations` (equal to the run's
 
 ## Request ids (2026-11-01, from receipts)
 
-In call order, from each receipt's `model_invocations`; the Critic's calls (on
-`muse-spark-1.3`) are marked; §6.6. The baseline runs B01–B04 (§7.7) recorded none.
+In call order, from each receipt's `model_invocations`; the calls on `muse-spark-1.3` are
+marked (the Critic's in V01–V03, §6.6; the Proposer's in V04–V05, §6.7). The baseline runs
+B01–B04 (§7.7) recorded none; B05–B08 (§7.8) recorded one each, from their logs. V04–V05
+and B05–B08 ran on the evening of 2026-11-01 local time, 2026-11-02 UTC.
 
 - V01 (run `run-cd656a42-233d-4e7f-afcb-927c44a0d8aa`): `chatcmpl-01a19937-3fe8-774c-a432-1821bdc6b497`, `chatcmpl-01a19937-99ac-746c-bcb7-18437c4f47f6` (Critic), `chatcmpl-01a19938-65f2-752b-9026-57d5656f5b4a`, `chatcmpl-01a19938-ab08-7386-a3a9-a1a6129974f0`, `chatcmpl-01a19939-163b-7180-b381-3fea9d88ffc6` (Critic), `chatcmpl-01a19939-bbc7-77e4-9a58-43fb71a9fa01`, `chatcmpl-01a1993a-0966-77d3-ac1f-4b5c6b1e0e85`, `chatcmpl-01a1993a-7924-7478-bccf-30889c3c9ac2` (Critic), `chatcmpl-01a1993a-afec-73c4-8277-c93214e05b93`
 - V02 (run `run-3135dc74-a8b9-430f-8066-3ed12b2efc63`): `chatcmpl-01a1993b-2e5b-7578-84c5-33f384b87850`, `chatcmpl-01a1993b-6646-7070-b5c2-92fd09f11cad` (Critic), `chatcmpl-01a1993c-5070-7591-8b1e-ffdd8af2d2ce`, `chatcmpl-01a1993c-b7f3-75aa-a121-ca56904cd773`, `chatcmpl-01a1993c-f204-7383-bb50-6ba1356c5ae8` (Critic), `chatcmpl-01a1993d-34c8-7040-b1f0-2887a69b6c96`
 - V03 (run `run-a3f3b3aa-5e23-4303-a68e-73c855031712`): `chatcmpl-01a1993e-48bc-731c-9a8b-4f03ac22230d`, `chatcmpl-01a1993e-af9c-7244-88c2-1873d9dbe360` (Critic), `chatcmpl-01a1993f-28fe-744f-8e32-1789ee1b9013`, `chatcmpl-01a1993f-62fb-71a3-932c-85ad318aad5b`, `chatcmpl-01a1993f-ba9d-74dc-bcf7-0675f1dffaab` (Critic), `chatcmpl-01a1993f-fd10-7410-86df-d76baa8e4621`
+- V04 (run `run-884f0def-881b-4684-9835-5c6e285cff04`): `chatcmpl-01a19a03-c276-77b2-a258-c2a349b0af35` (Proposer), `chatcmpl-01a19a04-447b-7244-ae97-4ca16e0bc998`, `chatcmpl-01a19a04-d5dd-702e-a5fc-d3778f1b2806`, `chatcmpl-01a19a05-0196-718f-9bc3-ade59b2e0a0a` (Proposer, revision), `chatcmpl-01a19a05-8dd2-7688-88f2-71d55f375e6e`, `chatcmpl-01a19a05-f0bc-728d-bd75-e2a42a2bfabb`
+- V05 (run `run-6e252754-a127-4f29-a6e5-b7c6bec8798f`): `chatcmpl-01a19a06-0f2d-7470-afe8-c94d9346c5b2` (Proposer), `chatcmpl-01a19a07-1feb-73ac-a110-4ddcbbda1445`, `chatcmpl-01a19a08-4216-7207-b5a3-06fb5128752e`, `chatcmpl-01a19a08-7e3b-7101-b053-ad6f1ef5c3fd` (Proposer, revision), `chatcmpl-01a19a0a-57be-7096-b2e6-9b9adb2cfdb3`, `chatcmpl-01a19a0b-ba59-775a-af91-73783f87e9f3`, `chatcmpl-01a19a0c-03a1-709c-8d10-25579c5177fd` (Proposer, revision), `chatcmpl-01a19a0c-e1a5-762c-bf78-5b4c94bfa678`, `chatcmpl-01a19a0e-732e-7643-aa08-23df473b01b0`
+- B05 (`baseline-dc690467-3088-4e23-820b-1c694fc055d8`): `chatcmpl-01a19a14-05bc-7527-ad20-b38970118e0c`
+- B06 (`baseline-32a1d5fd-48b1-4cdf-a3c5-8109415733c7`): `chatcmpl-01a19a15-a92f-760e-9971-97c9ce64bf24`
+- B07 (`baseline-71d3eba5-c4ad-43a1-8615-928e8cc28801`): `chatcmpl-01a19a16-e6b4-7781-b0a7-61d22fb0cbcd`
+- B08 (`baseline-26b956fd-f544-4ff3-b342-68d8aeef7f10`): `chatcmpl-01a19a17-aa63-70d7-9c9e-af6488696dcc`

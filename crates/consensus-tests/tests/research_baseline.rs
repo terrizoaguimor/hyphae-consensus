@@ -3,11 +3,13 @@
 //! files `scripts/make_research_manifest.py` pins with kinds
 //! `baseline_log` and `baseline_record`, and the runs it lists under
 //! `baseline_runs` (see `docs/evaluation.md`, "Single-agent baseline").
-//! One battery is archived (`2026-11-01/baseline-2026-11-01`, B01–B04,
-//! each failed at its one Meta call); the same checks also run here on a
-//! synthetic battery recorded with the scripted doubles, laid out exactly
-//! as the driver and the manifest script lay one out, so the completed-run
-//! path stays covered. Archived files are only ever read.
+//! Two batteries are archived: `2026-11-01/baseline-2026-11-01` (B01–B04,
+//! each failed at its one Meta call) and `2026-11-01/baseline-2026-11-01-r10`
+//! (B05–B08, the driver's B01–B04 again on round 9's schema, each completed
+//! with an assessment); the same checks also run here on a synthetic
+//! battery recorded with the scripted doubles, laid out exactly as the
+//! driver and the manifest script lay one out. Archived files are only
+//! ever read.
 
 use consensus_domain::*;
 use consensus_runtime::baseline::{
@@ -189,7 +191,14 @@ fn check_baseline_archive(root: &Path, m: &Value) -> Result<usize, String> {
         );
         let rec: Value = serde_json::from_slice(&pinned(root, m, record)?)
             .map_err(|e| format!("{record}: {e}"))?;
-        ensure!(rec["name"] == label, "{label}: record name");
+        // The record keeps the driver's name; the manifest relabels a run
+        // whose name is already taken and then says so in driver_name.
+        let driver_name = r["driver_name"].as_str().unwrap_or(label);
+        ensure!(rec["name"] == driver_name, "{label}: record name");
+        ensure!(
+            record.ends_with(&format!("/{driver_name}.json")),
+            "{label}: record file name"
+        );
         ensure!(rec["exit_code"] == 0, "{label}: exit code");
         ensure!(
             rec["memory"] == "hyphae",
@@ -317,6 +326,86 @@ fn the_baseline_battery_of_2026_11_01_failed_at_its_one_call() {
         assert_eq!(summary["policy_reading"], Value::Null, "{label}");
         assert_eq!(summary["model_invocations"], json!([]), "{label}");
         assert_eq!(summary["verifications"], json!([]), "{label}");
+        assert_eq!(summary["recall"]["queries"], queries, "{label}");
+        assert_eq!(summary["evidence"]["recall_proven"], queries, "{label}");
+        let retrieved = summary["evidence"]["retrieved"].as_array().unwrap();
+        assert_eq!(retrieved.len(), 7, "{label}: the whole demo store");
+        assert_eq!(summary["evidence"]["unavailable"], json!([]), "{label}");
+    }
+}
+
+/// The second battery of 2026-11-01 (round 9's schema) as
+/// `docs/evaluation.md` §7.8 reports it: four runs B05–B08 (the driver's
+/// B01–B04), paired with M01–M04 again, each of which recalled all 7
+/// records of the demo store with proven recalls, made its one Meta call
+/// on `muse-wonder-1.0` (answered at the first attempt) and recorded an
+/// assessment with a verification record per retrieved record, all
+/// `valid`. Skipped on a `CONSENSUS_RESEARCH_DIR` copy without it.
+#[test]
+fn the_baseline_battery_of_round_9_completed_each_run() {
+    let root = research_dir();
+    let m: Value = serde_json::from_slice(&std::fs::read(root.join("MANIFEST.json")).unwrap())
+        .expect("MANIFEST.json parses");
+    let runs: Vec<&Value> = array(&m, "baseline_runs")
+        .into_iter()
+        .filter(|r| r["battery"] == "baseline-2026-11-01-r10")
+        .collect();
+    if runs.is_empty() && std::env::var_os("CONSENSUS_RESEARCH_DIR").is_some() {
+        return;
+    }
+    // (label, driver's name, paired run, queries, verdict = policy
+    // reading, claims, corroborated, with contradicting evidence,
+    // objections, open objections)
+    let expected = [
+        ("B05", "B01", "M01", 7, "abstained", [4, 4, 0, 1, 0]),
+        ("B06", "B02", "M02", 6, "supported", [3, 3, 0, 3, 0]),
+        ("B07", "B03", "M03", 7, "supported", [3, 3, 0, 5, 0]),
+        ("B08", "B04", "M04", 8, "contested", [2, 0, 2, 5, 5]),
+    ];
+    assert_eq!(runs.len(), expected.len());
+    for (r, (label, name, paired, queries, verdict, counts)) in runs.iter().zip(expected) {
+        assert_eq!(r["label"], label);
+        assert_eq!(r["driver_name"], name, "{label}");
+        assert_eq!(r["consensus_label"], paired, "{label}");
+        assert_eq!(r["outcome"], verdict, "{label}");
+        let bytes = std::fs::read(root.join(r["file"].as_str().unwrap())).unwrap();
+        let run = read_baseline(&bytes).unwrap();
+        let summary = baseline_summary(&run, &sha256_hex(&bytes));
+        assert_eq!(summary["failure"], Value::Null, "{label}");
+        assert_eq!(summary["agent_verdict"], verdict, "{label}");
+        assert_eq!(summary["policy_reading"]["kind"], verdict, "{label}");
+        assert_eq!(summary["policy_reading"]["version"], "1.2", "{label}");
+        let c = &summary["counts"];
+        let recorded: Vec<Value> = [
+            "claims",
+            "claims_corroborated",
+            "claims_with_contradicting_evidence",
+            "objections",
+            "objections_open",
+        ]
+        .iter()
+        .map(|k| c[*k].clone())
+        .collect();
+        let want: Vec<Value> = counts.iter().map(|n| json!(n)).collect();
+        assert_eq!(recorded, want, "{label}");
+        assert_eq!(c["integrity"]["valid"], 7, "{label}");
+        let calls = summary["model_invocations"].as_array().unwrap();
+        assert_eq!(calls.len(), 1, "{label}: one call");
+        let call = &calls[0];
+        assert_eq!(call["provider"], "meta", "{label}");
+        assert_eq!(call["model"], "muse-wonder-1.0", "{label}");
+        assert_eq!(call["schema_name"], "DraftBaselineAssessment", "{label}");
+        assert_eq!(call["attempts"], 1, "{label}");
+        assert_eq!(call["finish_reason"], "stop", "{label}");
+        assert_eq!(call["max_completion_tokens"], 16000, "{label}");
+        let verifications = summary["verifications"].as_array().unwrap();
+        assert_eq!(verifications.len(), 7, "{label}");
+        assert!(
+            verifications
+                .iter()
+                .all(|v| v["integrity_status"] == "valid"),
+            "{label}"
+        );
         assert_eq!(summary["recall"]["queries"], queries, "{label}");
         assert_eq!(summary["evidence"]["recall_proven"], queries, "{label}");
         let retrieved = summary["evidence"]["retrieved"].as_array().unwrap();

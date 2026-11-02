@@ -1718,8 +1718,8 @@ in the run, next to 4 corroborated claims and no open objection.
    ids, which the prompt carries only in its evidence block (`baseline_prompt` in
    `crates/consensus-api/src/meta/baseline.rs`: the task, that block and fixed rules; B08
    cites all 7), and each call's
-   1,180–1,187 input tokens are in the range of V04's and V05's round-1 Critic calls (1,088
-   and 1,111 tokens), whose prompts held the same 7 records and a proposal. That is
+   1,180–1,187 input tokens are close to (69–99 tokens more than) V04's and V05's
+   round-1 Critic calls (1,088 and 1,111 tokens), whose prompts held the same 7 records and a proposal. That is
    consistent with the records being in the prompt; it is not a check of the prompt's text.
 2. *Claims that contradict the stored records.* (a) As the models recorded them:
 
@@ -1748,9 +1748,9 @@ in the run, next to 4 corroborated claims and no open objection.
    for `R07-exp-backoff`, the default policy, no B07 objection names `287567…` or a
    fixed-delay premise (and no B07 claim asserts one; the agent read `287567…` as not
    assessed, irrelevant); for `R01-reference`, the 5 records M01's round-1 Evaluator cited,
-   B05's one objection names none, and its claims cite 4 of them and `161896…` as
-   corroborating; for `R05-add-jitter`, M02's two, B06's `obj-5` cites both (the risk of
-   raising `max_attempts` from the default 1 to 3), marked `addressed`.
+   B05's one objection names none, and its assessments cite all 5 of them as
+   corroborating (its claims carry no `evidence_refs`); for `R05-add-jitter`, M02's two,
+   B06's `obj-5` cites both (the risk of raising `max_attempts` from the default 1 to 3), marked `addressed`.
 4. *The final verdict.* B05 `abstained` against M01, which failed (provider, round-3
    critique) and had recorded by its last judged round 3 of 3 claims corroborated, all 5
    contradictions cleared and 3 items open. B06 `supported` against M02, which failed

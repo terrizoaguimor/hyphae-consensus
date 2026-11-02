@@ -580,6 +580,105 @@ fn the_operator_server_prices_a_mixed_model_critic_only_with_a_ledger() {
     require_operator_prices(&e, Some(&mixed)).unwrap();
 }
 
+// ---------------------------------------------------------------------
+// CONSENSUS_MODEL_PROPOSER: the same guard covers any mixed configuration
+// ---------------------------------------------------------------------
+
+/// A Meta configuration for the guard (never used to call anything): the
+/// Evaluator on `model`, the Proposer on `proposer`, the Critic on `critic`.
+fn roles_config(model: &str, proposer: &str, critic: &str) -> MetaConfig {
+    let mut cfg = meta_config(model, critic);
+    cfg.proposer_model = proposer.into();
+    cfg.validate().unwrap();
+    cfg
+}
+
+#[test]
+fn a_proposer_or_both_roles_on_another_model_need_both_ledger_prices_set_explicitly() {
+    let dir = TempDir::new("proposer-prices");
+    let w = "muse-wonder-1.0";
+    let s = "muse-spark-1.3";
+    let cfg = load(Exposure::Public, &enabled_env(&dir)).unwrap();
+    assert!(!cfg.prices_explicit);
+    // Every override equal to CONSENSUS_MODEL is one model.
+    cfg.require_prices_for_models(&roles_config(w, w, w))
+        .unwrap();
+    // The owner's split (Proposer on Spark, Critic and Evaluator on
+    // Wonder), a Critic-only mix and both overrides: each refused on the
+    // default prices, naming exactly the override variables that make the
+    // mix and both price variables.
+    for (meta, overrides) in [
+        (roles_config(w, s, w), vec!["CONSENSUS_MODEL_PROPOSER"]),
+        (roles_config(w, w, s), vec!["CONSENSUS_MODEL_CRITIC"]),
+        (
+            roles_config(w, s, s),
+            vec!["CONSENSUS_MODEL_PROPOSER", "CONSENSUS_MODEL_CRITIC"],
+        ),
+        (
+            roles_config("muse-x-2", s, w),
+            vec!["CONSENSUS_MODEL_PROPOSER", "CONSENSUS_MODEL_CRITIC"],
+        ),
+    ] {
+        let err = cfg.require_prices_for_models(&meta).unwrap_err();
+        let mut expected = overrides.clone();
+        expected.extend([vars::PRICE_INPUT_PER_M, vars::PRICE_OUTPUT_PER_M]);
+        assert_eq!(err.vars(), expected, "{meta:?}");
+        let text = err.to_string();
+        for var in &expected {
+            assert!(text.contains(var), "{var}: {text}");
+        }
+        assert!(
+            text.contains(&meta.proposer_model)
+                && text.contains(&meta.critic_model)
+                && text.contains(&meta.model),
+            "{text}"
+        );
+    }
+
+    // One price explicit is not enough; both are.
+    let split = roles_config(w, s, w);
+    for var in [vars::PRICE_INPUT_PER_M, vars::PRICE_OUTPUT_PER_M] {
+        let mut e = enabled_env(&dir);
+        e.insert(var, "4.00".into());
+        let cfg = load(Exposure::Public, &e).unwrap();
+        assert!(cfg.require_prices_for_models(&split).is_err(), "{var}");
+    }
+    let mut e = enabled_env(&dir);
+    e.insert(vars::PRICE_INPUT_PER_M, "4.00".into());
+    e.insert(vars::PRICE_OUTPUT_PER_M, "20.00".into());
+    let priced = load(Exposure::Public, &e).unwrap();
+    priced.require_prices_for_models(&split).unwrap();
+    priced
+        .require_prices_for_models(&roles_config(w, s, s))
+        .unwrap();
+}
+
+#[test]
+fn the_public_and_operator_servers_refuse_a_mixed_model_proposer_on_default_prices() {
+    let dir = TempDir::new("proposer-gate");
+    let split = roles_config("muse-wonder-1.0", "muse-spark-1.3", "muse-wonder-1.0");
+    let cfg = load(Exposure::Public, &enabled_env(&dir)).unwrap();
+    let err = match build_live_gate(&cfg, split.clone(), None) {
+        Err(e) => e,
+        Ok(_) => panic!("a mixed-model Proposer on default prices must not start"),
+    };
+    assert!(err.contains("CONSENSUS_MODEL_PROPOSER"), "{err}");
+    assert!(!err.contains("CONSENSUS_MODEL_CRITIC"), "{err}");
+    assert!(err.contains(vars::PRICE_INPUT_PER_M), "{err}");
+    assert!(err.contains(vars::PRICE_OUTPUT_PER_M), "{err}");
+
+    let ledger = dir.path().join("ledger");
+    std::fs::create_dir_all(&ledger).unwrap();
+    require_operator_prices(&Env::new(), Some(&split)).unwrap();
+    let mut e = env(&[]);
+    e.insert(vars::LEDGER_DIR, ledger.display().to_string());
+    let err = require_operator_prices(&e, Some(&split)).unwrap_err();
+    assert!(err.contains("CONSENSUS_MODEL_PROPOSER"), "{err}");
+    e.insert(vars::PRICE_INPUT_PER_M, "4.00".into());
+    e.insert(vars::PRICE_OUTPUT_PER_M, "20.00".into());
+    require_operator_prices(&e, Some(&split)).unwrap();
+}
+
 /// Round 8 (lane D's public.env): a 90,000-token run cap and a 0.6 burst,
 /// every money value as `public.env.example` leaves it (the defaults: $10
 /// a day, $60 lifetime, a $15 judge slice whose daily cap is the slice).
@@ -645,6 +744,7 @@ fn the_public_env_example_sets_the_round_8_values_and_they_hold_together() {
         "CONSENSUS_LIVE_MAX_COMPLETION_TOKENS",
         "CONSENSUS_META_REASONING_EFFORT",
         "CONSENSUS_MODEL_CRITIC",
+        "CONSENSUS_MODEL_PROPOSER",
         "CONSENSUS_VISITOR_ACCESS_HOURS",
         "CONSENSUS_LIVE_CLIENT_DAILY",
     ] {

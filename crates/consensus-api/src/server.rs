@@ -502,7 +502,7 @@ pub fn build_live_gate(
     meta: MetaConfig,
     factory: Option<Arc<dyn DeliberationFactory>>,
 ) -> Result<Arc<dyn LiveGate>, String> {
-    // A Critic on another model needs explicit ledger prices.
+    // A Proposer or Critic on another model needs explicit ledger prices.
     live.require_prices_for_models(&meta)
         .map_err(|e| format!("public live mode: {e}"))?;
     let factory = factory.ok_or_else(|| {
@@ -724,8 +724,9 @@ where
         let enabled = live.clone();
         let (gate, status, limits) = tokio::task::spawn_blocking(move || {
             let meta = public_meta_config()?;
-            // Before the snapshot boots: a mixed-model Critic without
-            // explicit ledger prices never gets that far.
+            // Before the snapshot boots: a mixed-model configuration
+            // (Proposer, Critic or both) without explicit ledger prices
+            // never gets that far.
             enabled
                 .require_prices_for_models(&meta)
                 .map_err(|e| format!("public live mode: {e}"))?;
@@ -881,8 +882,9 @@ pub fn operator_ledger(env: &dyn EnvSource) -> Result<Option<Ledger>, String> {
 }
 
 /// `serve-operator`'s price guard: with the live ledger configured
-/// (`CONSENSUS_LIVE_LEDGER_DIR`) and a Meta configuration whose Critic runs
-/// on another model (`CONSENSUS_MODEL_CRITIC`), both ledger prices must be
+/// (`CONSENSUS_LIVE_LEDGER_DIR`) and a Meta configuration whose Proposer or
+/// Critic runs on another model (`CONSENSUS_MODEL_PROPOSER`,
+/// `CONSENSUS_MODEL_CRITIC`), both ledger prices must be
 /// set explicitly ([`LiveConfig::require_prices_for_models`]), or the
 /// server refuses to start. Without a ledger (unmetered runs) or without a
 /// Meta configuration there is nothing to price.

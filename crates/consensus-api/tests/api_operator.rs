@@ -762,3 +762,44 @@ fn serve_operator_boot_refuses_a_mixed_model_critic_on_default_prices() {
     let ledger = operator_boot_ledger(&env, || Some(meta("muse-spark-1.3"))).unwrap();
     assert_eq!(ledger.expect("the ledger").dir(), dir.as_path());
 }
+
+/// The same boot step with the Proposer on another model
+/// (`CONSENSUS_MODEL_PROPOSER`, alone or with the Critic's override): on
+/// the default prices startup stops naming the override variables that
+/// make the mix and both prices; explicit prices start.
+#[test]
+fn serve_operator_boot_refuses_a_mixed_model_proposer_on_default_prices() {
+    let meta = |proposer: &str, critic: &str| {
+        let mut cfg = MetaConfig::from_parts(
+            consensus_api::config::DEFAULT_META_BASE_URL,
+            consensus_api::config::ApiKey::new("LLM_1000_not-a-secret"),
+            "muse-wonder-1.0",
+        )
+        .unwrap();
+        cfg.proposer_model = proposer.into();
+        cfg.critic_model = critic.into();
+        cfg.validate().unwrap();
+        cfg
+    };
+    let scratch = TempDir::new("operator-boot-proposer");
+    let dir = scratch.path().join("ledger").join("public");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut env = BTreeMap::from([(vars::LEDGER_DIR, dir.display().to_string())]);
+    let err =
+        operator_boot_ledger(&env, || Some(meta("muse-spark-1.3", "muse-wonder-1.0"))).unwrap_err();
+    assert!(err.contains("CONSENSUS_MODEL_PROPOSER"), "{err}");
+    assert!(!err.contains("CONSENSUS_MODEL_CRITIC"), "{err}");
+    assert!(err.contains(vars::PRICE_INPUT_PER_M), "{err}");
+    assert!(err.contains(vars::PRICE_OUTPUT_PER_M), "{err}");
+    let err =
+        operator_boot_ledger(&env, || Some(meta("muse-spark-1.3", "muse-spark-1.3"))).unwrap_err();
+    assert!(
+        err.contains("CONSENSUS_MODEL_PROPOSER") && err.contains("CONSENSUS_MODEL_CRITIC"),
+        "{err}"
+    );
+    env.insert(vars::PRICE_INPUT_PER_M, "4.00".into());
+    env.insert(vars::PRICE_OUTPUT_PER_M, "20.00".into());
+    let ledger =
+        operator_boot_ledger(&env, || Some(meta("muse-spark-1.3", "muse-wonder-1.0"))).unwrap();
+    assert_eq!(ledger.expect("the ledger").dir(), dir.as_path());
+}

@@ -2159,3 +2159,69 @@ fn serve_public_refuses_a_mixed_model_critic_without_explicit_ledger_prices() {
         "{s:?}"
     );
 }
+
+/// `CONSENSUS_MODEL_PROPOSER` on the real binary (the owner's 2026-11-01
+/// split: Proposer on muse-spark-1.3, Critic and Evaluator on
+/// muse-wonder-1.0): on the ledger's default prices startup stops naming
+/// the override and both price variables, before the snapshot is
+/// verified; so does the same split with both overrides set; with both
+/// prices explicit the server starts; an unusable id stops startup
+/// naming the override.
+#[test]
+fn serve_public_refuses_a_mixed_model_proposer_without_explicit_ledger_prices() {
+    let scratch = TempRoot::new("serve-public-proposer-model");
+    let live = [server_vars(&scratch), live_on_vars(&scratch)].concat();
+    let fx = Fixture::new("serve-public-proposer-model");
+    let proposer = ("CONSENSUS_MODEL_PROPOSER", "muse-spark-1.3".to_string());
+    let critic_on_wonder = ("CONSENSUS_MODEL_CRITIC", "muse-wonder-1.0".to_string());
+
+    for overrides in [
+        vec![proposer.clone()],
+        vec![proposer.clone(), critic_on_wonder.clone()],
+    ] {
+        let s = serve_public(
+            &scratch,
+            &[live.clone(), fx.vars(), overrides.clone()].concat(),
+        );
+        assert!(!s.listening, "{overrides:?}: {s:?}");
+        assert_eq!(s.exit_code, Some(1), "{s:?}");
+        assert!(
+            s.stderr
+                .iter()
+                .any(|l| l.starts_with("error: public live mode: ")
+                    && l.contains("CONSENSUS_MODEL_PROPOSER")
+                    && l.contains("CONSENSUS_META_PRICE_INPUT_PER_M")
+                    && l.contains("CONSENSUS_META_PRICE_OUTPUT_PER_M")),
+            "{s:?}"
+        );
+        assert!(fx.calls().is_empty(), "refused before the snapshot boot");
+        assert!(!s.all().contains(TEST_KEY));
+    }
+
+    let prices = vec![
+        ("CONSENSUS_META_PRICE_INPUT_PER_M", "4.00".to_string()),
+        ("CONSENSUS_META_PRICE_OUTPUT_PER_M", "20.00".to_string()),
+    ];
+    let s = serve_public(
+        &scratch,
+        &[
+            live.clone(),
+            fx.vars(),
+            vec![proposer, critic_on_wonder],
+            prices,
+        ]
+        .concat(),
+    );
+    assert!(s.listening, "{s:?}");
+
+    let bad = ("CONSENSUS_MODEL_PROPOSER", "muse spark".to_string());
+    let s = serve_public(&scratch, &[live, fx.vars(), vec![bad]].concat());
+    assert!(!s.listening, "{s:?}");
+    assert_eq!(s.exit_code, Some(1), "{s:?}");
+    assert!(
+        s.stderr
+            .iter()
+            .any(|l| l.starts_with("error: public live mode: CONSENSUS_MODEL_PROPOSER: ")),
+        "{s:?}"
+    );
+}

@@ -143,6 +143,34 @@ fn the_one_call_is_strict_structured_output_and_records_its_identity() {
     assert_eq!(doc.objections[0].status, ObjectionStatus::Open);
 }
 
+/// The baseline is not one of the roles: it keeps `CONSENSUS_MODEL` with
+/// the Proposer's and the Critic's overrides set, sent and recorded.
+#[test]
+fn the_baseline_keeps_consensus_model_whatever_the_role_overrides() {
+    let server = serve(vec![Reply::ok(completion_without_model_id(&draft(
+        "ev-fact",
+    )))]);
+    let mut cfg = config(&server.base_url);
+    cfg.proposer_model = "muse-spark-1.3".into();
+    cfg.critic_model = "muse-spark-1.3".into();
+    assert_eq!(cfg.model, "muse-wonder-1.0");
+    let mut client = MetaModelClient::new(cfg).unwrap();
+    let (_, inv) = client.assess(&task(), &context()).unwrap();
+    assert_eq!(server.last_body()["model"], "muse-wonder-1.0");
+    assert_eq!(inv.model, "muse-wonder-1.0");
+}
+
+/// A chat completion answering `content` that echoes no model id (the
+/// invocation then records the model the call was sent to).
+fn completion_without_model_id(content: &str) -> String {
+    json!({
+        "id": "chatcmpl-test-6",
+        "choices": [{ "message": { "role": "assistant", "content": content } }],
+        "usage": { "prompt_tokens": 100, "completion_tokens": 50 }
+    })
+    .to_string()
+}
+
 #[test]
 fn a_draft_citing_an_unknown_record_is_malformed_and_keeps_the_billed_call() {
     let server = serve(vec![Reply::ok(envelope(&draft("ev-elsewhere")))]);

@@ -15,6 +15,20 @@ The [README](../README.md) has a summary of this page.
   explicitly (the ledger has one price table), or `consensus-public` with live mode
   enabled, or `consensus-operator` with the ledger configured, refuses to start
   (`live/config.rs`).
+  Optional and unset by default as well: `CONSENSUS_MODEL_PROPOSER` sends the Proposer's
+  calls, its proposal (`DraftProposal`) and its revision (`DraftRevision`), re-asks
+  included, to another model id (unset, it is `CONSENSUS_MODEL`); the Critic keeps its own
+  (`CONSENSUS_MODEL_CRITIC`, else `CONSENSUS_MODEL`), the Evaluator and the single-agent
+  baseline keep `CONSENSUS_MODEL`, and both overrides may be set at once. Prompts,
+  schemas and their digests do not change, and every invocation, a failed, refused or
+  re-asked call included, records the model its call was sent to (an echoed model still
+  wins). The same price rule covers any mixed configuration: with the Proposer, the Critic
+  or both on a model other than `CONSENSUS_MODEL`, both prices must be set explicitly,
+  and the startup error names the override variables and both prices. The owner's
+  decision of 2026-11-01 for the public server (superseding the Critic-on-Spark plan) is
+  the Proposer on `muse-spark-1.3`, the Critic and the Evaluator on `muse-wonder-1.0`;
+  it is applied only after the authorized validation runs and the separate change of the
+  copy that names one model for every role (runbook 4.1).
 - **Endpoint.** The Meta Model API's Chat Completions, `POST {base}/chat/completions` with
   base `https://api.meta.ai/v1` (`crates/consensus-api/src/meta.rs`, ADR-0002).
 - **Which roles call it.** All three roles, in four kinds of call with one strict schema

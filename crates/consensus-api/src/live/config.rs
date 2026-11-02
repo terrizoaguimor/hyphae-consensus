@@ -44,10 +44,11 @@
 //! ([`turnstile::TEST_SECRETS`]).
 //!
 //! The two prices are one table for every call (the defaults are Muse
-//! Wonder's). With `CONSENSUS_MODEL_CRITIC` naming another model than
-//! `CONSENSUS_MODEL`, both must be set explicitly, to the highest price
-//! among the configured models; `serve-public` (live mode enabled) and
-//! `serve-operator` (ledger configured) refuse to start otherwise
+//! Wonder's). With `CONSENSUS_MODEL_PROPOSER`, `CONSENSUS_MODEL_CRITIC` or
+//! both naming another model than `CONSENSUS_MODEL`, both must be set
+//! explicitly, to the highest price among the configured models;
+//! `serve-public` (live mode enabled) and `serve-operator` (ledger
+//! configured) refuse to start otherwise
 //! ([`LiveConfig::require_prices_for_models`]).
 
 use super::budget::BudgetConfig;
@@ -55,7 +56,7 @@ use super::geo::{self, parse_country_list, GeoPolicy};
 use super::judge::JudgeCodes;
 use super::money::{Ppm, Usd};
 use super::turnstile::{self, TurnstileConfig, TurnstileSecret, DEFAULT_MAX_CHALLENGE_AGE};
-use crate::config::{MetaConfig, CRITIC_MODEL_VARIABLE};
+use crate::config::MetaConfig;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -436,31 +437,34 @@ impl LiveConfig {
     }
 
     /// The ledger has one price table, which defaults to Muse Wonder's
-    /// (`4.00`/`20.00` per million tokens). When the Critic runs on another
-    /// model than the other roles (`CONSENSUS_MODEL_CRITIC`,
-    /// [`MetaConfig::mixes_models`]), those defaults no longer price a
-    /// known model, so both [`vars::PRICE_INPUT_PER_M`] and
+    /// (`4.00`/`20.00` per million tokens). When the roles do not all run
+    /// on one model (`CONSENSUS_MODEL_PROPOSER`, `CONSENSUS_MODEL_CRITIC` or
+    /// both, [`MetaConfig::mixes_models`]), those defaults no longer price
+    /// a known model, so both [`vars::PRICE_INPUT_PER_M`] and
     /// [`vars::PRICE_OUTPUT_PER_M`] must be set explicitly (to the highest
     /// price among the configured models, so every call is over-reserved,
-    /// never under-reserved). An error naming the three variables
-    /// otherwise; one model for every role needs nothing.
+    /// never under-reserved). An error naming the override variables that
+    /// make the mix and both price variables otherwise; one model for
+    /// every role needs nothing.
     pub fn require_prices_for_models(&self, meta: &MetaConfig) -> Result<(), ConfigError> {
-        if !meta.mixes_models() || self.prices_explicit {
+        let overrides = meta.overridden_model_variables();
+        if overrides.is_empty() || self.prices_explicit {
             return Ok(());
         }
+        let reason = format!(
+            "the Proposer runs on {:?}, the Critic on {:?} and the Evaluator on {:?}, but the live ledger has one price table and its prices are the defaults; set both {} and {} explicitly to the highest price among the configured models, or unset {}",
+            meta.proposer_model,
+            meta.critic_model,
+            meta.model,
+            vars::PRICE_INPUT_PER_M,
+            vars::PRICE_OUTPUT_PER_M,
+            overrides.join(" and ")
+        );
+        let mut named = overrides;
+        named.extend([vars::PRICE_INPUT_PER_M, vars::PRICE_OUTPUT_PER_M]);
         Err(ConfigError::Inconsistent {
-            vars: vec![
-                CRITIC_MODEL_VARIABLE,
-                vars::PRICE_INPUT_PER_M,
-                vars::PRICE_OUTPUT_PER_M,
-            ],
-            reason: format!(
-                "the Critic runs on {:?} and the other roles on {:?}, but the live ledger has one price table and its prices are the defaults; set both {} and {} explicitly to the highest price among the configured models, or unset {CRITIC_MODEL_VARIABLE}",
-                meta.critic_model,
-                meta.model,
-                vars::PRICE_INPUT_PER_M,
-                vars::PRICE_OUTPUT_PER_M
-            ),
+            vars: named,
+            reason,
         })
     }
 

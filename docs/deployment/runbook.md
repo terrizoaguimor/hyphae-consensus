@@ -639,6 +639,29 @@ content disclosure), in the README and in the video's claims. Otherwise the Meta
 panel would show the Critic's model next to sentences that say every role runs on
 `muse-wonder-1.0`. To go back, remove the line and restart the unit.
 
+`CONSENSUS_MODEL_PROPOSER` is optional and stays unset in the template too: unset, the
+Proposer uses `CONSENSUS_MODEL`. Set, it changes the model id of the Proposer's calls
+only: its proposal (`DraftProposal`) and its revision (`DraftRevision`, the Proposer
+correcting its own proposal), re-asks included; the Critic keeps `CONSENSUS_MODEL_CRITIC`
+(or `CONSENSUS_MODEL`) and the Evaluator and the single-agent baseline keep
+`CONSENSUS_MODEL`. Both overrides may be set at once. It is validated like
+`CONSENSUS_MODEL` (an invalid value stops `consensus-public` with live mode enabled at
+startup naming it; `consensus-operator` reports it on each `model=meta` run), the prompts,
+schemas and their digests do not change, and every call, a failed, refused or re-asked
+one included, records the model it was sent to. The price rule above covers any mixed
+configuration: with the Proposer, the Critic or both on a model other than
+`CONSENSUS_MODEL`, both `CONSENSUS_META_PRICE_*_PER_M` must be set explicitly, to the
+highest price among the configured models, or both servers refuse to start, naming the
+override variables that make the mix and both price variables (`live/config.rs`). The
+owner's decision of 2026-11-01 (it supersedes the Critic-on-Spark plan) is the Proposer
+on `muse-spark-1.3` and the Critic and the Evaluator on `muse-wonder-1.0`, that is
+`CONSENSUS_MODEL_PROPOSER=muse-spark-1.3` with `CONSENSUS_MODEL` and
+`CONSENSUS_MODEL_CRITIC` unset. Validation first: the same two preconditions hold, so
+until the authorized validation runs with that split are done and the public copy that
+names `muse-wonder-1.0` as the model of every role has been corrected (a separate,
+owner-approved change), the variable is set only on the loopback `consensus-operator`
+server and never on `consensus-public`. To go back, remove the line and restart the unit.
+
 The server validates every variable at startup and stops with the variable's name on
 an invalid value (`public_config.rs`, `live/config.rs`); a failed start is visible with
 `journalctl -u consensus-public -n 50`. A snapshot that does not boot is not a failed
@@ -1924,8 +1947,9 @@ settings" of `deploy/etc/consensus/public.env.example`):
 | `CONSENSUS_LIVE_CLIENT_DAILY` | optional `5` | owner decision; the live form states the figure from `/capabilities` |
 
 Left alone: `CONSENSUS_META_MAX_ATTEMPTS` (3), the output bound (16,000),
-`CONSENSUS_META_REASONING_EFFORT` (unset), `CONSENSUS_MODEL_CRITIC` (unset until the
-owner's Critic smoke) and `CONSENSUS_VISITOR_ACCESS_HOURS` (24).
+`CONSENSUS_META_REASONING_EFFORT` (unset), `CONSENSUS_MODEL_CRITIC` (unset: the Critic
+stays on `muse-wonder-1.0`), `CONSENSUS_MODEL_PROPOSER` (unset until the validation runs
+and the copy change of section 4.1) and `CONSENSUS_VISITOR_ACCESS_HOURS` (24).
 `cargo test -p consensus-api --test live_config` reads the example file and checks these
 values together: they parse, the budget validates with a $2.76 worst case and a $6.00
 burst, and the unit's `TimeoutStopSec` exceeds what the grace needs.

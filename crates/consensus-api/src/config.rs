@@ -11,7 +11,8 @@
 //! | `CONSENSUS_META_API_KEY`, else `MODEL_API_KEY`, else `META_API_KEY` | (required for Meta) | Meta Model API key |
 //! | `CONSENSUS_META_BASE_URL` | `https://api.meta.ai/v1` | API base (https, or http on a loopback host) |
 //! | `CONSENSUS_MODEL` | `muse-wonder-1.0` | model id |
-//! | `CONSENSUS_MODEL_CRITIC` | the resolved `CONSENSUS_MODEL` | optional model id of the Critic's calls only (`DraftChallenge`); Proposer, Revise and Evaluator keep `CONSENSUS_MODEL`. With the live ledger, a Critic model other than `CONSENSUS_MODEL` requires both ledger prices set explicitly ([`crate::live::config::LiveConfig::require_prices_for_models`]) |
+//! | `CONSENSUS_MODEL_PROPOSER` | the resolved `CONSENSUS_MODEL` | optional model id of the Proposer's calls only (`DraftProposal` and its own revision, `DraftRevision`); Critic and Evaluator keep theirs. With the live ledger, a Proposer model other than `CONSENSUS_MODEL` requires both ledger prices set explicitly ([`crate::live::config::LiveConfig::require_prices_for_models`]) |
+//! | `CONSENSUS_MODEL_CRITIC` | the resolved `CONSENSUS_MODEL` | optional model id of the Critic's calls only (`DraftChallenge`); Proposer, Revise and Evaluator keep theirs. With the live ledger, a Critic model other than `CONSENSUS_MODEL` requires both ledger prices set explicitly ([`crate::live::config::LiveConfig::require_prices_for_models`]) |
 //! | `CONSENSUS_MODEL_TIMEOUT_SECS` | 120 | budget of one model call: every attempt, wait and body read |
 //! | `CONSENSUS_META_MAX_COMPLETION_TOKENS` | 16000 | `max_completion_tokens` sent with every call |
 //! | `CONSENSUS_META_REASONING_EFFORT` | not sent | `reasoning_effort` (`minimal` .. `max`) |
@@ -114,9 +115,14 @@ pub const DEFAULT_META_BASE_URL: &str = "https://api.meta.ai/v1";
 pub const DEFAULT_META_MODEL: &str = "muse-wonder-1.0";
 /// The model id of every role's calls.
 pub const MODEL_VARIABLE: &str = "CONSENSUS_MODEL";
-/// The optional model id of the Critic's calls only; unset, the Critic
+/// The optional model id of the Critic's calls only (both overrides may be
+/// set at once); unset, the Critic
 /// uses the resolved [`MODEL_VARIABLE`].
 pub const CRITIC_MODEL_VARIABLE: &str = "CONSENSUS_MODEL_CRITIC";
+/// The optional model id of the Proposer's calls only (its proposal and
+/// its revision of it); unset, the Proposer uses the resolved
+/// [`MODEL_VARIABLE`].
+pub const PROPOSER_MODEL_VARIABLE: &str = "CONSENSUS_MODEL_PROPOSER";
 /// The key file read before any key variable: the public server gets its
 /// dedicated key as a credential file (systemd `LoadCredential`), never
 /// through the environment.
@@ -255,11 +261,18 @@ pub struct MetaConfig {
     pub base_url: String,
     /// In-memory only, zeroized on drop; `Debug` redacts it.
     pub api_key: ApiKey,
-    /// Exact Model API identity of the Proposer's, Revise's and
-    /// Evaluator's calls (and the Critic's unless
-    /// [`critic_model`](Self::critic_model) differs); every call records
-    /// its own model in its invocation.
+    /// Exact Model API identity of the Evaluator's calls, and of the
+    /// Proposer's (proposal and revision) and the Critic's unless
+    /// [`proposer_model`](Self::proposer_model) or
+    /// [`critic_model`](Self::critic_model) differs; every call records
+    /// its own model in its invocation. The single-agent baseline's call
+    /// always uses it.
     pub model: String,
+    /// Model id of the Proposer's calls only, its proposal and its
+    /// revision (`CONSENSUS_MODEL_PROPOSER`, falling back to
+    /// [`model`](Self::model)). The prompts and schemas of the role do not
+    /// depend on it, so neither do their digests.
+    pub proposer_model: String,
     /// Model id of the Critic's calls only (`CONSENSUS_MODEL_CRITIC`,
     /// falling back to [`model`](Self::model)). The prompt and schema of
     /// the role do not depend on it, so neither do their digests.
@@ -308,6 +321,7 @@ impl std::fmt::Debug for MetaConfig {
             .field("base_url", &self.base_url)
             .field("api_key", &"<redacted>")
             .field("model", &self.model)
+            .field("proposer_model", &self.proposer_model)
             .field("critic_model", &self.critic_model)
             .field("timeout", &self.timeout)
             .field("max_attempts", &self.max_attempts)
@@ -398,6 +412,7 @@ impl MetaConfig {
         let cfg = Self {
             base_url: base_url.into().trim().trim_end_matches('/').to_string(),
             api_key,
+            proposer_model: model.clone(),
             critic_model: model.clone(),
             model,
             timeout: Duration::from_secs(DEFAULT_MODEL_TIMEOUT_SECS),
@@ -468,16 +483,22 @@ impl MetaConfig {
             .unwrap_or_else(|| DEFAULT_META_MODEL.into())
             .trim()
             .to_string();
-        // The Critic falls back to the resolved model id, never straight to
-        // the default: without the override every role runs on one model.
-        let critic_model = match get(CRITIC_MODEL_VARIABLE)? {
-            Some(value) => value.trim().to_string(),
-            None => model.clone(),
+        // The Proposer and the Critic fall back to the resolved model id,
+        // never straight to the default: without the overrides every role
+        // runs on one model.
+        let role_model = |variable: &'static str| -> Result<String, ConfigError> {
+            Ok(match get(variable)? {
+                Some(value) => value.trim().to_string(),
+                None => model.clone(),
+            })
         };
+        let proposer_model = role_model(PROPOSER_MODEL_VARIABLE)?;
+        let critic_model = role_model(CRITIC_MODEL_VARIABLE)?;
         let mut cfg = Self {
             base_url: base_url.trim().trim_end_matches('/').to_string(),
             api_key,
             model,
+            proposer_model,
             critic_model,
             timeout: parse_model_timeout(get("CONSENSUS_MODEL_TIMEOUT_SECS")?.as_deref())?,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
@@ -512,6 +533,7 @@ impl MetaConfig {
             // Name the variable a field-level check came from.
             "base_url" => ConfigError::new("CONSENSUS_META_BASE_URL", e.message),
             "model" => ConfigError::new(MODEL_VARIABLE, e.message),
+            "proposer_model" => ConfigError::new(PROPOSER_MODEL_VARIABLE, e.message),
             "critic_model" => ConfigError::new(CRITIC_MODEL_VARIABLE, e.message),
             "timeout" => ConfigError::new("CONSENSUS_MODEL_TIMEOUT_SECS", e.message),
             "reasoning_effort" => ConfigError::new("CONSENSUS_META_REASONING_EFFORT", e.message),
@@ -549,7 +571,11 @@ impl MetaConfig {
                 "must not carry credentials, a query or a fragment",
             ));
         }
-        for (setting, model) in [("model", &self.model), ("critic_model", &self.critic_model)] {
+        for (setting, model) in [
+            ("model", &self.model),
+            ("proposer_model", &self.proposer_model),
+            ("critic_model", &self.critic_model),
+        ] {
             if model.is_empty() || model.len() > 128 || !model.chars().all(|c| c.is_ascii_graphic())
             {
                 return Err(ConfigError::new(
@@ -607,23 +633,41 @@ impl MetaConfig {
         Ok(())
     }
 
-    /// The model id `role`'s calls are sent to: the Critic's
-    /// [`critic_model`](Self::critic_model), every other role's
+    /// The model id `role`'s calls are sent to: the Proposer's
+    /// [`proposer_model`](Self::proposer_model) for its proposal and its
+    /// revision (revising is the Proposer correcting its own proposal),
+    /// the Critic's [`critic_model`](Self::critic_model), the Evaluator's
     /// [`model`](Self::model).
     pub fn model_for(&self, role: crate::meta::Role) -> &str {
         use crate::meta::Role;
         match role {
+            Role::Propose | Role::Revise => &self.proposer_model,
             Role::Critique => &self.critic_model,
-            Role::Propose | Role::Evaluate | Role::Revise => &self.model,
+            Role::Evaluate => &self.model,
         }
     }
 
-    /// True when the Critic runs on another model than the other roles:
-    /// the live ledger, which has one price table, then needs its prices
-    /// set explicitly
+    /// True when the roles do not all run on one model (the Proposer, the
+    /// Critic or both on another model than `CONSENSUS_MODEL`): the live
+    /// ledger, which has one price table, then needs its prices set
+    /// explicitly
     /// ([`crate::live::config::LiveConfig::require_prices_for_models`]).
     pub fn mixes_models(&self) -> bool {
-        self.critic_model != self.model
+        !self.overridden_model_variables().is_empty()
+    }
+
+    /// The per-role override variables whose model differs from
+    /// [`model`](Self::model), in a fixed order (Proposer, then Critic):
+    /// the variables a mixed-model configuration is made of.
+    pub fn overridden_model_variables(&self) -> Vec<&'static str> {
+        let mut vars = Vec::new();
+        if self.proposer_model != self.model {
+            vars.push(PROPOSER_MODEL_VARIABLE);
+        }
+        if self.critic_model != self.model {
+            vars.push(CRITIC_MODEL_VARIABLE);
+        }
+        vars
     }
 }
 
@@ -1208,6 +1252,116 @@ mod tests {
     }
 
     #[test]
+    fn the_proposer_model_covers_propose_and_revise_and_falls_back_like_the_critics() {
+        use crate::meta::Role;
+        // Unset: the Proposer follows the resolved CONSENSUS_MODEL.
+        let cfg = meta(&[("MODEL_API_KEY", KEY), ("CONSENSUS_MODEL", "muse-x-2")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(cfg.proposer_model, "muse-x-2");
+        assert!(cfg.overridden_model_variables().is_empty());
+        let cfg = meta(&[("MODEL_API_KEY", KEY)]).unwrap().unwrap();
+        assert_eq!(cfg.proposer_model, "muse-wonder-1.0");
+        // An empty override is unset.
+        let cfg = meta(&[("MODEL_API_KEY", KEY), ("CONSENSUS_MODEL_PROPOSER", " \t")])
+            .unwrap()
+            .unwrap();
+        assert_eq!(cfg.proposer_model, "muse-wonder-1.0");
+        assert!(!cfg.mixes_models());
+
+        // CONSENSUS_MODEL_PROPOSER moves the proposal and the revision only
+        // (the owner's 2026-11-01 split: Proposer on Spark, Critic and
+        // Evaluator on Wonder), with or without CONSENSUS_MODEL.
+        for (pairs, others) in [
+            (
+                vec![
+                    ("MODEL_API_KEY", KEY),
+                    ("CONSENSUS_MODEL_PROPOSER", " muse-spark-1.3\n"),
+                ],
+                "muse-wonder-1.0",
+            ),
+            (
+                vec![
+                    ("MODEL_API_KEY", KEY),
+                    ("CONSENSUS_MODEL", "muse-x-2"),
+                    ("CONSENSUS_MODEL_PROPOSER", "muse-spark-1.3"),
+                ],
+                "muse-x-2",
+            ),
+        ] {
+            let cfg = meta(&pairs).unwrap().unwrap();
+            assert_eq!(cfg.model, others);
+            assert_eq!(cfg.proposer_model, "muse-spark-1.3");
+            assert_eq!(cfg.critic_model, others);
+            assert!(cfg.mixes_models());
+            assert_eq!(
+                cfg.overridden_model_variables(),
+                ["CONSENSUS_MODEL_PROPOSER"]
+            );
+            for role in [Role::Propose, Role::Revise] {
+                assert_eq!(cfg.model_for(role), "muse-spark-1.3", "{role:?}");
+            }
+            for role in [Role::Critique, Role::Evaluate] {
+                assert_eq!(cfg.model_for(role), others, "{role:?}");
+            }
+        }
+
+        // Both overrides at once: each role on its own model.
+        let cfg = meta(&[
+            ("MODEL_API_KEY", KEY),
+            ("CONSENSUS_MODEL", "muse-x-2"),
+            ("CONSENSUS_MODEL_PROPOSER", "muse-spark-1.3"),
+            ("CONSENSUS_MODEL_CRITIC", "muse-wonder-1.0"),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(cfg.model_for(Role::Propose), "muse-spark-1.3");
+        assert_eq!(cfg.model_for(Role::Revise), "muse-spark-1.3");
+        assert_eq!(cfg.model_for(Role::Critique), "muse-wonder-1.0");
+        assert_eq!(cfg.model_for(Role::Evaluate), "muse-x-2");
+        assert_eq!(
+            cfg.overridden_model_variables(),
+            ["CONSENSUS_MODEL_PROPOSER", "CONSENSUS_MODEL_CRITIC"]
+        );
+        // Overrides equal to CONSENSUS_MODEL are one model.
+        let cfg = meta(&[
+            ("MODEL_API_KEY", KEY),
+            ("CONSENSUS_MODEL_PROPOSER", "muse-wonder-1.0"),
+            ("CONSENSUS_MODEL_CRITIC", "muse-wonder-1.0"),
+        ])
+        .unwrap()
+        .unwrap();
+        assert!(!cfg.mixes_models());
+        // from_parts: one model for every role, the Proposer included.
+        let cfg = MetaConfig::from_parts(DEFAULT_META_BASE_URL, ApiKey::new(KEY), " m-1 ").unwrap();
+        assert_eq!(cfg.proposer_model, "m-1");
+    }
+
+    #[test]
+    fn an_unusable_proposer_model_id_names_its_variable() {
+        let long = "m".repeat(129);
+        for value in ["has space", "\u{e9}t\u{e9}", long.as_str()] {
+            let err =
+                meta(&[("MODEL_API_KEY", KEY), ("CONSENSUS_MODEL_PROPOSER", value)]).unwrap_err();
+            assert_eq!(err.setting, "CONSENSUS_MODEL_PROPOSER", "{value:?}: {err}");
+            assert!(err.message.contains("printable ASCII"), "{err}");
+            // A good Critic override does not hide it.
+            let err = meta(&[
+                ("MODEL_API_KEY", KEY),
+                ("CONSENSUS_MODEL_PROPOSER", value),
+                ("CONSENSUS_MODEL_CRITIC", "muse-wonder-1.0"),
+            ])
+            .unwrap_err();
+            assert_eq!(err.setting, "CONSENSUS_MODEL_PROPOSER", "{value:?}: {err}");
+        }
+        let mut cfg =
+            MetaConfig::from_parts(DEFAULT_META_BASE_URL, ApiKey::new(KEY), DEFAULT_META_MODEL)
+                .unwrap();
+        cfg.proposer_model = String::new();
+        assert_eq!(cfg.validate().unwrap_err().setting, "proposer_model");
+    }
+
+    #[test]
     fn an_unusable_model_id_names_its_own_variable() {
         let long = "m".repeat(129);
         for value in ["has space", "\u{e9}t\u{e9}", long.as_str()] {
@@ -1256,6 +1410,18 @@ mod tests {
         );
         assert!(!printed.contains("nx9-test-secret"), "{printed}");
         assert!(printed.contains("<redacted>"), "{printed}");
+        let cfg = meta(&[
+            ("MODEL_API_KEY", KEY),
+            ("CONSENSUS_MODEL_PROPOSER", "muse-spark-1.3"),
+        ])
+        .unwrap()
+        .unwrap();
+        let printed = format!("{cfg:?}");
+        assert!(
+            printed.contains(r#"proposer_model: "muse-spark-1.3""#),
+            "{printed}"
+        );
+        assert!(!printed.contains("nx9-test-secret"), "{printed}");
     }
 
     #[test]

@@ -2046,7 +2046,8 @@ struct CallSpec {
     schema_name: &'static str,
     system: String,
     prompt_sha256: String,
-    /// The model the call is sent to: the role's (`CONSENSUS_MODEL_CRITIC` for
+    /// The model the call is sent to: the role's (`CONSENSUS_MODEL_PROPOSER`
+    /// for the Proposer's proposal and revision, `CONSENSUS_MODEL_CRITIC` for
     /// the Critic), or `CONSENSUS_MODEL` for a call that is not one of the
     /// four roles (the single-agent baseline).
     model: String,
@@ -2864,8 +2865,9 @@ impl MetaModelClient {
         // same serialization of the same document.
         let schema_text = serde_json::to_string(&schema)
             .map_err(|e| adapter_fault(&format!("{schema_name} schema"), e))?;
-        // The role's model (`CONSENSUS_MODEL_CRITIC` for the Critic): sent,
-        // and recorded when the API echoes none. Neither the prompt nor the
+        // The role's model (`CONSENSUS_MODEL_PROPOSER` for the Proposer,
+        // `CONSENSUS_MODEL_CRITIC` for the Critic): sent, and recorded when
+        // the API echoes none, also on a failed or re-asked call. Neither the prompt nor the
         // schema depends on it.
         let model = spec.model.clone();
         let request = ChatRequest {

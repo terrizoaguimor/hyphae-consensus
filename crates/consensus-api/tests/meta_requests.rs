@@ -1048,6 +1048,359 @@ fn a_reasked_critic_call_keeps_the_critics_model() {
 }
 
 // ---------------------------------------------------------------------
+// CONSENSUS_MODEL_PROPOSER: a per-role model for the Proposer (its
+// proposal and its revision). Owner decision 2026-11-01: Proposer on
+// muse-spark-1.3, Critic and Evaluator on muse-wonder-1.0.
+// ---------------------------------------------------------------------
+
+const PROPOSER: (&str, &str) = ("CONSENSUS_MODEL_PROPOSER", "muse-spark-1.3");
+
+/// A revision draft that addresses the one open objection, `item-7`.
+const RUN_REVISION: &str = r#"{"summary":"Cap retries at 3 with jitter","plan_steps":["cap"],"primary_claim":{"statement":"Retries are capped at 3 attempts with jitter"},"further_claims":[],"assumptions":[],"uncertainties":[],"addressed_items":["item-7"]}"#;
+
+/// What a revision is asked to fix: a one-claim proposal, an objection
+/// `item-7` on it that the evaluation left open, and its evidence.
+fn revision_inputs() -> (
+    Proposal,
+    Challenge,
+    Evaluation,
+    consensus_runtime::ports::RoleContext,
+) {
+    let proposal = consensus_runtime::scenarios::proposal(
+        "prop-1",
+        "Raise retries to 10",
+        vec![consensus_runtime::scenarios::claim(
+            "claim-1",
+            "Timeouts come from too few retries",
+        )],
+    );
+    let challenge = Challenge {
+        schema_version: SCHEMA_VERSION.into(),
+        id: ChallengeId::new("chal-1"),
+        run_id: RunId::new("run-1"),
+        target_proposal: ProposalId::new("prop-1"),
+        items: vec![ChallengeItem {
+            id: "item-7".into(),
+            kind: ChallengeKind::ConstraintConflict,
+            claim_id: Some(ClaimId::new("claim-1")),
+            description: "Documented constraint caps retries at 3".into(),
+            evidence_refs: vec![EvidenceId::new("ev-1")],
+        }],
+        created_at: "2026-10-26T00:00:00Z".into(),
+    };
+    let evaluation = Evaluation {
+        schema_version: SCHEMA_VERSION.into(),
+        run_id: RunId::new("run-1"),
+        target_proposal: ProposalId::new("prop-1"),
+        assessments: vec![ClaimAssessment {
+            claim_id: ClaimId::new("claim-1"),
+            corroborated: false,
+            relevant_evidence: vec![],
+            contradicting_evidence: vec![EvidenceId::new("ev-1")],
+            note: "conflicts with the retry cap".into(),
+        }],
+        unresolved_items: vec!["item-7".into()],
+        item_verdicts: vec![ItemVerdict {
+            item_id: "item-7".into(),
+            status: ItemStatus::Unresolved,
+            reason: "the proposal still raises retries past the cap".into(),
+        }],
+        cleared_contradictions: vec![],
+        abstain: false,
+        abstain_reason: None,
+        created_at: "2026-10-26T00:00:00Z".into(),
+    };
+    let ctx = consensus_runtime::ports::RoleContext {
+        evidence: vec![],
+        integrity: vec![],
+        open_items: vec![],
+        carried_contradictions: vec![],
+    };
+    (proposal, challenge, evaluation, ctx)
+}
+
+#[test]
+fn the_proposer_override_changes_only_the_proposers_request_and_every_call_records_its_model() {
+    let server = serve(three_calls());
+    let cfg = config_from_vars(&server.base_url, &[PROPOSER]);
+    let (agg, log, text) = run_through_adapter("proposer-model", cfg);
+    assert!(
+        agg.recommendation.is_some(),
+        "the scripted run reaches its recommendation: {:?}",
+        log.all_events().last()
+    );
+    let expected = [
+        ("DraftProposal", "muse-spark-1.3"),
+        ("DraftChallenge", "muse-wonder-1.0"),
+        ("DraftEvaluation", "muse-wonder-1.0"),
+    ];
+    let sent = sent_models(&server);
+    let sent: Vec<(&str, &str)> = sent.iter().map(|(s, m)| (s.as_str(), m.as_str())).collect();
+    assert_eq!(sent, expected);
+    let recorded: Vec<(Option<&str>, &str)> = agg
+        .invocations
+        .iter()
+        .map(|i| (i.schema_name.as_deref(), i.model.as_str()))
+        .collect();
+    assert_eq!(
+        recorded,
+        expected.map(|(schema, model)| (Some(schema), model))
+    );
+    let receipt = build_receipt(&log, &agg.run_id, "2026-10-27T09:00:00Z".into()).unwrap();
+    assert_eq!(receipt.model_invocations, agg.invocations);
+    assert_eq!(
+        text.matches(r#""model":"muse-spark-1.3""#).count(),
+        1,
+        "{text}"
+    );
+    for surface in [Surface::Public, Surface::Operator] {
+        let shown: Vec<String> = agg
+            .invocations
+            .iter()
+            .map(|i| invocation_v1(i, surface).model)
+            .collect();
+        assert_eq!(
+            shown,
+            ["muse-spark-1.3", "muse-wonder-1.0", "muse-wonder-1.0"],
+            "{surface:?}"
+        );
+    }
+    assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg);
+}
+
+/// Revising is the Proposer correcting its own proposal: the revision goes
+/// to the Proposer's model, and records it.
+#[test]
+fn the_revision_goes_to_the_proposers_model() {
+    let (proposal, challenge, evaluation, ctx) = revision_inputs();
+    for (extra, expected) in [
+        (vec![PROPOSER], "muse-spark-1.3"),
+        // The Critic's override never moves the revision.
+        (
+            vec![("CONSENSUS_MODEL_CRITIC", "muse-spark-1.3")],
+            "muse-wonder-1.0",
+        ),
+        (vec![], "muse-wonder-1.0"),
+    ] {
+        let server = serve(vec![Reply::ok(envelope_without_model(RUN_REVISION))]);
+        let mut c = MetaModelClient::new(config_from_vars(&server.base_url, &extra)).unwrap();
+        let (revision, inv) = c.revise(&proposal, &challenge, &evaluation, &ctx).unwrap();
+        assert_eq!(revision.addressed_items, ["item-7"], "{extra:?}");
+        assert_eq!(server.last_body()["model"], json!(expected), "{extra:?}");
+        assert_eq!(inv.schema_name.as_deref(), Some("DraftRevision"));
+        assert_eq!(inv.model, expected, "{extra:?}");
+    }
+}
+
+/// Both overrides at once (both may be set): each role's request carries
+/// its own model, Proposer and Critic apart from the Evaluator.
+#[test]
+fn both_overrides_together_send_each_role_to_its_own_model() {
+    let server = serve(three_calls());
+    let cfg = config_from_vars(
+        &server.base_url,
+        &[
+            ("CONSENSUS_MODEL", "muse-x-2"),
+            PROPOSER,
+            ("CONSENSUS_MODEL_CRITIC", "muse-wonder-1.0"),
+        ],
+    );
+    let (agg, _, _) = run_through_adapter("proposer-and-critic-model", cfg);
+    let expected = [
+        ("DraftProposal", "muse-spark-1.3"),
+        ("DraftChallenge", "muse-wonder-1.0"),
+        ("DraftEvaluation", "muse-x-2"),
+    ];
+    let sent = sent_models(&server);
+    let sent: Vec<(&str, &str)> = sent.iter().map(|(s, m)| (s.as_str(), m.as_str())).collect();
+    assert_eq!(sent, expected);
+    let recorded: Vec<&str> = agg.invocations.iter().map(|i| i.model.as_str()).collect();
+    assert_eq!(recorded, expected.map(|(_, model)| model));
+}
+
+#[test]
+fn the_proposer_override_leaves_every_prompt_and_schema_hash_unchanged() {
+    let run = |extra: &[(&str, &str)]| {
+        let server = serve(three_calls());
+        let cfg = config_from_vars(&server.base_url, extra);
+        let (agg, _, _) = run_through_adapter("proposer-hashes", cfg);
+        let schemas: Vec<String> = server
+            .requests()
+            .iter()
+            .map(|raw| {
+                serde_json::to_string(&body_of(raw)["response_format"]["json_schema"]["schema"])
+                    .unwrap()
+            })
+            .collect();
+        (agg.invocations, schemas)
+    };
+    let (plain, plain_schemas) = run(&[]);
+    let (mixed, mixed_schemas) = run(&[PROPOSER]);
+    assert_eq!(plain.len(), 3);
+    assert_eq!(plain.len(), mixed.len());
+    assert_eq!(plain_schemas, mixed_schemas, "the same schema bytes");
+    let roles = [Role::Propose, Role::Critique, Role::Evaluate];
+    for ((a, b), role) in plain.iter().zip(&mixed).zip(roles) {
+        assert_eq!(a.schema_name, b.schema_name);
+        assert_eq!(a.schema_sha256, b.schema_sha256, "{role:?}");
+        assert_eq!(a.prompt_sha256, b.prompt_sha256, "{role:?}");
+        assert_eq!(a.prompt_sha256, Some(role.prompt_sha256()), "{role:?}");
+    }
+    assert_ne!(plain[0].model, mixed[0].model, "only the model moved");
+
+    // The revision's prompt and schema digests do not depend on it either.
+    let (proposal, challenge, evaluation, ctx) = revision_inputs();
+    let revise = |extra: &[(&str, &str)]| {
+        let server = serve(vec![Reply::ok(envelope_without_model(RUN_REVISION))]);
+        let mut c = MetaModelClient::new(config_from_vars(&server.base_url, extra)).unwrap();
+        let (_, inv) = c.revise(&proposal, &challenge, &evaluation, &ctx).unwrap();
+        inv
+    };
+    let (a, b) = (revise(&[]), revise(&[PROPOSER]));
+    assert_eq!(a.schema_sha256, b.schema_sha256);
+    assert_eq!(a.prompt_sha256, b.prompt_sha256);
+    assert_eq!(a.prompt_sha256, Some(Role::Revise.prompt_sha256()));
+    assert_ne!(a.model, b.model);
+}
+
+/// A Proposer call that was answered but failed (truncated, refused, or
+/// its body timed out) is kept with the model it was sent to: the
+/// Proposer's, never `CONSENSUS_MODEL`, in the RunFailed record, the run
+/// and the receipt; so is a failed revision (the Proposer's call too).
+#[test]
+fn a_failed_proposer_call_records_the_proposers_model() {
+    let truncated = || {
+        completion_without_model(
+            json!({"role": "assistant", "content": r#"{"summary":"Keep"#}),
+            "length",
+            usage(10, 16000),
+        )
+    };
+    let refusal = || {
+        completion_without_model(
+            json!({"role": "assistant", "content": null,
+                   "refusal": "I cannot propose this change."}),
+            "stop",
+            usage(80, 12),
+        )
+    };
+    let cases = [
+        (
+            "truncated",
+            Reply::ok(truncated()),
+            "model_output_truncated",
+            None,
+        ),
+        ("refusal", Reply::ok(refusal()), "model_refusal", None),
+        (
+            "body-timeout",
+            Reply::ok(envelope_without_model(RUN_PROPOSAL)).stalled(Duration::from_secs(8)),
+            "meta_timeout",
+            Some(Duration::from_secs(1)),
+        ),
+    ];
+    for (name, proposal, expected_code, timeout) in cases {
+        let server = serve(vec![proposal]);
+        let mut cfg = config_from_vars(&server.base_url, &[PROPOSER]);
+        if let Some(timeout) = timeout {
+            cfg.timeout = timeout;
+        }
+        let (agg, log, _) = run_through_adapter(&format!("proposer-failed-{name}"), cfg);
+        let (stage, code, _, invocation) = run_failure(&log);
+        assert_eq!(
+            (stage.as_str(), code.as_deref()),
+            ("propose", Some(expected_code)),
+            "{name}"
+        );
+        let invocation = invocation.expect("the answered call is kept");
+        assert_eq!(
+            invocation.schema_name.as_deref(),
+            Some("DraftProposal"),
+            "{name}"
+        );
+        assert_eq!(invocation.model, "muse-spark-1.3", "{name}");
+        let models: Vec<&str> = agg.invocations.iter().map(|i| i.model.as_str()).collect();
+        assert_eq!(models, ["muse-spark-1.3"], "{name}");
+        let receipt = build_receipt(&log, &agg.run_id, "2026-10-27T09:00:00Z".into()).unwrap();
+        assert_eq!(receipt.model_invocations, agg.invocations, "{name}");
+        assert_eq!(log.rebuild(&agg.run_id).unwrap(), agg, "{name}");
+    }
+
+    // A failed revision: the kept call carries the Proposer's model.
+    let (proposal, challenge, evaluation, ctx) = revision_inputs();
+    for (name, reply) in [
+        ("truncated", Reply::ok(truncated())),
+        ("refusal", Reply::ok(refusal())),
+    ] {
+        let server = serve(vec![reply]);
+        let mut c = MetaModelClient::new(config_from_vars(&server.base_url, &[PROPOSER])).unwrap();
+        let err = c
+            .revise(&proposal, &challenge, &evaluation, &ctx)
+            .unwrap_err();
+        let kept = err
+            .invocation()
+            .cloned()
+            .or_else(|| c.take_failed_invocation())
+            .expect("the answered revision is kept");
+        assert_eq!(kept.schema_name.as_deref(), Some("DraftRevision"), "{name}");
+        assert_eq!(kept.model, "muse-spark-1.3", "{name}");
+        assert_eq!(
+            server.last_body()["model"],
+            json!("muse-spark-1.3"),
+            "{name}"
+        );
+    }
+}
+
+/// A Proposer answer that cannot be read is asked for again, and the
+/// re-ask goes to the Proposer's model too, for the proposal and for the
+/// revision; the accepted invocation records that model with the refused
+/// call under `rejected_calls`.
+#[test]
+fn a_reasked_proposer_call_keeps_the_proposers_model() {
+    let server = serve(
+        ["not json", RUN_PROPOSAL, RUN_CHALLENGE, RUN_EVALUATION]
+            .into_iter()
+            .map(|draft| Reply::ok(envelope_without_model(draft)))
+            .collect(),
+    );
+    let cfg = config_from_vars(&server.base_url, &[PROPOSER]);
+    let (agg, log, _) = run_through_adapter("proposer-reask-model", cfg);
+    assert!(
+        agg.recommendation.is_some(),
+        "the re-asked run reaches its recommendation: {:?}",
+        log.all_events().last()
+    );
+    let proposer_requests: Vec<String> = sent_models(&server)
+        .into_iter()
+        .filter(|(schema, _)| schema == "DraftProposal")
+        .map(|(_, model)| model)
+        .collect();
+    assert_eq!(proposer_requests, ["muse-spark-1.3", "muse-spark-1.3"]);
+    let proposal = &agg.invocations[0];
+    assert_eq!(proposal.schema_name.as_deref(), Some("DraftProposal"));
+    assert_eq!(proposal.model, "muse-spark-1.3");
+    assert_eq!(proposal.rejected_calls.as_ref().map(Vec::len), Some(1));
+    assert_eq!(proposal.input_tokens, Some(200), "summed over both calls");
+    let receipt = build_receipt(&log, &agg.run_id, "2026-10-27T09:00:00Z".into()).unwrap();
+    assert_eq!(receipt.model_invocations, agg.invocations);
+
+    let (p, ch, ev, ctx) = revision_inputs();
+    let server = serve(
+        ["not json", RUN_REVISION]
+            .into_iter()
+            .map(|draft| Reply::ok(envelope_without_model(draft)))
+            .collect(),
+    );
+    let mut c = MetaModelClient::new(config_from_vars(&server.base_url, &[PROPOSER])).unwrap();
+    let (_, inv) = c.revise(&p, &ch, &ev, &ctx).unwrap();
+    let models: Vec<String> = sent_models(&server).into_iter().map(|(_, m)| m).collect();
+    assert_eq!(models, ["muse-spark-1.3", "muse-spark-1.3"]);
+    assert_eq!(inv.model, "muse-spark-1.3");
+    assert_eq!(inv.rejected_calls.as_ref().map(Vec::len), Some(1));
+}
+
+// ---------------------------------------------------------------------
 // Round 8, lane provider-budget: 5xx retries, strict timeouts, the run
 // deadline and fresh connections (live runs M01, M02, K02).
 // ---------------------------------------------------------------------

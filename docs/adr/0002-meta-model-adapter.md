@@ -44,8 +44,10 @@ Date: 2026-10-26 · Status: accepted · Scope: milestone M2
    recorded in `ModelInvocation`; `model` preserves the exact identity echoed by
    the API (fallback: the model the call was sent to: configured `CONSENSUS_MODEL`,
    default `muse-wonder-1.0`; for the Critic's calls the optional
-   `CONSENSUS_MODEL_CRITIC`, which falls back to `CONSENSUS_MODEL`. Added 2026-11-01;
-   prompts, schemas and the contract are unchanged by it).
+   `CONSENSUS_MODEL_CRITIC`, which falls back to `CONSENSUS_MODEL`; for the Proposer's
+   calls, proposal and revision, the optional `CONSENSUS_MODEL_PROPOSER`, which falls
+   back to `CONSENSUS_MODEL`. Added 2026-11-01; prompts, schemas and the contract are
+   unchanged by them).
 
 5. **Credentials.** Read once from `META_API_KEY` (fallback `MODEL_API_KEY`; both
    names appear in Meta ecosystem documentation). Held in memory only; `Debug`

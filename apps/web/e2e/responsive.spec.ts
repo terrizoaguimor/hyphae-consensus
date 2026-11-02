@@ -4,25 +4,35 @@
 // page's Playback tab the Proposer, Critic and Evidence Evaluator cards let
 // their text spill past the frame, objection tags overflowed their own
 // frames, 39-digit record ids in "contradicted by ..." did not wrap and the
-// three columns overflowed). Each screen is opened once and measured at
-// 1920, 1440, 1280, 1024, 768, 390 and 360 px, in English and in Spanish
-// (longer words), on a guided run, on a live-like run whose model documents
-// are as long as real Meta answers (long claims and objections, four
-// objections, five 39-digit contradicting ids per claim, long plan steps,
-// muse-spark-1.3 and muse-wonder-1.0, sealed-snapshot hashes) and on the
-// recorded run R06. At each width:
-//   (a) the document is no wider than the viewport;
+// three columns overflowed). Each screen is opened once, every <details> on
+// it opened, and measured at 1920, 1440, 1280, 1024, 768, 390, 360 and 320
+// px (320 CSS px: a 1280 px screen at 400% zoom, WCAG 1.4.10 reflow), in
+// English and in Spanish (longer words), on a guided run, on a live-like run
+// whose model documents are as long as real Meta answers (long claims and
+// objections, four objections, five 39-digit contradicting ids per claim,
+// long plan steps, failed policy checks naming those ids, muse-spark-1.3 and
+// muse-wonder-1.0, sealed-snapshot hashes) and on the recorded run R06. At
+// each width:
+//   (a) the document is no wider than the viewport, and no open dialog
+//       scrolls sideways;
 //   (b) nothing visible inside a framed box (any element drawing a border or
-//       an outline: cards, panels, tags, callouts, code) reaches past that
-//       box by more than 1 px, text included (measured per line box), unless
-//       it sits in a region that scrolls on purpose (overflow auto/scroll:
-//       the tables, the JSON views);
-//   (c) on the Playback tab, the three role cards stand side by side only
-//       when each is at least 280 px wide, and otherwise stack one per row;
+//       an outline, and the static-glass cards, whose border is transparent
+//       and whose edge is a gradient: cards, panels, tags, callouts, code)
+//       reaches past that box by more than 1 px, text included (measured per
+//       line box, against the element holding it too), unless it sits in a
+//       region that scrolls on purpose (overflow auto/scroll: the tables, the
+//       JSON views; a scroll region's own box is still measured);
+//   (c) on the Playback tab, the three role cards stand side by side, each
+//       at least 280 px wide, at 1920 and 1440 px (the stage is then at least
+//       60rem wide), and stack one per row at every narrower width;
 //   (d) no text is cut by an overflow-hidden box, unless that box ellipsizes
-//       and carries the full text as its title or accessible name.
-// The stage tab of the live-like run is also captured at 1920, 1440, 1280, 1024
-// and 390 px into test-results/responsive-shots/ for a look by eye.
+//       and carries the full text as its title or accessible name; a tag's
+//       label never ellipsizes (it wraps, .hc-tag).
+// The mobile drawer is measured the same way at 320 and 360 px in all four
+// locales, with a fine and with a coarse (touch) pointer. The stage tab of
+// the live-like run is also captured at 1920, 1440, 1280, 1024 and 390 px,
+// and the drawer at 320 px in Spanish, into test-results/responsive-shots/
+// for a look by eye.
 
 import type { Page } from "@playwright/test";
 
@@ -30,15 +40,21 @@ import { runDetailSchema } from "../src/lib/api/schemas";
 import { docSlugs, localePath, runPath, showcaseRunPath } from "../src/lib/site";
 
 import { awaitingDecisionDetail, mockApi, recordedRun, RUN_ID, sealedSnapshotDetail, storedRun } from "./api-mock";
-import { expect, hydrated, type Locale, t, test, useTheme } from "./fixtures";
+import { expect, hydrated, type Locale, locales, t, test, useTheme } from "./fixtures";
 import { archiveEntry, manifestRun, metaRequestIds } from "./research";
 
 type Json = Record<string, unknown>;
 
-const WIDTHS = [1920, 1440, 1280, 1024, 768, 390, 360] as const;
+const WIDTHS = [1920, 1440, 1280, 1024, 768, 390, 360, 320] as const;
 
 /** A role card narrower than this is too narrow for a column of its own. */
 const MIN_CARD = 280;
+
+/**
+ * The stage's rows at each width: one (three columns) from 1440 px up, where
+ * the run's 80rem page leaves the stage at least 60rem; three below.
+ */
+const stageRows = (width: number) => (width >= 1440 ? 1 : 3);
 
 // ---- a live-like run with long documents ------------------------------------
 
@@ -168,6 +184,15 @@ function longLiveDetail(): Json {
     }
     if (typeof node.rationale === "string") {
       node.rationale = LONG.rationale;
+    }
+    // The policy trace (the Decision tab's technical explanation): failed
+    // checks that name every contradicting id.
+    if (Array.isArray(node.reasons) && typeof node.rule === "string") {
+      node.reasons = [
+        ...(node.reasons as Json[]),
+        { reason: "contradicted_evidence", evidence_ids: LONG_IDS },
+        { reason: "invalid_proofs", evidence_ids: LONG_IDS.slice(0, 3) },
+      ];
     }
   });
   const invocations: Json[] = [];
@@ -336,13 +361,28 @@ async function settle(page: Page) {
   );
 }
 
+/** Opens every <details>, so what it holds is measured too. */
+async function openDetails(page: Page) {
+  await page.evaluate(() => {
+    for (const details of Array.from(document.querySelectorAll("details"))) {
+      details.open = true;
+    }
+  });
+}
+
 /**
  * What breaks the layout at the current width: (a) a document wider than the
- * viewport, (b) anything past a framed box, (d) text cut by an
- * overflow-hidden box. One line per problem, with the elements named.
+ * viewport or a dialog scrolling sideways, (b) anything past a framed box,
+ * (d) text cut by an overflow-hidden box. One line per problem, with the
+ * elements named. `scope` measures only what is inside that element (an
+ * open dialog).
  */
-async function layoutProblems(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
+async function layoutProblems(page: Page, scope = "body"): Promise<string[]> {
+  return page.evaluate((scope) => {
+    const root = document.querySelector(scope);
+    if (root === null) {
+      return [`nothing matches ${scope}`];
+    }
     const problems = new Set<string>();
     const viewport = window.innerWidth;
     const name = (element: Element): string => {
@@ -365,6 +405,17 @@ async function layoutProblems(page: Page): Promise<string[]> {
         .map((element) => `${name(element)} (right ${Math.round(element.getBoundingClientRect().right)})`);
       problems.add(`(a) document ${scrollWidth}px wide in a ${viewport}px viewport: ${wide.join(", ")}`);
     }
+    // A dialog scrolls on purpose, but only down: content wider than the
+    // dialog (the drawer's theme control at 320 px) makes it scroll sideways.
+    for (const dialog of Array.from(document.querySelectorAll("dialog[open]"))) {
+      if (dialog.scrollWidth > dialog.clientWidth) {
+        const wide = Array.from(dialog.querySelectorAll("*"))
+          .filter((element) => element.getBoundingClientRect().right > dialog.getBoundingClientRect().right + 0.5)
+          .slice(0, 8)
+          .map((element) => name(element));
+        problems.add(`(a) ${name(dialog)} scrolls sideways (${dialog.scrollWidth}px of content in ${dialog.clientWidth}px): ${wide.join(", ")}`);
+      }
+    }
     const styles = new Map<Element, CSSStyleDeclaration>();
     const style = (element: Element) => {
       let found = styles.get(element);
@@ -374,7 +425,13 @@ async function layoutProblems(page: Page): Promise<string[]> {
       }
       return found;
     };
-    /** A framed box: draws a border or an outline on its inline sides. */
+    /**
+     * A framed box: draws a border or an outline on its inline sides, or is
+     * a card or a glass surface. Static glass (hc-mono-glass.css) draws its
+     * edge as a border-box gradient behind a transparent border, so its
+     * border colour says nothing; the floating decision card does the same
+     * from 672 px.
+     */
     const framed = (element: Element) => {
       const s = style(element);
       const border =
@@ -384,7 +441,13 @@ async function layoutProblems(page: Page): Promise<string[]> {
         !/rgba\(\d+, \d+, \d+, 0\)|transparent/.test(s.borderLeftColor);
       const outline =
         s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0 && !element.matches(":focus, :focus-visible");
-      return border || outline || element.matches(".hc-stage-card, .hc-panel, .astryx-badge, .hc-card");
+      return (
+        border ||
+        outline ||
+        element.matches(
+          ".hc-glass, .hc-stage-card, .hc-panel, .astryx-badge, .hc-card, .hc-run-card, .hc-scenario-card, .hc-flow-step, .hc-decision-card, .hc-preset-item",
+        )
+      );
     };
     /** Not drawn: hidden, visually hidden, or in a closed <details> (whose content still has boxes). */
     const hidden = (element: Element) =>
@@ -398,8 +461,13 @@ async function layoutProblems(page: Page): Promise<string[]> {
     const ellipsized = (element: Element) =>
       style(element).textOverflow === "ellipsis" || (style(element).webkitLineClamp || "none") !== "none";
 
-    /** Checks one box (an element's or a text line's) against its ancestors. */
-    const check = (box: DOMRect, start: Element, what: () => string, isText: boolean) => {
+    /**
+     * Checks one box against the elements around it, from `start` out: an
+     * element's box from its parent (so a scroll region or a clipping box is
+     * still measured against the card around it), a text line's from the
+     * element holding it (its own frame, or its own clipping box).
+     */
+    const check = (box: DOMRect, start: Element | null, what: () => string, isText: boolean) => {
       if (box.width === 0 && box.height === 0) {
         return;
       }
@@ -427,9 +495,11 @@ async function layoutProblems(page: Page): Promise<string[]> {
         const sides = Object.entries(past)
           .filter(([, by]) => by > 1)
           .map(([side, by]) => `${side} ${Math.round(by)}px`);
-        if (sides.length > 0 && ancestor !== start) {
+        if (sides.length > 0) {
           if ((clipsX || clipsY) && isText) {
-            if (!(ellipsized(ancestor) && fullText(ancestor))) {
+            // A tag's label wraps (.hc-tag): an ellipsis there is a defect,
+            // even though Astryx's Badge carries the label as its title.
+            if (!(ellipsized(ancestor) && fullText(ancestor) && ancestor.closest(".astryx-badge") === null)) {
               problems.add(`(d) text cut by ${name(ancestor)} (${sides.join(", ")}): ${what()}`);
             }
           } else if (framed(ancestor)) {
@@ -443,7 +513,7 @@ async function layoutProblems(page: Page): Promise<string[]> {
       }
     };
 
-    for (const element of Array.from(document.querySelectorAll("body *"))) {
+    for (const element of Array.from(root.querySelectorAll("*"))) {
       if (hidden(element) || element.closest("svg") !== null && element.tagName.toLowerCase() !== "svg") {
         continue;
       }
@@ -451,9 +521,9 @@ async function layoutProblems(page: Page): Promise<string[]> {
       if (s.display === "contents" || s.display === "none" || s.position === "fixed") {
         continue;
       }
-      check(element.getBoundingClientRect(), element, () => name(element), false);
+      check(element.getBoundingClientRect(), element.parentElement, () => name(element), false);
     }
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const range = document.createRange();
     for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
       const parent = node.parentElement;
@@ -467,11 +537,14 @@ async function layoutProblems(page: Page): Promise<string[]> {
       }
     }
     return Array.from(problems);
-  });
+  }, scope);
 }
 
-/** (c) The role cards: side by side only when each is wide enough, else one per row. */
-async function stageProblems(page: Page): Promise<string[]> {
+/**
+ * (c) The role cards at this width: side by side, each at least 280 px
+ * wide, from 1440 px up; one per row below.
+ */
+async function stageProblems(page: Page, width: number): Promise<string[]> {
   const cards = await page.locator(".hc-stage-card").evaluateAll((elements) =>
     elements.map((element) => {
       const box = element.getBoundingClientRect();
@@ -481,12 +554,15 @@ async function stageProblems(page: Page): Promise<string[]> {
   if (cards.length !== 3) {
     return [`(c) ${cards.length} role cards, not 3`];
   }
+  const stage = await page.locator(".hc-stage-tab").evaluate((element) => element.clientWidth);
   const rows = new Set(cards.map((card) => card.top)).size;
-  if (rows === 1) {
-    const narrow = cards.filter((card) => card.width < MIN_CARD);
-    return narrow.length === 0 ? [] : [`(c) cards side by side at ${cards.map((c) => Math.round(c.width)).join("/")} px`];
+  const widths = cards.map((c) => Math.round(c.width)).join("/");
+  const expected = stageRows(width);
+  if (rows !== expected) {
+    return [`(c) cards in ${rows} row(s), not ${expected}, on a ${stage}px stage (${widths} px)`];
   }
-  return rows === 3 ? [] : [`(c) cards in ${rows} rows (neither one row nor stacked)`];
+  const narrow = cards.filter((card) => card.width < MIN_CARD);
+  return rows === 1 && narrow.length > 0 ? [`(c) cards side by side at ${widths} px`] : [];
 }
 
 for (const locale of ["en", "es"] as const satisfies readonly Locale[]) {
@@ -500,15 +576,90 @@ for (const locale of ["en", "es"] as const satisfies readonly Locale[]) {
         await useTheme(page, "light");
         await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
         await screen.open(page, locale);
+        await openDetails(page);
         const found: string[] = [];
         for (const width of WIDTHS) {
           await page.setViewportSize({ width, height: 900 });
           await settle(page);
-          const problems = [...(await layoutProblems(page)), ...(screen.stage === true ? await stageProblems(page) : [])];
+          const problems = [
+            ...(await layoutProblems(page)),
+            ...(screen.stage === true ? await stageProblems(page, width) : []),
+          ];
           found.push(...problems.map((problem) => `${width}px ${problem}`));
         }
         expect(found, found.join("\n")).toEqual([]);
       });
+    }
+  });
+}
+
+// A run's page has its final width from the first paint: the title does not
+// move when the run arrives (it jumped about 224 px on a 1920 px screen while
+// the 80rem width followed the loaded run), and a page without a run id is
+// as wide.
+test("a run's page keeps its width while the run loads", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  const header = async () =>
+    page.locator(".hc-page-header").evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return { left: Math.round(box.left), width: Math.round(box.width) };
+    });
+  await mockApi(page, { detail: longLiveDetail(), frames: storedRun(longLiveDetail()).frames ?? [] });
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // Every read of the run (its detail and its stream) waits.
+  await page.route(
+    (url) => url.pathname.startsWith(`/api/v1/runs/${RUN_ID}`),
+    async (route) => {
+      await held;
+      await route.fallback();
+    },
+  );
+  await page.goto(runPath("en", RUN_ID));
+  await hydrated(page);
+  await expect(page.locator("[data-run='loading']")).toBeVisible();
+  const loading = await header();
+  release();
+  await expect(page.locator("[data-stream-state='ended']")).toBeVisible();
+  expect(await header()).toEqual(loading);
+  expect(loading.width).toBeGreaterThan(52 * 16);
+  await page.goto(localePath("en", "run"));
+  await hydrated(page);
+  await expect(page.locator("[data-run='no-id']")).toBeVisible();
+  expect(await header()).toEqual(loading);
+});
+
+// The mobile drawer (MobileNav): its links, the language list and the theme
+// control, at 320 and 360 px in every locale. Once with the desktop
+// project's fine pointer and once on a phone (@mobile: coarse pointer, where
+// the supporting text is 14 px instead of 12).
+for (const pointer of ["fine", "coarse"] as const) {
+  test.describe(`the mobile drawer (${pointer} pointer)`, () => {
+    for (const locale of locales) {
+      for (const width of [320, 360]) {
+        const tag = pointer === "coarse" ? " @mobile" : "";
+        test(`fits ${width} px (${locale})${tag}`, async ({ page }) => {
+          await page.setViewportSize({ width, height: 800 });
+          await useTheme(page, "light");
+          await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+          await page.goto(localePath(locale, "settings"));
+          await hydrated(page);
+          await page.getByRole("button", { name: t(locale, "Shell.menuButton"), exact: true }).click();
+          const drawer = page.getByRole("dialog", { name: t(locale, "Shell.menuTitle") });
+          await expect(drawer).toBeVisible();
+          await expect(drawer).toHaveCSS("opacity", "1");
+          await settle(page);
+          const problems = await layoutProblems(page, "dialog[open]");
+          if (width === 320 && locale === "es") {
+            await drawer.screenshot({
+              path: `test-results/responsive-shots/drawer-320-es${pointer === "coarse" ? "-touch" : ""}.png`,
+            });
+          }
+          expect(problems, problems.join("\n")).toEqual([]);
+        });
+      }
     }
   });
 }

@@ -42,8 +42,16 @@ for (const locale of locales) {
         expect(shown[a] === shown[b], `${documents[a]} and ${documents[b]}`).toBe(sameDay);
       }
     }
-    // About now shows the same day as Terms, and that day is 2026-11-01.
+    // About now shows the same day as Terms, and the About page shows
+    // 2026-11-01 itself (formatted here from a literal day, not from
+    // LEGAL_TEXT_CHANGED, so the rendered page is what is checked).
     expect(shown[3]).toBe(shown[0]);
-    expect(LEGAL_TEXT_CHANGED.about.toISOString().slice(0, 10)).toBe("2026-11-01");
+    const november1 = new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(Date.UTC(2026, 10, 1)));
+    expect(shown[3]).toBe(t(locale, "Legal.updated").replace("{date, date, long}", november1));
   });
 }

@@ -210,7 +210,7 @@
     "lead": "Lancez une délibération dans l’un des deux modes.",
     "planned": {
       "guided": "proposera un exemple guidé qui démarre immédiatement, avec des rôles scénarisés et des éléments probants simulés, étiqueté SIMULÉ et sans appel à un modèle ;",
-      "live": "proposera les tâches prédéfinies et sélectionnées du mode Meta en direct, qui appellent muse-spark-1.3 de Meta pour le Proposant (propositions et révisions) et muse-wonder-1.0 pour le Critique et l’Évaluateur des éléments probants, avec des éléments probants issus d’un instantané scellé de Hyphae (tâches prédéfinies uniquement, sans texte libre ; les exécutions de la dernière batterie enregistrée ont pris environ 4 à 7 minutes) ;",
+      "live": "proposera les tâches prédéfinies et sélectionnées du mode Meta en direct, qui appellent muse-spark-1.3 de Meta pour le Proposant (propositions et révisions) et muse-wonder-1.0 pour le Critique et l’Évaluateur des éléments probants, avec des éléments probants issus d’un instantané scellé de Hyphae (tâches prédéfinies uniquement, sans texte libre ; les exécutions de la dernière batterie enregistrée, avec tous les rôles sur muse-wonder-1.0, ont pris environ 4 à 7 minutes) ;",
       "fallback": "proposera à la place une exécution enregistrée lorsque le mode en direct est occupé ou que son budget quotidien est épuisé ;",
       "return": "vous permettra de partir et de revenir à votre exécution depuis Mes exécutions."
     },
@@ -229,7 +229,7 @@
     },
     "live": {
       "heading": "Tâches prédéfinies en direct",
-      "intro": "Des tâches sélectionnées, délibérées par le modèle de Meta avec la clé du propriétaire. Tâches prédéfinies uniquement : aucun texte libre n’atteint un modèle. Chaque tâche indique d’où viennent ses éléments probants sur ce serveur.",
+      "intro": "Des tâches sélectionnées, délibérées par les modèles de Meta avec la clé du propriétaire. Tâches prédéfinies uniquement : aucun texte libre n’atteint un modèle. Chaque tâche indique d’où viennent ses éléments probants sur ce serveur.",
       "disabled": "Le mode en direct n’est pas activé sur ce serveur.",
       "disabledHint": "Les exécutions enregistrées de la vitrine de recherche montrent à quoi ressemble une exécution en direct.",
       "showcaseLink": "Ouvrir la vitrine de recherche",
@@ -244,7 +244,7 @@
         "noteFailed": "Une exécution qui échoue dépense quand même ce qu’ont coûté ses appels avant l’arrêt ; le reste de sa réservation est rendu."
       },
       "attest": "Je confirme avoir 18 ans ou plus et ne pas utiliser le mode en direct depuis un territoire restreint.",
-      "attestDescription": "Le mode en direct appelle le modèle de Meta avec la clé du propriétaire ; le serveur ne lance une exécution en direct qu’avec cette confirmation.",
+      "attestDescription": "Le mode en direct appelle les modèles de Meta avec la clé du propriétaire ; le serveur ne lance une exécution en direct qu’avec cette confirmation.",
       "attestTerms": "Les territoires restreints et la règle d’âge figurent dans les <terms>Conditions d’utilisation</terms>.",
       "inviteSummary": "J’ai un code d’invitation",
       "inviteLabel": "Code d’invitation",
@@ -1278,7 +1278,7 @@
       },
       "live": {
         "title": "Tâches prédéfinies du mode Meta en direct",
-        "body": "Les exécutions en direct appelleront muse-spark-1.3 de Meta pour le Proposant (propositions et révisions) et muse-wonder-1.0 pour le Critique et l’Évaluateur des éléments probants, sur des tâches prédéfinies et sélectionnées, avec des éléments probants issus d’un instantané scellé de Hyphae. Les exécutions de la dernière batterie enregistrée ont pris environ 4 à 7 minutes. Lorsque le mode en direct sera occupé ou que son budget quotidien sera épuisé, une exécution enregistrée sera proposée à la place."
+        "body": "Les exécutions en direct appelleront muse-spark-1.3 de Meta pour le Proposant (propositions et révisions) et muse-wonder-1.0 pour le Critique et l’Évaluateur des éléments probants, sur des tâches prédéfinies et sélectionnées, avec des éléments probants issus d’un instantané scellé de Hyphae. Les exécutions de la dernière batterie enregistrée, avec tous les rôles sur muse-wonder-1.0, ont pris environ 4 à 7 minutes. Lorsque le mode en direct sera occupé ou que son budget quotidien sera épuisé, une exécution enregistrée sera proposée à la place."
       },
       "runs": {
         "title": "Revenez par Mes exécutions",

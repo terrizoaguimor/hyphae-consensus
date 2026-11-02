@@ -47,9 +47,10 @@ three commands: [Quick start](#quick-start) (no credential, no Meta call).
 **What it is.** Three Meta-model roles on the Meta Model API (the Proposer, for proposals and
 revisions, on `muse-spark-1.3`; the Critic and the Evidence Evaluator on `muse-wonder-1.0`;
 this split was validated in live runs on 2026-11-01
-([docs/evaluation.md](docs/evaluation.md#[PROPOSER_VALIDATION_SECTION])); the archived runs
-up to and including the V01–V03 set ran every role on `muse-wonder-1.0`, except V01–V03's
-Critic, on `muse-spark-1.3`) deliberate over a coding agent's proposed change against project
+([docs/evaluation.md](docs/evaluation.md#[PROPOSER_VALIDATION_SECTION])), runs that
+themselves ran the Proposer on `muse-spark-1.3`; the archived consensus runs before them ran
+every role on `muse-wonder-1.0`, except the V01–V03 set, whose Critic ran on `muse-spark-1.3`;
+the single-agent baselines B01–B04 ran on `muse-wonder-1.0`) deliberate over a coding agent's proposed change against project
 records from Hyphae Agent Memory whose integrity proofs the runtime checks. A fixed policy,
 not a vote, turns their judgments into a recommendation, and only a human can authorize.
 In the 6-run final battery of 2026-10-27 (F01–F06, schema 1.2) every first proposal had 1 to 3

@@ -1908,8 +1908,17 @@ pub const API_ERROR_MESSAGE_MAX_CHARS: usize = 300;
 /// A run of at least this many characters of an API error message that
 /// also appears in the request's messages (the system message and the
 /// prompt: the task and the retrieved records), and not in its schema, is
-/// elided: an error message never echoes request content into a reason.
+/// elided. Both sides are compared with whitespace and control characters
+/// flattened the same way, and the messages also in their JSON-escaped
+/// form, so an echo that crosses a line break, collapses indentation or
+/// was quoted as JSON is elided too. Shorter runs of request content can
+/// remain.
 const ECHO_MIN_CHARS: usize = 16;
+/// The API message is cut to this many characters (after flattening)
+/// before echoes are elided, so the elision's work is bounded whatever the
+/// body's size (up to `MAX_ERROR_BODY_BYTES`): only the first
+/// [`API_ERROR_MESSAGE_MAX_CHARS`] characters of what is left are kept.
+const ECHO_SCAN_MAX_CHARS: usize = 4 * API_ERROR_MESSAGE_MAX_CHARS;
 /// Any run of this many characters of the API key in an API error
 /// message withholds the message whole.
 const KEY_WINDOW_CHARS: usize = 8;
@@ -1920,7 +1929,8 @@ const KEY_WINDOW_CHARS: usize = 8;
 /// `error.param` and `error.code` when they are plain identifiers), one
 /// line, bounded to [`API_ERROR_MESSAGE_MAX_CHARS`], every run of
 /// [`ECHO_MIN_CHARS`] or more characters that quotes the request's
-/// messages but not its schema elided as `[...]`, the key removed, and
+/// messages but not its schema elided as `[...]` (whitespace-insensitive,
+/// also in JSON-escaped form; shorter runs can remain), the key removed, and
 /// nothing at all when any fragment of the key remains. `None` when the
 /// body carries no such message. Never used for 401, 402, 403 or 429:
 /// their bodies are about the key and the account, and stay out of the
@@ -1938,8 +1948,18 @@ pub fn api_error_message(body: &[u8], request: &[u8], api_key: &str) -> Option<S
             ID_MAX_CHARS,
         )
     };
-    // The request's messages, and its schema (adapter text: never
-    // elided).
+    // Control characters to spaces, whitespace runs to one space: the
+    // message and the request text are compared in this form.
+    let flatten = |text: &str| -> String {
+        text.chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    // The request's messages (as sent, and JSON-escaped), and its schema
+    // (adapter text: never elided).
     let request: serde_json::Value = serde_json::from_slice(request).unwrap_or_default();
     let messages: Vec<String> = request
         .get("messages")
@@ -1947,23 +1967,28 @@ pub fn api_error_message(body: &[u8], request: &[u8], api_key: &str) -> Option<S
         .map(|m| {
             m.iter()
                 .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
-                .map(str::to_string)
+                .flat_map(|c| {
+                    let escaped = serde_json::to_string(c).unwrap_or_default();
+                    let escaped = escaped
+                        .strip_prefix('"')
+                        .and_then(|e| e.strip_suffix('"'))
+                        .unwrap_or_default()
+                        .to_string();
+                    [flatten(c), flatten(&escaped)]
+                })
                 .collect()
         })
         .unwrap_or_default();
-    let schema = request
-        .get("response_format")
-        .map(|f| f.to_string())
-        .unwrap_or_default();
-    let flat: String = message
-        .replace(api_key, "<redacted>")
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let chars: Vec<char> = flat.chars().collect();
+    let schema = flatten(
+        &request
+            .get("response_format")
+            .map(|f| f.to_string())
+            .unwrap_or_default(),
+    );
+    let flat = flatten(&message.replace(api_key, "<redacted>"));
+    let mut chars: Vec<char> = flat.chars().collect();
+    let cut = chars.len() > ECHO_SCAN_MAX_CHARS;
+    chars.truncate(ECHO_SCAN_MAX_CHARS);
     let quoted = |span: &[char]| {
         let span: String = span.iter().collect();
         messages.iter().any(|m| m.contains(&span)) && !schema.contains(&span)
@@ -1995,6 +2020,9 @@ pub fn api_error_message(body: &[u8], request: &[u8], api_key: &str) -> Option<S
     let mut said = truncate(out.trim(), API_ERROR_MESSAGE_MAX_CHARS);
     if said.is_empty() {
         return None;
+    }
+    if cut && !said.ends_with("…[truncated]") {
+        said.push_str("…[truncated]");
     }
     let mut extra = Vec::new();
     if let Some(param) = field("param") {
@@ -4525,6 +4553,73 @@ mod tests {
         ] {
             assert_eq!(said(body), None, "{body}");
         }
+    }
+
+    #[test]
+    fn an_api_error_message_elides_echoes_across_line_breaks_indentation_and_json_escapes() {
+        const KEY: &str = "LLM_4242_abcdefghijklmnop";
+        let content = "Evidence:\nsecret line one here ok\nshort private\n    indented  code   with   spaces here\nsay \"quoted thing\" \\ back";
+        let request = json!({
+            "messages": [{"role": "user", "content": content}],
+            "response_format": {"type": "json_schema"}
+        })
+        .to_string();
+        let said = |body: &[u8]| api_error_message(body, request.as_bytes(), KEY).unwrap();
+        // Verbatim (line breaks and indentation flattened by the message).
+        let verbatim = json!({"error": {"message": format!("near: {content}")}}).to_string();
+        let echoed = said(verbatim.as_bytes());
+        for leak in [
+            "secret line",
+            "short private",
+            "indented",
+            "spaces here",
+            "quoted thing",
+        ] {
+            assert!(!echoed.contains(leak), "{leak}: {echoed}");
+        }
+        assert!(echoed.starts_with("near: [...]"), "{echoed}");
+        // Quoted as JSON inside the message (escaped quotes, backslashes,
+        // literal \n).
+        let escaped = serde_json::to_string(content).unwrap();
+        let quoted = json!({"error": {"message": format!("bad value {escaped}")}}).to_string();
+        let echoed = said(quoted.as_bytes());
+        for leak in ["secret line", "short private", "indented", "quoted thing"] {
+            assert!(!echoed.contains(leak), "{leak}: {echoed}");
+        }
+    }
+
+    #[test]
+    fn an_api_error_message_from_a_large_echoing_body_is_quick_and_bounded() {
+        const KEY: &str = "LLM_4242_abcdefghijklmnop";
+        // A prompt of about 60 KB, echoed whole in a body near the 64 KiB
+        // cap: the elision runs over a bounded prefix only.
+        let content: String = (0..2600)
+            .map(|n| format!("record {n:05} body text\n"))
+            .collect();
+        let request = json!({
+            "messages": [{"role": "user", "content": content}],
+            "response_format": {"type": "json_schema"}
+        })
+        .to_string();
+        let body = json!({"error": {"message": format!("near: {content}")}}).to_string();
+        assert!(body.len() > 50_000 && body.len() <= MAX_ERROR_BODY_BYTES);
+        let started = Instant::now();
+        let echoed = api_error_message(body.as_bytes(), request.as_bytes(), KEY).unwrap();
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        assert!(!echoed.contains("record"), "{echoed}");
+        assert!(echoed.starts_with("near: [...]"), "{echoed}");
+        assert!(echoed.ends_with("…[truncated]"), "{echoed}");
+        assert!(
+            echoed.chars().count() < API_ERROR_MESSAGE_MAX_CHARS + 20,
+            "{echoed}"
+        );
+        // Without an echo, as quick and as bounded.
+        let plain = json!({"error": {"message": "y ".repeat(30_000)}}).to_string();
+        let started = Instant::now();
+        let said = api_error_message(plain.as_bytes(), request.as_bytes(), KEY).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(said.chars().count() < API_ERROR_MESSAGE_MAX_CHARS + 20);
     }
 
     #[test]

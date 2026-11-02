@@ -1208,7 +1208,8 @@ parsing of 2026-11-01 (`docs/meta-api.md`) and the answer classification of §6.
    planned pairs above), with the live configuration of §6.3 and the same
    `CONSENSUS_MODEL_TIMEOUT_SECS` as that battery (120 s, or record the deviation). Each run
    makes exactly one Meta call; the driver stops at the first run that could not be
-   recorded. The baseline is not metered by the live ledger: the spend bound is four calls
+   recorded, and, after writing its record, at the first run that failed with
+   `meta_bad_request` or `adapter_schema_error` (a deterministic rejection). The baseline is not metered by the live ledger: the spend bound is four calls
    (plus any 429/503 retries the adapter makes, recorded in `attempts`) under the
    `CONSENSUS_MAX_RUN_TOKENS` cap. Because the ledger never sees it, its spend sits outside
    the deployment's daily and total caps even when the same owner key is used: the driver
@@ -1423,9 +1424,14 @@ string `enum` of the claim positions `"1"`..`"12"` and null (`baseline_schema` i
 `minimum`; the role schemas and their prompt-freeze digests are unchanged, and the baseline
 prompt and its digest too (the archived runs keep their recorded `schema_sha256`; a re-run
 records the new one). A refused request (`meta_bad_request`) now carries what the API said
-about it in the failure reason (bounded, one line, request content and the key never
-echoed), and `scripts/baseline_battery.py` stops after the first `meta_bad_request` or
-`adapter_schema_error` instead of spending the remaining pairs.
+about it in the failure reason (one line, at most 300 characters; every run of 16 or more
+characters that quotes the request's messages is elided, compared whitespace-insensitively
+and also in JSON-escaped form, so shorter runs can remain; the key is removed and any
+fragment of it withholds the message). Only refused requests carry it: the bodies of 401,
+402, 403 and 429 concern the key and the account and stay out of the reason, a narrower
+reading of "the API's message for 4xx responses". `scripts/baseline_battery.py` now stops
+after the first `meta_bad_request` or `adapter_schema_error` instead of spending the
+remaining pairs.
 
 **Spend.** The four rejected requests reported no usage, so no token was recorded and the
 recorded cost is $0.00; this has not been checked against Meta's billing.

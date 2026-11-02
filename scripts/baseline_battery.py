@@ -10,8 +10,9 @@ the archived consensus run of the same task: every claim statement of that
 run, so the baseline recalls the records that run's final round held in
 context, given the same store and anchor.
 
-The planned battery (docs/evaluation.md, "Single-agent baseline", not run
-yet) pairs each task with its 2026-10-30 consensus run:
+The planned battery (docs/evaluation.md, "Single-agent baseline"; first run
+2026-11-01, all four refused with HTTP 400, docs/evaluation.md 7.7) pairs
+each task with its 2026-10-30 consensus run:
 
   B01=R01-reference@M01  B02=R05-add-jitter@M02
   B03=R07-exp-backoff@M03  B04=R04-remove-cap@M04

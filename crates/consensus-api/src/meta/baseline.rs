@@ -189,13 +189,15 @@ impl From<DraftBaselineVerdict> for AgentVerdict {
 /// [`DraftBaselineAssessment`] with each objection's `claim_number` one of
 /// the claim positions `"1"` to `"12"` ([`MAX_CLAIMS_PER_PROPOSAL`]) or
 /// null, written in the Critic's form (`anyOf` of a string `enum` and
-/// null, [`critique_schema`]), the only form of an optional reference the
-/// live API has accepted. The generated form of an optional integer,
+/// null, [`critique_schema`]), a form of an optional reference the live
+/// API has accepted (the Critic's, prompt-freeze-4). The generated form of
+/// an optional integer,
 /// `{"type": ["integer", "null"], "format": "uint32", "minimum": 0.0}`,
 /// appears in no role schema, and all four baseline calls of 2026-11-01
 /// that sent it were refused with HTTP 400 (docs/evaluation.md 7.7), so
-/// the baseline schema holds no `integer`, `format` or `minimum`. The
-/// role schemas are untouched.
+/// the baseline schema holds no `integer`, `format` or `minimum`. That
+/// this form caused the 400 is unconfirmed until an authorized re-run.
+/// The role schemas are untouched.
 pub fn baseline_schema() -> Result<OrderedJson, String> {
     let mut schema = draft_schema::<DraftBaselineAssessment>()?;
     let positions: Vec<String> = (1..=MAX_CLAIMS_PER_PROPOSAL)

@@ -451,6 +451,14 @@
     margin-inline: auto;
   }
 
+  /* A run's page is wider (80rem): its Playback tab sets the three role
+     cards side by side once the stage reaches 60rem (about 340px a card,
+     from a 1440px screen up); at 52rem they could only stack. Prose inside
+     keeps its own measure (.hc-lead, .hc-list). */
+  .hc-main:has(.hc-run) {
+    --hc-content-max: 80rem;
+  }
+
   .hc-footer {
     grid-area: footer;
     display: flex;

@@ -10,8 +10,9 @@ the archived consensus run of the same task: every claim statement of that
 run, so the baseline recalls the records that run's final round held in
 context, given the same store and anchor.
 
-The planned battery (docs/evaluation.md, "Single-agent baseline", not run
-yet) pairs each task with its 2026-10-30 consensus run:
+The planned battery (docs/evaluation.md, "Single-agent baseline"; first run
+2026-11-01, all four refused with HTTP 400, docs/evaluation.md 7.7) pairs
+each task with its 2026-10-30 consensus run:
 
   B01=R01-reference@M01  B02=R05-add-jitter@M02
   B03=R07-exp-backoff@M03  B04=R04-remove-cap@M04
@@ -33,7 +34,13 @@ and stops at the first task whose run could not be recorded: a non-zero exit
 gives a record with the binary's error, a run past RUN_TIMEOUT_SECONDS a
 record with exit_code null and error "timeout" (the binary may have left a
 partial log in OUT_DIR/runs/). Neither is archived (the manifest script
-refuses both, and a log without a record); they are reported instead.
+refuses both, and a log without a record); they are reported instead. It
+also stops, after writing its record, at the first run that failed with
+meta_bad_request or adapter_schema_error: a deterministic rejection of the
+request (the API refused it, or the adapter could not build it) that every
+later pair would meet too, so the remaining pairs are not spent on it. The
+run's failure reason (which for a refused request carries what the API said
+about it) is printed.
 
 Parity: `consensus-api baseline run --queries-from` refuses, before its call,
 a Meta configuration whose model (and, when recorded, max_completion_tokens
@@ -50,6 +57,9 @@ caps, so the script prints each run's input and output tokens and the
 running totals, to reconcile by hand against the owner's approval.
 
 Usage: python -I scripts/baseline_battery.py [--smoke] CONSENSUS_API OUT_DIR [TASK ...]
+       python -I scripts/baseline_battery.py selftest
+  selftest       drives the script against a double of the binary (no
+                 network, no research/ read) and checks where it stops
   --smoke        memory=fake: the scripted reference records with SIMULATED
                  proofs, to check the driver against a fake model endpoint;
                  never for the battery (its records say memory simulated)
@@ -77,6 +87,12 @@ PLANNED = [
     "B03=R07-exp-backoff@M03",
     "B04=R04-remove-cap@M04",
 ]
+
+# Failure codes after which the battery stops: the API refused the request
+# itself (meta_bad_request: every pair sends the same request shape) or the
+# adapter could not build it (adapter_schema_error). The 2026-11-01 battery
+# spent all four pairs on the same HTTP 400.
+DETERMINISTIC_REJECTIONS = frozenset({"meta_bad_request", "adapter_schema_error"})
 
 # One run is one model call plus recall and verification; the binary's own
 # Meta call budget is shorter.
@@ -161,8 +177,19 @@ def parity(consensus_data, run_id, summary):
     }
 
 
+def deterministic_rejection(summary):
+    """The failure code of a run the API or the adapter refused in a way
+    that would refuse every later pair the same way, or None."""
+    failure = (summary or {}).get("failure") or {}
+    code = failure.get("code")
+    return code if code in DETERMINISTIC_REJECTIONS else None
+
+
 def main():
     args = sys.argv[1:]
+    if args == ["selftest"]:
+        selftest()
+        return
     memory = "hyphae"
     if args[:1] == ["--smoke"]:
         memory, args = "fake", args[1:]
@@ -171,6 +198,13 @@ def main():
     binary, out_dir = args[0], args[1]
     tasks = load_tasks()
     planned = [parse_task(arg, tasks) for arg in (args[2:] or PLANNED)]
+    run_battery([binary], out_dir, tasks, planned, memory)
+
+
+def run_battery(binary, out_dir, tasks, planned, memory):
+    """Runs `planned` in order with the command `binary` (a list: the
+    consensus-api binary, or the selftest's double); exits on the first
+    run that is not to be followed by the next (see the module doc)."""
     names = [name for name, _, _ in planned]
     if len(names) != len(set(names)):
         sys.exit("task names repeat")
@@ -183,7 +217,7 @@ def main():
             sys.exit(f"{record_path} exists: one record per name, never overwritten")
         project, title, description = tasks[key]
         argv = [
-            binary, "baseline", "run",
+            *binary, "baseline", "run",
             "--project", project,
             "--title", title,
             "--description", description,
@@ -250,8 +284,97 @@ def main():
         )
         if exit_code != 0:
             sys.exit(f"{name}: the run could not be recorded ({record['error'][:200]}); stopping")
+        rejected = deterministic_rejection(record["summary"])
+        if rejected:
+            # The same request shape goes to every pair: the next run would
+            # be refused the same way (the 2026-11-01 battery sent all four).
+            reason = str((record["summary"]["failure"] or {}).get("reason"))[:500]
+            sys.exit(
+                f"{name}: the run failed with {rejected}, a deterministic rejection "
+                f"({reason}); stopping before the remaining {len(planned) - names.index(name) - 1} task(s)"
+            )
         if label and not record["parity"]["equal"]:
             sys.exit(f"{name}: model settings differ from {label}'s: {record['parity']}; stopping")
+
+
+# A double of `consensus-api baseline run` for the selftest: it counts its
+# calls in the file BASELINE_SELFTEST_COUNTER names and prints the summary
+# the binary would, failed with BASELINE_SELFTEST_FAILURE (empty: no
+# failure).
+FAKE_BINARY = r'''
+import json, os, sys
+counter = os.environ["BASELINE_SELFTEST_COUNTER"]
+with open(counter, "a", encoding="utf-8") as fh:
+    fh.write(" ".join(sys.argv[1:4]) + "\n")
+with open(counter, encoding="utf-8") as fh:
+    n = len(fh.read().splitlines())
+code = os.environ.get("BASELINE_SELFTEST_FAILURE") or None
+print(json.dumps({
+    "run_id": f"baseline-{n}",
+    "log": f"/elsewhere/runs/baseline-{n}.jsonl",
+    "evidence_mode": "simulated",
+    "model_invocations": [],
+    "outcome": "failed" if code else "supported",
+    "failure": {"stage": "assess", "code": code, "reason": f"{code}: the double's reason"} if code else None,
+    "policy_reading": None,
+}))
+'''
+
+
+def selftest():
+    """Runs the driver against a double of the binary (no network, no
+    research/ read: tasks without a consensus pairing) and checks that it
+    stops after the first deterministic rejection, and only then."""
+    import contextlib
+    import io
+    import tempfile
+
+    tasks = load_tasks()
+    keys = sorted(tasks)[:3]
+    planned = [(f"T{n + 1}", key, None) for n, key in enumerate(keys)]
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = os.path.join(tmp, "fake_binary.py")
+        with open(fake, "w", encoding="utf-8") as fh:
+            fh.write(FAKE_BINARY)
+        binary = [sys.executable, "-I", fake]
+
+        def drive(case, failure):
+            out_dir = os.path.join(tmp, case)
+            counter = os.path.join(tmp, f"{case}.calls")
+            os.environ["BASELINE_SELFTEST_COUNTER"] = counter
+            os.environ["BASELINE_SELFTEST_FAILURE"] = failure
+            stopped = None
+            with contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    run_battery(binary, out_dir, tasks, planned, "fake")
+                except SystemExit as e:
+                    stopped = str(e.code)
+            with open(counter, encoding="utf-8") as fh:
+                calls = len(fh.read().splitlines())
+            records = sorted(f for f in os.listdir(out_dir) if f.endswith(".json"))
+            return calls, records, stopped
+
+        checks = 0
+        for code in sorted(DETERMINISTIC_REJECTIONS):
+            calls, records, stopped = drive(code, code)
+            assert calls == 1, f"{code}: {calls} calls"
+            assert records == ["T1.json"], f"{code}: {records}"
+            assert stopped and code in stopped and "remaining 2 task(s)" in stopped, stopped
+            checks += 1
+        # A failure that is not a deterministic rejection, and success: every task runs.
+        for case, failure in [("timeout", "meta_timeout"), ("ok", "")]:
+            calls, records, stopped = drive(case, failure)
+            assert calls == 3, f"{case}: {calls} calls"
+            assert records == ["T1.json", "T2.json", "T3.json"], f"{case}: {records}"
+            assert stopped is None, f"{case}: stopped: {stopped}"
+            checks += 1
+        assert deterministic_rejection(None) is None
+        assert deterministic_rejection({"failure": None}) is None
+        assert deterministic_rejection({"failure": {"code": "meta_bad_request"}}) == "meta_bad_request"
+        checks += 1
+        for name in ("BASELINE_SELFTEST_COUNTER", "BASELINE_SELFTEST_FAILURE"):
+            os.environ.pop(name, None)
+    print(f"selftest ok: {checks} checks")
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ fn draft(cited: &str) -> String {
         "uncertainties": [],
         "objections": [{
             "kind": "missing_test",
-            "claim_number": 1,
+            "claim_number": "1",
             "description": "No load test shows the effect of the change on timeouts",
             "evidence_refs": ["ev-unknown"],
             "status": "open"
@@ -124,7 +124,15 @@ fn the_one_call_is_strict_structured_output_and_records_its_identity() {
         (Some(1200), Some(400))
     );
     assert_eq!(inv.schema_name.as_deref(), Some(BASELINE_SCHEMA_NAME));
-    let sent = serde_json::to_string(&body["response_format"]["json_schema"]["schema"]).unwrap();
+    // The schema's bytes exactly as sent (a parsed Value would re-sort the
+    // keys: claim_number's description comes before its anyOf, as the
+    // Critic's does).
+    let request = server.last_request();
+    let sent = raw_schema(&request, BASELINE_SCHEMA_NAME);
+    assert_eq!(
+        serde_json::from_str::<Value>(sent).unwrap(),
+        body["response_format"]["json_schema"]["schema"]
+    );
     assert_eq!(
         inv.schema_sha256,
         Some(hex(&Sha256::digest(sent.as_bytes())))
@@ -183,6 +191,135 @@ fn a_draft_citing_an_unknown_record_is_malformed_and_keeps_the_billed_call() {
         }
         other => panic!("expected malformed output, got {other:?}"),
     }
+}
+
+/// Every member key and every `type` of a schema document, recursively.
+fn keys_and_types(v: &Value, keys: &mut Vec<String>, types: &mut Vec<String>) {
+    match v {
+        Value::Object(map) => {
+            for (key, value) in map {
+                keys.push(key.clone());
+                if key == "type" {
+                    match value {
+                        Value::String(t) => types.push(t.clone()),
+                        Value::Array(ts) => {
+                            types.extend(ts.iter().filter_map(|t| t.as_str()).map(str::to_string))
+                        }
+                        _ => {}
+                    }
+                }
+                keys_and_types(value, keys, types);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|i| keys_and_types(i, keys, types)),
+        _ => {}
+    }
+}
+
+#[test]
+fn the_request_schema_has_no_integer_format_or_minimum_and_claim_numbers_are_strings() {
+    // The draft names claim "1"; an unknown position names no claim.
+    let mut unknown: Value = serde_json::from_str(&draft("ev-fact")).unwrap();
+    unknown["objections"][0]["claim_number"] = json!("7");
+    for (content, names_the_claim) in [(draft("ev-fact"), true), (unknown.to_string(), false)] {
+        let server = serve(vec![Reply::ok(envelope(&content))]);
+        let mut client = MetaModelClient::new(config(&server.base_url)).unwrap();
+        let (doc, _) = client.assess(&task(), &context()).unwrap();
+        assert_eq!(
+            doc.objections[0].claim_id.as_ref() == Some(&doc.claims[0].id),
+            names_the_claim
+        );
+        assert_eq!(doc.objections[0].claim_id.is_some(), names_the_claim);
+        let body = server.last_body();
+        let schema = &body["response_format"]["json_schema"]["schema"];
+        let (mut keys, mut types) = (vec![], vec![]);
+        keys_and_types(schema, &mut keys, &mut types);
+        for banned in ["format", "minimum", "maximum"] {
+            assert!(!keys.iter().any(|k| k == banned), "{banned} sent: {schema}");
+        }
+        assert!(
+            !types.iter().any(|t| t == "integer"),
+            "integer sent: {schema}"
+        );
+        let claim_number =
+            &schema["definitions"]["DraftBaselineObjection"]["properties"]["claim_number"];
+        assert_eq!(claim_number["anyOf"][1], json!({"type": "null"}));
+        assert_eq!(claim_number["anyOf"][0]["type"], "string");
+        assert_eq!(claim_number["anyOf"][0]["enum"][0], "1");
+        assert_eq!(claim_number["anyOf"][0]["enum"][11], "12");
+    }
+}
+
+#[test]
+fn a_refused_request_records_what_the_api_said_bounded_without_the_request_or_the_key() {
+    let said = format!(
+        "Invalid schema for response_format 'DraftBaselineAssessment': In context=('properties', 'claim_number'), 'format' is not permitted. Near: {DESCRIPTION} {TEST_KEY} {}",
+        "y".repeat(2000)
+    );
+    let body = json!({"error": {
+        "message": said,
+        "type": "invalid_request_error",
+        "param": "response_format",
+        "code": "invalid_json_schema"
+    }})
+    .to_string();
+    let server = serve(vec![Reply::json(400, body.clone())]);
+    let mut client = MetaModelClient::new(config(&server.base_url)).unwrap();
+    let err = client.assess(&task(), &context()).unwrap_err();
+    assert_eq!(server.hits(), 1, "a 400 is never retried");
+    assert_eq!(err.code(), Some("meta_bad_request"));
+    let text = err.to_string();
+    assert!(
+        text.starts_with("meta_bad_request: the Meta API rejected the request (HTTP 400); the API said: Invalid schema for response_format 'DraftBaselineAssessment': In context=('properties', 'claim_number'), 'format' is not permitted. Near: [...]"),
+        "{text}"
+    );
+    assert!(text.contains("…[truncated]"), "{text}");
+    assert!(
+        text.chars().count() < 600,
+        "bounded: {} chars",
+        text.chars().count()
+    );
+    // The task text is request content: elided. The key: never.
+    assert!(!text.contains("intermittently"), "{text}");
+    assert!(
+        !text.contains(TEST_KEY) && !text.contains("test-key"),
+        "{text}"
+    );
+
+    // Through the subcommand: the run log's failure reason says it too.
+    let server = serve(vec![Reply::json(400, body)]);
+    let out_dir = temp_dir("baseline-cli-400");
+    let env = env_for(&server.base_url, &[]);
+    let (code, stdout, stderr) = cli(
+        &[
+            "run",
+            "--title",
+            TITLE,
+            "--description",
+            DESCRIPTION,
+            "--out-dir",
+            out_dir.to_str().unwrap(),
+            "--memory",
+            "fake",
+        ],
+        &env,
+    );
+    assert_eq!(code, 0, "{stderr}");
+    let summary: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(summary["failure"]["code"], "meta_bad_request");
+    let reason = summary["failure"]["reason"].as_str().unwrap();
+    assert!(reason.contains("'format' is not permitted"), "{reason}");
+    assert!(reason.contains("(HTTP 400)"), "{reason}");
+    let persisted = std::fs::read_to_string(only_log(&out_dir)).unwrap();
+    assert!(persisted.contains("'format' is not permitted"));
+    for leak in [TEST_KEY, "test-key", "intermittently"] {
+        let in_reasons = persisted
+            .lines()
+            .filter(|l| l.contains("run_failed") || l.contains("RunFailed"))
+            .any(|l| l.contains(leak));
+        assert!(!in_reasons, "{leak} in a failure record");
+    }
+    assert!(!persisted.contains(TEST_KEY), "the key is never persisted");
 }
 
 fn env_for(base_url: &str, extra: &[(&'static str, &str)]) -> impl Fn(&str) -> Option<String> {

@@ -214,7 +214,9 @@ pub mod codes {
     /// HTTP 403: the key may not make this call.
     pub const FORBIDDEN: &str = "meta_forbidden";
     /// HTTP 400, 404, 413 and any other 4xx but 401-403 and 429: the
-    /// request itself was refused (never retried).
+    /// request itself was refused (never retried). Its fixed message is
+    /// followed by what the API said about the request, made safe and
+    /// bounded ([`super::api_error_message`]), when the body carries it.
     pub const BAD_REQUEST: &str = "meta_bad_request";
     /// HTTP 429: the team's rate limit.
     pub const RATE_LIMITED: &str = "meta_rate_limited";
@@ -1901,6 +1903,143 @@ fn http_failure(status: u16) -> (&'static str, String) {
     }
 }
 
+/// Longest API error message a refused request's reason carries.
+pub const API_ERROR_MESSAGE_MAX_CHARS: usize = 300;
+/// A run of at least this many characters of an API error message that
+/// also appears in the request's messages (the system message and the
+/// prompt: the task and the retrieved records), and not in its schema, is
+/// elided. Both sides are compared with whitespace and control characters
+/// flattened the same way, and the messages also in their JSON-escaped
+/// form, so an echo that crosses a line break, collapses indentation or
+/// was quoted as JSON is elided too. Shorter runs of request content can
+/// remain.
+const ECHO_MIN_CHARS: usize = 16;
+/// The API message is cut to this many characters (after flattening)
+/// before echoes are elided, so the elision's work is bounded whatever the
+/// body's size (up to `MAX_ERROR_BODY_BYTES`): only the first
+/// [`API_ERROR_MESSAGE_MAX_CHARS`] characters of what is left are kept.
+const ECHO_SCAN_MAX_CHARS: usize = 4 * API_ERROR_MESSAGE_MAX_CHARS;
+/// Any run of this many characters of the API key in an API error
+/// message withholds the message whole.
+const KEY_WINDOW_CHARS: usize = 8;
+
+/// What the API said about a request it refused (an HTTP 400, 404, 413 or
+/// other 4xx of the [`codes::BAD_REQUEST`] class), made safe for a
+/// persisted reason: `error.message` of the OpenAI-style error body (with
+/// `error.param` and `error.code` when they are plain identifiers), one
+/// line, bounded to [`API_ERROR_MESSAGE_MAX_CHARS`], every run of
+/// [`ECHO_MIN_CHARS`] or more characters that quotes the request's
+/// messages but not its schema elided as `[...]` (whitespace-insensitive,
+/// also in JSON-escaped form; shorter runs can remain), the key removed, and
+/// nothing at all when any fragment of the key remains. `None` when the
+/// body carries no such message. Never used for 401, 402, 403 or 429:
+/// their bodies are about the key and the account, and stay out of the
+/// reason.
+pub fn api_error_message(body: &[u8], request: &[u8], api_key: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let error = value.get("error")?;
+    let message = match error {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.get("message")?.as_str()?.to_string(),
+    };
+    let field = |name: &str| {
+        api_identifier(
+            error.get(name).and_then(|v| v.as_str()).map(str::to_string),
+            ID_MAX_CHARS,
+        )
+    };
+    // Control characters to spaces, whitespace runs to one space: the
+    // message and the request text are compared in this form.
+    let flatten = |text: &str| -> String {
+        text.chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    // The request's messages (as sent, and JSON-escaped), and its schema
+    // (adapter text: never elided).
+    let request: serde_json::Value = serde_json::from_slice(request).unwrap_or_default();
+    let messages: Vec<String> = request
+        .get("messages")
+        .and_then(|m| m.as_array())
+        .map(|m| {
+            m.iter()
+                .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
+                .flat_map(|c| {
+                    let escaped = serde_json::to_string(c).unwrap_or_default();
+                    let escaped = escaped
+                        .strip_prefix('"')
+                        .and_then(|e| e.strip_suffix('"'))
+                        .unwrap_or_default()
+                        .to_string();
+                    [flatten(c), flatten(&escaped)]
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let schema = flatten(
+        &request
+            .get("response_format")
+            .map(|f| f.to_string())
+            .unwrap_or_default(),
+    );
+    let flat = flatten(&message.replace(api_key, "<redacted>"));
+    let mut chars: Vec<char> = flat.chars().collect();
+    let cut = chars.len() > ECHO_SCAN_MAX_CHARS;
+    chars.truncate(ECHO_SCAN_MAX_CHARS);
+    let quoted = |span: &[char]| {
+        let span: String = span.iter().collect();
+        messages.iter().any(|m| m.contains(&span)) && !schema.contains(&span)
+    };
+    let mut out = String::with_capacity(flat.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let mut end = i + ECHO_MIN_CHARS;
+        if end <= chars.len() && quoted(&chars[i..end]) {
+            while end < chars.len() && quoted(&chars[i..end + 1]) {
+                end += 1;
+            }
+            out.push_str("[...]");
+            i = end;
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    let key: Vec<char> = api_key.chars().collect();
+    if key.len() >= KEY_WINDOW_CHARS
+        && key.windows(KEY_WINDOW_CHARS).any(|w| {
+            let w: String = w.iter().collect();
+            out.contains(&w)
+        })
+    {
+        return None;
+    }
+    let mut said = truncate(out.trim(), API_ERROR_MESSAGE_MAX_CHARS);
+    if said.is_empty() {
+        return None;
+    }
+    if cut && !said.ends_with("…[truncated]") {
+        said.push_str("…[truncated]");
+    }
+    let mut extra = Vec::new();
+    if let Some(param) = field("param") {
+        extra.push(format!("param {param}"));
+    }
+    if let Some(code) = field("code") {
+        extra.push(format!("code {code}"));
+    }
+    if !extra.is_empty() {
+        said = format!("{said} ({})", extra.join(", "));
+    }
+    Some(untrusted_line(
+        &said,
+        API_ERROR_MESSAGE_MAX_CHARS + 2 * ID_MAX_CHARS + 20,
+    ))
+}
+
 /// `Retry-After` as a wait: delta-seconds, or an HTTP date (a date already
 /// past waits nothing). `None` when absent or unreadable.
 fn retry_after(resp: &reqwest::blocking::Response) -> Option<Duration> {
@@ -2593,16 +2732,32 @@ impl MetaModelClient {
         let _ = options.open(&path).and_then(|mut f| f.write_all(bytes));
     }
 
-    /// A failed call's body for the debug directory, the key removed.
-    fn keep_error_body(&self, label: &str, resp: reqwest::blocking::Response, deadline: Instant) {
-        if self.cfg.public_mode || self.cfg.debug_dir.is_none() {
-            return;
+    /// A failed call's body for the debug directory, the key removed; for
+    /// a refused request ([`codes::BAD_REQUEST`]), what the API said about
+    /// it ([`api_error_message`]; `request` is the body that was sent).
+    fn keep_error_body(
+        &self,
+        label: &str,
+        resp: reqwest::blocking::Response,
+        deadline: Instant,
+        code: &str,
+        request: &[u8],
+    ) -> Option<String> {
+        let refused = code == codes::BAD_REQUEST;
+        let debug = !self.cfg.public_mode && self.cfg.debug_dir.is_some();
+        if !refused && !debug {
+            return None;
         }
-        if let Ok(body) = read_body(resp, MAX_ERROR_BODY_BYTES, deadline, self.control.as_ref()) {
+        let body = read_body(resp, MAX_ERROR_BODY_BYTES, deadline, self.control.as_ref()).ok()?;
+        if debug {
             let text =
                 String::from_utf8_lossy(&body).replace(self.cfg.api_key.expose(), "<redacted>");
             self.keep_for_debug(label, text.as_bytes());
         }
+        if !refused {
+            return None;
+        }
+        api_error_message(&body, request, self.cfg.api_key.expose())
     }
 
     /// Records the answered call behind an error, on the error and for
@@ -2743,11 +2898,17 @@ impl MetaModelClient {
                         continue;
                     }
                     let label = format!("error-{status}-{schema_name}-{}", self.calls);
-                    self.keep_error_body(&label, resp, deadline);
+                    let said = self.keep_error_body(&label, resp, deadline, code, body);
                     let message = if matches!(status, 429 | 500 | 502 | 503) {
                         format!("{message} after {attempt} attempt(s)")
                     } else {
                         message
+                    };
+                    // A refused request says why, so a 400 can be
+                    // diagnosed from the run log (see api_error_message).
+                    let message = match said {
+                        Some(said) => format!("{message}; the API said: {said}"),
+                        None => message,
                     };
                     return Err(provider(code, message));
                 }
@@ -4329,6 +4490,138 @@ mod tests {
             println!("{name} sha256 {digest}");
             assert!(digest.starts_with(prefix), "{name} changed: {digest}");
         }
+    }
+
+    #[test]
+    fn an_api_error_message_is_bounded_one_line_and_never_echoes_the_request_or_the_key() {
+        const KEY: &str = "LLM_4242_abcdefghijklmnop";
+        let request = json!({
+            "messages": [
+                {"role": "system", "content": "You are a single engineering agent working alone."},
+                {"role": "user", "content": "<UNTRUSTED_TASK>Payment requests intermittently time out under load</UNTRUSTED_TASK>"}
+            ],
+            "response_format": {"type": "json_schema", "json_schema": {"name": "DraftBaselineAssessment",
+                "schema": {"properties": {"claim_number": {"type": ["integer", "null"], "format": "uint32"}}}}}
+        })
+        .to_string();
+        let said = |body: &str| api_error_message(body.as_bytes(), request.as_bytes(), KEY);
+        // The message, its param and code: the 400 diagnosed.
+        assert_eq!(
+            said(r#"{"error":{"message":"Invalid schema for response_format 'DraftBaselineAssessment': 'format' is not permitted.","type":"invalid_request_error","param":"response_format","code":"invalid_json_schema"}}"#)
+                .as_deref(),
+            Some("Invalid schema for response_format 'DraftBaselineAssessment': 'format' is not permitted. (param response_format, code invalid_json_schema)")
+        );
+        // A string error, line breaks flattened.
+        assert_eq!(
+            said(r#"{"error":"bad\nrequest\u0000 here"}"#).as_deref(),
+            Some("bad request here")
+        );
+        // Request content (the task, the system message) is elided; the
+        // schema's own text is not.
+        let echoed = said(r#"{"error":{"message":"cannot parse near: Payment requests intermittently time out under load; see You are a single engineering agent"}}"#).unwrap();
+        assert!(!echoed.contains("intermittently"), "{echoed}");
+        assert!(!echoed.contains("single engineering"), "{echoed}");
+        assert!(echoed.starts_with("cannot parse near: [...]"), "{echoed}");
+        // The key: removed, and any fragment of it withholds the message.
+        let redacted = said(&format!(r#"{{"error":{{"message":"bad key {KEY}"}}}}"#)).unwrap();
+        assert_eq!(redacted, "bad key <redacted>");
+        assert_eq!(
+            said(r#"{"error":{"message":"key ...efghijklmn... unknown"}}"#),
+            None
+        );
+        // Bounded.
+        let long = said(&format!(
+            r#"{{"error":{{"message":"{}"}}}}"#,
+            "x".repeat(5000)
+        ))
+        .unwrap();
+        assert!(
+            long.chars().count() < API_ERROR_MESSAGE_MAX_CHARS + 20,
+            "{}",
+            long.len()
+        );
+        assert!(long.ends_with("…[truncated]"), "{long}");
+        // A param or code that is not a plain identifier is left out.
+        assert_eq!(
+            said(r#"{"error":{"message":"m","param":"a b <c>","code":7}}"#).as_deref(),
+            Some("m")
+        );
+        // No message: nothing.
+        for body in [
+            "{}",
+            "not json",
+            r#"{"error":{"type":"x"}}"#,
+            r#"{"error":{"message":"   "}}"#,
+        ] {
+            assert_eq!(said(body), None, "{body}");
+        }
+    }
+
+    #[test]
+    fn an_api_error_message_elides_echoes_across_line_breaks_indentation_and_json_escapes() {
+        const KEY: &str = "LLM_4242_abcdefghijklmnop";
+        let content = "Evidence:\nsecret line one here ok\nshort private\n    indented  code   with   spaces here\nsay \"quoted thing\" \\ back";
+        let request = json!({
+            "messages": [{"role": "user", "content": content}],
+            "response_format": {"type": "json_schema"}
+        })
+        .to_string();
+        let said = |body: &[u8]| api_error_message(body, request.as_bytes(), KEY).unwrap();
+        // Verbatim (line breaks and indentation flattened by the message).
+        let verbatim = json!({"error": {"message": format!("near: {content}")}}).to_string();
+        let echoed = said(verbatim.as_bytes());
+        for leak in [
+            "secret line",
+            "short private",
+            "indented",
+            "spaces here",
+            "quoted thing",
+        ] {
+            assert!(!echoed.contains(leak), "{leak}: {echoed}");
+        }
+        assert!(echoed.starts_with("near: [...]"), "{echoed}");
+        // Quoted as JSON inside the message (escaped quotes, backslashes,
+        // literal \n).
+        let escaped = serde_json::to_string(content).unwrap();
+        let quoted = json!({"error": {"message": format!("bad value {escaped}")}}).to_string();
+        let echoed = said(quoted.as_bytes());
+        for leak in ["secret line", "short private", "indented", "quoted thing"] {
+            assert!(!echoed.contains(leak), "{leak}: {echoed}");
+        }
+    }
+
+    #[test]
+    fn an_api_error_message_from_a_large_echoing_body_is_quick_and_bounded() {
+        const KEY: &str = "LLM_4242_abcdefghijklmnop";
+        // A prompt of about 60 KB, echoed whole in a body near the 64 KiB
+        // cap: the elision runs over a bounded prefix only.
+        let content: String = (0..2600)
+            .map(|n| format!("record {n:05} body text\n"))
+            .collect();
+        let request = json!({
+            "messages": [{"role": "user", "content": content}],
+            "response_format": {"type": "json_schema"}
+        })
+        .to_string();
+        let body = json!({"error": {"message": format!("near: {content}")}}).to_string();
+        assert!(body.len() > 50_000 && body.len() <= MAX_ERROR_BODY_BYTES);
+        let started = Instant::now();
+        let echoed = api_error_message(body.as_bytes(), request.as_bytes(), KEY).unwrap();
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        assert!(!echoed.contains("record"), "{echoed}");
+        assert!(echoed.starts_with("near: [...]"), "{echoed}");
+        assert!(echoed.ends_with("…[truncated]"), "{echoed}");
+        assert!(
+            echoed.chars().count() < API_ERROR_MESSAGE_MAX_CHARS + 20,
+            "{echoed}"
+        );
+        // Without an echo, as quick and as bounded.
+        let plain = json!({"error": {"message": "y ".repeat(30_000)}}).to_string();
+        let started = Instant::now();
+        let said = api_error_message(plain.as_bytes(), request.as_bytes(), KEY).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(said.chars().count() < API_ERROR_MESSAGE_MAX_CHARS + 20);
     }
 
     #[test]

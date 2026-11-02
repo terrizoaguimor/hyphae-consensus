@@ -2,15 +2,28 @@
 
 The [README](../README.md) has a summary of this page.
 
-- **Model.** `muse-wonder-1.0`, the default model id (`DEFAULT_META_MODEL` in
-  `crates/consensus-api/src/config.rs`; `CONSENSUS_MODEL` overrides it). Every recorded
-  live run in `research/` used it for every role, except the 2026-11-01 validation runs
-  V01-V03, whose Critic ran on `muse-spark-1.3` (`research/README.md`); every completed Meta call there is recorded with
-  `provider: meta`, the model id and the API's request id (scripted calls record
-  `provider: fake`; `research/README.md`).
+- **Models, by role.** Live runs use two Meta models: the Proposer (its proposals,
+  `DraftProposal`, and its revisions, `DraftRevision`) runs on `muse-spark-1.3`, and the
+  Critic (`DraftChallenge`) and the Evidence Evaluator (`DraftEvaluation`) run on
+  `muse-wonder-1.0`. This split was validated in live runs on 2026-11-01
+  ([docs/evaluation.md](evaluation.md#67-validation-with-the-proposer-on-muse-spark-13-v04v05-2026-11-01)); no quality
+  difference between the two models is claimed. `muse-wonder-1.0` is the default model id
+  (`DEFAULT_META_MODEL` in `crates/consensus-api/src/config.rs`; `CONSENSUS_MODEL`
+  overrides it), and the split is configured as `CONSENSUS_MODEL_PROPOSER=muse-spark-1.3`
+  with `CONSENSUS_MODEL` and `CONSENSUS_MODEL_CRITIC` unset (runbook 4.1). The recorded
+  live runs in `research/` ran as they were configured then: every role on
+  `muse-wonder-1.0` before the V01–V03 validation set; in V01–V03 (2026-11-01) the Critic
+  on `muse-spark-1.3` with the other roles on `muse-wonder-1.0` (`docs/evaluation.md`
+  §6.6); the single-agent baselines B01–B04 of the same day on `muse-wonder-1.0`
+  (`research/README.md`). Every completed Meta call there is recorded with
+  `provider: meta`, the model id of that call and the API's request id (scripted calls
+  record `provider: fake`; `research/README.md`).
   Optional and unset by default: `CONSENSUS_MODEL_CRITIC` sends the Critic's calls
-  (`DraftChallenge`) to another model id (unset, it is `CONSENSUS_MODEL`); the Evaluator
-  and the Proposer (unless `CONSENSUS_MODEL_PROPOSER` is set), every prompt and schema and their digests stay as they are, and each invocation
+  (`DraftChallenge`) to another model id (unset, it is `CONSENSUS_MODEL`). In the live
+  split it stays unset, so the Critic stays on `muse-wonder-1.0`. It changes no other
+  role's model (the Evaluator keeps `CONSENSUS_MODEL`, the Proposer
+  `CONSENSUS_MODEL_PROPOSER` when set, else `CONSENSUS_MODEL`); every prompt and schema
+  and their digests stay as they are, and each invocation
   records the model of its own call. A Critic model other than `CONSENSUS_MODEL` needs
   both `CONSENSUS_META_PRICE_INPUT_PER_M` and `CONSENSUS_META_PRICE_OUTPUT_PER_M` set
   explicitly (the ledger has one price table), or `consensus-public` with live mode
@@ -31,14 +44,15 @@ The [README](../README.md) has a summary of this page.
   or both on a model other than `CONSENSUS_MODEL`, both prices must be set explicitly,
   and the startup error names the override variables and both prices. The owner's
   decision of 2026-11-01 for the public server (superseding the Critic-on-Spark plan) is
-  the Proposer on `muse-spark-1.3`, the Critic and the Evaluator on `muse-wonder-1.0`;
-  it is applied only after the authorized validation runs and the separate change of the
-  copy that names one model for every role (runbook 4.1).
+  the split above, the Proposer on `muse-spark-1.3`, the Critic and the Evaluator on
+  `muse-wonder-1.0`; `consensus-public` gets `CONSENSUS_MODEL_PROPOSER` only once the
+  authorized validation runs are done and the copy names that split (runbook 4.1).
 - **Endpoint.** The Meta Model API's Chat Completions, `POST {base}/chat/completions` with
   base `https://api.meta.ai/v1` (`crates/consensus-api/src/meta.rs`, ADR-0002).
 - **Which roles call it.** All three roles, in four kinds of call with one strict schema
   each (`Role` in `meta.rs`): Proposer (`DraftProposal`), Critic (`DraftChallenge`), Evidence
-  Evaluator (`DraftEvaluation`) and the Proposer's revision (`DraftRevision`). The
+  Evaluator (`DraftEvaluation`) and the Proposer's revision (`DraftRevision`); the Proposer's
+  two kinds go to `muse-spark-1.3`, the Critic's and the Evaluator's to `muse-wonder-1.0`. The
   scripted doubles (`provider: fake`) replace all four in the guided runs and the tests.
 - **Structured output.** `response_format: {type: "json_schema", json_schema: {name,
   schema, strict: true}}`. Every list field is required (a missing one is malformed

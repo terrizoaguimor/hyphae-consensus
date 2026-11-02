@@ -629,15 +629,16 @@ Critic model other than `CONSENSUS_MODEL` both `CONSENSUS_META_PRICE_INPUT_PER_M
 `CONSENSUS_META_PRICE_OUTPUT_PER_M` must be set explicitly, to the highest price among
 the configured models: otherwise `consensus-public` (live mode enabled) and
 `consensus-operator` (ledger configured) refuse to start, naming the override variables
-that make the mix and both price variables (`live/config.rs`). Until both preconditions below hold, the variable is set only on the
-loopback `consensus-operator` server, for the authorized validation runs, and never on
-`consensus-public`: (1) the authorized validation runs are done; (2) the public copy that
-names `muse-wonder-1.0` as the model of every role has been corrected, as a separate
-owner-approved change, in all four locales of `apps/web/messages/`,
-`apps/web/messages/docs/` and `apps/web/messages/legal/` (including the AI-generated
-content disclosure), in the README and in the video's claims. Otherwise the Meta API
-panel would show the Critic's model next to sentences that say every role runs on
-`muse-wonder-1.0`. To go back, remove the line and restart the unit.
+that make the mix and both price variables (`live/config.rs`). The public copy, in all
+four locales of `apps/web/messages/`, `apps/web/messages/docs/` and
+`apps/web/messages/legal/` (including the AI-generated content disclosure), in the README
+and in the video's claims, names the Proposer on `muse-spark-1.3` and the Critic and the
+Evaluator on `muse-wonder-1.0`. So on `consensus-public` this variable stays unset (or
+equal to `muse-wonder-1.0`): a Critic on another model would make that copy false, and
+the Meta API panel would show the Critic's model next to sentences that say the Critic
+runs on `muse-wonder-1.0`. It is set only on the loopback `consensus-operator` server,
+for authorized validation runs (V01–V03 ran their Critic on `muse-spark-1.3` this way).
+To go back, remove the line and restart the unit.
 
 `CONSENSUS_MODEL_PROPOSER` is optional and stays unset in the template too: unset, the
 Proposer uses `CONSENSUS_MODEL`. Set, it changes the model id of the Proposer's calls
@@ -660,11 +661,15 @@ override variables that make the mix and both price variables (`live/config.rs`)
 owner's decision of 2026-11-01 (it supersedes the Critic-on-Spark plan) is the Proposer
 on `muse-spark-1.3` and the Critic and the Evaluator on `muse-wonder-1.0`, that is
 `CONSENSUS_MODEL_PROPOSER=muse-spark-1.3` with `CONSENSUS_MODEL` and
-`CONSENSUS_MODEL_CRITIC` unset. Validation first: the same two preconditions hold, so
-until the authorized validation runs with that split are done and the public copy that
-names `muse-wonder-1.0` as the model of every role has been corrected (a separate,
-owner-approved change), the variable is set only on the loopback `consensus-operator`
-server and never on `consensus-public`. To go back, remove the line and restart the unit.
+`CONSENSUS_MODEL_CRITIC` unset. Validation first: until the authorized validation runs
+with that split are done (`docs/evaluation.md`, section 6.7), the
+variable is set only on the loopback `consensus-operator` server and never on
+`consensus-public`. The public copy above already names that split (it is merged only
+after those runs pass), so `consensus-public` gets `CONSENSUS_MODEL_PROPOSER=muse-spark-1.3`
+in the same deployment that ships that copy: otherwise the copy would say the Proposer
+runs on `muse-spark-1.3` while its calls record `muse-wonder-1.0`. The template keeps the
+line commented out; the server's own env file sets it. To go back, remove the line and
+restart the unit, and deploy copy that names the model the Proposer then runs on.
 
 The server validates every variable at startup and stops with the variable's name on
 an invalid value (`public_config.rs`, `live/config.rs`); a failed start is visible with
@@ -1952,8 +1957,9 @@ settings" of `deploy/etc/consensus/public.env.example`):
 
 Left alone: `CONSENSUS_META_MAX_ATTEMPTS` (3), the output bound (16,000),
 `CONSENSUS_META_REASONING_EFFORT` (unset), `CONSENSUS_MODEL_CRITIC` (unset: the Critic
-stays on `muse-wonder-1.0`), `CONSENSUS_MODEL_PROPOSER` (unset until the validation runs
-and the copy change of section 4.1) and `CONSENSUS_VISITOR_ACCESS_HOURS` (24).
+stays on `muse-wonder-1.0`), `CONSENSUS_MODEL_PROPOSER` (unset in the template; the
+server's env file sets `muse-spark-1.3` once the validation runs are done, in the
+deployment that ships the copy naming the split, section 4.1) and `CONSENSUS_VISITOR_ACCESS_HOURS` (24).
 `cargo test -p consensus-api --test live_config` reads the example file and checks these
 values together: they parse, the budget validates with a $2.76 worst case and a $6.00
 burst, and the unit's `TimeoutStopSec` exceeds what the grace needs.

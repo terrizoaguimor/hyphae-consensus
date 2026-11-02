@@ -17,7 +17,8 @@ Verifiable multi-agent reasoning and decision accountability.</p>
   <a href="rust-toolchain.toml"><img alt="Rust 1.99.1" src="https://img.shields.io/badge/Rust-1.99.1-2b2b2b?logo=rust&amp;logoColor=white"></a>
   <a href="apps/web/package.json"><img alt="Next.js 16.4.3" src="https://img.shields.io/badge/Next.js-16.4.3-2b2b2b?logo=nextdotjs&amp;logoColor=white"></a>
   <a href="apps/web/package.json"><img alt="TypeScript 6.0.3" src="https://img.shields.io/badge/TypeScript-6.0.3-2b2b2b?logo=typescript&amp;logoColor=white"></a>
-  <a href="docs/meta-api.md"><img alt="Model: Meta Muse Wonder (muse-wonder-1.0)" src="https://img.shields.io/badge/model-Meta%20Muse%20Wonder%20(muse--wonder--1.0)-2b2b2b?logo=meta&amp;logoColor=white"></a>
+  <a href="docs/meta-api.md"><img alt="Proposer model: Meta Muse Spark (muse-spark-1.3)" src="https://img.shields.io/badge/Proposer-Meta%20Muse%20Spark%20(muse--spark--1.3)-2b2b2b?logo=meta&amp;logoColor=white"></a>
+  <a href="docs/meta-api.md"><img alt="Critic and Evaluator model: Meta Muse Wonder (muse-wonder-1.0)" src="https://img.shields.io/badge/Critic%20%26%20Evaluator-Meta%20Muse%20Wonder%20(muse--wonder--1.0)-2b2b2b?logo=meta&amp;logoColor=white"></a>
   <br>
   <img alt="Meta Global AI Developer Hackathon 2026: Indie Developer track, Push the Frontier" src="https://img.shields.io/badge/Meta%20Global%20AI%20Developer%20Hackathon%202026-Indie%20Developer%20%C2%B7%20Push%20the%20Frontier-2b2b2b">
   <img alt="Rust tests at 3686bbe: 603 passed, 0 failed, 2 ignored" src="https://img.shields.io/badge/Rust%20tests%20%40%203686bbe-603%20passed%20%C2%B7%202%20ignored-2b2b2b">
@@ -43,8 +44,13 @@ development window October 26 – November 4, 2026 · Owner: Mario (independent 
 **Video:** [VIDEO_URL] · **Demo:** [DEMO_URL] · **Repository:** [github.com/terrizoaguimor/hyphae-consensus](https://github.com/terrizoaguimor/hyphae-consensus) · run it yourself in
 three commands: [Quick start](#quick-start) (no credential, no Meta call).
 
-**What it is.** Three Meta-model roles (Proposer, Critic, Evidence Evaluator; `muse-wonder-1.0`
-on the Meta Model API) deliberate over a coding agent's proposed change against project
+**What it is.** Three Meta-model roles on the Meta Model API (the Proposer, for proposals and
+revisions, on `muse-spark-1.3`; the Critic and the Evidence Evaluator on `muse-wonder-1.0`;
+this split was validated in live runs on 2026-11-01
+([docs/evaluation.md](docs/evaluation.md#67-validation-with-the-proposer-on-muse-spark-13-v04v05-2026-11-01)), runs that
+themselves ran the Proposer on `muse-spark-1.3`; the archived consensus runs before them ran
+every role on `muse-wonder-1.0`, except the V01–V03 set, whose Critic ran on `muse-spark-1.3`;
+the single-agent baselines B01–B04 ran on `muse-wonder-1.0`) deliberate over a coding agent's proposed change against project
 records from Hyphae Agent Memory whose integrity proofs the runtime checks. A fixed policy,
 not a vote, turns their judgments into a recommendation, and only a human can authorize.
 In the 6-run final battery of 2026-10-27 (F01–F06, schema 1.2) every first proposal had 1 to 3
@@ -57,7 +63,7 @@ revision that departs from the task, which is why a human still decides
 | Criterion | Evidence (one line each) |
 |---|---|
 | **Impact (30 %)** | F03 ("Raise payment retry attempts to 10") claimed 10 attempts comply with any documented maximum; the stored cap is 3, 2 of 4 claims were recorded as contradicted, the revision proposed the recorded fix, and 6 open objections kept it `contested` for a human ([§5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output), [run record](research/2026-10-27/live-battery-2026-10-27-final/F03-raise-to-10.json)); a planted "SYSTEM OVERRIDE" record with a valid proof was never obeyed ([§5.4](docs/evaluation.md#54-hostile-note-with-a-valid-proof-h01h02-commit-3d50baf)). The single-agent baseline (one Meta call per task, same model and records) first failed at its call (HTTP 400, [§7.7](docs/evaluation.md#77-the-battery-of-2026-11-01-b01b04-every-run-failed-at-its-one-call)); re-run on the fixed schema, it recorded `abstained`, `supported`, `supported` and `contested` on the tasks of M01–M04, under §7.4's applicable conditions approved nothing the consensus caught, and both its `supported` proposals depart from their task text, as M03's does; one run per task, and the planned independent readers' check was not made ([§7.8](docs/evaluation.md#78-the-battery-of-round-9-b05b08-2026-11-01-every-run-recorded-an-assessment)). |
-| **Use of Meta AI tooling (25 %)** | Four kinds of strict `json_schema` call (Proposer, Critic, Evaluator, revision; up to 9 per run) to `POST https://api.meta.ai/v1/chat/completions`, the Evaluator's schema generated per call with one required key per claim and per open objection ([docs/meta-api.md](docs/meta-api.md), [`meta.rs`](crates/consensus-api/src/meta.rs)); the request id of every recorded call ([10-26](docs/evaluation.md#request-ids-2026-10-26-from-receipts), [10-27](docs/evaluation.md#request-ids-2026-10-27-from-receipts), [10-30](docs/evaluation.md#request-ids-2026-10-30-from-receipts), [11-01](docs/evaluation.md#request-ids-2026-11-01-from-receipts)), archived verbatim in [`research/`](research/README.md) and pinned by [`MANIFEST.json`](research/MANIFEST.json). |
+| **Use of Meta AI tooling (25 %)** | Four kinds of strict `json_schema` call (Proposer and revision on `muse-spark-1.3`, Critic and Evaluator on `muse-wonder-1.0`; up to 9 per run; every call records the model it ran on) to `POST https://api.meta.ai/v1/chat/completions`, the Evaluator's schema generated per call with one required key per claim and per open objection ([docs/meta-api.md](docs/meta-api.md), [`meta.rs`](crates/consensus-api/src/meta.rs)); the request id of every recorded call ([10-26](docs/evaluation.md#request-ids-2026-10-26-from-receipts), [10-27](docs/evaluation.md#request-ids-2026-10-27-from-receipts), [10-30](docs/evaluation.md#request-ids-2026-10-30-from-receipts), [11-01](docs/evaluation.md#request-ids-2026-11-01-from-receipts)), archived verbatim in [`research/`](research/README.md) and pinned by [`MANIFEST.json`](research/MANIFEST.json). |
 | **Technical depth (20 %)** | Protocol 1.3's fail-closed evaluation contract ([ADR-0010](docs/adr/0010-protocol-1-3-carry-forward.md)), hash-chained replayable logs, a sealed evidence snapshot ([ADR-0008](docs/adr/0008-public-evidence-sealed-snapshot.md)), [threat model v2](docs/threat-model.md#3-threats-and-mitigations); at `3686bbe` Rust 603 passed / 0 failed / 2 ignored ([tests](crates/consensus-tests/tests/)) and Vitest 904 passed / 16 skipped; at `a657531` Playwright 501 tests, axe 0 violations ([e2e](apps/web/e2e/)). |
 | **Demo (25 %)** | The video and Mission Control ([screenshots](#mission-control)); every run is labelled SIMULATED, RECORDED or LIVE, and a replay never reads LIVE ([labels](#simulated-recorded-and-live)). |
 | **Limits, said once** | Proofs attest integrity, not truth; the log is tamper-evident, not signed; the public live mode is not deployed; the protocol 1.3 battery lost 2 of its 4 runs to provider errors ([§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)); the rest is in [What is verified and what is not](#what-is-verified-and-what-is-not). |
@@ -70,9 +76,9 @@ replay and check for later changes.
 
 | Part | Who | What it does |
 |---|---|---|
-| **Proposer** | Meta model | Turns a task into explicit claims, assumptions and uncertainties; revises them after review. |
-| **Critic** | Meta model | Raises individually tracked objections: contradictions, unsupported claims, missing tests, constraint conflicts, risks. |
-| **Evidence Evaluator** | Meta model | Judges, per claim, whether the retrieved records are relevant and corroborate or contradict it, and gives an explicit verdict on every open objection. |
+| **Proposer** | Meta model (`muse-spark-1.3`) | Turns a task into explicit claims, assumptions and uncertainties; revises them after review. |
+| **Critic** | Meta model (`muse-wonder-1.0`) | Raises individually tracked objections: contradictions, unsupported claims, missing tests, constraint conflicts, risks. |
+| **Evidence Evaluator** | Meta model (`muse-wonder-1.0`) | Judges, per claim, whether the retrieved records are relevant and corroborate or contradict it, and gives an explicit verdict on every open objection. |
 | **Runtime** | Rust, not a model | Retrieves the evidence from Hyphae, verifies each recall's sealed proof offline with `hyphae proof verify`, enforces the evaluation contract, bounds the debate (at most 2 revision rounds, 9 role calls plus at most 2 re-asks of an answer with no usable claim or an unreadable one, never of a judgment ([docs/evaluation.md §6.4](docs/evaluation.md)), 20 distinct records and a per-run token cap) and records every event. |
 | **Policy** | A fixed function | Turns the judgments and proof statuses into `supported`, `contested`, `insufficient_evidence`, `abstained` or `blocked`, with a `PolicyTrace` that shows which rule decided ("protocol 1.3 · policy rules 1.2", ADR-0010). |
 | **Human** | A person | The run stops at `AwaitingHumanApproval`. Only a human decision is recorded as an authorization, and nothing is executed in any mode: the executor is deferred. |
@@ -131,7 +137,7 @@ flowchart LR
     end
     RT["consensus-runtime<br/>state machine, orchestration,<br/>policy, event log, per-run store"]
     DOM["consensus-domain<br/>typed contracts only, no I/O"]
-    MAPI["Meta Model API<br/>api.meta.ai/v1 chat/completions<br/>muse-wonder-1.0"]
+    MAPI["Meta Model API<br/>api.meta.ai/v1 chat/completions<br/>Proposer: muse-spark-1.3<br/>Critic, Evaluator: muse-wonder-1.0"]
     HYPHAE["Hyphae Agent Memory 4.0.0<br/>(pre-existing, pinned)"]
     WEB -- "HTTP /api/v1 + SSE" --> PUB
     PUB --> RT
@@ -408,7 +414,8 @@ development host (`scripts/hyphae-container/README.md`).
 - Orthogonal evidence status modeling (`integrity_status` / `factual_status` /
   `relevance_status`) and the recommendation-derivation policy.
 - The append-only, crash-safe, replayable, hash-chained event log and the per-run store.
-- Meta Model API adapter (`muse-wonder-1.0`, strict structured output with keyed per-call
+- Meta Model API adapter (`muse-spark-1.3` for the Proposer, `muse-wonder-1.0` for the
+  Critic and the Evidence Evaluator; strict structured output with keyed per-call
   schemas, timeouts, bounded retries, per-attempt metering; `crates/consensus-api/src/meta.rs`,
   ADR-0002).
 - Hyphae MCP adapter over `hyphae mcp --profile memory` (stdio JSON-RPC, read-only tools
@@ -427,7 +434,8 @@ development host (`scripts/hyphae-container/README.md`).
 
 Development used AI coding assistants: Meta's Muse Code (with Muse Wonder Full) and
 Anthropic's Claude. Commits where Claude contributed carry a `Co-Authored-By: Claude …`
-trailer. All inference inside the product uses Meta's Model API only (`muse-wonder-1.0`);
+trailer. All inference inside the product uses Meta's Model API only (`muse-spark-1.3` for the
+Proposer, `muse-wonder-1.0` for the Critic and the Evidence Evaluator);
 the coding assistants are not part of the product and never appear in receipts. The owner
 reviews and authorizes every change.
 

@@ -335,6 +335,16 @@ describe("legal texts state the required facts in every locale", () => {
     ["Legal.terms.sections.who.items.territories", /Korea|Corea|Coreia|Corée/],
     ["Legal.terms.sections.use.body", /<aup>/],
     ["Legal.terms.sections.outputs.body", /muse-wonder-1\.0/],
+    // The model split of 2026-11-01: the Proposer on muse-spark-1.3, the
+    // Critic and the Evidence Evaluator on muse-wonder-1.0. The AI-generated
+    // content disclosure and the About page name both models.
+    ["Legal.terms.sections.outputs.body", /muse-spark-1\.3/],
+    ["About.sections.independent.body", /muse-spark-1\.3/],
+    ["About.sections.independent.body", /muse-wonder-1\.0/],
+    ["About.sections.ai.body", /muse-spark-1\.3/],
+    ["About.sections.ai.body", /muse-wonder-1\.0/],
+    ["Docs.articles.three-roles.technical.model", /muse-spark-1\.3/],
+    ["Docs.articles.three-roles.technical.model", /muse-wonder-1\.0/],
     ["Legal.privacy.sections.summary.items.retention", /24/],
     ["Legal.privacy.sections.summary.items.retention", /7/],
     ["Legal.privacy.sections.runs.body", /24/],
@@ -364,6 +374,109 @@ describe("legal texts state the required facts in every locale", () => {
     const messages = merged(locale);
     for (const [key, pattern] of facts) {
       expect(messages.get(key), key).toMatch(pattern);
+    }
+  });
+});
+
+// The model split of 2026-11-01 says which role runs which model: the
+// Proposer (proposals and revisions) on muse-spark-1.3, the Critic and the
+// Evidence Evaluator on muse-wonder-1.0. Mentioning both ids is not enough:
+// the superseded split (the Critic on Spark) mentions both too. Every role
+// word in a message that names a model id is bound to a model by how the
+// sentences are written ("<model> for the Proposer", "<model> (Critic)",
+// "the Proposer ... runs on <model>"), and the binding must be the decided
+// one, in every catalog and every locale.
+describe("the copy binds each role to its model", () => {
+  type Model = "muse-spark-1.3" | "muse-wonder-1.0";
+  type RoleName = "proposer" | "critic" | "evaluator";
+  const modelPattern = /muse-spark-1\.3|muse-wonder-1\.0/g;
+  // Role nouns in the four locales, also the outputs they name
+  // (proposals, critiques, evaluations). Letter lookarounds, not \b, so
+  // accented initials (Évaluateur) and endings (Crítico) delimit correctly.
+  const rolePatterns: Record<RoleName, RegExp> = {
+    proposer:
+      /(?<!\p{L})(?:proposers?|proposals?|proposants?|propositions?|proponentes?|propuestas?|propostas?)(?!\p{L})/giu,
+    critic: /(?<!\p{L})(?:critics?|critiques?|críticos?|críticas?)(?!\p{L})/giu,
+    evaluator:
+      /(?<!\p{L})(?:evaluators?|evaluations?|évaluateurs?|évaluations?|evaluador(?:es)?|evaluaciones|avaliador(?:es)?|avaliações)(?!\p{L})/giu,
+  };
+  const decided: Record<RoleName, Model> = {
+    proposer: "muse-spark-1.3",
+    critic: "muse-wonder-1.0",
+    evaluator: "muse-wonder-1.0",
+  };
+
+  /**
+   * Each role word with the model it is bound to: the model right before it
+   * when no clause break separates them ("<model> for the Critic"), else the
+   * model right after it within the sentence ("the Proposer runs on <model>").
+   */
+  function bindings(text: string): Array<{ role: RoleName; word: string; model: Model | null }> {
+    const models = [...text.matchAll(modelPattern)].map((m) => ({
+      model: m[0] as Model,
+      start: m.index,
+      end: m.index + m[0].length,
+    }));
+    const out: Array<{ role: RoleName; word: string; model: Model | null }> = [];
+    for (const role of Object.keys(rolePatterns) as RoleName[]) {
+      for (const m of text.matchAll(rolePatterns[role])) {
+        const start = m.index;
+        const end = start + m[0].length;
+        const before = models.filter((x) => x.end <= start).at(-1);
+        const after = models.find((x) => x.start >= end);
+        let model: Model | null = null;
+        if (before && !/[,;:]|\.\s/.test(text.slice(before.end, start))) {
+          model = before.model;
+        } else if (after && !/;|\.\s/.test(text.slice(end, after.start))) {
+          model = after.model;
+        }
+        out.push({ role, word: m[0], model });
+      }
+    }
+    return out;
+  }
+
+  it("the binder reads the superseded split as wrong", () => {
+    const superseded =
+      "The Proposer and the Evaluator run on Meta’s muse-wonder-1.0, the Critic on muse-spark-1.3.";
+    const found = bindings(superseded);
+    expect(found.some((b) => b.model !== null && b.model !== decided[b.role])).toBe(true);
+    const current =
+      "Live runs call Meta’s muse-spark-1.3 for the Proposer and muse-wonder-1.0 for the Critic and the Evidence Evaluator.";
+    expect(bindings(current).every((b) => b.model === decided[b.role])).toBe(true);
+  });
+
+  // The messages that name the split (keys as of round 10); any other
+  // message naming a model id is checked too.
+  const splitKeys = [
+    "NewDeliberation.planned.live",
+    "Tour.steps.live.body",
+    "Provenance.liveMeta.description",
+    "Docs.articles.what-is.technical.integrations",
+    "Docs.articles.three-roles.technical.model",
+    "Docs.articles.modes.sections.live.body",
+    "Legal.terms.sections.outputs.body",
+    "About.sections.independent.body",
+    "About.sections.ai.body",
+  ];
+
+  it.each(routing.locales)("%s", (locale) => {
+    const messages = merged(locale);
+    const naming = [...messages].filter(([, text]) => /muse-spark-1\.3/.test(text));
+    expect(naming.map(([key]) => key).sort()).toEqual([...splitKeys].sort());
+    for (const [key, text] of naming) {
+      const found = bindings(text);
+      for (const b of found) {
+        if (b.model !== null) {
+          expect(`${key}: ${b.word} -> ${b.model}`).toBe(`${key}: ${b.word} -> ${decided[b.role]}`);
+        }
+      }
+      for (const role of Object.keys(decided) as RoleName[]) {
+        expect(
+          found.some((b) => b.role === role && b.model === decided[role]),
+          `${key}: ${role} bound to ${decided[role]}`,
+        ).toBe(true);
+      }
     }
   });
 });

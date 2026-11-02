@@ -33,7 +33,7 @@
         },
         "technical": {
           "runtime": "The runtime is written in Rust: typed contracts, a deterministic state machine and an append-only event log whose records are SHA-256 hash-chained. The chain is verified when a log is opened, and replay re-derives every recommendation recorded under schema 1.1 or later.",
-          "integrations": "Models are called through the Meta Model API (<code>muse-wonder-1.0</code>, structured output). Hyphae is read through its MCP interface with read-only tools, and proofs are checked offline with <code>hyphae proof verify</code>.",
+          "integrations": "Models are called through the Meta Model API with structured output: <code>muse-spark-1.3</code> for the Proposer, <code>muse-wonder-1.0</code> for the Critic and the Evidence Evaluator. Hyphae is read through its MCP interface with read-only tools, and proofs are checked offline with <code>hyphae proof verify</code>.",
           "untrusted": "Retrieved memory and other models’ outputs are treated as untrusted data, never as instructions."
         }
       },
@@ -57,7 +57,7 @@
         "technical": {
           "rounds": "A run allows at most 2 revision rounds. Under protocol 1.3 it stops revising when a round resolves none of the objections the previous evaluation left open; runs recorded under protocol 1.2 compared the counts of unresolved objections instead.",
           "bounds": "Each run is capped at 9 model calls plus at most 2 re-asks (an answer without a usable claim, or one that could not be read, is asked for again once; a judgment never is), 20 distinct evidence records and a token budget (150,000 input and output tokens by default). The runtime checks the budget after each call, so a run can overshoot it by one call.",
-          "model": "In live runs, all three roles are played by Meta’s <code>muse-wonder-1.0</code>. Each response must match a strict schema with required fields, or the run fails with a recorded reason."
+          "model": "In live runs, the Proposer (its proposals and revisions) runs on Meta’s <code>muse-spark-1.3</code>, and the Critic and the Evidence Evaluator run on Meta’s <code>muse-wonder-1.0</code>. Every call records the model it ran on. Each response must match a strict schema with required fields, or the run fails with a recorded reason."
         }
       },
       "not-voting": {
@@ -176,7 +176,7 @@
           },
           "live": {
             "heading": "Live Meta (LIVE META + SEALED SNAPSHOT)",
-            "body": "Real calls to Meta’s <code>muse-wonder-1.0</code>, with evidence from a sealed Hyphae snapshot: a fixed set of synthetic records captured once and re-verified for every run. Curated presets only, no free text, and a daily budget."
+            "body": "Real calls to Meta’s <code>muse-spark-1.3</code> (Proposer) and <code>muse-wonder-1.0</code> (Critic and Evidence Evaluator), with evidence from a sealed Hyphae snapshot: a fixed set of synthetic records captured once and re-verified for every run. Curated presets only, no free text, and a daily budget."
           },
           "showcase": {
             "heading": "Research showcase (RECORDED)",

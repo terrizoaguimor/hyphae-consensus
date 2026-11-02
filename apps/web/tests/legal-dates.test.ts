@@ -27,10 +27,10 @@ type LegalDocument = (typeof documents)[number];
 
 /** The day each document's text last changed, with the digest of that text. */
 const PINNED: Record<LegalDocument, { date: string; sha256: string }> = {
-  terms: { date: "2026-11-01", sha256: "ca1fdd8749bab9c68d7a96d6099606a70e1e89d7830e43f48dc197ec46115077" },
+  terms: { date: "2026-11-01", sha256: "843657da64d73de84bc6453f87fb28f8ba95e3fd23982669834b2a0efd52c78a" },
   privacy: { date: "2026-11-01", sha256: "5907bbc9bcda846c045062547aaa4f0b08a59828bbb339a4fc87635819692714" },
   limitations: { date: "2026-11-01", sha256: "5cd7d5adceb626da7f9bfd2974640fd6ae9044e43dbbdb7266bc7e7d341b7363" },
-  about: { date: "2026-10-27", sha256: "31f3dedb6371401c7e439f34bd4a538ee9cd0b39f437c2c7537230fc93a3c5be" },
+  about: { date: "2026-11-01", sha256: "c6515d8e2583c0306996ce874d9ed16e913f6c264c9599c34edc82c9b5e72a24" },
 };
 
 /** The ICU arguments LegalPageContent passes to every document's sections. */
@@ -123,11 +123,16 @@ describe("legal page dates", () => {
     // run can fail" section (C8), with the retries that come before a failure
     // (the 5xx retry and the bounded re-ask, merged the same day), and Privacy
     // its session-records item (C9, sessions kept as hashes across a restart);
-    // Terms and About did not change.
+    // Terms and About did not change. Later still on 2026-11-01 (round 10)
+    // the model split (the Proposer on muse-spark-1.3, the Critic and the
+    // Evidence Evaluator on muse-wonder-1.0) changed the AI-generated content
+    // disclosure of Terms and the "Independent" and "AI assistance" sections
+    // of About, which until then dated from 2026-10-27; Privacy and
+    // Limitations did not change.
     expect(LEGAL_TEXT_CHANGED.limitations.toISOString().slice(0, 10)).toBe("2026-11-01");
     expect(LEGAL_TEXT_CHANGED.terms.toISOString().slice(0, 10)).toBe("2026-11-01");
     expect(LEGAL_TEXT_CHANGED.privacy.toISOString().slice(0, 10)).toBe("2026-11-01");
-    expect(LEGAL_TEXT_CHANGED.about.toISOString().slice(0, 10)).toBe("2026-10-27");
+    expect(LEGAL_TEXT_CHANGED.about.toISOString().slice(0, 10)).toBe("2026-11-01");
   });
 
   it("dates each day at midnight UTC, the time zone the pages format in", () => {

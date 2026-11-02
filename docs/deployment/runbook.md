@@ -619,7 +619,7 @@ refused before anything is reserved.
 
 `CONSENSUS_MODEL_CRITIC` is optional and stays unset (the template leaves it commented
 out): unset, the Critic uses `CONSENSUS_MODEL` (itself unset, `muse-wonder-1.0`), as do
-the other roles. Set, it changes the model id of the Critic's calls only (`DraftChallenge`;
+the Evaluator and, unless `CONSENSUS_MODEL_PROPOSER` is set, the Proposer. Set, it changes the model id of the Critic's calls only (`DraftChallenge`;
 `config.rs`, validated like `CONSENSUS_MODEL`: an invalid value stops `consensus-public`
 (live mode enabled) at startup naming it; `consensus-operator` reports it on each
 `model=meta` run, as for `CONSENSUS_MODEL`);
@@ -628,8 +628,8 @@ ran on. The ledger has one price table, whose defaults are `muse-wonder-1.0`'s, 
 Critic model other than `CONSENSUS_MODEL` both `CONSENSUS_META_PRICE_INPUT_PER_M` and
 `CONSENSUS_META_PRICE_OUTPUT_PER_M` must be set explicitly, to the highest price among
 the configured models: otherwise `consensus-public` (live mode enabled) and
-`consensus-operator` (ledger configured) refuse to start, naming the three variables
-(`live/config.rs`). Until both preconditions below hold, the variable is set only on the
+`consensus-operator` (ledger configured) refuse to start, naming the override variables
+that make the mix and both price variables (`live/config.rs`). Until both preconditions below hold, the variable is set only on the
 loopback `consensus-operator` server, for the authorized validation runs, and never on
 `consensus-public`: (1) the authorized validation runs are done; (2) the public copy that
 names `muse-wonder-1.0` as the model of every role has been corrected, as a separate
@@ -644,7 +644,11 @@ Proposer uses `CONSENSUS_MODEL`. Set, it changes the model id of the Proposer's 
 only: its proposal (`DraftProposal`) and its revision (`DraftRevision`, the Proposer
 correcting its own proposal), re-asks included; the Critic keeps `CONSENSUS_MODEL_CRITIC`
 (or `CONSENSUS_MODEL`) and the Evaluator and the single-agent baseline keep
-`CONSENSUS_MODEL`. Both overrides may be set at once. It is validated like
+`CONSENSUS_MODEL`. Both overrides may be set at once. A paired baseline
+(`--queries-from`) needs a consensus run made on a single model: with
+`CONSENSUS_MODEL_PROPOSER` or `CONSENSUS_MODEL_CRITIC` set, the run's calls record more
+than one model and the baseline refuses to pair with it (`consensus_call_settings` in
+`baseline_cli.rs`). It is validated like
 `CONSENSUS_MODEL` (an invalid value stops `consensus-public` with live mode enabled at
 startup naming it; `consensus-operator` reports it on each `model=meta` run), the prompts,
 schemas and their digests do not change, and every call, a failed, refused or re-asked

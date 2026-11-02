@@ -4,12 +4,13 @@ The [README](../README.md) has a summary of this page.
 
 - **Model.** `muse-wonder-1.0`, the default model id (`DEFAULT_META_MODEL` in
   `crates/consensus-api/src/config.rs`; `CONSENSUS_MODEL` overrides it). Every recorded
-  live run in `research/` used it, and every completed Meta call there is recorded with
+  live run in `research/` used it for every role, except the 2026-11-01 validation runs
+  V01-V03, whose Critic ran on `muse-spark-1.3` (`research/README.md`); every completed Meta call there is recorded with
   `provider: meta`, the model id and the API's request id (scripted calls record
   `provider: fake`; `research/README.md`).
   Optional and unset by default: `CONSENSUS_MODEL_CRITIC` sends the Critic's calls
-  (`DraftChallenge`) to another model id (unset, it is `CONSENSUS_MODEL`); the other
-  roles, every prompt and schema and their digests stay as they are, and each invocation
+  (`DraftChallenge`) to another model id (unset, it is `CONSENSUS_MODEL`); the Evaluator
+  and the Proposer (unless `CONSENSUS_MODEL_PROPOSER` is set), every prompt and schema and their digests stay as they are, and each invocation
   records the model of its own call. A Critic model other than `CONSENSUS_MODEL` needs
   both `CONSENSUS_META_PRICE_INPUT_PER_M` and `CONSENSUS_META_PRICE_OUTPUT_PER_M` set
   explicitly (the ledger has one price table), or `consensus-public` with live mode
@@ -19,7 +20,11 @@ The [README](../README.md) has a summary of this page.
   calls, its proposal (`DraftProposal`) and its revision (`DraftRevision`), re-asks
   included, to another model id (unset, it is `CONSENSUS_MODEL`); the Critic keeps its own
   (`CONSENSUS_MODEL_CRITIC`, else `CONSENSUS_MODEL`), the Evaluator and the single-agent
-  baseline keep `CONSENSUS_MODEL`, and both overrides may be set at once. Prompts,
+  baseline keep `CONSENSUS_MODEL`, and both overrides may be set at once. A paired
+  baseline (`--queries-from`) needs a single-model consensus run: against a run made
+  with `CONSENSUS_MODEL_PROPOSER` or `CONSENSUS_MODEL_CRITIC` set it is refused, since
+  that run's calls record more than one model (`consensus_call_settings` in
+  `baseline_cli.rs`). Prompts,
   schemas and their digests do not change, and every invocation, a failed, refused or
   re-asked call included, records the model its call was sent to (an echoed model still
   wins). The same price rule covers any mixed configuration: with the Proposer, the Critic

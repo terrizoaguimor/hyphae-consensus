@@ -1416,6 +1416,17 @@ do not contain: `DraftBaselineObjection.claim_number` (`Option<u32>` in
 the role schemas. That is the operator's best guess at the cause, **unconfirmed**. A
 re-run needs a fix and a new owner authorization; none is made here.
 
+**The fix, after the runs (round 9, offline; not yet tried against the live API).** The
+baseline schema now writes `claim_number` in the Critic's live-accepted form, `anyOf` of a
+string `enum` of the claim positions `"1"`..`"12"` and null (`baseline_schema` in
+`crates/consensus-api/src/meta/baseline.rs`), so it holds no `integer`, `format` or
+`minimum`; the role schemas and their prompt-freeze digests are unchanged, and the baseline
+prompt and its digest too (the archived runs keep their recorded `schema_sha256`; a re-run
+records the new one). A refused request (`meta_bad_request`) now carries what the API said
+about it in the failure reason (bounded, one line, request content and the key never
+echoed), and `scripts/baseline_battery.py` stops after the first `meta_bad_request` or
+`adapter_schema_error` instead of spending the remaining pairs.
+
 **Spend.** The four rejected requests reported no usage, so no token was recorded and the
 recorded cost is $0.00; this has not been checked against Meta's billing.
 

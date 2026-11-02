@@ -532,7 +532,10 @@ fn the_validation_runs_of_2026_11_01_put_only_the_critic_on_spark() {
             .iter()
             .filter(|i| i.schema_name.as_deref() == Some("DraftChallenge"))
             .count();
-        assert_eq!(critic, rounds as usize, "{label}: one Critic call per round");
+        assert_eq!(
+            critic, rounds as usize,
+            "{label}: one Critic call per round"
+        );
         for inv in &r.model_invocations {
             let expected = if inv.schema_name.as_deref() == Some("DraftChallenge") {
                 "muse-spark-1.3"

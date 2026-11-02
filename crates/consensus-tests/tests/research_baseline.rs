@@ -309,7 +309,8 @@ fn the_baseline_battery_of_2026_11_01_failed_at_its_one_call() {
         let summary = baseline_summary(&run, &sha256_hex(&bytes));
         assert_eq!(summary["failure"]["code"], "meta_bad_request", "{label}");
         assert_eq!(
-            summary["failure"]["reason"], "meta_bad_request: the Meta API rejected the request (HTTP 400)",
+            summary["failure"]["reason"],
+            "meta_bad_request: the Meta API rejected the request (HTTP 400)",
             "{label}"
         );
         assert_eq!(summary["agent_verdict"], Value::Null, "{label}");

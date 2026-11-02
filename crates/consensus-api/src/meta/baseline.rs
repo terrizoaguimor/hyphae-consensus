@@ -148,7 +148,7 @@ pub struct DraftBaselineClaim {
 pub struct DraftBaselineObjection {
     pub kind: ChallengeKind,
     /// 1-based position in claims of the claim this objection targets, or null.
-    pub claim_number: Option<u32>,
+    pub claim_number: Option<String>,
     pub description: String,
     pub evidence_refs: Vec<String>,
     pub status: DraftObjectionStatus,
@@ -183,6 +183,44 @@ impl From<DraftBaselineVerdict> for AgentVerdict {
             DraftBaselineVerdict::Blocked => AgentVerdict::Blocked,
         }
     }
+}
+
+/// The baseline's strict schema, as sent: [`draft_schema`] of
+/// [`DraftBaselineAssessment`] with each objection's `claim_number` one of
+/// the claim positions `"1"` to `"12"` ([`MAX_CLAIMS_PER_PROPOSAL`]) or
+/// null, written in the Critic's form (`anyOf` of a string `enum` and
+/// null, [`critique_schema`]), the only form of an optional reference the
+/// live API has accepted. The generated form of an optional integer,
+/// `{"type": ["integer", "null"], "format": "uint32", "minimum": 0.0}`,
+/// appears in no role schema, and all four baseline calls of 2026-11-01
+/// that sent it were refused with HTTP 400 (docs/evaluation.md 7.7), so
+/// the baseline schema holds no `integer`, `format` or `minimum`. The
+/// role schemas are untouched.
+pub fn baseline_schema() -> Result<OrderedJson, String> {
+    let mut schema = draft_schema::<DraftBaselineAssessment>()?;
+    let positions: Vec<String> = (1..=MAX_CLAIMS_PER_PROPOSAL)
+        .map(|n| n.to_string())
+        .collect();
+    let positions: Vec<&str> = positions.iter().map(String::as_str).collect();
+    let claim_number = schema
+        .get_mut("definitions")
+        .and_then(|d| d.get_mut("DraftBaselineObjection"))
+        .and_then(|o| o.get_mut("properties"))
+        .and_then(|p| p.get_mut("claim_number"))
+        .ok_or("DraftBaselineObjection.claim_number: no such property")?;
+    let mut rewritten = Vec::new();
+    if let Some(description) = claim_number.get("description").cloned() {
+        rewritten.push(("description".to_string(), description));
+    }
+    rewritten.push((
+        "anyOf".to_string(),
+        OrderedJson::Array(vec![
+            string_enum(&positions, "claim_number")?,
+            OrderedJson::Object(vec![("type".into(), OrderedJson::Scalar("null".into()))]),
+        ]),
+    ));
+    *claim_number = OrderedJson::Object(rewritten);
+    Ok(schema)
 }
 
 impl MetaModelClient {
@@ -289,7 +327,8 @@ impl MetaModelClient {
                 // Unknown references are dropped, never trusted.
                 claim_id: o
                     .claim_number
-                    .and_then(|n| (n as usize).checked_sub(1))
+                    .and_then(|n| n.trim().parse::<usize>().ok())
+                    .and_then(|n| n.checked_sub(1))
                     .and_then(|i| claims.get(i))
                     .map(|c| c.id.clone()),
                 description: o.description,
@@ -329,7 +368,7 @@ impl BaselineModel for MetaModelClient {
         task: &Task,
         ctx: &RoleContext,
     ) -> Result<(BaselineAssessment, ModelInvocation), ModelError> {
-        let schema = draft_schema::<DraftBaselineAssessment>().map_err(schema_error)?;
+        let schema = baseline_schema().map_err(schema_error)?;
         let spec = CallSpec {
             schema_name: BASELINE_SCHEMA_NAME,
             system: baseline_system_prompt(),
@@ -405,6 +444,8 @@ mod tests {
             }
         }
         check(&schema);
+        // As sent, too.
+        check(&baseline_schema().unwrap().to_value());
         let text = schema.to_string();
         for verdict in [
             "supported",
@@ -417,6 +458,122 @@ mod tests {
         }
         // Nothing of the runtime's own vocabulary is asked for.
         assert!(!text.contains("recommendation"), "{text}");
+    }
+
+    /// Every member key and every `type` of a schema document, recursively.
+    fn constructs(v: &serde_json::Value, keys: &mut Vec<String>, types: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(map) => {
+                for (key, value) in map {
+                    keys.push(key.clone());
+                    if key == "type" {
+                        match value {
+                            serde_json::Value::String(t) => types.push(t.clone()),
+                            serde_json::Value::Array(ts) => types
+                                .extend(ts.iter().filter_map(|t| t.as_str()).map(str::to_string)),
+                            _ => {}
+                        }
+                    }
+                    constructs(value, keys, types);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                items.iter().for_each(|i| constructs(i, keys, types))
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_baseline_schema_uses_only_what_the_live_role_schemas_proved() {
+        let schema = baseline_schema().unwrap();
+        let value = schema.to_value();
+        let (mut keys, mut types) = (vec![], vec![]);
+        constructs(&value, &mut keys, &mut types);
+        // The 2026-11-01 HTTP 400s sent an optional u32 (docs/evaluation.md 7.7).
+        for banned in ["format", "minimum", "maximum"] {
+            assert!(!keys.iter().any(|k| k == banned), "{banned} in {value}");
+        }
+        assert!(!types.iter().any(|t| t == "integer"), "integer in {value}");
+        // The claim reference is the Critic's live-proven anyOf form.
+        let claim_number =
+            &value["definitions"]["DraftBaselineObjection"]["properties"]["claim_number"];
+        let positions: Vec<String> = (1..=MAX_CLAIMS_PER_PROPOSAL)
+            .map(|n| n.to_string())
+            .collect();
+        assert_eq!(
+            claim_number,
+            &serde_json::json!({
+                "description": "1-based position in claims of the claim this objection targets, or null.",
+                "anyOf": [{"type": "string", "enum": positions}, {"type": "null"}]
+            })
+        );
+        assert_eq!(positions.len(), 12);
+        // Every construct and type it uses appears in a role schema the
+        // live API accepted (the frozen ones, prompt-freeze-4).
+        let roles = [
+            proposal_schema().unwrap(),
+            critique_schema(&["claim-1"]).unwrap(),
+            evaluation_schema(&["claim-1"], &["item-1"], &["ev-a"], &["ev-a"]).unwrap(),
+            evaluation_schema(&["claim-1"], &[], &[], &[]).unwrap(),
+            revision_schema().unwrap(),
+        ];
+        let (mut role_keys, mut role_types) = (vec![], vec![]);
+        for role in &roles {
+            let role = role.to_value();
+            let (mut k, mut t) = (vec![], vec![]);
+            constructs(&role, &mut k, &mut t);
+            // No role schema holds the construct either.
+            for banned in ["format", "minimum", "maximum"] {
+                assert!(!k.iter().any(|key| key == banned), "{banned} in {role}");
+            }
+            assert!(!t.iter().any(|t| t == "integer"), "integer in {role}");
+            role_keys.extend(k);
+            role_types.extend(t);
+        }
+        // Keywords (property names aside: under "properties" a key is a
+        // field name, not a construct).
+        let keywords = [
+            "$schema",
+            "title",
+            "type",
+            "description",
+            "properties",
+            "required",
+            "additionalProperties",
+            "items",
+            "enum",
+            "anyOf",
+            "$ref",
+            "definitions",
+            "oneOf",
+            "allOf",
+        ];
+        fn keyword_keys(v: &serde_json::Value, out: &mut Vec<String>) {
+            if let Some(map) = v.as_object() {
+                for (key, value) in map {
+                    out.push(key.clone());
+                    if key == "properties" || key == "definitions" {
+                        if let Some(fields) = value.as_object() {
+                            fields.values().for_each(|f| keyword_keys(f, out));
+                        }
+                    } else {
+                        keyword_keys(value, out);
+                    }
+                }
+            } else if let Some(items) = v.as_array() {
+                items.iter().for_each(|i| keyword_keys(i, out));
+            }
+        }
+        let mut used = vec![];
+        keyword_keys(&value, &mut used);
+        for key in &used {
+            assert!(keywords.contains(&key.as_str()), "unexpected keyword {key}");
+            assert!(role_keys.contains(key), "{key} is in no role schema");
+        }
+        for t in &types {
+            assert!(role_types.contains(t), "type {t} is in no role schema");
+        }
     }
 
     #[test]

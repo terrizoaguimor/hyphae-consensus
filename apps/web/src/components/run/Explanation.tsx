@@ -119,7 +119,9 @@ function TechnicalTrace({
                   <code className="hc-code">{reason.reason}</code>
                   {")"}
                 </span>
-                {ids.length === 0 ? null : <span>{` ${t("technical.ids", { ids: ids.join(", ") })}`}</span>}
+                {ids.length === 0 ? null : (
+                  <span data-technical-ids>{` ${t("technical.ids", { ids: ids.join(", ") })}`}</span>
+                )}
                 {reason.reason === "evaluator_abstained" &&
                 reason.abstain_reason !== undefined &&
                 reason.abstain_reason !== null ? (

@@ -453,9 +453,12 @@
 
   /* A run's page is wider (80rem): its Playback tab sets the three role
      cards side by side once the stage reaches 60rem (about 340px a card,
-     from a 1440px screen up); at 52rem they could only stack. Prose inside
-     keeps its own measure (.hc-lead, .hc-list). */
-  .hc-main:has(.hc-run) {
+     from a 1440px screen up); at 52rem they could only stack. The width
+     comes from the page's own header (PageHeader wide, rendered by the
+     route), not from the loaded run, so the column does not jump when the
+     run arrives or fails. Prose inside keeps the site's measure: see
+     "a run's prose" below. */
+  .hc-main:has(> .hc-page-header--wide) {
     --hc-content-max: 80rem;
   }
 
@@ -936,6 +939,38 @@
     gap: var(--spacing-3);
   }
 
+  /* A button in an action row wraps its label when the row is narrower than
+     the label, instead of cutting it with an ellipsis: Astryx's Button is
+     one fixed-height nowrap line whose label clips, and "Eliminar las
+     preferencias guardadas" (Settings) or "Mostrar las limitaciones de las
+     pruebas del recibo" (a run's receipt) lost their ends on a 320-390px
+     phone. Its height becomes a minimum, so a one-line button keeps its
+     size (4px of padding a side around one label line is the element
+     height). No specificity beyond the button's class, so a button's own
+     size (.hc-decide-button, 3rem) still wins. The label span is the one
+     in the content wrapper (the spinner's wrapper is aria-hidden). */
+  :where(.hc-actions) > .astryx-button {
+    max-width: 100%;
+    height: auto;
+    min-height: var(--size-element-md);
+    padding-block: var(--spacing-1);
+    white-space: normal;
+    text-align: center;
+  }
+
+  :where(.hc-actions) > .astryx-button:where([data-size="sm"]) {
+    min-height: var(--size-element-sm);
+  }
+
+  :where(.hc-actions) > .astryx-button:where([data-size="lg"]) {
+    min-height: var(--size-element-lg);
+  }
+
+  .hc-actions > .astryx-button > span:not([aria-hidden]) > span {
+    overflow: visible;
+    text-overflow: clip;
+  }
+
   .hc-intro,
   .hc-section {
     display: flex;
@@ -1190,9 +1225,23 @@
     outline-offset: var(--focus-outline-offset);
   }
 
+  /* In the drawer (min(20rem, 85vw) wide: 240px of content on a 320px
+     screen) the control spans the drawer in three equal segments, and a
+     segment's icon, label and check wrap inside it. As one inline row it
+     could neither wrap nor shrink: "Sistema / Claro / Oscuro" and
+     "Système / Clair / Sombre" ran past the drawer at 320px, so the drawer
+     scrolled sideways (WCAG 1.4.10 reflow). */
+  .hc-drawer-section .hc-segmented {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .hc-drawer-section .hc-segment {
+    flex-wrap: wrap;
+    min-width: 0;
     min-height: 2.75rem;
-    padding: 0 var(--spacing-3);
+    padding: var(--spacing-1) var(--spacing-2);
+    text-align: center;
   }
 
   .hc-not-connected-message {
@@ -2578,6 +2627,23 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-2);
+  }
+
+  /* A failed check's ids (39-digit record ids, "ids: 1866..., 2904...")
+     break anywhere: one id is wider than the list on a 390px phone. */
+  [data-technical-reasons] > li {
+    overflow-wrap: anywhere;
+  }
+
+  /* A run's prose: the page is 80rem wide for the stage's three columns
+     (.hc-page-header--wide above), but paragraphs, model text and notices
+     keep the site's measure (46rem, as .hc-section > p), about 100
+     characters a line instead of 150. Tables, the stage grid and the cards
+     keep the full width. Scoped to the wide page, so the run's loading and
+     error panels read the same; never wider than the box around them. */
+  .hc-main:has(> .hc-page-header--wide)
+    :is(.hc-panel > p, .hc-explanation p, .hc-untrusted-text, .hc-override-notice) {
+    max-width: min(100%, 46rem);
   }
 
   /* The revision view: the original and the revised claims, side by side. */

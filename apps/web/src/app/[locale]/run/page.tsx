@@ -4,6 +4,10 @@
 // `id` query string (/<locale>/run/?id=<run_id>), behind the runtime API
 // gate. Reading the query needs a Suspense boundary in a static export; its
 // fallback is the same one-line status the workspace shows while loading.
+// The page header is wide (80rem): the column has its final width while the
+// gate probes, while the run loads and when it fails, not only once the
+// run's own markup appears (the title jumped about 224px sideways on a
+// 1920px screen when the width followed .hc-run).
 
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
@@ -24,7 +28,7 @@ export default async function RunPage({ params }: LocaleParams) {
   const t = await getTranslations({ locale });
   return (
     <>
-      <PageHeader title={t("Run.title")} />
+      <PageHeader title={t("Run.title")} wide />
       <ApiGate
         planned={[
           t("Runs.planned.own"),

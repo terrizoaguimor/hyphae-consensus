@@ -440,10 +440,13 @@ fn baseline_run_writes_a_verifiable_log_with_one_meta_call() {
 
 #[test]
 fn with_a_consensus_log_the_baseline_recalls_with_that_runs_claims() {
-    // The consensus reference run, recorded with the scripted doubles.
+    // The consensus reference run, recorded with the scripted doubles
+    // standing in for a run on muse-wonder-1.0 (a double names no model by
+    // default; the pairing holds the model equal).
     let dir = temp_dir("baseline-cli-consensus");
     let consensus_path = dir.join("consensus.jsonl");
-    let s = retry_constraint_scenario();
+    let mut s = retry_constraint_scenario();
+    s.model.model_label = Some("muse-wonder-1.0".into());
     let (title, description) = (s.input.title.clone(), s.input.description.clone());
     let mut log = EventLog::open(&consensus_path).unwrap();
     let mut orch = Orchestrator {

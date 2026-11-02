@@ -20,8 +20,9 @@
 #    250 s shutdown grace at a 240 s call budget: a run admitted between the
 #    idle answer and the stop signal is still settled and released).
 # 3. Waits up to --ready-wait seconds for "ready":true again (exit 4 when it
-#    does not come), prints the boot's `[startup] limits:` line when
-#    journalctl has it, then runs `ledger.sh status` and prints every open
+#    does not come), prints the boot's `[startup] limits:` line, and the
+#    `[startup] models:` line printed after it in the same boot (model per
+#    role, ledger prices; live mode only), when journalctl has them, then runs `ledger.sh status` and prints every open
 #    (unreleased) reservation: exit 3 when there is one (each counts at the
 #    run's worst case until `ledger.sh release <id> --by <operator>`, runbook
 #    9.3), 0 when there is none.
@@ -119,7 +120,12 @@ until printf '%s' "$(ready_body)" | tr -d ' ' | grep -q '"ready":true'; do
 done
 echo "[restart-when-idle] ready again"
 if command -v journalctl >/dev/null; then
-  journalctl -u "$UNIT" -n 200 --no-pager 2>/dev/null | grep -F '[startup] limits:' | tail -n 1 || true
+  # The last boot's limits line, then its models line (only one printed
+  # after that limits line counts: an older boot's is not this one's).
+  journalctl -u "$UNIT" -n 200 --no-pager 2>/dev/null | awk '
+    index($0, "[startup] limits:") { limits = $0; models = ""; next }
+    index($0, "[startup] models:") && limits != "" { models = $0 }
+    END { if (limits != "") print limits; if (models != "") print models }' || true
 fi
 
 status_json="$("$LEDGER_SH" status)" || { echo "[restart-when-idle] ledger.sh status failed" >&2; exit 1; }

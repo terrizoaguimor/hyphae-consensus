@@ -1302,6 +1302,16 @@ fn not_modified(etag: &str) -> Response {
     response
 }
 
+/// A research 304 carries the `Cache-Control` its 200 would (RFC 9110
+/// 15.4.5), so a revalidated index file stays `no-cache`.
+fn research_not_modified(etag: &str, cache: &'static str) -> Response {
+    let mut response = not_modified(etag);
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+    response
+}
+
 pub async fn research_file(
     State(state): State<AppState>,
     Path(path): Path<String>,
@@ -1309,10 +1319,11 @@ pub async fn research_file(
 ) -> Result<Response, ApiError> {
     // A conditional request is answered from the digest known at load,
     // without reading or hashing the file.
+    let cache = crate::showcase::research_cache_control(&path);
     if let Some(known) = state.showcase.known_sha256(&path) {
         let etag = format!("\"{known}\"");
         if etag_matches(&headers, &etag) {
-            return Ok(not_modified(&etag));
+            return Ok(research_not_modified(&etag, cache));
         }
     }
     let showcase = state.showcase.clone();
@@ -1324,7 +1335,7 @@ pub async fn research_file(
         })?;
     let etag = format!("\"{}\"", file.sha256);
     if etag_matches(&headers, &etag) {
-        return Ok(not_modified(&etag));
+        return Ok(research_not_modified(&etag, cache));
     }
     let mut response = Response::builder()
         .status(StatusCode::OK)
@@ -1338,10 +1349,7 @@ pub async fn research_file(
     if let Ok(v) = HeaderValue::from_str(&etag) {
         h.insert(header::ETAG, v);
     }
-    h.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=86400"),
-    );
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     if let Ok(v) = HeaderValue::from_str(&format!("sha256={}", file.sha256)) {
         h.insert("x-content-sha256", v);
     }

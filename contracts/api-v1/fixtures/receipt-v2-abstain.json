@@ -4,7 +4,7 @@
   },
   "chain": {
     "first_sequence": 1,
-    "head_hash": "6da0734816ee2e9bb4065f05dae8e46adb8dbb57353eb746cdfa66cb49775bf9",
+    "head_hash": "cde4abdcc1dca16743378e45d1e5a8e4ca2b385b5fc9527ffa7bbbe6b813c651",
     "last_sequence": 5,
     "note": "This run's events form a complete hash chain from genesis on their own: recomputing every record's hash and link from them alone verifies the run. head_hash is the hash of its last event. The chain is unsigned SHA-256. A successful check shows that the records received are internally consistent; it detects a change only against a hash obtained earlier, such as this receipt's head_hash or a published manifest. It cannot detect a run rewritten and re-hashed, a truncated tail or a deleted run, and it says nothing about whether the content is true.",
     "scope": "run"
@@ -52,7 +52,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-propose-1"
@@ -60,7 +60,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-critique-2"
@@ -68,7 +68,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-evaluate-3"

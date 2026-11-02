@@ -123,7 +123,10 @@ The [README](../README.md) has a summary of this page.
   server prints its effective limits at boot (one `[startup] limits:` line on stderr:
   per-call and connect timeouts, attempts, output bound, `reasoning_effort` set or unset,
   run deadline, run token cap, shutdown grace and the stop timeout it needs, live
-  concurrency, burst fraction, daily quotas; no key).
+  concurrency, burst fraction, daily quotas; no key), then, with live mode enabled, one
+  `[startup] models:` line: the model of the Proposer (proposal and revision), of the
+  Critic and of the Evaluator, and the ledger's input and output prices per million tokens,
+  set explicitly or the defaults.
 - **Prompts.** Everything a role did not write itself sits in separate `<UNTRUSTED_*>`
   blocks; a mitigation, not a boundary (details in [verification.md](verification.md#safety-invariants-enforced-in-code-covered-by-tests)).
 - **The public live mode (on the owner's key; not deployed).** Decided in ADR-0007,

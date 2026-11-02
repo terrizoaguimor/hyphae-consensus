@@ -7,7 +7,7 @@
   },
   "chain": {
     "first_sequence": 1,
-    "head_hash": "78d2fcab4f3cbc64c737f2b04af4a3ab5ac8a475dd3035d37b1dcc226438ff23",
+    "head_hash": "8976db247fb919e7f3298ae87352dc1317f35453946de716cde862223f51b54b",
     "last_sequence": 15,
     "note": "This run's events form a complete hash chain from genesis on their own: recomputing every record's hash and link from them alone verifies the run. head_hash is the hash of its last event. The chain is unsigned SHA-256. A successful check shows that the records received are internally consistent; it detects a change only against a hash obtained earlier, such as this receipt's head_hash or a published manifest. It cannot detect a run rewritten and re-hashed, a truncated tail or a deleted run, and it says nothing about whether the content is true.",
     "scope": "run"
@@ -81,7 +81,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-propose-1"
@@ -89,7 +89,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-critique-2"
@@ -97,7 +97,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-evaluate-3"
@@ -105,7 +105,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-revise-4"
@@ -113,7 +113,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-critique-5"
@@ -121,7 +121,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-evaluate-6"

@@ -2,11 +2,19 @@
 //! Deterministic test doubles for every port. These are shipping test
 //! infrastructure (used by `consensus-tests` and the M1 demo binary),
 //! never presented as real model or Hyphae behavior: fake invocations
-//! are labeled `provider: "fake"`.
+//! are labeled `provider: "fake"` and `model: "scripted"`
+//! ([`SCRIPTED_MODEL`]).
 
 use crate::ports::*;
 use consensus_domain::*;
 use std::collections::{HashMap, VecDeque};
+
+/// The `model` of every invocation a double reports. No model is called
+/// behind a scripted response, so none is named: a production model id
+/// here put "muse-wonder-1.0" on every role of a guided run's verbatim
+/// event log, the Proposer included, while the live Proposer runs on
+/// another model (round-10 deploy, 2026-11-02).
+pub const SCRIPTED_MODEL: &str = "scripted";
 
 /// Scripted model: each role call pops the next queued response. A
 /// scripted document is returned as written (only its correlation ids are
@@ -31,6 +39,10 @@ pub struct FakeModelClient {
     /// call order while any is left (e.g. an adapter's re-asked call with
     /// its `rejected_calls`).
     pub scripted_invocations: VecDeque<ModelInvocation>,
+    /// The `model` the generated invocations report: [`SCRIPTED_MODEL`]
+    /// when `None`. A test that stands the doubles in for a run recorded on
+    /// a real model (a baseline paired with it) names that model here.
+    pub model_label: Option<String>,
 }
 
 impl FakeModelClient {
@@ -45,9 +57,12 @@ impl FakeModelClient {
         let (input, output) = self.tokens_per_call;
         ModelInvocation {
             provider: "fake".into(),
-            // Mirrors the production model identity so receipt plumbing is
-            // exercised end-to-end; `provider` marks it as a double.
-            model: "muse-wonder-1.0".into(),
+            // No model is called: none is named ([`SCRIPTED_MODEL`]),
+            // unless a test names the model the doubles stand in for.
+            model: self
+                .model_label
+                .clone()
+                .unwrap_or_else(|| SCRIPTED_MODEL.into()),
             request_id: Some(format!("fake-{stage}-{}", self.calls.len())),
             latency_ms: Some(1),
             input_tokens: (!self.omit_usage).then_some(input),
@@ -280,7 +295,7 @@ impl crate::baseline::BaselineModel for ScriptedBaselineModel {
         let (input, output) = self.tokens_per_call;
         let invocation = ModelInvocation {
             provider: "fake".into(),
-            model: "muse-wonder-1.0".into(),
+            model: SCRIPTED_MODEL.into(),
             request_id: Some(format!("fake-assess-{}", self.contexts.len())),
             latency_ms: Some(1),
             input_tokens: Some(input),

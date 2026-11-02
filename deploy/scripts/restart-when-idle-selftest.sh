@@ -55,7 +55,9 @@ STUB
 
 cat >"$work/bin/journalctl" <<'STUB'
 #!/usr/bin/env bash
+echo "[startup] models: proposer OLD-BOOT (proposal and revision)"
 echo "[startup] limits: model timeout 240 s, run deadline 1200 s"
+echo "[startup] models: proposer muse-spark-1.3 (proposal and revision), critic muse-wonder-1.0, evaluator muse-wonder-1.0"
 STUB
 
 cat >"$work/ledger" <<'STUB'
@@ -146,6 +148,14 @@ run_case() {
   if [ "$want" -eq 3 ] && ! printf '%s\n' "$out" | grep -qF "5f0c8a52-1d3e-4c43-9a59-0d6f3b1c2e7a"; then
     echo "selftest FAIL $name: the open reservation id is not printed"; printf '%s\n' "$out" | sed 's/^/    /'
     failures=$((failures + 1)); return 0
+  fi
+  if [ "$want" -eq 0 ] || [ "$want" -eq 3 ]; then
+    if ! printf '%s\n' "$out" | grep -qF "[startup] limits: model timeout 240 s" \
+       || ! printf '%s\n' "$out" | grep -qF "[startup] models: proposer muse-spark-1.3" \
+       || printf '%s\n' "$out" | grep -qF "OLD-BOOT"; then
+      echo "selftest FAIL $name: not exactly the last boot's limits and models lines"; printf '%s\n' "$out" | sed 's/^/    /'
+      failures=$((failures + 1)); return 0
+    fi
   fi
   echo "selftest ok   $name (exit $rc)"
 }

@@ -1970,6 +1970,7 @@ daemon-reload`, edit `public.env`, then `restart-when-idle.sh`. Read-only checks
 ```sh
 systemctl show consensus-public -p Environment -p TimeoutStopUSec
 journalctl -u consensus-public -n 50 --no-pager | grep -F '[startup] limits:'   # 240 s, run deadline 1200 s, token cap 90000, grace 250 s, live concurrency 2, burst 0.6
+journalctl -u consensus-public -n 50 --no-pager | grep -F '[startup] models:'   # proposer muse-spark-1.3, critic and evaluator muse-wonder-1.0; prices $4.00/$20.00 (set explicitly)
 sudo curl -sS --unix-socket /run/consensus/public.sock -H 'Host: <hostname>' -H 'CF-Connecting-IP: 203.0.113.10' \
      -H 'CF-IPCountry: US' http://localhost/api/v1/capabilities | grep -o '"live_concurrency":[0-9]*'   # 2
 ```

@@ -723,7 +723,8 @@ from Cloudflare's geolocation of the client address; a VPN or proxy defeats it (
 accepted limit of any geo-block). A development bind that trusts no proxy header blocks
 nothing on the portal and refuses every live run (`geo_blocked_live`, asserted by the
 Korea test). Responses the edge serves from its cache never reach the origin's check:
-`/research` files carry `public, max-age=86400`, `/_next/static/` assets
+pinned `/research` files carry `public, max-age=86400` (its index files `MANIFEST.json`,
+`SHA256SUMS` and `README.md` carry `no-cache`), `/_next/static/` assets
 `public, max-age=31536000, immutable` and other static files `public, max-age=3600`
 (`api/v1.rs::research_file`, `static_files.rs`), so for those only the edge rule applies.
 The Cloudflare rule is the primary control and has not been configured yet (G10).

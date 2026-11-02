@@ -645,6 +645,31 @@ pub fn public_limits_line(
     )
 }
 
+/// `serve-public`'s boot line of the model each role's calls go to and the
+/// live ledger's one price table, printed to stderr (the journal) after the
+/// limits line when live mode is enabled: the Proposer's model (its
+/// proposal and revision, `CONSENSUS_MODEL_PROPOSER`), the Critic's
+/// (`CONSENSUS_MODEL_CRITIC`), the Evaluator's (`CONSENSUS_MODEL`), then the
+/// input and output prices per million tokens and whether they were set
+/// explicitly (a mixed configuration requires it,
+/// [`LiveConfig::require_prices_for_models`]) or are the defaults. Model ids
+/// and prices only: never a key, a secret or a path.
+pub fn public_models_line(meta: &MetaConfig, live: &LiveConfig) -> String {
+    format!(
+        "[startup] models: proposer {} (proposal and revision), critic {}, evaluator {}; ledger prices ${} input, ${} output per million tokens ({})",
+        meta.model_for(crate::meta::Role::Propose),
+        meta.model_for(crate::meta::Role::Critique),
+        meta.model_for(crate::meta::Role::Evaluate),
+        live.budget.price_input_per_m,
+        live.budget.price_output_per_m,
+        if live.prices_explicit {
+            "set explicitly"
+        } else {
+            "defaults"
+        },
+    )
+}
+
 /// Exactly what `serve-public` prints to stderr about its limits, in
 /// order: the [`public_limits_line`], then the [`timeout_warning`] of an
 /// enabled live mode whose call budget is too short for the output bound.
@@ -719,10 +744,12 @@ where
     let mut evidence_status = None;
     // The Meta call limits of an enabled live mode (no key).
     let mut call_limits: Option<CallLimits> = None;
+    // The model per role and the ledger prices of an enabled live mode.
+    let mut models_line: Option<String> = None;
     let live_gate = if live.enabled {
         require_snapshot_pins(&cfg.listener, |name| std::env::var(name).ok())?;
         let enabled = live.clone();
-        let (gate, status, limits) = tokio::task::spawn_blocking(move || {
+        let (gate, status, limits, models) = tokio::task::spawn_blocking(move || {
             let meta = public_meta_config()?;
             // Before the snapshot boots: a mixed-model configuration
             // (Proposer, Critic or both) without explicit ledger prices
@@ -733,12 +760,19 @@ where
             let factory = evidence()?;
             let status = factory.as_ref().map(|f| f.status());
             let limits = CallLimits::of(&meta);
-            Ok::<_, String>((build_live_gate(&enabled, meta, factory)?, status, limits))
+            let models = public_models_line(&meta, &enabled);
+            Ok::<_, String>((
+                build_live_gate(&enabled, meta, factory)?,
+                status,
+                limits,
+                models,
+            ))
         })
         .await
         .map_err(|e| format!("public live mode setup: {e}"))??;
         evidence_status = status;
         call_limits = Some(limits);
+        models_line = Some(models);
         Some(gate)
     } else {
         let snapshot_dir_set =
@@ -764,6 +798,9 @@ where
         },
     )?;
     for line in startup_limit_lines(call_limits.as_ref(), &live, &cfg.runtime, shutdown_grace) {
+        eprintln!("{line}");
+    }
+    if let Some(line) = &models_line {
         eprintln!("{line}");
     }
     for warning in &built.warnings {
@@ -1108,6 +1145,47 @@ mod tests {
         assert!(
             public_limits_line(Some(&unset), &live, &rt, grace).contains("reasoning_effort unset")
         );
+    }
+
+    #[test]
+    fn the_models_line_names_each_roles_model_and_the_ledger_prices_and_no_key() {
+        // One model for every role, default prices.
+        let (mut meta, live, _) = public_values();
+        let line = public_models_line(&meta, &live);
+        assert_eq!(
+            line,
+            "[startup] models: proposer muse-wonder-1.0 (proposal and revision), critic muse-wonder-1.0, evaluator muse-wonder-1.0; ledger prices $4.00 input, $20.00 output per million tokens (defaults)"
+        );
+        // The deployed split (round 10): the Proposer on muse-spark-1.3, the
+        // Critic and the Evaluator on muse-wonder-1.0, prices set explicitly.
+        meta.proposer_model = "muse-spark-1.3".to_string();
+        let live_vars: BTreeMap<&'static str, String> = [
+            (live_vars::PRICE_INPUT_PER_M, "4.00"),
+            (live_vars::PRICE_OUTPUT_PER_M, "20.00"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k, v.to_string()))
+        .collect();
+        let priced = LiveConfig::load(crate::live::config::Exposure::Public, &live_vars).unwrap();
+        priced.require_prices_for_models(&meta).unwrap();
+        let line = public_models_line(&meta, &priced);
+        for field in [
+            "[startup] models: ",
+            "proposer muse-spark-1.3 (proposal and revision)",
+            "critic muse-wonder-1.0",
+            "evaluator muse-wonder-1.0",
+            "ledger prices $4.00 input, $20.00 output per million tokens (set explicitly)",
+        ] {
+            assert!(line.contains(field), "{field:?} missing from {line}");
+        }
+        meta.critic_model = "muse-x-2".to_string();
+        assert!(public_models_line(&meta, &priced).contains("critic muse-x-2,"));
+        for line in [&line, &public_models_line(&meta, &live)] {
+            assert!(!line.contains(CANARY), "{line}");
+            assert!(!line.contains("LLM_"), "{line}");
+            assert!(!line.contains("canary"), "{line}");
+            assert!(!line.contains('/'), "no path: {line}");
+        }
     }
 
     #[test]

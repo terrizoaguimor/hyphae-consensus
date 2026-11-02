@@ -25,6 +25,22 @@ use std::path::{Path, PathBuf};
 /// digest computed on read.
 const UNPINNED: [&str; 3] = ["MANIFEST.json", "README.md", "SHA256SUMS"];
 
+/// `Cache-Control` of `/research/<path>`. The unpinned index files
+/// ([`UNPINNED`]: the manifest, its `SHA256SUMS` and the README) change
+/// with every archive update while their URL stays the same, so a browser
+/// must revalidate them on every use (`no-cache`; their `ETag` makes that a
+/// cheap 304): a day-long cache kept the previous manifest, which the
+/// showcase then reported as not matching its published SHA-256 (round-10
+/// deploy, 2026-11-02). A pinned file's bytes are fixed by the manifest's
+/// digest, so it keeps a day of caching.
+pub fn research_cache_control(path: &str) -> &'static str {
+    if UNPINNED.contains(&path) {
+        "no-cache"
+    } else {
+        "public, max-age=86400"
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct Manifest {
     #[serde(default)]
@@ -434,6 +450,23 @@ mod tests {
         let c01 = list.entries.iter().find(|e| e.label == "C01").expect("C01");
         assert!(c01.head_hash.is_none());
         assert!(c01.provenance.flags.contains(&ProvenanceFlag::Unchained));
+    }
+
+    #[test]
+    fn the_index_files_are_revalidated_and_pinned_files_cached_for_a_day() {
+        for index in ["MANIFEST.json", "SHA256SUMS", "README.md"] {
+            assert_eq!(research_cache_control(index), "no-cache", "{index}");
+        }
+        for pinned in [
+            "2026-10-27/live-battery-2026-10-27-final.jsonl",
+            "2026-11-01/live-battery-2026-11-01-proposer-spark/MANIFEST.json",
+        ] {
+            assert_eq!(
+                research_cache_control(pinned),
+                "public, max-age=86400",
+                "{pinned}"
+            );
+        }
     }
 
     #[test]

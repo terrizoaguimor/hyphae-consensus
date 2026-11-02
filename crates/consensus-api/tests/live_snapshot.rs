@@ -2213,6 +2213,17 @@ fn serve_public_refuses_a_mixed_model_proposer_without_explicit_ledger_prices() 
         .concat(),
     );
     assert!(s.listening, "{s:?}");
+    // The boot names the split and the prices the ledger reserves at.
+    let models: Vec<&String> = s
+        .stderr
+        .iter()
+        .filter(|l| l.starts_with("[startup] models:"))
+        .collect();
+    assert_eq!(
+        models,
+        [&"[startup] models: proposer muse-spark-1.3 (proposal and revision), critic muse-wonder-1.0, evaluator muse-wonder-1.0; ledger prices $4.00 input, $20.00 output per million tokens (set explicitly)".to_string()],
+        "{s:?}"
+    );
 
     let bad = ("CONSENSUS_MODEL_PROPOSER", "muse spark".to_string());
     let s = serve_public(&scratch, &[live, fx.vars(), vec![bad]].concat());

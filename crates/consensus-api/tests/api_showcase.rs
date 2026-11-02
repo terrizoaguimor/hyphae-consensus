@@ -140,6 +140,11 @@ async fn research_files_are_served_verbatim_with_their_digest() {
         response.headers()["x-content-sha256"],
         format!("sha256={sha}")
     );
+    // A pinned file is fixed by its digest: a day of caching.
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "public, max-age=86400"
+    );
     let bytes = body_bytes(response).await;
     let on_disk =
         std::fs::read(research_dir().join("2026-10-27/live-battery-2026-10-27-final.jsonl"))
@@ -153,10 +158,36 @@ async fn research_files_are_served_verbatim_with_their_digest() {
         )
         .await;
     assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "public, max-age=86400"
+    );
 
+    // The index files change with every archive update under the same URL:
+    // revalidated on every use (a cached old manifest made the showcase
+    // report a false SHA-256 mismatch, round-10 deploy), 304 included.
     let response = server.send(Req::get("/research/MANIFEST.json")).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+    let manifest_etag = response.headers()[header::ETAG]
+        .to_str()
+        .unwrap()
+        .to_string();
+    let response = server
+        .send(Req::get("/research/MANIFEST.json").header("if-none-match", &manifest_etag))
+        .await;
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+    for index in ["/research/SHA256SUMS", "/research/README.md"] {
+        let response = server.send(Req::get(index)).await;
+        assert_eq!(response.status(), StatusCode::OK, "{index}");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-cache",
+            "{index}"
+        );
+    }
 
     for bad in [
         "/research/../Cargo.toml",

@@ -1,7 +1,7 @@
 {
   "chain": {
     "first_sequence": 1,
-    "head_hash": "6da0734816ee2e9bb4065f05dae8e46adb8dbb57353eb746cdfa66cb49775bf9",
+    "head_hash": "cde4abdcc1dca16743378e45d1e5a8e4ca2b385b5fc9527ffa7bbbe6b813c651",
     "last_sequence": 5,
     "scope": "run"
   },
@@ -69,13 +69,13 @@
         "role": "proposer"
       },
       "event_id": "evt-0003",
-      "hash": "2be4a058129b1b6eef10047fdbbd1985b361a5f8226116dab78dbe2f963a2948",
+      "hash": "db6d1aab3c564955b6d13d7d5dc135dda1166f8f9d7761548857076c3ac44a80",
       "occurred_at": "2026-10-26T09:00:00Z",
       "payload": {
         "invocation": {
           "input_tokens": 0,
           "latency_ms": 1,
-          "model": "muse-wonder-1.0",
+          "model": "scripted",
           "output_tokens": 0,
           "provider": "fake",
           "request_id": "fake-propose-1",
@@ -119,7 +119,7 @@
         "role": "critic"
       },
       "event_id": "evt-0004",
-      "hash": "ab635919e38b3e85386f749a131293c6a79cd5ef1db04ee5cd698983d69e2f18",
+      "hash": "395810e46babf32a29d81c7b59dbb9030f0f10fbf33093612261d1fe82c2c4eb",
       "occurred_at": "2026-10-26T09:00:00Z",
       "payload": {
         "challenge": {
@@ -133,7 +133,7 @@
         "invocation": {
           "input_tokens": 0,
           "latency_ms": 1,
-          "model": "muse-wonder-1.0",
+          "model": "scripted",
           "output_tokens": 0,
           "provider": "fake",
           "request_id": "fake-critique-2",
@@ -141,7 +141,7 @@
         },
         "type": "challenge_submitted"
       },
-      "prev_hash": "2be4a058129b1b6eef10047fdbbd1985b361a5f8226116dab78dbe2f963a2948",
+      "prev_hash": "db6d1aab3c564955b6d13d7d5dc135dda1166f8f9d7761548857076c3ac44a80",
       "run_id": "run-00000000-0000-4000-8000-000000000005",
       "schema_version": "1.3",
       "sequence": 3
@@ -152,7 +152,7 @@
         "role": "evidence_evaluator"
       },
       "event_id": "evt-0005",
-      "hash": "133ac82afe33a9a992fd264f2748c3f0a4e8f286e78a14cd3ace5ad570aef2c8",
+      "hash": "fb5c4d19bd54263994a121c049919a0d789ad68938bebbfa4d4b7731e829148c",
       "occurred_at": "2026-10-26T09:00:00Z",
       "payload": {
         "evaluation": {
@@ -176,7 +176,7 @@
         "invocation": {
           "input_tokens": 0,
           "latency_ms": 1,
-          "model": "muse-wonder-1.0",
+          "model": "scripted",
           "output_tokens": 0,
           "provider": "fake",
           "request_id": "fake-evaluate-3",
@@ -184,7 +184,7 @@
         },
         "type": "evaluation_submitted"
       },
-      "prev_hash": "ab635919e38b3e85386f749a131293c6a79cd5ef1db04ee5cd698983d69e2f18",
+      "prev_hash": "395810e46babf32a29d81c7b59dbb9030f0f10fbf33093612261d1fe82c2c4eb",
       "run_id": "run-00000000-0000-4000-8000-000000000005",
       "schema_version": "1.3",
       "sequence": 4
@@ -194,7 +194,7 @@
         "kind": "runtime"
       },
       "event_id": "evt-0006",
-      "hash": "6da0734816ee2e9bb4065f05dae8e46adb8dbb57353eb746cdfa66cb49775bf9",
+      "hash": "cde4abdcc1dca16743378e45d1e5a8e4ca2b385b5fc9527ffa7bbbe6b813c651",
       "occurred_at": "2026-10-26T09:00:00Z",
       "payload": {
         "recommendation": {
@@ -211,7 +211,7 @@
         },
         "type": "recommendation_issued"
       },
-      "prev_hash": "133ac82afe33a9a992fd264f2748c3f0a4e8f286e78a14cd3ace5ad570aef2c8",
+      "prev_hash": "fb5c4d19bd54263994a121c049919a0d789ad68938bebbfa4d4b7731e829148c",
       "run_id": "run-00000000-0000-4000-8000-000000000005",
       "schema_version": "1.3",
       "sequence": 5
@@ -221,7 +221,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-propose-1",
@@ -230,7 +230,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-critique-2",
@@ -239,7 +239,7 @@
     {
       "input_tokens": 0,
       "latency_ms": 1,
-      "model": "muse-wonder-1.0",
+      "model": "scripted",
       "output_tokens": 0,
       "provider": "fake",
       "request_id": "fake-evaluate-3",

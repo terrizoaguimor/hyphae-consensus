@@ -516,10 +516,12 @@ fn receipt_preserves_exact_model_identity_and_limitations() {
     let receipt = build_receipt(&log, &agg.run_id, TS.into()).unwrap();
 
     assert!(!receipt.model_invocations.is_empty());
+    // The double names no production model: no model is called behind a
+    // scripted response, whatever model a live role runs on.
     assert!(receipt
         .model_invocations
         .iter()
-        .all(|i| i.model == "muse-wonder-1.0"));
+        .all(|i| i.model == SCRIPTED_MODEL));
     assert!(receipt
         .model_invocations
         .iter()
@@ -528,7 +530,8 @@ fn receipt_preserves_exact_model_identity_and_limitations() {
         .proof_limitations
         .contains("do not establish that the content is true"));
     let json = serde_json::to_string(&receipt).unwrap();
-    assert!(json.contains("muse-wonder-1.0"));
+    assert!(json.contains("\"model\":\"scripted\""), "{json}");
+    assert!(!json.contains("muse-"), "a production model id: {json}");
 }
 
 #[test]

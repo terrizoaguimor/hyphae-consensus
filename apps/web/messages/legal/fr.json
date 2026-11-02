@@ -32,7 +32,7 @@
         },
         "outputs": {
           "heading": "Sorties générées par l’IA",
-          "body": "Dans les exécutions en direct, les propositions, critiques et évaluations sont générées par le modèle <code>muse-wonder-1.0</code> de Meta. Elles peuvent être fausses, incomplètes ou incohérentes, et elles sont signalées comme générées par l’IA. Les exécutions guidées sont scénarisées, et les exécutions enregistrées rejouent des sorties antérieures de modèles. Vérifiez par vous-même tout ce qui compte."
+          "body": "Dans les exécutions en direct, les propositions et les révisions sont générées par le modèle <code>muse-spark-1.3</code> de Meta, et les critiques et les évaluations par le modèle <code>muse-wonder-1.0</code> de Meta. Elles peuvent être fausses, incomplètes ou incohérentes, et elles sont signalées comme générées par l’IA. Les exécutions guidées sont scénarisées, et les exécutions enregistrées rejouent des sorties antérieures de modèles. Vérifiez par vous-même tout ce qui compte."
         },
         "execution": {
           "heading": "Rien n’est exécuté",
@@ -178,7 +178,7 @@
     "sections": {
       "independent": {
         "heading": "Indépendant",
-        "body": "Hyphae Consensus n’est ni affilié à Meta, ni parrainé ni approuvé par Meta. Il utilise le modèle <code>muse-wonder-1.0</code> de Meta via la Meta Model API."
+        "body": "Hyphae Consensus n’est ni affilié à Meta, ni parrainé ni approuvé par Meta. Il utilise les modèles <code>muse-spark-1.3</code> (pour le Proposant) et <code>muse-wonder-1.0</code> (pour le Critique et l’Évaluateur des éléments probants) de Meta via la Meta Model API."
       },
       "hyphae": {
         "heading": "Hyphae",
@@ -190,7 +190,7 @@
       },
       "ai": {
         "heading": "Assistance par IA",
-        "body": "Le développement a utilisé des assistants de programmation par IA : Muse Code de Meta (avec Muse Wonder Full) et Claude d’Anthropic. Les commits auxquels Claude a contribué portent une ligne Co-Authored-By. Toute l’inférence au sein du produit passe uniquement par la Meta Model API (<code>muse-wonder-1.0</code>) ; les assistants de programmation ne font pas partie du produit et n’apparaissent jamais dans les reçus. Le responsable relit et autorise chaque modification."
+        "body": "Le développement a utilisé des assistants de programmation par IA : Muse Code de Meta (avec Muse Wonder Full) et Claude d’Anthropic. Les commits auxquels Claude a contribué portent une ligne Co-Authored-By. Toute l’inférence au sein du produit passe uniquement par la Meta Model API (<code>muse-spark-1.3</code> pour le Proposant, <code>muse-wonder-1.0</code> pour le Critique et l’Évaluateur des éléments probants) ; les assistants de programmation ne font pas partie du produit et n’apparaissent jamais dans les reçus. Le responsable relit et autorise chaque modification."
       },
       "owner": {
         "heading": "Responsable",

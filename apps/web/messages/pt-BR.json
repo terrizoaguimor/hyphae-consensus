@@ -210,7 +210,7 @@
     "lead": "Inicie uma deliberação em um de dois modos.",
     "planned": {
       "guided": "oferecer um exemplo guiado que começa na hora, com papéis roteirizados e evidências simuladas, com o rótulo SIMULADO e sem chamar nenhum modelo;",
-      "live": "oferecer as tarefas predefinidas e selecionadas do modo Meta ao vivo, que chamam o muse-wonder-1.0 da Meta com evidências de um snapshot selado do Hyphae (só tarefas predefinidas, sem texto livre; as execuções da última bateria gravada levaram cerca de 4 a 7 minutos);",
+      "live": "oferecer as tarefas predefinidas e selecionadas do modo Meta ao vivo, que chamam o muse-spark-1.3 da Meta para o Proponente (propostas e revisões) e o muse-wonder-1.0 para o Crítico e o Avaliador de evidências, com evidências de um snapshot selado do Hyphae (só tarefas predefinidas, sem texto livre; as execuções da última bateria gravada levaram cerca de 4 a 7 minutos);",
       "fallback": "oferecer uma execução gravada no lugar quando o modo ao vivo estiver ocupado ou seu orçamento diário tiver acabado;",
       "return": "permitir que você saia e volte à sua execução por Minhas execuções."
     },
@@ -1278,7 +1278,7 @@
       },
       "live": {
         "title": "Tarefas predefinidas do modo Meta ao vivo",
-        "body": "As execuções ao vivo vão chamar o muse-wonder-1.0 da Meta com tarefas predefinidas e selecionadas, e com evidências de um snapshot selado do Hyphae. As execuções da última bateria gravada levaram cerca de 4 a 7 minutos. Quando o modo ao vivo estiver ocupado ou seu orçamento diário tiver acabado, uma execução gravada será oferecida no lugar."
+        "body": "As execuções ao vivo vão chamar o muse-spark-1.3 da Meta para o Proponente (propostas e revisões) e o muse-wonder-1.0 para o Crítico e o Avaliador de evidências, com tarefas predefinidas e selecionadas, e com evidências de um snapshot selado do Hyphae. As execuções da última bateria gravada levaram cerca de 4 a 7 minutos. Quando o modo ao vivo estiver ocupado ou seu orçamento diário tiver acabado, uma execução gravada será oferecida no lugar."
       },
       "runs": {
         "title": "Volte por Minhas execuções",
@@ -1322,7 +1322,7 @@
       "evidence": "SNAPSHOT SELADO",
       "recorded": "Modelo da Meta · gravado em {date}",
       "live": "Modelo da Meta · ao vivo",
-      "description": "Uma execução em andamento: chamadas ao vivo ao muse-wonder-1.0 da Meta, com evidências de um snapshot selado do Hyphae cujas provas são verificadas de novo a cada execução. META AO VIVO nunca aparece sozinho; o rótulo das evidências fica sempre ao lado."
+      "description": "Uma execução em andamento: chamadas ao vivo ao muse-spark-1.3 da Meta (Proponente) e ao muse-wonder-1.0 (Crítico e Avaliador de evidências), com evidências de um snapshot selado do Hyphae cujas provas são verificadas de novo a cada execução. META AO VIVO nunca aparece sozinho; o rótulo das evidências fica sempre ao lado."
     },
     "metaModel": {
       "label": "MODELO META",

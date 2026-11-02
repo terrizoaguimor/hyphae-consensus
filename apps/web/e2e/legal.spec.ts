@@ -29,9 +29,11 @@ for (const locale of locales) {
     }
     // Two pages show the same day exactly when their texts changed on the
     // same day (tests/legal-dates.test.ts pins which day that is): the
-    // Terms, Privacy and Limitations changed on 2026-11-01, About on
-    // 2026-10-27. (The earlier fixed pairs here went stale when the Terms
-    // and the Privacy notice were re-dated on 2026-11-01.)
+    // Terms, Privacy and Limitations changed on 2026-11-01, and About too
+    // (round 10: the model split of 2026-11-01 changed its "Independent" and
+    // "AI assistance" sections; it had shown 2026-10-27 until then). (The
+    // earlier fixed pairs here went stale when the Terms and the Privacy
+    // notice were re-dated on 2026-11-01.)
     for (let a = 0; a < documents.length; a += 1) {
       for (let b = a + 1; b < documents.length; b += 1) {
         const sameDay =
@@ -40,6 +42,8 @@ for (const locale of locales) {
         expect(shown[a] === shown[b], `${documents[a]} and ${documents[b]}`).toBe(sameDay);
       }
     }
-    expect(shown[3]).not.toBe(shown[0]);
+    // About now shows the same day as Terms, and that day is 2026-11-01.
+    expect(shown[3]).toBe(shown[0]);
+    expect(LEGAL_TEXT_CHANGED.about.toISOString().slice(0, 10)).toBe("2026-11-01");
   });
 }

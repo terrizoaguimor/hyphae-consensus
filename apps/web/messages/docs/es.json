@@ -33,7 +33,7 @@
         },
         "technical": {
           "runtime": "El entorno de ejecución está escrito en Rust: contratos tipados, una máquina de estados determinista y un log de eventos de solo anexión cuyos registros están encadenados con hashes SHA-256. La cadena se verifica al abrir un log, y la reproducción vuelve a derivar cada recomendación registrada con el esquema 1.1 o posterior.",
-          "integrations": "Los modelos se llaman a través de la Meta Model API (<code>muse-wonder-1.0</code>, salida estructurada). Hyphae se lee mediante su interfaz MCP con herramientas de solo lectura, y las pruebas se verifican sin conexión con <code>hyphae proof verify</code>.",
+          "integrations": "Los modelos se llaman a través de la Meta Model API con salida estructurada: <code>muse-spark-1.3</code> para el Proponente, <code>muse-wonder-1.0</code> para el Crítico y el Evaluador de evidencia. Hyphae se lee mediante su interfaz MCP con herramientas de solo lectura, y las pruebas se verifican sin conexión con <code>hyphae proof verify</code>.",
           "untrusted": "La memoria recuperada y las salidas de otros modelos se tratan como datos no confiables, nunca como instrucciones."
         }
       },
@@ -57,7 +57,7 @@
         "technical": {
           "rounds": "Una ejecución permite como máximo 2 rondas de revisión. Con el protocolo 1.3, deja de revisar cuando una ronda no resuelve ninguna de las objeciones que la evaluación anterior dejó abiertas; las ejecuciones grabadas con el protocolo 1.2 comparaban, en cambio, la cantidad de objeciones sin resolver.",
           "bounds": "Cada ejecución tiene un límite de 9 llamadas a modelos más 2 nuevas peticiones como máximo (una respuesta sin ninguna afirmación utilizable, o que no se pudo leer, se vuelve a pedir una vez; un juicio, nunca), 20 registros de evidencia distintos y un presupuesto de tokens (150 000 tokens de entrada y salida por defecto). El entorno de ejecución revisa el presupuesto después de cada llamada, así que una ejecución puede superarlo en una llamada.",
-          "model": "En las ejecuciones en vivo, los tres roles los desempeña <code>muse-wonder-1.0</code> de Meta. Cada respuesta debe ajustarse a un esquema estricto con campos obligatorios; si no, la ejecución falla con un motivo registrado."
+          "model": "En las ejecuciones en vivo, el Proponente (sus propuestas y revisiones) funciona con <code>muse-spark-1.3</code> de Meta, y el Crítico y el Evaluador de evidencia, con <code>muse-wonder-1.0</code> de Meta. Cada llamada registra el modelo con el que se hizo. Cada respuesta debe ajustarse a un esquema estricto con campos obligatorios; si no, la ejecución falla con un motivo registrado."
         }
       },
       "not-voting": {
@@ -176,7 +176,7 @@
           },
           "live": {
             "heading": "Meta en vivo (META EN VIVO + INSTANTÁNEA SELLADA)",
-            "body": "Llamadas reales a <code>muse-wonder-1.0</code> de Meta, con evidencia de una instantánea sellada de Hyphae: un conjunto fijo de registros sintéticos capturado una vez y verificado de nuevo en cada ejecución. Solo tareas predefinidas y seleccionadas, sin texto libre, y con un presupuesto diario."
+            "body": "Llamadas reales a <code>muse-spark-1.3</code> (Proponente) y a <code>muse-wonder-1.0</code> (Crítico y Evaluador de evidencia) de Meta, con evidencia de una instantánea sellada de Hyphae: un conjunto fijo de registros sintéticos capturado una vez y verificado de nuevo en cada ejecución. Solo tareas predefinidas y seleccionadas, sin texto libre, y con un presupuesto diario."
           },
           "showcase": {
             "heading": "Vitrina de investigación (GRABADO)",

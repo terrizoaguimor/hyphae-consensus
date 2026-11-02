@@ -65,7 +65,7 @@ export const LEGAL_TEXT_CHANGED: Readonly<Record<LegalPage | "about", Date>> = {
   terms: new Date("2026-11-01T00:00:00Z"),
   privacy: new Date("2026-11-01T00:00:00Z"),
   limitations: new Date("2026-11-01T00:00:00Z"),
-  about: new Date("2026-10-27T00:00:00Z"),
+  about: new Date("2026-11-01T00:00:00Z"),
 };
 
 /**

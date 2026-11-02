@@ -335,6 +335,16 @@ describe("legal texts state the required facts in every locale", () => {
     ["Legal.terms.sections.who.items.territories", /Korea|Corea|Coreia|Corée/],
     ["Legal.terms.sections.use.body", /<aup>/],
     ["Legal.terms.sections.outputs.body", /muse-wonder-1\.0/],
+    // The model split of 2026-11-01: the Proposer on muse-spark-1.3, the
+    // Critic and the Evidence Evaluator on muse-wonder-1.0. The AI-generated
+    // content disclosure and the About page name both models.
+    ["Legal.terms.sections.outputs.body", /muse-spark-1\.3/],
+    ["About.sections.independent.body", /muse-spark-1\.3/],
+    ["About.sections.independent.body", /muse-wonder-1\.0/],
+    ["About.sections.ai.body", /muse-spark-1\.3/],
+    ["About.sections.ai.body", /muse-wonder-1\.0/],
+    ["Docs.articles.three-roles.technical.model", /muse-spark-1\.3/],
+    ["Docs.articles.three-roles.technical.model", /muse-wonder-1\.0/],
     ["Legal.privacy.sections.summary.items.retention", /24/],
     ["Legal.privacy.sections.summary.items.retention", /7/],
     ["Legal.privacy.sections.runs.body", /24/],

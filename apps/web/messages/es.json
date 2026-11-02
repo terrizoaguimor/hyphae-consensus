@@ -210,7 +210,7 @@
     "lead": "Inicia una deliberación en uno de dos modos.",
     "planned": {
       "guided": "ofrecerá un ejemplo guiado que empieza al instante, con roles que siguen un guion y evidencia simulada, con la etiqueta SIMULADO y sin llamar a ningún modelo;",
-      "live": "ofrecerá las tareas predefinidas y seleccionadas del modo «Meta en vivo», que llaman a muse-wonder-1.0 de Meta con evidencia de una instantánea sellada de Hyphae (solo tareas predefinidas, sin texto libre; las ejecuciones de la última batería grabada tardaron entre 4 y 7 minutos aproximadamente);",
+      "live": "ofrecerá las tareas predefinidas y seleccionadas del modo «Meta en vivo», que llaman a muse-spark-1.3 de Meta para el Proponente (propuestas y revisiones) y a muse-wonder-1.0 para el Crítico y el Evaluador de evidencia, con evidencia de una instantánea sellada de Hyphae (solo tareas predefinidas, sin texto libre; las ejecuciones de la última batería grabada tardaron entre 4 y 7 minutos aproximadamente);",
       "fallback": "ofrecerá en su lugar una ejecución grabada cuando el modo en vivo esté ocupado o se haya agotado su presupuesto diario;",
       "return": "te permitirá salir y volver a tu ejecución desde Mis ejecuciones."
     },
@@ -1278,7 +1278,7 @@
       },
       "live": {
         "title": "Tareas predefinidas del modo «Meta en vivo»",
-        "body": "Las ejecuciones en vivo llamarán a muse-wonder-1.0 de Meta con tareas predefinidas y seleccionadas, y con evidencia de una instantánea sellada de Hyphae. Las ejecuciones de la última batería grabada tardaron entre 4 y 7 minutos aproximadamente. Si el modo en vivo está ocupado o se agotó su presupuesto diario, se ofrecerá una ejecución grabada en su lugar."
+        "body": "Las ejecuciones en vivo llamarán a muse-spark-1.3 de Meta para el Proponente (propuestas y revisiones) y a muse-wonder-1.0 para el Crítico y el Evaluador de evidencia, con tareas predefinidas y seleccionadas, y con evidencia de una instantánea sellada de Hyphae. Las ejecuciones de la última batería grabada tardaron entre 4 y 7 minutos aproximadamente. Si el modo en vivo está ocupado o se agotó su presupuesto diario, se ofrecerá una ejecución grabada en su lugar."
       },
       "runs": {
         "title": "Vuelve desde Mis ejecuciones",
@@ -1322,7 +1322,7 @@
       "evidence": "INSTANTÁNEA SELLADA",
       "recorded": "Modelo de Meta · grabado el {date}",
       "live": "Modelo de Meta · en vivo",
-      "description": "Una ejecución en curso: llamadas en vivo a muse-wonder-1.0 de Meta, con evidencia de una instantánea sellada de Hyphae cuyas pruebas se verifican de nuevo en cada ejecución. META EN VIVO nunca aparece sola; la etiqueta de la evidencia siempre va a su lado."
+      "description": "Una ejecución en curso: llamadas en vivo a muse-spark-1.3 de Meta (Proponente) y a muse-wonder-1.0 (Crítico y Evaluador de evidencia), con evidencia de una instantánea sellada de Hyphae cuyas pruebas se verifican de nuevo en cada ejecución. META EN VIVO nunca aparece sola; la etiqueta de la evidencia siempre va a su lado."
     },
     "metaModel": {
       "label": "MODELO META",

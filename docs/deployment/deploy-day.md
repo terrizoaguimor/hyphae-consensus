@@ -10,7 +10,7 @@ This is the runbook cut down to an ordered checklist for one sitting, with two m
 | Mode | What the visitor gets | What the server holds | When |
 |---|---|---|---|
 | **A: replay + guided, live OFF** (recommended for the judging) | the static site; guided runs (SIMULATED evidence, scripted model); the research showcase (RECORDED runs replayed from `research/`: mostly real `muse-wonder-1.0` runs; the console runs C01, C02 and C05 include scripted model calls and simulated proofs, labelled as such) | no Meta key (a canary file), no Turnstile secret, no ledger in use, no snapshot needed | 2026-11-01 |
-| **B: live ON** (optional) | everything of A, plus live runs of `muse-wonder-1.0` on the owner's dedicated key over the sealed snapshot, behind Turnstile, the USD ledger and the judge codes | the dedicated Meta key, the Turnstile secret, the Hyphae 4.0.0 verifier, the sealed snapshot, the judge-code digests | only after A is green, and only if the owner decides so (plan: drop it if not stable by 2026-11-02 23:00 local) |
+| **B: live ON** (optional) | everything of A, plus live runs (the Proposer on `muse-spark-1.3`, the Critic and the Evidence Evaluator on `muse-wonder-1.0`) on the owner's dedicated key over the sealed snapshot, behind Turnstile, the USD ledger and the judge codes | the dedicated Meta key, the Turnstile secret, the Hyphae 4.0.0 verifier, the sealed snapshot, the judge-code digests | only after A is green, and only if the owner decides so (plan: drop it if not stable by 2026-11-02 23:00 local) |
 
 Everything below was rehearsed on 2026-10-31 in a throwaway `ubuntu:24.04` container
 (section "Rehearsal results" at the end): the install, the configuration of both modes,

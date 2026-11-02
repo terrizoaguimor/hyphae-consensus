@@ -13,8 +13,10 @@ and the deployment steps in `docs/deployment/runbook.md`.
 
 ## 1. What the system does
 
-Three Meta-model roles (Proposer, Critic, Evidence Evaluator; production model
-`muse-wonder-1.0` through the Meta Model API) deliberate over a software-engineering
+Three Meta-model roles (Proposer, Critic, Evidence Evaluator; through the Meta Model API,
+the Proposer's proposals and revisions on `muse-spark-1.3`, the Critic and the Evidence
+Evaluator on `muse-wonder-1.0`, a split validated in live runs on 2026-11-01
+([docs/evaluation.md](../evaluation.md#[PROPOSER_VALIDATION_SECTION]))) deliberate over a software-engineering
 task. The runtime, not a model, retrieves evidence from Hyphae Agent Memory and checks
 its integrity proofs with `hyphae proof verify`. A deterministic policy turns the
 Evaluator's per-claim judgments and the proof statuses into a recommendation

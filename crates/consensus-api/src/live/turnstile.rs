@@ -31,6 +31,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use std::io::Read as _;
 use std::net::IpAddr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -41,6 +42,9 @@ use thiserror::Error;
 pub const SITEVERIFY_URL: &str = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 /// Whole-request timeout for one Siteverify call.
 pub const SITEVERIFY_TIMEOUT: Duration = Duration::from_secs(10);
+/// Largest Siteverify answer read (a real one is a few hundred bytes): a
+/// longer body fails the verification instead of being buffered.
+pub const SITEVERIFY_MAX_RESPONSE_BYTES: usize = 64 * 1024;
 /// A `challenge_ts` older than this is refused.
 pub const DEFAULT_MAX_CHALLENGE_AGE: Duration = Duration::from_secs(300);
 /// A `challenge_ts` this far in the future is still accepted (clock skew).
@@ -370,7 +374,8 @@ impl Siteverify for TurnstileVerifier {
     }
 }
 
-/// The real transport: a form POST to Siteverify with a 10 s timeout.
+/// The real transport: a form POST to Siteverify with a 10 s timeout, no
+/// redirects and an answer capped at [`SITEVERIFY_MAX_RESPONSE_BYTES`].
 pub struct HttpSiteverify {
     http: reqwest::blocking::Client,
     endpoint: String,
@@ -393,8 +398,11 @@ impl HttpSiteverify {
 
     /// Another endpoint (a local fake in tests).
     pub fn with_endpoint(secret: TurnstileSecret, endpoint: impl Into<String>) -> Self {
+        // No redirects: Siteverify answers in place, so a redirect is a
+        // failure (like the Meta client), never followed to another host.
         let http = reqwest::blocking::Client::builder()
             .timeout(SITEVERIFY_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("reqwest client with a timeout builds");
         Self {
@@ -435,12 +443,24 @@ impl SiteverifyTransport for HttpSiteverify {
                 TurnstileError::Outage(format!("{kind}: {e}"))
             })?;
         let status = response.status();
+        if status.is_redirection() {
+            return Err(TurnstileError::Outage(format!(
+                "siteverify redirected (http {status}); redirects are not followed"
+            )));
+        }
         if !status.is_success() {
             return Err(TurnstileError::Outage(format!("siteverify http {status}")));
         }
-        let body = response
-            .bytes()
+        // At most the cap plus one byte is read: one byte over is refused.
+        let mut body = Vec::new();
+        std::io::Read::take(response, SITEVERIFY_MAX_RESPONSE_BYTES as u64 + 1)
+            .read_to_end(&mut body)
             .map_err(|e| TurnstileError::Outage(format!("body: {e}")))?;
+        if body.len() > SITEVERIFY_MAX_RESPONSE_BYTES {
+            return Err(TurnstileError::Outage(format!(
+                "siteverify answer exceeds {SITEVERIFY_MAX_RESPONSE_BYTES} bytes"
+            )));
+        }
         serde_json::from_slice::<SiteverifyResponse>(&body)
             .map_err(|e| TurnstileError::Malformed(e.to_string()))
     }

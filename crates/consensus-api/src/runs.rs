@@ -247,6 +247,24 @@ pub struct ManagerStats {
     pub queued: usize,
 }
 
+/// One start waiting for a slot, counted in [`RunManager::stats`]: counted on
+/// entry, uncounted when dropped, so a start that is cancelled while it waits
+/// never leaves the count raised.
+struct QueuedGuard<'a>(&'a AtomicUsize);
+
+impl<'a> QueuedGuard<'a> {
+    fn enter(queued: &'a AtomicUsize) -> Self {
+        queued.fetch_add(1, Ordering::SeqCst);
+        Self(queued)
+    }
+}
+
+impl Drop for QueuedGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// A deliberation slot held for a run about to start: the permit is taken
 /// before anything is charged or stored, and released with the run (or
 /// with this value, if the start never happens).
@@ -436,11 +454,14 @@ impl RunManager {
                         retry_after: Duration::from_secs(5),
                     });
                 }
-                self.queued.fetch_add(1, Ordering::SeqCst);
+                // The guard gives the count back exactly once on every way
+                // out of the wait: a permit, the timeout, or this future
+                // dropped (a client that disconnects while its start waits).
+                let waiting = QueuedGuard::enter(&self.queued);
                 let waited =
                     tokio::time::timeout(self.settings.admission_wait, semaphore.acquire_owned())
                         .await;
-                self.queued.fetch_sub(1, Ordering::SeqCst);
+                drop(waiting);
                 match waited {
                     Ok(Ok(permit)) => permit,
                     _ => {
@@ -1187,5 +1208,99 @@ mod tests {
         );
         assert!(ledger.open_reservations().unwrap().is_empty(), "released");
         assert_eq!(ledger.snapshot().unwrap().active_public, 0);
+    }
+
+    /// A manager with one guided slot, taken, and the given wait and queue.
+    fn full_manager(
+        name: &str,
+        admission_wait: Duration,
+        max_queue: usize,
+    ) -> (Arc<RunManager>, Reservation) {
+        let root = temp_dir(name);
+        let manager = RunManager::new(
+            Arc::new(RunStore::open(root.join("store")).unwrap()),
+            Broadcasts::new(64),
+            ManagerSettings {
+                guided_concurrency: 1,
+                admission_wait,
+                max_queue,
+                ..ManagerSettings::default()
+            },
+        );
+        let slot = manager
+            .guided
+            .clone()
+            .try_acquire_owned()
+            .map(|permit| Reservation {
+                permit,
+                kind: RunKind::Guided,
+            })
+            .unwrap();
+        (manager, slot)
+    }
+
+    #[tokio::test]
+    async fn a_start_dropped_while_it_waits_gives_its_queue_place_back() {
+        let (manager, _slot) = full_manager("queue-drop", Duration::from_secs(60), 1);
+        assert_eq!(manager.stats().queued, 0);
+        // More aborted waits than the queue holds: each one must be
+        // uncounted, or the second would already be refused.
+        for _ in 0..3 {
+            let waiting = {
+                let manager = manager.clone();
+                tokio::spawn(async move { manager.reserve(RunKind::Guided).await.map(|_| ()) })
+            };
+            let began = std::time::Instant::now();
+            while manager.stats().queued != 1 {
+                assert!(began.elapsed() < Duration::from_secs(5), "never queued");
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            waiting.abort();
+            assert!(waiting.await.unwrap_err().is_cancelled());
+            assert_eq!(manager.stats().queued, 0, "the dropped wait is uncounted");
+        }
+        // The queue still admits a wait (it was not left full): this one
+        // times out on our side after waiting, rather than being refused
+        // at once with Busy.
+        let waited = tokio::time::timeout(
+            Duration::from_millis(100),
+            manager.reserve(RunKind::Guided),
+        )
+        .await;
+        assert!(waited.is_err(), "still waiting, not refused");
+        assert_eq!(manager.stats().queued, 0);
+        assert_eq!(manager.stats().active, 0);
+    }
+
+    #[tokio::test]
+    async fn a_start_that_waits_past_the_admission_wait_is_refused_and_uncounted() {
+        let (manager, _slot) = full_manager("queue-timeout", Duration::from_millis(50), 4);
+        let outcome = manager.reserve(RunKind::Guided).await;
+        match outcome {
+            Err(StartError::Busy { retry_after }) => {
+                assert_eq!(retry_after, Duration::from_secs(5));
+            }
+            Err(other) => panic!("expected Busy, got {other}"),
+            Ok(_) => panic!("expected Busy, got a slot"),
+        }
+        assert_eq!(manager.stats().queued, 0);
+    }
+
+    #[tokio::test]
+    async fn a_start_that_gets_the_slot_while_it_waits_is_uncounted() {
+        let (manager, slot) = full_manager("queue-served", Duration::from_secs(30), 4);
+        let waiting = {
+            let manager = manager.clone();
+            tokio::spawn(async move { manager.reserve(RunKind::Guided).await })
+        };
+        let began = std::time::Instant::now();
+        while manager.stats().queued != 1 {
+            assert!(began.elapsed() < Duration::from_secs(5), "never queued");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        drop(slot);
+        let served = waiting.await.unwrap();
+        assert!(served.is_ok(), "the freed slot went to the waiting start");
+        assert_eq!(manager.stats().queued, 0);
     }
 }

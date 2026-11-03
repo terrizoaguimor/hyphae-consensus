@@ -398,6 +398,79 @@ fn http_transport_treats_non_200_and_unparseable_bodies_as_refusals() {
     assert!(err.is_outage(), "{err:?}");
 }
 
+/// A server that answers every connection with a redirect to `location`,
+/// counting the connections it gets.
+fn redirect_to(location: String) -> (String, Arc<Mutex<usize>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let hits = Arc::new(Mutex::new(0usize));
+    let seen = hits.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut s) = stream else { continue };
+            *seen.lock().unwrap() += 1;
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf);
+            let resp = format!(
+                "HTTP/1.1 302 Found\r\nlocation: {location}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+            );
+            let _ = s.write_all(resp.as_bytes());
+        }
+    });
+    (format!("http://{addr}/siteverify"), hits)
+}
+
+#[test]
+fn http_transport_does_not_follow_a_redirect_and_fails_closed() {
+    // The redirect target would answer with a passing token.
+    let target = serve(
+        200,
+        r#"{"success":true,"challenge_ts":"2026-10-27T11:59:55.000Z","hostname":"demo.example.org","error-codes":[],"action":"live-run"}"#,
+    );
+    let (endpoint, hits) = redirect_to(target.endpoint.clone());
+    let secret = TurnstileSecret::new("0x4AAAAAAAsecret").unwrap();
+    let v = verifier(Arc::new(HttpSiteverify::with_endpoint(secret, endpoint)));
+    match v.verify("tok", None, "k") {
+        Err(TurnstileError::Outage(msg)) => assert!(msg.contains("redirect"), "{msg}"),
+        other => panic!("a redirect must fail the verification: {other:?}"),
+    }
+    assert_eq!(*hits.lock().unwrap(), 1);
+    assert!(
+        target.bodies.lock().unwrap().is_empty(),
+        "the redirect target was never contacted"
+    );
+}
+
+#[test]
+fn http_transport_refuses_an_oversize_answer_even_when_it_would_pass() {
+    use consensus_api::live::turnstile::SITEVERIFY_MAX_RESPONSE_BYTES;
+    let secret = TurnstileSecret::new("0x4AAAAAAAsecret").unwrap();
+    let passing = |pad: usize| -> &'static str {
+        // Valid, passing JSON, padded to a length.
+        let head = r#"{"success":true,"challenge_ts":"2026-10-27T11:59:55.000Z","hostname":"demo.example.org","error-codes":[],"action":"live-run","pad":""#;
+        let tail = r#""}"#;
+        let fill = pad - head.len() - tail.len();
+        Box::leak(format!("{head}{}{tail}", "a".repeat(fill)).into_boxed_str())
+    };
+    // One byte over the cap: refused as a failure, never as a success.
+    let big = serve(200, passing(SITEVERIFY_MAX_RESPONSE_BYTES + 1));
+    let v = verifier(Arc::new(HttpSiteverify::with_endpoint(
+        secret.clone(),
+        big.endpoint.clone(),
+    )));
+    match v.verify("tok", None, "k") {
+        Err(TurnstileError::Outage(msg)) => assert!(msg.contains("exceeds"), "{msg}"),
+        other => panic!("an oversize answer must fail the verification: {other:?}"),
+    }
+    // Exactly the cap is still read and accepted.
+    let exact = serve(200, passing(SITEVERIFY_MAX_RESPONSE_BYTES));
+    let v = verifier(Arc::new(HttpSiteverify::with_endpoint(
+        secret,
+        exact.endpoint.clone(),
+    )));
+    assert!(v.verify("tok", None, "k").is_ok());
+}
+
 #[test]
 fn test_secrets_are_recognized_and_real_ones_are_not() {
     for test in [

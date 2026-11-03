@@ -17,15 +17,27 @@ Two kinds of evidence are reported there and are never pooled:
    with an outcome its author wrote down in advance
    ([docs/evaluation.md](../docs/evaluation.md) section 1). It shows the runtime enforces its own
    rules; it is not an experiment.
-2. **Live runs**: real Meta Model API calls with real Hyphae memory, reported as observed, with
-   request ids. The archive holds 53 consensus runs in 17 event logs (1,103 records) and 8
-   single-agent baseline runs in 8 logs (168 records).
+2. **Runs recorded in the archive**, reported as observed, with request ids where a model was
+   called. The archive holds 53 consensus runs in 17 event logs (1,103 records) and 8
+   single-agent baseline runs in 8 logs (168 records). They are not all alike, and they are not
+   all "Meta plus real Hyphae proofs":
+   - C01-C07: the console and scripted CLI demo log (schema 1.0, unchained). C01, C02 and C05
+     are scripted with a fake model and SIMULATED proofs; C03 and C04 are live Meta with
+     simulated or offline memory; C06 and C07 are live Meta with real Hyphae records that carry
+     no proof artifacts.
+   - S01-S03: live Meta with SIMULATED proofs, a supplementary check that is not part of the
+     battery ([docs/evaluation.md](../docs/evaluation.md) section 3).
+   - The live battery of 2026-10-26: its proven recalls failed upstream, so its runs are
+     blocked or invalid (section 2).
+   - The later batteries (section 5 onward): live Meta with working Hyphae proofs.
+
+   The per-run labels and notes are in [research/README.md](../research/README.md).
 
 ## Map
 
 | What | Where |
 |---|---|
-| The evaluation, section by section | [docs/evaluation.md](../docs/evaluation.md): 1 scripted check; 2 and 3 the live battery of 2026-10-26; 5 the batteries with working proofs (5.3 the final battery F01-F06, 5.4 hostile note H01-H02); 6 protocol 1.3 (6.3 M01-M04, 6.6 V01-V03, 6.7 V04-V05); 7 the single-agent baseline (7.7 B01-B04, 7.8 B05-B08); the corrections of the independent audit; the request ids |
+| The evaluation, section by section | [docs/evaluation.md](../docs/evaluation.md): 1 scripted check; 2 the live battery of 2026-10-26; 3 supplementary simulated-proof runs, not part of the battery; 5 the batteries with working proofs (5.3 the final battery F01-F06, 5.4 hostile note H01-H02); 6 protocol 1.3 (6.3 M01-M04, 6.6 V01-V03, 6.7 V04-V05); 7 the single-agent baseline (7.7 B01-B04, 7.8 B05-B08); the corrections of the independent audit; the request ids |
 | The results in prose, with caveats | [docs/results.md](../docs/results.md) |
 | What proofs do and do not establish | [docs/verification.md](../docs/verification.md) |
 | The scripted conformance example | `crates/consensus-tests/examples/evaluate.rs`; run `cargo run -q -p consensus-tests --example evaluate`, or `sh tests/run-all.sh --quick` (see [tests/README.md](../tests/README.md)) |
@@ -103,13 +115,14 @@ every file `research/MANIFEST.json` lists:
   get only this check): size and SHA-256 against the manifest.
 
 It prints one line per log (labels of its runs, path, runs, records, chain scope, digest) and
-ends with `N logs verified, M failed` (M counts every manifest entry that failed any check,
-run records included); the exit status is 0 only if nothing failed. Options: `--research DIR`
+ends with `N logs and K run records verified, M failed` (M counts every manifest entry that
+failed any check, run records included; each failing run record is named on a `FAIL` line); the
+exit status is 0 only if nothing failed. Options: `--research DIR`
 (another directory, mounted read-only, for example this checkout's `research` or a copy you
 altered), `--image NAME`, and `CONSENSUS_API=/path/to/consensus-api` to use a locally built
 binary with no Docker.
 
-Result on this tree: 25 logs verified, 0 failed. The 17 consensus logs hold 53 runs and 1,103
+Result on this tree: 25 logs and 54 run records verified, 0 failed. The 17 consensus logs hold 53 runs and 1,103
 records, the same figures the portal's research showcase reports; the 8 baseline logs hold 8
 runs and 168 records, counted apart. The 54 run records match their pinned size and digest.
 Two things this does not do, which [research/README.md](../research/README.md) explains: the

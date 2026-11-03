@@ -14,7 +14,8 @@ sh tests/run-all.sh             # everything: --rust, --web and --e2e
 Everything runs in Docker (Rust in Ubuntu 24.04, Node and Playwright in pinned images): the
 Node toolchain runs only in throwaway containers, never on the host (`apps/web/README.md`,
 "Build only through Docker"). No suite needs a Meta key or a Hyphae daemon, and none calls
-Meta, Hyphae or Cloudflare. The two tests that would (the live probes) are `#[ignore]`d.
+Meta, Hyphae or Cloudflare. The two tests that would (the live probes) are `#[ignore]`d: one calls Meta and needs an API key plus
+`CONSENSUS_LIVE_TESTS=1`, one probes a real Hyphae runtime and needs its environment configured.
 
 ## The numbers, and where they come from
 
@@ -25,7 +26,7 @@ commit; the workflow is `.github/workflows/ci.yml`.
 
 | Suite (CI step) | Result at `521d823` |
 |---|---|
-| Rust: `cargo test --workspace --locked` and the demo crate | 759 passed, 0 failed, 2 ignored (757 in the workspace, 2 in `demo-repo/payment-client`; the 2 ignored are the live tests that call Meta and need a key) |
+| Rust: `cargo test --workspace --locked` and the demo crate | 759 passed, 0 failed, 2 ignored (757 in the workspace, 2 in `demo-repo/payment-client`; the 2 ignored are live tests: one calls Meta and needs an API key plus `CONSENSUS_LIVE_TESTS=1`, one probes a real Hyphae runtime and needs its environment configured) |
 | Vitest (`pnpm check`) | 43 files, 1004 passed, 16 skipped (cases that skip themselves when an input is absent, for example `tests/api-smoke.test.ts` without a capture of real-server responses) |
 | Playwright | 636 passed across 4 projects (chromium, chromium-mobile, firefox, webkit) |
 | axe (inside the Playwright run) | 340 scans, 0 violations (the run's own line: "violations by impact {}, serious or critical: 0") |
@@ -54,7 +55,7 @@ its table is in [docs/evaluation.md](../docs/evaluation.md) section 1.
 
 | Option | Runs |
 |---|---|
-| `--rust` | `sh scripts/linux-gates.sh` (about 10 to 15 minutes; the first run also fills the cargo volumes) |
+| `--rust` | `sh scripts/linux-gates.sh` (about 5 minutes with warm cargo volumes, measured 314 s; the first run takes longer because it fills them) |
 | `--web` | `sh apps/web/scripts/in-docker.sh pnpm install --frozen-lockfile`, then `... pnpm check` (theme, API types, typecheck, lint, Vitest, static export) |
 | `--e2e` | `sh apps/web/scripts/playwright-docker.sh` (needs `apps/web/out`, which `--web` builds; the script stops with exit 66 and says so if it is missing) |
 | `--quick` | In one `rust:1.99.1-slim-bookworm` container with the checkout mounted read-only: the conformance example, then `consensus-api verify` on `research/2026-10-27/live-battery-2026-10-27-final.jsonl` |

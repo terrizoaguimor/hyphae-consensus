@@ -509,8 +509,8 @@ The tests live next to the code; [tests/README.md](tests/README.md) maps every s
 unit and integration tests, the scripted conformance example, the shell self-tests, Vitest,
 Playwright with axe) and says what each proves. CI run
 [41652255882](https://github.com/terrizoaguimor/hyphae-consensus/actions/runs/41652255882) at
-commit `521d823`: 759 Rust tests passed (0 failed, 2 ignored live tests that need a Meta
-key), Vitest 1004 passed in 43 files (16 skipped), Playwright 636 passed across 4 projects, axe
+commit `521d823`: 759 Rust tests passed (0 failed, 2 ignored live tests: one calls Meta and needs a key plus `CONSENSUS_LIVE_TESTS=1`, one probes a
+real Hyphae runtime and needs its environment configured), Vitest 1004 passed in 43 files (16 skipped), Playwright 636 passed across 4 projects, axe
 340 scans with 0 violations; the scripted conformance example produces its author-defined
 outcome in 10 of 10 cases. The evaluation harness, the archived batteries and how to read their
 metrics are in [eval/README.md](eval/README.md); the figures themselves, with their caveats,

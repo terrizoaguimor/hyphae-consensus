@@ -10,7 +10,7 @@
 # Usage, from any directory (Git Bash on Windows, Linux or macOS):
 #   sh tests/run-all.sh             # --rust, --web and --e2e, in that order
 #   sh tests/run-all.sh --quick     # the fast subset (a few minutes, see below)
-#   sh tests/run-all.sh --rust      # sh scripts/linux-gates.sh (about 10 to 15 minutes)
+#   sh tests/run-all.sh --rust      # sh scripts/linux-gates.sh (about 5 minutes with warm cargo volumes, measured 314 s; the first run takes longer)
 #   sh tests/run-all.sh --web       # pnpm install and pnpm check in apps/web (Docker)
 #   sh tests/run-all.sh --e2e       # Playwright + axe against the static export (needs --web first)
 #   sh tests/run-all.sh --dry-run   # print the commands that would run, run nothing

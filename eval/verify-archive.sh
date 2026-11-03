@@ -11,7 +11,7 @@
 #   - every file, logs and run records alike, against the size and the SHA-256
 #     the manifest pins.
 # It prints one line per log (labels of its runs, path, runs, records, chain
-# scopes, digest) and ends with "N logs verified, M failed". The exit status is 0
+# scopes, digest) and ends with "N logs and K run records verified, M failed". The exit status is 0
 # only when nothing failed. Nothing is written to research/ or anywhere else:
 # the commands are read-only, and the container has no network.
 #
@@ -125,7 +125,12 @@ if [ "${1:-}" = "--inner" ]; then
         detail="runs=1 records=$nrec chain=baseline"
         ;;
       run_record | baseline_record)
-        if [ -z "$problems" ]; then rec_ok=$((rec_ok + 1)); else rec_fail=$((rec_fail + 1)); fi
+        if [ -z "$problems" ]; then
+          rec_ok=$((rec_ok + 1))
+        else
+          rec_fail=$((rec_fail + 1))
+          echo "FAIL  $path  ${problems#; }"
+        fi
         continue
         ;;
       *)
@@ -147,7 +152,7 @@ if [ "${1:-}" = "--inner" ]; then
   echo "-- consensus logs verified: runs=$runs_sum records=$events_sum (consensus event logs)"
   echo "-- baseline logs verified: $blogs_ok runs=$brun_sum records=$bev_sum"
   echo "-- run records (JSON, not event logs): $rec_ok with size and sha256 matching the manifest, $rec_fail not"
-  echo "$logs_ok logs verified, $failed failed"
+  echo "$logs_ok logs and $rec_ok run records verified, $failed failed"
   [ "$failed" -eq 0 ]
   exit $?
 fi

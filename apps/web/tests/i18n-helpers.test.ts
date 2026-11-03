@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { negotiateLocale } from "../src/i18n/negotiate";
-import { switchLocalePath } from "../src/i18n/paths";
+import { switchLocalePath, withLocation } from "../src/i18n/paths";
 
 const locales = ["en", "es", "pt-BR", "fr"] as const;
 
@@ -41,5 +41,22 @@ describe("switchLocalePath", () => {
   it("prefixes the locale when the path has none", () => {
     expect(switchLocalePath("/", "fr", locales)).toBe("/fr/");
     expect(switchLocalePath(null, "es", locales)).toBe("/es/");
+  });
+});
+
+describe("withLocation", () => {
+  it("carries the query string and the hash over", () => {
+    expect(withLocation("/es/run/", "?id=run-1&source=showcase", "")).toBe(
+      "/es/run/?id=run-1&source=showcase",
+    );
+    expect(withLocation("/es/run/", "?id=run-1", "#evidence")).toBe(
+      "/es/run/?id=run-1#evidence",
+    );
+    expect(withLocation("/fr/docs/", "", "#top")).toBe("/fr/docs/#top");
+  });
+
+  it("adds nothing when the URL has no query or hash", () => {
+    expect(withLocation("/es/docs/", "", "")).toBe("/es/docs/");
+    expect(withLocation("/es/docs/", "?", "#")).toBe("/es/docs/");
   });
 });

@@ -49,7 +49,30 @@ Independent project; not affiliated with, sponsored by, or endorsed by Meta.
 Meta Global AI Developer Hackathon 2026 · Indie Developer track · Push the Frontier ·
 development window October 26 – November 4, 2026 · Owner: Mario (independent developer).
 
+## In 60 seconds
+
+**The caught case.** Asked to "raise payment retry attempts to 10", the Proposer's first draft made 4 claims,
+and the stored project records contradicted 2 of them: the project memory caps retries at 3. The Critic objected,
+the Evaluator confirmed it, and the revision came back at 3 attempts with jitter, with 5 of 5 claims corroborated.
+The run still ended **contested**, with 6 open objections left for a human to weigh. This is about the first draft
+before any record was checked, not a claim that a single agent would have shipped it (the
+[baseline study](docs/evaluation.md#78-the-battery-of-round-9-b05b08-2026-11-01-every-run-recorded-an-assessment) does not show that).
+Run F03, recorded 2026-10-27, before the Proposer split, so every role ran on `muse-wonder-1.0`; synthetic operator-seeded records: 6 Meta calls,
+6,874 tokens in and 31,910 out, final-round proofs 6 valid ([§5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output)).
+
+**Meta scope.** Two Muse models through the Meta Model API in three roles (Proposer configured as `muse-spark-1.3`, the
+product default; Critic and Evaluator `muse-wonder-1.0`; the archived F03 run above predates the split and ran every
+role on `muse-wonder-1.0`), each with its own strict JSON schema, every call recorded with Meta's request id, latency
+and tokens. Not used: SAM, open weights or fine-tuning, Muse Image or Voice. Built with Muse Code and Claude.
+
+**See it in under two minutes (no account, no code):**
+1. Open the recorded run [F03](https://consensus.terrizoaguimor.dev/en/run/?id=run-d6f28bca-0a10-4fcf-9257-4cfb7374280c&source=showcase), go to its "Audit trail" tab and press "Check the chain": your browser re-hashes all 189 records of that log (the file holds that battery's six runs).
+2. Run a [guided example](https://consensus.terrizoaguimor.dev/en/new/): scripted roles and simulated evidence, no model call.
+3. Live runs on preset tasks use the owner's key under a budget and need a judge code (available on request).
+
 ## For judges
+
+The shortest path is [In 60 seconds](#in-60-seconds) above.
 
 **Video:** [youtu.be/_1IIL8tueMw](https://youtu.be/_1IIL8tueMw) · **Demo:** [consensus.terrizoaguimor.dev](https://consensus.terrizoaguimor.dev) · **Repository:** [github.com/terrizoaguimor/hyphae-consensus](https://github.com/terrizoaguimor/hyphae-consensus) · run it yourself in
 three commands: [Quick start](#quick-start) (no credential, no Meta call).

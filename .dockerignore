@@ -1,0 +1,19 @@
+# Keep secrets, history and build output out of the image build context.
+.git
+.claude
+.env
+.env.*
+**/.env
+**/.env.*
+target
+**/target
+**/node_modules
+apps/web/out
+apps/web/.next
+apps/web/test-results
+dist
+demo-run
+scripted-demo
+consensus-store
+*.log
+New Text Document.txt

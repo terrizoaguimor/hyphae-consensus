@@ -57,11 +57,12 @@ the Evaluator confirmed it, and the revision came back at 3 attempts with jitter
 The run still ended **contested**, with 6 open objections left for a human to weigh. This is about the first draft
 before any record was checked, not a claim that a single agent would have shipped it (the
 [baseline study](docs/evaluation.md#78-the-battery-of-round-9-b05b08-2026-11-01-every-run-recorded-an-assessment) does not show that).
-Run F03, recorded 2026-10-27, every role on `muse-wonder-1.0`, synthetic operator-seeded records: 6 Meta calls,
+Run F03, recorded 2026-10-27, before the Proposer split, so every role ran on `muse-wonder-1.0`; synthetic operator-seeded records: 6 Meta calls,
 6,874 tokens in and 31,910 out, final-round proofs 6 valid ([§5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output)).
 
-**Meta scope.** Two Muse models through the Meta Model API in three roles (Proposer `muse-spark-1.3`; Critic and
-Evaluator `muse-wonder-1.0`), each with its own strict JSON schema, every call recorded with Meta's request id, latency
+**Meta scope.** Two Muse models through the Meta Model API in three roles (Proposer configured as `muse-spark-1.3`, the
+product default; Critic and Evaluator `muse-wonder-1.0`; the archived F03 run above predates the split and ran every
+role on `muse-wonder-1.0`), each with its own strict JSON schema, every call recorded with Meta's request id, latency
 and tokens. Not used: SAM, open weights or fine-tuning, Muse Image or Voice. Built with Muse Code and Claude.
 
 **See it in under two minutes (no account, no code):**

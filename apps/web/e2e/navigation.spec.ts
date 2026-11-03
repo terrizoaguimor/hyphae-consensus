@@ -4,7 +4,12 @@
 // exported page for broken internal links, the skip link, focus after a
 // route change, and the mobile drawer.
 
-import { externalLinks, localePath, primaryNav } from "../src/lib/site";
+import {
+  SOURCE_REPOSITORY_URL,
+  externalLinks,
+  localePath,
+  primaryNav,
+} from "../src/lib/site";
 
 import {
   expect,
@@ -49,8 +54,11 @@ for (const locale of locales) {
       await expect(h1).toBeFocused();
       await expect(link).toHaveAttribute("aria-current", "page");
       await expect(page.locator("html")).toHaveAttribute("lang", locale);
+      // The overview is the home page: its title is the full headline.
       await expect(page).toHaveTitle(
-        `${t(locale, `Nav.${key}`)} · Hyphae Consensus`,
+        key === "overview"
+          ? t(locale, "Metadata.homeTitle")
+          : `${t(locale, `Nav.${key}`)} · Hyphae Consensus`,
       );
     }
   });
@@ -64,6 +72,10 @@ test("no broken internal links: every exported link answers 200 without a redire
   test.setTimeout(600_000);
   const origin = new URL(baseURL ?? "").origin;
   const allowedExternal = new Set<string>(Object.values(externalLinks));
+  if (SOURCE_REPOSITORY_URL !== null) {
+    // The About page links to the published repository.
+    allowedExternal.add(new URL(SOURCE_REPOSITORY_URL).href);
+  }
   const pages = ["/", ...locales.map((locale) => localePath(locale, ""))];
   const seenPages = new Set(pages);
   const checkedLinks = new Set<string>();

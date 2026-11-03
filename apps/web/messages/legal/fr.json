@@ -61,7 +61,7 @@
       }
     },
     "privacy": {
-      "lead": "Cet avis décrit les données que traite le déploiement public prévu du portail. Cette version n’est pas connectée à l’API : elle n’enregistre ni exécutions ni paramètres sur un serveur (vos paramètres restent dans votre navigateur), mais l’hébergeur et Cloudflare conservent des journaux de requêtes, comme décrit plus bas.",
+      "lead": "Cet avis décrit les données que traite le portail. Le portail enregistre sur le serveur les exécutions que vous lancez, et l’hébergeur et Cloudflare conservent des journaux de requêtes, comme décrit plus bas ; vos paramètres restent dans votre navigateur.",
       "sections": {
         "summary": {
           "heading": "En bref",

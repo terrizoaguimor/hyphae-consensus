@@ -3,7 +3,7 @@
 // About: independence from Meta, Hyphae as the owner's earlier project, the
 // license, the AI-assistance disclosure (as in the root README) and the
 // source repository, shown as text until the owner sets its public URL. Marked
-// Draft like the other legal pages (LEGAL_TEXT_STATUS).
+// Final like the other legal pages (LEGAL_TEXT_STATUS).
 
 import { getTranslations } from "next-intl/server";
 
@@ -26,7 +26,11 @@ export default async function AboutPage({ params }: LocaleParams) {
           <p>{t("About.source.pending")}</p>
         ) : (
           <p>
-            <a href={SOURCE_REPOSITORY_URL} className="hc-link">
+            <a
+              href={SOURCE_REPOSITORY_URL}
+              className="hc-link"
+              rel="noopener noreferrer"
+            >
               {t("About.source.link")}
             </a>
           </p>

@@ -63,13 +63,19 @@ function run({ stored, prefersDark, storageThrows = false }: Environment) {
 }
 
 describe("theme script", () => {
-  it("is the only dangerouslySetInnerHTML in src/", () => {
+  it("is the only dangerouslySetInnerHTML in src/ besides the JSON-LD data block", () => {
     const users = sourceFiles(srcDir)
       .filter((file) =>
         readFileSync(file, "utf8").includes("dangerouslySetInnerHTML"),
       )
       .map((file) => path.relative(srcDir, file).split(path.sep).join("/"));
-    expect(users).toEqual(["components/ThemeScript.tsx"]);
+    expect(users).toEqual(["components/JsonLd.tsx", "components/ThemeScript.tsx"]);
+    // The data block is JSON written by jsonLdText (which escapes "<"), in a
+    // script of type application/ld+json, which the CSP does not govern.
+    const jsonLd = readFileSync(path.join(srcDir, "components", "JsonLd.tsx"), "utf8");
+    expect(jsonLd.match(/dangerouslySetInnerHTML=/g)).toHaveLength(1);
+    expect(jsonLd).toContain('type="application/ld+json"');
+    expect(jsonLd).toContain("__html: jsonLdText(data)");
     const themeScript = readFileSync(
       path.join(srcDir, "components", "ThemeScript.tsx"),
       "utf8",

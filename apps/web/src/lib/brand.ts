@@ -8,8 +8,9 @@
 // the top bar carries the 32 px cut; the brushed-glass mark appears only at
 // 64 px or more).
 //
-// No web app manifest: the app has none, and the API server's CSP sets no
-// manifest-src (default-src 'none' would block it).
+// The web app manifest (app/manifest.ts, /manifest.webmanifest) names the
+// 512 and 1024 px icons; the API server's CSP carries `manifest-src 'self'`
+// for it (crates/consensus-api/src/static_files.rs), as the e2e server does.
 
 import type { Metadata, Viewport } from "next";
 
@@ -17,6 +18,8 @@ import type { Metadata, Viewport } from "next";
 export const brandFiles = {
   /** The 16 px cut; its own style element sets ink #141414, or #EDEDED in a dark browser. Linked only, never inlined. */
   faviconSvg: "/favicon.svg",
+  /** Multi-size ICO (16, 32, 48 px) for crawlers and old browsers that ask for /favicon.ico; built by scripts/build-favicon-ico.mjs. Not linked from the pages. */
+  faviconIco: "/favicon.ico",
   favicon16: "/favicon-16.png",
   favicon32: "/favicon-32.png",
   appleTouchIcon: "/apple-touch-icon.png",
@@ -67,6 +70,17 @@ export function parseSiteOrigin(value: string | undefined): string | undefined {
 
 /** The deployment's origin, when the build was given one. */
 export const SITE_ORIGIN: string | undefined = parseSiteOrigin(process.env.NEXT_PUBLIC_SITE_ORIGIN);
+
+/**
+ * The origin of the project's public site, used when a build is given no
+ * NEXT_PUBLIC_SITE_ORIGIN (CI, tests, a local export). Canonical links,
+ * hreflang alternates, og:url, the sitemap and robots.txt need an absolute
+ * address, and the only public address of the portal is this one.
+ */
+export const DEFAULT_PUBLIC_ORIGIN = "https://consensus.terrizoaguimor.dev";
+
+/** The origin the SEO metadata names: the build's own, else the project's. */
+export const PUBLIC_ORIGIN: string = SITE_ORIGIN ?? DEFAULT_PUBLIC_ORIGIN;
 
 /** og:image: absolute when the origin is known, else the same-origin path. */
 export function ogImageUrl(origin: string | undefined): string {

@@ -16,11 +16,13 @@
 import { getTranslations } from "next-intl/server";
 
 import { ImpactFigures } from "@/components/ImpactFigures";
+import { JsonLd } from "@/components/JsonLd";
 import { OverviewActions } from "@/components/OverviewActions";
 import { PageHeader } from "@/components/PageHeader";
 import { ProvenanceLabels } from "@/components/ProvenanceLabels";
 import { TourInvite } from "@/components/TourInvite";
 import { type LocaleParams, navPageMetadata, pageLocale } from "@/lib/pageLocale";
+import { webApplicationJsonLd } from "@/lib/seo";
 
 const flowSteps = ["roles", "evidence", "policy", "human"] as const;
 
@@ -34,6 +36,14 @@ export default async function OverviewPage({ params }: LocaleParams) {
 
   return (
     <>
+      {/* Structured data for search engines: a data block, not a script the CSP governs (src/components/JsonLd.tsx). */}
+      <JsonLd
+        data={webApplicationJsonLd({
+          locale,
+          name: t("App.name"),
+          description: t("Metadata.description"),
+        })}
+      />
       <PageHeader
         title={t("App.tagline")}
         lead={t("App.intro")}

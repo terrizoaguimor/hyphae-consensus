@@ -28,7 +28,7 @@ type LegalDocument = (typeof documents)[number];
 /** The day each document's text last changed, with the digest of that text. */
 const PINNED: Record<LegalDocument, { date: string; sha256: string }> = {
   terms: { date: "2026-11-01", sha256: "843657da64d73de84bc6453f87fb28f8ba95e3fd23982669834b2a0efd52c78a" },
-  privacy: { date: "2026-11-01", sha256: "5907bbc9bcda846c045062547aaa4f0b08a59828bbb339a4fc87635819692714" },
+  privacy: { date: "2026-11-03", sha256: "469a66d315da745319764bf5f01c13ae6352ae871635ab78fff303ef4554c28d" },
   limitations: { date: "2026-11-01", sha256: "5cd7d5adceb626da7f9bfd2974640fd6ae9044e43dbbdb7266bc7e7d341b7363" },
   about: { date: "2026-11-01", sha256: "c6515d8e2583c0306996ce874d9ed16e913f6c264c9599c34edc82c9b5e72a24" },
 };
@@ -128,10 +128,13 @@ describe("legal page dates", () => {
     // Evidence Evaluator on muse-wonder-1.0) changed the AI-generated content
     // disclosure of Terms and the "Independent" and "AI assistance" sections
     // of About, which until then dated from 2026-10-27; Privacy and
-    // Limitations did not change.
+    // Limitations did not change. On 2026-11-03, when the owner marked the
+    // texts final, the Privacy lead stopped calling the deployment "planned"
+    // and the build "not connected" (it describes the live portal); only
+    // Privacy changed.
     expect(LEGAL_TEXT_CHANGED.limitations.toISOString().slice(0, 10)).toBe("2026-11-01");
     expect(LEGAL_TEXT_CHANGED.terms.toISOString().slice(0, 10)).toBe("2026-11-01");
-    expect(LEGAL_TEXT_CHANGED.privacy.toISOString().slice(0, 10)).toBe("2026-11-01");
+    expect(LEGAL_TEXT_CHANGED.privacy.toISOString().slice(0, 10)).toBe("2026-11-03");
     expect(LEGAL_TEXT_CHANGED.about.toISOString().slice(0, 10)).toBe("2026-11-01");
   });
 

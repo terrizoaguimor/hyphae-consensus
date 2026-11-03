@@ -29,6 +29,7 @@ const CONTENT_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml",
   ".map": "application/json; charset=utf-8",
   ".woff2": "font/woff2",
   ".woff": "font/woff",

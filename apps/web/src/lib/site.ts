@@ -48,11 +48,12 @@ export const legalPages = ["terms", "privacy", "limitations"] as const;
 export type LegalPage = (typeof legalPages)[number];
 
 /**
- * "draft" shows a notice on the legal pages (Terms, Privacy, Limitations,
- * About) that their texts await the owner's review. Set it to "final" only
- * after that review.
+ * "draft" would show a notice on the legal pages (Terms, Privacy,
+ * Limitations, About) that their texts await the owner's review. The owner
+ * marked the texts final on 2026-11-03: they render as the texts in force,
+ * with no badge and no notice.
  */
-export const LEGAL_TEXT_STATUS: "draft" | "final" = "draft";
+export const LEGAL_TEXT_STATUS: "draft" | "final" = "final";
 
 /**
  * The day each legal document's own text last changed (its `Legal.<page>` or
@@ -63,7 +64,7 @@ export const LEGAL_TEXT_STATUS: "draft" | "final" = "draft";
  */
 export const LEGAL_TEXT_CHANGED: Readonly<Record<LegalPage | "about", Date>> = {
   terms: new Date("2026-11-01T00:00:00Z"),
-  privacy: new Date("2026-11-01T00:00:00Z"),
+  privacy: new Date("2026-11-03T00:00:00Z"),
   limitations: new Date("2026-11-01T00:00:00Z"),
   about: new Date("2026-11-01T00:00:00Z"),
 };
@@ -98,11 +99,12 @@ export const externalLinks = {
 } as const;
 
 /**
- * Public URL of this project's source repository. The owner fills it in when
- * the repository is published; until then the About page shows a sentence,
- * never a link that leads nowhere.
+ * Public URL of this project's source repository (published; the About page
+ * links to it). Null would make the About page show a sentence instead, never
+ * a link that leads nowhere.
  */
-export const SOURCE_REPOSITORY_URL: string | null = null;
+export const SOURCE_REPOSITORY_URL: string | null =
+  "https://github.com/terrizoaguimor/hyphae-consensus";
 
 /** Path of a page in a locale, with the export's trailing slash. */
 export function localePath(locale: Locale, path: string): string {

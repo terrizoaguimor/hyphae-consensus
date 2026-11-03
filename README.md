@@ -243,7 +243,7 @@ archive's. Lossless greyscale PNGs.</sub>
 | My runs | The visitor session's runs |
 | Run workspace | Live (while a live run deliberates) or Playback, Explorer, Evidence, Proof inspector, Audit trail (chain check, receipt, check command), Meta API (invocations and totals), Decision (`authority: public_demo`, no operational authority) |
 | Research showcase | The `research/` archive by battery, each run in RECORDED mode, with pinned digests and `MANIFEST.json` checked in the browser |
-| Docs, Settings, legal | Seven articles; draft Terms, Privacy, Limitations and About pages awaiting the owner's sign-off |
+| Docs, Settings, legal | Seven articles; Terms, Privacy, Limitations and About pages, marked final by the owner on 2026-11-03 |
 
 The portal is deployed: see [Deployment status](#deployment-status). More:
 [apps/web/README.md](apps/web/README.md). The design (tokens, the status encoding without colour, the Quorum logo kit, curated screens and the heuristic evaluation behind it): [docs/design/](docs/design/README.md).

@@ -18,7 +18,7 @@ import { brandIcons, brandViewport } from "@/lib/brand";
 import { fontVariables } from "../fonts";
 
 export const metadata: Metadata = {
-  title: defaultMessages.Metadata.title,
+  title: defaultMessages.Metadata.homeTitle,
   description: defaultMessages.Metadata.description,
   icons: brandIcons,
 };
@@ -43,7 +43,7 @@ export default function RootRedirectLayout({
         <ThemeScript />
         <SocialMeta
           siteName={defaultMessages.App.name}
-          title={defaultMessages.Metadata.title}
+          title={defaultMessages.Metadata.homeTitle}
           description={defaultMessages.Metadata.description}
           imageAlt={defaultMessages.Metadata.ogImageAlt}
         />

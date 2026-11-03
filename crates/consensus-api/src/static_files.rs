@@ -57,7 +57,7 @@ pub fn csp_header(script_hashes: &[String], style_hashes: &[String]) -> String {
         style_src.push_str(&format!(" '{hash}'"));
     }
     format!(
-        "default-src 'none'; script-src {script_src}; frame-src {TURNSTILE_ORIGIN}; connect-src 'self'; style-src {style_src}; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'; frame-ancestors 'none'"
+        "default-src 'none'; script-src {script_src}; frame-src {TURNSTILE_ORIGIN}; connect-src 'self'; manifest-src 'self'; style-src {style_src}; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'; frame-ancestors 'none'"
     )
 }
 
@@ -414,6 +414,8 @@ mod tests {
         assert!(csp.contains(&format!("'{}'", csp_hash("a()"))), "{csp}");
         assert!(csp.contains("frame-ancestors 'none'") && !csp.contains("unsafe-eval"));
         assert!(csp.contains("style-src-attr 'unsafe-inline'"));
+        // The web app manifest is a subresource of every page.
+        assert!(csp.contains("manifest-src 'self'"), "{csp}");
         let en = site.serve("/en/", &headers);
         let csp = en.headers()[header::CONTENT_SECURITY_POLICY]
             .to_str()
@@ -438,6 +440,41 @@ mod tests {
             "public, max-age=31536000, immutable"
         );
         assert!(js.headers().get(header::CONTENT_SECURITY_POLICY).is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn search_and_icon_files_are_served_with_their_own_types() {
+        let (site, dir) = site();
+        std::fs::write(dir.join("robots.txt"), "User-Agent: *\nAllow: /\n").unwrap();
+        std::fs::write(dir.join("sitemap.xml"), "<urlset/>").unwrap();
+        std::fs::write(dir.join("manifest.webmanifest"), "{}").unwrap();
+        std::fs::write(dir.join("favicon.ico"), [0u8, 0, 1, 0]).unwrap();
+        let headers = HeaderMap::new();
+        for (path, kind) in [
+            ("/robots.txt", "text/plain; charset=utf-8"),
+            ("/sitemap.xml", "application/xml"),
+            ("/manifest.webmanifest", "application/manifest+json"),
+            ("/favicon.ico", "image/x-icon"),
+        ] {
+            let response = site.serve(path, &headers);
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert_eq!(response.headers()[header::CONTENT_TYPE], kind, "{path}");
+            // Not content-addressed: revalidated within the hour, never immutable.
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "public, max-age=3600",
+                "{path}"
+            );
+            // The CSP belongs to HTML responses only.
+            assert!(
+                response
+                    .headers()
+                    .get(header::CONTENT_SECURITY_POLICY)
+                    .is_none(),
+                "{path}"
+            );
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -61,7 +61,7 @@
       }
     },
     "privacy": {
-      "lead": "This notice describes what the planned public deployment of the portal processes. This build is not connected to the API: it stores no runs and no settings on a server (your settings stay in your browser), while the host and Cloudflare keep request logs as described below.",
+      "lead": "This notice describes what the portal processes. The portal stores the runs you start on the server, and the host and Cloudflare keep request logs, as described below; your settings stay in your browser.",
       "sections": {
         "summary": {
           "heading": "In short",

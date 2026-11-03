@@ -2,8 +2,30 @@
   "Metadata": {
     "title": "Hyphae Consensus",
     "titleTemplate": "%s · Hyphae Consensus",
-    "description": "Portail Hyphae Consensus : raisonnement multi-agents vérifiable et responsabilité des décisions.",
-    "ogImageAlt": "Le symbole Quorum, trois facettes de verre autour d’un nœud central, au-dessus des mots Hyphae Consensus, sur un fond gris foncé."
+    "homeTitle": "Hyphae Consensus — délibération d’IA multi-agents vérifiable",
+    "description": "Trois rôles d’IA proposent, critiquent et jugent une décision logicielle sur des éléments probants vérifiés ; seule une personne autorise la recommandation.",
+    "ogImageAlt": "Le symbole Quorum, trois facettes de verre autour d’un nœud central, au-dessus des mots Hyphae Consensus, sur un fond gris foncé.",
+    "pageDescriptions": {
+      "new": "Lancez une délibération avec un exemple guidé ou une tâche prédéfinie en direct, et suivez trois rôles d’IA face à un problème de génie logiciel.",
+      "runs": "Retrouvez les exécutions lancées dans ce navigateur : celles en cours, celles qui attendent votre décision et celles qui sont terminées.",
+      "run": "Suivez une délibération : le Proposant, le Critique et l’Évaluateur, les éléments probants, le résultat de la politique et la décision humaine.",
+      "showcase": "Parcourez des exécutions enregistrées de Hyphae Consensus, scénarisées ou menées avec les modèles de Meta, en lecture seule depuis une archive vérifiable.",
+      "docs": "De courts guides sur Hyphae Consensus : les trois rôles, les éléments probants vérifiés, la politique fixe, l’autorisation humaine et les trois modes.",
+      "settings": "Choisissez thème, langue, animations et niveau d’explication. Vos choix restent dans ce navigateur : aucun cookie, rien n’est envoyé à un serveur.",
+      "terms": "Conditions d’utilisation du portail Hyphae Consensus, un prototype de recherche indépendant créé pour le Meta Global AI Developer Hackathon 2026.",
+      "privacy": "Comment le portail Hyphae Consensus traite vos données : ni analyse d’audience ni publicité, aucune vente de données, et ce qu’il traite pour fonctionner.",
+      "limitations": "Ce que les résultats de Hyphae Consensus peuvent ou non vous dire : une preuve valide n’est pas la vérité, et une recommandation vaut ses éléments probants.",
+      "about": "Hyphae Consensus est un projet indépendant créé pour le Meta Global AI Developer Hackathon 2026. Non affilié à Meta, ni parrainé ni approuvé par Meta."
+    },
+    "docDescriptions": {
+      "what-is": "Hyphae Consensus : trois rôles d’IA traitent un problème logiciel, leurs affirmations sont confrontées à une mémoire vérifiable, puis une personne décide.",
+      "three-roles": "Pourquoi le travail est réparti entre Proposant, Critique et Évaluateur : chaque étape reste visible et le désaccord apparaît au lieu d’être moyenné.",
+      "not-voting": "Ici, le consensus n’est pas un vote : une politique déterministe transforme les jugements par affirmation et l’état des preuves en recommandation.",
+      "verified-evidence": "Chaque élément probant est jugé selon trois axes distincts : intégrité, corroboration factuelle et pertinence. Un bon résultat sur l’un ne dit rien des autres.",
+      "abstain-contested": "Pourquoi le système peut s’abstenir ou conclure « contesté » : ces issues honnêtes signalent ce qui reste ouvert, sans feindre la confiance.",
+      "human-authorization": "Les modèles proposent, critiquent et jugent, mais seule une personne peut autoriser une recommandation. Autoriser enregistre une décision ; rien n’est exécuté.",
+      "modes": "Les trois modes : exemples guidés à preuves simulées, exécutions en direct avec les modèles de Meta, exécutions enregistrées d’une archive de recherche."
+    }
   },
   "App": {
     "name": "Hyphae Consensus",

@@ -1262,11 +1262,9 @@ mod tests {
         // The queue still admits a wait (it was not left full): this one
         // times out on our side after waiting, rather than being refused
         // at once with Busy.
-        let waited = tokio::time::timeout(
-            Duration::from_millis(100),
-            manager.reserve(RunKind::Guided),
-        )
-        .await;
+        let waited =
+            tokio::time::timeout(Duration::from_millis(100), manager.reserve(RunKind::Guided))
+                .await;
         assert!(waited.is_err(), "still waiting, not refused");
         assert_eq!(manager.stats().queued, 0);
         assert_eq!(manager.stats().active, 0);

@@ -53,13 +53,11 @@ describe("site map", () => {
     }
   });
 
-  it("links only to HTTPS external pages, and to no repository until it is set", () => {
+  it("links only to HTTPS external pages, and to the published repository", () => {
     for (const url of Object.values(externalLinks)) {
       expect(url).toMatch(/^https:\/\/[a-z0-9.-]+\//);
     }
-    if (SOURCE_REPOSITORY_URL !== null) {
-      expect(SOURCE_REPOSITORY_URL).toMatch(/^https:\/\//);
-    }
+    expect(SOURCE_REPOSITORY_URL).toBe("https://github.com/terrizoaguimor/hyphae-consensus");
   });
 });
 

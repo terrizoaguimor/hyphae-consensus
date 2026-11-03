@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Terms of use, Privacy notice, Limitations and About share one layout:
-// title, lead, the Draft badge and notice while LEGAL_TEXT_STATUS is "draft",
+// title, lead, the Draft badge and notice only while LEGAL_TEXT_STATUS is "draft",
 // the day the page's own text last changed (LEGAL_TEXT_CHANGED), and the
 // catalog's sections (messages/legal/<locale>.json). About appends its
 // source-repository section through `children`.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Terms of use (draft until the owner's review; see LEGAL_TEXT_STATUS).
+// Terms of use (final since 2026-11-03; see LEGAL_TEXT_STATUS).
 
 import { LegalPageContent } from "@/components/LegalPageContent";
 import { type LocaleParams, navPageMetadata, pageLocale } from "@/lib/pageLocale";

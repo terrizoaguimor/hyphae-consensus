@@ -61,7 +61,7 @@
       }
     },
     "privacy": {
-      "lead": "Este aviso descreve quais dados a implantação pública planejada do portal trata. Esta versão não está conectada à API: ela não guarda execuções nem configurações em um servidor (suas configurações ficam no seu navegador), embora o servidor de hospedagem e a Cloudflare mantenham logs de solicitações, como descrito abaixo.",
+      "lead": "Este aviso descreve quais dados o portal trata. O portal guarda no servidor as execuções que você inicia, e o servidor de hospedagem e a Cloudflare mantêm logs de solicitações, como descrito abaixo; suas configurações ficam no seu navegador.",
       "sections": {
         "summary": {
           "heading": "Em resumo",

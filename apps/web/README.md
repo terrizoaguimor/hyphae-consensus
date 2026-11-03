@@ -34,8 +34,8 @@ the language-neutral root page `/` and the 404 page:
 | Docs | `docs/` | Index of 7 articles, tour launcher, explanation level |
 | Docs articles | `docs/<slug>/` | `what-is`, `three-roles`, `not-voting`, `verified-evidence`, `abstain-contested`, `human-authorization`, `modes`: summary, sections, technical details, previous/next |
 | Settings | `settings/` | Theme, language, motion, explanation level, remove saved settings |
-| Terms of use, Privacy notice, Limitations | `terms/`, `privacy/`, `limitations/` | Drafts for the planned public deployment, marked "Draft" while `LEGAL_TEXT_STATUS` is `"draft"`, each dated from its own entry in `LEGAL_TEXT_CHANGED` (the day its own text last changed, pinned to a digest of that text by `tests/legal-dates.test.ts`) |
-| About | `about/` | Independence from Meta, Hyphae as the owner's earlier project (copyright Celiums Solutions LLC, Apache-2.0, docs CC-BY-SA-4.0), license, AI assistance, source repository (text until `SOURCE_REPOSITORY_URL` is set); marked "Draft" like the other legal pages |
+| Terms of use, Privacy notice, Limitations | `terms/`, `privacy/`, `limitations/` | The texts in force (marked final by the owner on 2026-11-03: `LEGAL_TEXT_STATUS` is `"final"`, so no Draft badge or notice shows), each dated from its own entry in `LEGAL_TEXT_CHANGED` (the day its own text last changed, pinned to a digest of that text by `tests/legal-dates.test.ts`) |
+| About | `about/` | Independence from Meta, Hyphae as the owner's earlier project (copyright Celiums Solutions LLC, Apache-2.0, docs CC-BY-SA-4.0), license, AI assistance, source repository (links to `SOURCE_REPOSITORY_URL`, the public GitHub repository); final like the other legal pages |
 | Not found | `/404.html` | `src/app/global-not-found.tsx` (Next's experimental `globalNotFound`): `lang="en"`, the four language links, the non-affiliation line, the theme script and the app styles; served for every unknown path |
 
 Every internal link is built from the site map in `src/lib/site.ts`;
@@ -542,9 +542,10 @@ confirms it); retention is run files deleted whole after 7 days except a
 one-line run-index entry and the budget-ledger cost entry, hashed-address
 tables in memory and bounded, server/cloudflared/host logs under the host's
 rotation, and an unpublished operator detail log keyed by request id.
-**The legal texts (Terms, Privacy, Limitations, About) are drafts for the
-owner's review** in all four languages; the ES/PT/FR texts are drafts too and
-need the Day-5 language sign-off.
+**The legal texts (Terms, Privacy, Limitations, About) were marked final by
+the owner on 2026-11-03** in all four languages (`LEGAL_TEXT_STATUS` is
+`"final"`); the Privacy lead was reworded that day to describe the live
+portal, and Privacy is re-dated and re-pinned accordingly.
 
 Honesty rules the texts follow: a valid proof shows that the Hyphae recall it
 seals reproduces against its pinned anchor, not yet that the displayed text is
@@ -1327,6 +1328,6 @@ the axe scans.
 - Browser coverage: Chromium (full suite), Firefox and WebKit builds of
   Playwright 1.64.1 (smoke tests). No real Safari or older Firefox, and no
   screen-reader pass with NVDA, JAWS or VoiceOver yet.
-- The legal and trust texts are drafts awaiting the owner's review, and the
-  About page shows no repository link until `SOURCE_REPOSITORY_URL` is set
-  in `src/lib/site.ts`.
+- The legal and trust texts were marked final by the owner on 2026-11-03, and
+  the About page links the public repository (`SOURCE_REPOSITORY_URL` in
+  `src/lib/site.ts`).

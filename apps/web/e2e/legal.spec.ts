@@ -29,11 +29,12 @@ for (const locale of locales) {
     }
     // Two pages show the same day exactly when their texts changed on the
     // same day (tests/legal-dates.test.ts pins which day that is): the
-    // Terms, Privacy and Limitations changed on 2026-11-01, and About too
+    // Terms and Limitations changed on 2026-11-01, and About too
     // (round 10: the model split of 2026-11-01 changed its "Independent" and
     // "AI assistance" sections; it had shown 2026-10-27 until then). (The
     // earlier fixed pairs here went stale when the Terms and the Privacy
-    // notice were re-dated on 2026-11-01.)
+    // notice were re-dated on 2026-11-01. The Privacy lead was reworded on
+    // 2026-11-03, when the texts were marked final, so it has its own day.)
     for (let a = 0; a < documents.length; a += 1) {
       for (let b = a + 1; b < documents.length; b += 1) {
         const sameDay =
@@ -53,5 +54,22 @@ for (const locale of locales) {
       timeZone: "UTC",
     }).format(new Date(Date.UTC(2026, 10, 1)));
     expect(shown[3]).toBe(t(locale, "Legal.updated").replace("{date, date, long}", november1));
+  });
+}
+
+for (const locale of locales) {
+  test(`the legal pages are final: no draft badge or notice, and About links the repository (${locale})`, async ({ page }) => {
+    for (const document of documents) {
+      await page.goto(localePath(locale, document));
+      await hydrated(page);
+      await expect(page.locator("main"), document).not.toContainText(t(locale, "Legal.draftBadge"));
+      await expect(page.locator("main"), document).not.toContainText(t(locale, "Legal.draftNotice"));
+    }
+    await page.goto(localePath(locale, "about"));
+    await hydrated(page);
+    const link = page.locator("main").getByRole("link", { name: t(locale, "About.source.link"), exact: true });
+    await expect(link).toHaveAttribute("href", "https://github.com/terrizoaguimor/hyphae-consensus");
+    await expect(link).toHaveAttribute("rel", /noopener/);
+    await expect(page.locator("main")).not.toContainText(t(locale, "About.source.pending"));
   });
 }

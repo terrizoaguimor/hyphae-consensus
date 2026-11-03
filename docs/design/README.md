@@ -14,15 +14,15 @@ Contents: [Why](#why-these-choices) · [Status without colour](#status-without-c
 
 The product's job is to show what is known and what is not. A palette with a green "good" and a red "bad" works against that: the first heuristic evaluation (2026-10-30, [summary](heuristic-evaluation.md)) found simulated work painted solid green, and green is read as "verified" before anyone reads the word next to it. So the redesign took colour out of the status system entirely.
 
-- **Monochrome, no hue.** Fourteen greys from `#FFFFFF` to `#0B0B0B`, R = G = B on every step ([tokens](tokens.md)). A build check fails on any colour literal whose channels differ. The screenshots in this folder were measured: every pixel has equal red, green and blue.
+- **Monochrome, no hue.** Fourteen greys from `#FFFFFF` to `#0B0B0B`, R = G = B on every step ([tokens](tokens.md)). A build check fails on any colour literal whose channels differ. The screenshots are stored as 8-bit greyscale; that the app renders without hue is what `apps/web/tests/no-hue.test.ts` and `apps/web/e2e/no-hue.spec.ts` check.
 - **Brushed glass.** Cards, panels, the top bar and overlays use a frosted, almost opaque glass with a fine horizontal grain, lit from the top left, in greys only. It gives depth without colour. It is used sparingly: dense data (tables, code, long text, tags, inputs) stays on solid surfaces, and every glass rule has a fallback (no blur support, reduced transparency, more contrast, forced colours, print).
 - **Square first.** Radii are 0, 2, 4 and 6 px. No pills, no ovals, no chat bubbles. Regions and tables are square; tags are 2px rectangles; controls 4px; cards and dialogs 6px. Status markers are squares. The only round things left are radio marks, which keep their shape so they still read as radios.
-- **Order through the grid.** Flush-left text, an 8px rhythm, prose capped near 40rem, one primary action per screen.
+- **Order through the grid.** Flush-left text. The Figma intent is an 8px rhythm and prose near 40rem; the app caps prose at 44 to 46rem. One primary action per screen is a goal, not verified ([HE #20](heuristic-evaluation.md)).
 - **Say it in words.** Every status has a visible word. Icons are decorative and `aria-hidden`; colour (here, grey value) is the third cue, never the first.
 
 ## Status without colour
 
-Each status is encoded on up to eight channels: fill, polarity (inverted or not), frame, an edge mark or marker, icon, word and letter case, plus line style. Five of them are *pre-attentive*, meaning they are seen before the word is read, and survive blur and 12px icons. The design's measured rule: every pair of roles differs in at least three channels and one pre-attentive channel; the fourteen critical pairs (for example verified / simulated, failed / live) in at least four channels and two pre-attentive ones. One pair, "checked in this browser" against "info", is a named, accepted exception that differs only by its frame, icon and word.
+Each status is encoded on up to eight channels: fill, polarity (inverted or not), frame (border style and width together), edge mark, marker, icon outline, word and letter case. The first five (fill, polarity, frame, edge mark, marker) are *pre-attentive*, meaning they are seen before the word is read, and survive blur and 12px icons. The design's measured rule: every pair of roles differs in at least three channels and one pre-attentive channel; the fourteen critical pairs (for example verified / simulated, failed / live) in at least four channels and two pre-attentive ones. One pair, "checked in this browser" against "info", is a named, accepted exception that differs only by its frame, icon and word.
 
 ![The status encoding sheet: every tag in light and dark at two sizes, a blurred squint test, the critical pairs side by side, rows and callouts](screens/status-encoding-sheet.png)
 
@@ -73,7 +73,7 @@ Outcome and evidence are two separate tags (`supported`, then `Evidence: SIMULAT
 
 ## Screens
 
-Nine images in [`screens/`](screens), all pure greys. Shown here: the run workspace in dark and in light.
+Nine images in [`screens/`](screens), greyscale. Shown here: the run workspace in dark and in light.
 
 ![Run workspace, dark: the answer sentence, outcome and evidence as two tags, the provenance strip, tabs and the three role cards](screens/run-awaiting-dark.png)
 

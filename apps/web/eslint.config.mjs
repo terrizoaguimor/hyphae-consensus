@@ -17,8 +17,9 @@ export default defineConfig([
     },
   },
   {
-    // The single reviewed exception: the fixed theme script in <head>.
-    files: ["src/components/ThemeScript.tsx"],
+    // The two reviewed exceptions: the fixed theme script in <head>, and the
+    // JSON-LD data block (JSON from jsonLdText, never executed).
+    files: ["src/components/ThemeScript.tsx", "src/components/JsonLd.tsx"],
     rules: {
       "react/no-danger": "off",
     },

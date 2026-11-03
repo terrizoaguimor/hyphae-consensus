@@ -148,6 +148,11 @@ const ALLOWED: Record<string, string> = {
   "Provenance.introConnected": "Overview legend only",
   // Its variant until the health probe settles (round 4 apply, review R1-2).
   "Provenance.introPending": "Overview legend only",
+  // Page descriptions in <head> (src/lib/pageLocale.ts), never rendered in a
+  // page body: New deliberation offers the live presets, and the Modes
+  // article describes the live mode among the three.
+  "Metadata.pageDescriptions.new": "<meta> description of New deliberation, which offers live presets",
+  "Metadata.docDescriptions.modes": "<meta> description of the Modes article, which names live mode",
   // The headlines of the live endpoints' error classes D, E and F
   // (src/lib/api/errors.ts): chosen only for the codes above.
   "Api.headlines.liveInProgress": "live endpoint error headline",

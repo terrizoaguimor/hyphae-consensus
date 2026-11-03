@@ -14,7 +14,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { richTags } from "@/components/rich";
 import { TechnicalDetails } from "@/components/TechnicalDetails";
 import { dynamicTranslator, keysOf } from "@/i18n/dynamic";
-import { pageLocale } from "@/lib/pageLocale";
+import { localizedPageMetadata, pageLocale } from "@/lib/pageLocale";
 import { type DocSlug, docPath, docSlugs, localePath } from "@/lib/site";
 
 type DocParams = { params: Promise<{ locale: string; slug: string }> };
@@ -40,7 +40,11 @@ export async function generateMetadata({
   const locale = await pageLocale(params);
   const slug = docSlug((await params).slug);
   const t = await getTranslations({ locale, namespace: "Docs" });
-  return { title: t(`articles.${slug}.title`) };
+  return localizedPageMetadata(params, {
+    path: `docs/${slug}`,
+    descriptionKey: `docDescriptions.${slug}`,
+    title: t(`articles.${slug}.title`),
+  });
 }
 
 export default async function DocArticlePage({ params }: DocParams) {

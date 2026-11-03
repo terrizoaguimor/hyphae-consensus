@@ -1027,9 +1027,10 @@ light, #0B0B0B dark). `favicon.svg` is the one shipped SVG with a `<style>`
 element (its dark-browser ink): it is linked, never inlined, and the CSP
 applies to HTML responses only. The app icons (`icon-512.png`,
 `icon-1024.png`, dark tile, and their `-light` versions) are served from the
-export root; there is no web app manifest (the app has none, and the API
-server's CSP sets no `manifest-src`). `SocialMeta` writes the Open Graph and
-Twitter card tags itself, with `og:image` pointing at `/og-image.png`
+export root, and `/manifest.webmanifest` (see "Search and link-preview
+metadata") names the 512 and 1024 px ones; the API server's CSP carries
+`manifest-src 'self'` for it. `SocialMeta` writes the Open Graph and Twitter
+card tags of the root page (`/`) only, with `og:image` pointing at `/og-image.png`
 (1200 x 630, greys, the glass mark and the wordmark on the dark stage):
 Next's `openGraph` metadata would resolve it against
 `http://localhost:3000` without a `metadataBase`. The public origin is known
@@ -1163,6 +1164,50 @@ to their browser's preference, and sends visitors without JavaScript to
   (390x844: 8 × 2 themes, fr): **0 violations of any impact**, 14,914 rule
   passes, 165,678 element checks passed.
 
+## Search and link-preview metadata
+
+Every localized page returns its own head through `localizedPageMetadata`
+(`src/lib/pageLocale.ts`, built by `pageMetadata` in `src/lib/seo.ts`): a
+`<title>` (the home page's is `Metadata.homeTitle`, at most 60 characters;
+the others are `<page> · Hyphae Consensus`), a description of its own from
+`Metadata.pageDescriptions.<page>` or `Metadata.docDescriptions.<slug>` (70 to
+160 characters, in the four locales), `<link rel="canonical">`, the five
+`hreflang` alternates (en, es, pt-BR, fr and x-default, the English page), and
+the Open Graph (`og:url`, `og:locale` and its alternates, title, description,
+image) and Twitter card (title, description, image, image alt) tags. `/run/`
+(an empty shell until a `?id=` query fills it) and `/settings/` carry
+`noindex, follow`; the 404 page has Next's `noindex`. Addresses are absolute
+and end in "/": the origin is the build's `NEXT_PUBLIC_SITE_ORIGIN`, else the
+project's public site (`DEFAULT_PUBLIC_ORIGIN` in `src/lib/brand.ts`), so a
+build without the owner's env file still names the real site.
+
+- `app/robots.ts` -> `out/robots.txt`: allow all, `Disallow: /api/` and
+  `/research/`, and the absolute `Sitemap:` line.
+- `app/sitemap.ts` -> `out/sitemap.xml`: every indexable page (the overview,
+  New, My runs, the showcase, Docs and its seven articles, Terms, Privacy,
+  Limitations, About) in the four locales, 64 URLs, each with its
+  `xhtml:link` alternates. `/run/`, `/settings/` and the 404 are left out;
+  `e2e/seo.spec.ts` compares the list with the pages the export contains.
+- `app/manifest.ts` -> `out/manifest.webmanifest` (name, `start_url` `/en/`,
+  `display: browser`, the 512 and 1024 px icons, `#0B0B0B`), linked by Next
+  from every document. The API server's CSP adds `manifest-src 'self'`
+  (without it `default-src 'none'` blocks the manifest).
+- `public/favicon.ico` (16, 32 and 48 px, PNG images in an ICO container) is
+  built by `scripts/build-favicon-ico.mjs` (run it through `in-docker.sh`);
+  the pages do not link it, it is for clients that ask for `/favicon.ico`.
+- The home page of each locale carries one JSON-LD `WebApplication`
+  (`src/components/JsonLd.tsx`, `webApplicationJsonLd`): name, url,
+  description, `inLanguage`, `DeveloperApplication`, the Apache-2.0 license,
+  the code repository and the author; no offers, ratings or other facts. It
+  is a `<script type="application/ld+json">`, a data block: the browser never
+  runs it, so the hash-only CSP does not govern it, and `csp-manifest.mjs`
+  counts it under `dataBlocks` and gives it no hash (the page's header is
+  unchanged). A check that hashes every `<script>` without a `src` must skip
+  `type="application/ld+json"`.
+
+Tests: `tests/seo.test.ts` (helpers, catalogs: lengths, distinct texts, no
+endorsement or performance claim) and `e2e/seo.spec.ts` (the built export).
+
 ## CSP manifest
 
 `scripts/csp-manifest.mjs` runs after the export. It parses every
@@ -1198,6 +1243,7 @@ same-origin request or request to another origin.
 
 | Spec | Covers |
 |---|---|
+| `seo.spec.ts` | Per page and locale (16 indexable pages plus `/run/` and `/settings/`): a title and description of its own (70 to 160 characters, the home title at most 60), an absolute canonical ending in "/", the complete and reciprocal hreflang set with x-default, `og:url`, `og:locale` and its alternates, the Twitter title, description, image and image alt, `noindex, follow` only on run and settings (and the 404 page); the home page's JSON-LD (fields, and no hash of it in the manifest or the CSP header); `robots.txt`; a sitemap whose URL set equals the indexable pages found in `out/`; `favicon.ico` (16, 32, 48) and the web app manifest with their types |
 | `navigation.spec.ts` | Every primary nav item in every locale (URL, `<h1>`, focus on the `<h1>`, `aria-current`, `lang`, title); a crawl of all 69 pages that requests every internal link without following redirects and allows only the four known external links; unknown paths answer 404 with the global not-found page (lang, language links, non-affiliation line, CSP); skip link; landmarks; docs pager and section marking; the mobile drawer (modal, focus trap, Escape, focus return, navigation, language and theme) |
 | `preferences.spec.ts` | The header theme control (System / Light / Dark) and persistence; OS following; Settings (each choice, its announcement, persistence, Docs details, reset); "Match system"; a language chosen in Settings confirmed in the new language; the locale switcher and the root page's redirect; no cookies at all |
 | `onboarding.spec.ts` | Offered but never opened by itself; Skip, Escape and backdrop close it and are remembered; all six steps with Back and Finish; strict focus trap and inert page; reopening from Docs; translated in every locale |
@@ -1232,7 +1278,6 @@ the axe scans.
   the Terms (owner decisions of 2026-10-27) has to go into release gate G10
   of the plan. (The root `README.md`, rewritten on 2026-10-29, describes
   protocol 1.3 and its stop rule and no longer says "fixes in progress".)
-- No `hreflang` alternates yet: they need the public hostname (Day 2).
 - The SIL OFL 1.1 texts of the self-hosted fonts ship with the export as
   `/licenses/Inter-OFL.txt` and `/licenses/JetBrainsMono-OFL.txt`
   (`public/licenses/`), but no page links to them yet: a link under the

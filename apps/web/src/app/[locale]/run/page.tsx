@@ -15,12 +15,23 @@ import { Suspense } from "react";
 import { ApiGate } from "@/components/ApiGate";
 import { PageHeader } from "@/components/PageHeader";
 import { RunWorkspace } from "@/components/run/RunWorkspace";
-import { type LocaleParams, pageLocale } from "@/lib/pageLocale";
+import {
+  type LocaleParams,
+  localizedPageMetadata,
+  pageLocale,
+} from "@/lib/pageLocale";
 
+// noindex,follow: this route is an empty shell until a ?id= query fills it
+// in the browser, so every locale's copy would be the same blank page.
 export async function generateMetadata({ params }: LocaleParams) {
   const locale = await pageLocale(params);
   const t = await getTranslations({ locale });
-  return { title: t("Run.title") };
+  return localizedPageMetadata(params, {
+    path: "run",
+    descriptionKey: "pageDescriptions.run",
+    title: t("Run.title"),
+    noindex: true,
+  });
 }
 
 export default async function RunPage({ params }: LocaleParams) {

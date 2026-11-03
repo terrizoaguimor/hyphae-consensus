@@ -7,10 +7,11 @@
 // one stores the choice (localStorage only), which the root page (/) uses.
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Suspense, useEffect, useState } from "react";
 
-import { switchLocalePath } from "@/i18n/paths";
+import { switchLocalePath, withLocation } from "@/i18n/paths";
 import { type Locale, routing } from "@/i18n/routing";
 import { STORAGE_KEYS, writeStorage } from "@/lib/preferences";
 
@@ -29,13 +30,58 @@ type LocaleSwitcherProps = {
   className?: string;
 };
 
-export function LocaleSwitcher({
+// The page is prerendered without its query, so the server render and the
+// hydration pass produce plain paths. After every commit (a full load, a Next
+// client navigation, a same-path query change, back/forward, a hash change)
+// the query string and hash are re-read from window.location, so the links
+// always match the URL on screen (the run page needs ?id=...). Next's
+// pushState fires no popstate, hence useSearchParams (inside Suspense, whose
+// fallback is the plain-path list) plus the pathname as effect triggers.
+function useLocation(): { search: string; hash: string } {
+  const pathname = usePathname();
+  const searchKey = useSearchParams().toString();
+  const [loc, setLoc] = useState({ search: "", hash: "" });
+  useEffect(() => {
+    const read = () =>
+      setLoc((prev) =>
+        prev.search === window.location.search &&
+        prev.hash === window.location.hash
+          ? prev
+          : { search: window.location.search, hash: window.location.hash },
+      );
+    read();
+    window.addEventListener("popstate", read);
+    window.addEventListener("hashchange", read);
+    return () => {
+      window.removeEventListener("popstate", read);
+      window.removeEventListener("hashchange", read);
+    };
+  }, [pathname, searchKey]);
+  return loc;
+}
+
+export function LocaleSwitcher(props: LocaleSwitcherProps) {
+  return (
+    <Suspense fallback={<LocaleSwitcherView {...props} search="" hash="" />}>
+      <LocaleSwitcherLive {...props} />
+    </Suspense>
+  );
+}
+
+function LocaleSwitcherLive(props: LocaleSwitcherProps) {
+  const { search, hash } = useLocation();
+  return <LocaleSwitcherView {...props} search={search} hash={hash} />;
+}
+
+function LocaleSwitcherView({
   current,
   endonyms,
   onNavigate,
   landmark = true,
   className = "hc-locale-list",
-}: LocaleSwitcherProps) {
+  search,
+  hash,
+}: LocaleSwitcherProps & { search: string; hash: string }) {
   const t = useTranslations("LocaleSwitcher");
   const pathname = usePathname();
   // role="list": Safari drops list semantics when list-style is none.
@@ -46,7 +92,11 @@ export function LocaleSwitcher({
         return (
           <li key={locale}>
             <Link
-              href={switchLocalePath(pathname, locale, routing.locales)}
+              href={withLocation(
+                switchLocalePath(pathname, locale, routing.locales),
+                search,
+                hash,
+              )}
               hrefLang={locale}
               aria-current={isCurrent ? "page" : undefined}
               title={isCurrent ? undefined : t(`names.${locale}`)}

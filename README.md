@@ -68,7 +68,7 @@ and tokens. Not used: SAM, open weights or fine-tuning, Muse Image or Voice. Bui
 **See it in under two minutes (no account, no code):**
 1. Open the recorded run [F03](https://consensus.terrizoaguimor.dev/en/run/?id=run-d6f28bca-0a10-4fcf-9257-4cfb7374280c&source=showcase), go to its "Audit trail" tab and press "Check the chain": your browser re-hashes all 189 records of that log (the file holds that battery's six runs).
 2. Run a [guided example](https://consensus.terrizoaguimor.dev/en/new/): scripted roles and simulated evidence, no model call.
-3. Live runs on preset tasks use the owner's key under a budget and need a judge code (available on request).
+3. Live runs on preset tasks use the owner's key under a budget and need a judge code (available on request at consensus@terrizoaguimor.dev).
 
 ## For judges
 

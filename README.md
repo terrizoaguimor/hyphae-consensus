@@ -26,6 +26,7 @@ Verifiable multi-agent reasoning and decision accountability.</p>
 </p>
 
 <p align="center">
+  <a href="#demo-video">Demo video</a> ·
   <a href="#for-judges">For judges</a> ·
   <a href="#how-a-run-works">How a run works</a> ·
   <a href="#mission-control">Screenshots</a> ·
@@ -33,6 +34,15 @@ Verifiable multi-agent reasoning and decision accountability.</p>
   <a href="#results">Results</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#documentation">Docs</a>
+</p>
+
+<h2 align="center" id="demo-video">Demo video</h2>
+
+<p align="center">
+  <a href="https://youtu.be/_1IIL8tueMw">
+    <img src="docs/assets/video-thumbnail.png" alt="Play the demo video (2:53): Hyphae Consensus, three AIs argue, a person decides" width="720">
+  </a><br>
+  <sub>▶ <a href="https://youtu.be/_1IIL8tueMw">Watch the demo (2:53)</a>: a recorded run of Meta's models, the Meta API calls, the proofs and the hash-chain check in the browser. English narration, subtitles in English and Spanish.</sub>
 </p>
 
 Independent project; not affiliated with, sponsored by, or endorsed by Meta.

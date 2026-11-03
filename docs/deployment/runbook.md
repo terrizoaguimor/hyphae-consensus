@@ -433,8 +433,44 @@ sudo test -f /var/lib/consensus/web/csp-manifest.json && echo "csp manifest pres
 rm /tmp/web.tar.gz /tmp/web.SHA256SUMS
 ```
 
-(`sudo systemctl restart consensus-public` afterwards: the export and its CSP manifest
-are read at startup.)
+**The swap and the restart are one sequence.** `consensus-public` reads
+`csp-manifest.json` once at startup (`StaticSite::load`, `static_files.rs`) but reads each
+page's HTML on every request. Between the `mv` above and the restart, the running process
+serves the NEW HTML with the OLD script hashes in every page's CSP header: the browser
+blocks the inline scripts of the new export (Next's flight data, the JSON-LD page), so the
+site loads but does not hydrate. A rollback has the same effect in reverse. Therefore:
+
+- With live mode on, run the gate (section 9.9) directly after the `mv`, in the same shell,
+  and do the swap only when `GET /api/v1/ready` already answers `"active_runs":0` and
+  `"queued_runs":0`, so the gate restarts at once. The window between `mv` and restart serves
+  unhydrated pages; with a busy site it can last up to the gate's `--max-wait` (1 h by
+  default), which is why you check for idle first and deploy in the 08:00-12:00 UTC window.
+- With live mode off (setup, sections 3-8), `sudo systemctl restart consensus-public`
+  directly after the `mv` is enough.
+
+```sh
+# server, right after the mv lines above (live mode on)
+sudo ~/consensus/deploy/scripts/restart-when-idle.sh
+```
+
+**Rollback of the web export (or of the binary and the export together).** Whichever
+side you put back, the pair must match when the process starts: the export and its
+`csp-manifest.json` come from the same build, and the process must be restarted after any
+change of either.
+
+```sh
+# server: put the previous export back, then restart through the gate
+sudo test -d /var/lib/consensus/web.old
+sudo rm -rf /var/lib/consensus/web.failed
+sudo mv /var/lib/consensus/web /var/lib/consensus/web.failed
+sudo mv /var/lib/consensus/web.old /var/lib/consensus/web
+sudo test -f /var/lib/consensus/web/csp-manifest.json && echo "csp manifest present"
+# if the binary is rolled back too: install the previous binary first (section 3.1), then
+sudo ~/consensus/deploy/scripts/restart-when-idle.sh      # live mode off: systemctl restart
+```
+
+Until that restart the site serves unhydrated pages, as above. Remove `web.failed` once
+the rolled-back site is verified (`sudo rm -rf /var/lib/consensus/web.failed`).
 
 **Research archive.** `research/` is byte-for-byte and pinned by `MANIFEST.json` and
 `SHA256SUMS` ("the same digests, for `sha256sum -c`", `research/README.md`); the

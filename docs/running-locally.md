@@ -28,6 +28,27 @@ REPO=$(pwd); cd "$(mktemp -d)"
 "$REPO/target/debug/consensus-api" --approve    # replays it and records an approval
 ```
 
+**Docker.** The `Dockerfile` at the repository root builds the `consensus-api` binary with
+the pinned toolchain (`--locked`) into a slim Debian image (about 140 MB) that runs as a non-root user
+(uid 10001) and holds `research/` at `/opt/hyphae/research`. It is for two things: the scripted
+demo, and re-verifying the archived runs with `verify`. It holds no credential, makes no
+network call and has no web build.
+
+```sh
+docker build -t hyphae-consensus .
+docker run --rm hyphae-consensus                    # scripted run, stops at AwaitingHumanApproval
+docker run --rm hyphae-consensus --approve          # also records an approval (nothing is executed)
+docker run --rm hyphae-consensus verify /opt/hyphae/research/2026-10-27/live-battery-2026-10-27-final.jsonl
+docker run --rm hyphae-consensus --help             # the usage; any unknown argument prints it and exits 2
+sh eval/verify-archive.sh                           # verify every archived log in the image (eval/README.md)
+```
+
+The demo's log lives in `/home/hyphae/scripted-demo/` inside the container and goes with it.
+The image is **not** the portal: the public server binds only a unix socket or a loopback
+TCP address, so a published container port could not reach it, and the web app is built only
+through `apps/web/scripts/in-docker.sh`. To run the portal, follow "Web app and public
+server" below on the host.
+
 **Operator console** (loopback only; it must never be exposed):
 
 ```sh

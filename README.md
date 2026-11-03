@@ -367,11 +367,15 @@ On Docker Desktop for Windows export `HC_WEB_NODE_MODULES_VOLUME=hc-web` first (
 sh apps/web/scripts/in-docker.sh pnpm install --frozen-lockfile
 sh apps/web/scripts/in-docker.sh pnpm build
 CONSENSUS_PUBLIC_BIND=127.0.0.1:8788 CONSENSUS_COOKIE_SECURE=false CONSENSUS_RUN_STORE_DIR="$(mktemp -d)" cargo run -p consensus-api --locked -- serve-public
+docker build -t hyphae-consensus . && docker run --rm hyphae-consensus   # optional: the CLI image (scripted demo, verify), not the portal
 ```
 
 Then open http://127.0.0.1:8788/ for the guided runs and the research showcase (live mode
 stays off). Tests, the read-only `verify` CLI, the scripted CLI demo, the operator console and
-the **never delete `demo-run/`** rule: [docs/running-locally.md](docs/running-locally.md).
+the **never delete `demo-run/`** rule: [docs/running-locally.md](docs/running-locally.md). The
+optional last line builds the image of the root `Dockerfile`: the scripted demo and the read-only
+`verify` of the archived runs, with no web build and no server (the public server listens on a
+unix socket or loopback, so a container does not expose the portal; see "Docker" there).
 
 ## Project layout
 
@@ -385,6 +389,9 @@ the **never delete `demo-run/`** rule: [docs/running-locally.md](docs/running-lo
 | `contracts/api-v1` | Generated JSON Schemas and fixtures of the public API; a drift test keeps the server equal to them |
 | `schemas/` | JSON Schemas of the domain contracts (`cargo run -p consensus-domain --example write_schemas`) |
 | `research/` | Verbatim archive of the recorded runs, with `MANIFEST.json` and `SHA256SUMS` |
+| `tests/` | Map of every test suite with the CI numbers, and `run-all.sh`, the Docker-only runner (`--quick`, `--rust`, `--web`, `--e2e`) |
+| `eval/` | Map of the evaluation harness and archive, and `verify-archive.sh`, which re-verifies every archived log offline |
+| `Dockerfile` | The CLI image: the scripted demo and `verify`, with `research/` inside; not the portal |
 | `snapshots/` | Public files of the sealed snapshot `snap-2026-10-29-demo-repo` |
 | `deploy/` | systemd units, cloudflared template, environment templates and operator scripts for the server (`deploy/README.md`) |
 | `scripts/` | Hyphae container scripts, battery driver and table, snapshot and research manifest tools, Linux gates, third-party notices |
@@ -495,6 +502,28 @@ trailer. All inference inside the product uses Meta's Model API only (`muse-spar
 Proposer, `muse-wonder-1.0` for the Critic and the Evidence Evaluator);
 the coding assistants are not part of the product and never appear in receipts. The owner
 reviews and authorizes every change.
+
+## Tests and evaluation
+
+The tests live next to the code; [tests/README.md](tests/README.md) maps every suite (Rust
+unit and integration tests, the scripted conformance example, the shell self-tests, Vitest,
+Playwright with axe) and says what each proves. CI run
+[41652255882](https://github.com/terrizoaguimor/hyphae-consensus/actions/runs/41652255882) at
+commit `521d823`: 759 Rust tests passed (0 failed, 2 ignored live tests that need a Meta
+key), Vitest 1004 passed in 43 files (16 skipped), Playwright 636 passed across 4 projects, axe
+340 scans with 0 violations; the scripted conformance example produces its author-defined
+outcome in 10 of 10 cases. The evaluation harness, the archived batteries and how to read their
+metrics are in [eval/README.md](eval/README.md); the figures themselves, with their caveats,
+are in [docs/evaluation.md](docs/evaluation.md) and [docs/results.md](docs/results.md).
+
+```sh
+sh tests/run-all.sh --quick          # a few minutes, Docker only: conformance example + chain verification
+sh eval/verify-archive.sh            # re-verifies every archived log offline (needs the image below)
+docker build -t hyphae-consensus .   # the CLI image
+```
+
+`sh tests/run-all.sh` with no option runs the Rust gates, the web checks and the end-to-end
+suite, all in Docker (the Node toolchain never runs on the host).
 
 ## License and notices
 

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>Hyphae Consensus, Quorum mark</title>
+  <!-- Flat mono white #FFFFFF. Grid 64. Equilateral triangle side 60, base y=56 (x 2..62), centroid (32, 38.679). Three congruent pinwheel facets (Proposer base, Critic right, Evaluator left), band 6, facet gaps 6, node ring 6; node side 18.475. All three corners truncated alike (flat 3.464, depth 3). Corners 60/120 degrees only; straight segments only. Flat master from 40 px up when glass is not wanted; 24-39 px: mark-flat-32-*.svg; 16-23 px: mark-flat-16-*.svg. -->
+  <path fill="#FFFFFF" d="M5.464 56 L48.144 56 L44.679 50 L5.464 50 L3.732 53 Z M60.268 53 L38.928 16.038 L35.464 22.038 L55.072 56 L58.536 56 Z M30.268 7.038 L8.928 44 L15.856 44 L35.464 10.038 L33.732 7.038 Z M32 28.038 L22.785 44 L41.215 44 Z"/>
+</svg>

@@ -102,3 +102,44 @@ test("a page without a query keeps plain language links", async ({ page }) => {
     await expect(link).toHaveAttribute("href", `/${target}/docs/`);
   }
 });
+
+test("the language links follow client-side navigation", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const r06 = recordedEntry();
+  const runId = String(r06.run_id);
+  await mockApi(page, { showcase: [r06], recordedRuns: [recordedRun(r06, { base: "retry" })] });
+  const es = () => languageLink(page, "en", "es", false);
+  await page.goto("/en/showcase/");
+  await hydrated(page);
+  await expect(await es()).toHaveAttribute("href", "/es/showcase/");
+
+  // Showcase card (an in-app Link) to the run page: the query must appear.
+  await page.locator(`a[href*="id=${runId}"]`).first().click();
+  await page.waitForURL(/\/en\/run\/\?/u);
+  await expect(await es()).toHaveAttribute("href", new RegExp(`^/es/run/[?]id=${runId}.*source=showcase`, "u"));
+  await (await es()).click();
+  await page.waitForURL(/\/es\/run\/\?/u);
+  await expectRunOpen(page, "es", runId);
+
+  // From a run page in-app to Docs: the previous page's query must not leak.
+  await page.goto(showcaseRunPath("en", runId));
+  await hydrated(page);
+  await expect(await es()).toHaveAttribute("href", /\?id=/u);
+  await page
+    .getByRole("navigation", { name: t("en", "Shell.primaryNavLabel") })
+    .getByRole("link", { name: t("en", "Nav.docs"), exact: true })
+    .click();
+  await page.waitForURL(/\/en\/docs\//u);
+  await expect(await es()).toHaveAttribute("href", "/es/docs/");
+
+  // Router push to a run page, then to another run on the same path.
+  await page.goto("/en/new/");
+  await hydrated(page);
+  const push = (u: string) =>
+    page.evaluate((url) => (window as unknown as { next: { router: { push(x: string): void } } }).next.router.push(url), u);
+  await push(`/en/run/?id=${runId}&source=showcase`);
+  await page.waitForURL(/\/en\/run\/\?id=/u);
+  await expect(await es()).toHaveAttribute("href", `/es/run/?id=${runId}&source=showcase`);
+  await push(`/en/run/?id=${runId}&source=showcase&x=1`);
+  await expect(await es()).toHaveAttribute("href", `/es/run/?id=${runId}&source=showcase&x=1`);
+});

@@ -7,9 +7,9 @@
 // one stores the choice (localStorage only), which the root page (/) uses.
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useSyncExternalStore } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { switchLocalePath, withLocation } from "@/i18n/paths";
 import { type Locale, routing } from "@/i18n/routing";
@@ -31,36 +31,59 @@ type LocaleSwitcherProps = {
 };
 
 // The page is prerendered without its query, so the server render and the
-// hydration pass produce plain paths; right after hydration the links gain the
-// current query string and hash (the run page needs ?id=...). No Suspense
-// needed, unlike useSearchParams.
-const SEPARATOR = "\u0000";
-function subscribeLocation(onChange: () => void): () => void {
-  window.addEventListener("popstate", onChange);
-  window.addEventListener("hashchange", onChange);
-  return () => {
-    window.removeEventListener("popstate", onChange);
-    window.removeEventListener("hashchange", onChange);
-  };
+// hydration pass produce plain paths. After every commit (a full load, a Next
+// client navigation, a same-path query change, back/forward, a hash change)
+// the query string and hash are re-read from window.location, so the links
+// always match the URL on screen (the run page needs ?id=...). Next's
+// pushState fires no popstate, hence useSearchParams (inside Suspense, whose
+// fallback is the plain-path list) plus the pathname as effect triggers.
+function useLocation(): { search: string; hash: string } {
+  const pathname = usePathname();
+  const searchKey = useSearchParams().toString();
+  const [loc, setLoc] = useState({ search: "", hash: "" });
+  useEffect(() => {
+    const read = () =>
+      setLoc((prev) =>
+        prev.search === window.location.search &&
+        prev.hash === window.location.hash
+          ? prev
+          : { search: window.location.search, hash: window.location.hash },
+      );
+    read();
+    window.addEventListener("popstate", read);
+    window.addEventListener("hashchange", read);
+    return () => {
+      window.removeEventListener("popstate", read);
+      window.removeEventListener("hashchange", read);
+    };
+  }, [pathname, searchKey]);
+  return loc;
 }
-const getLocation = () =>
-  window.location.search + SEPARATOR + window.location.hash;
-const getServerLocation = () => SEPARATOR;
 
-export function LocaleSwitcher({
+export function LocaleSwitcher(props: LocaleSwitcherProps) {
+  return (
+    <Suspense fallback={<LocaleSwitcherView {...props} search="" hash="" />}>
+      <LocaleSwitcherLive {...props} />
+    </Suspense>
+  );
+}
+
+function LocaleSwitcherLive(props: LocaleSwitcherProps) {
+  const { search, hash } = useLocation();
+  return <LocaleSwitcherView {...props} search={search} hash={hash} />;
+}
+
+function LocaleSwitcherView({
   current,
   endonyms,
   onNavigate,
   landmark = true,
   className = "hc-locale-list",
-}: LocaleSwitcherProps) {
+  search,
+  hash,
+}: LocaleSwitcherProps & { search: string; hash: string }) {
   const t = useTranslations("LocaleSwitcher");
   const pathname = usePathname();
-  const [search = "", hash = ""] = useSyncExternalStore(
-    subscribeLocation,
-    getLocation,
-    getServerLocation,
-  ).split(SEPARATOR);
   // role="list": Safari drops list semantics when list-style is none.
   const list = (
     <ul className={className} role="list">

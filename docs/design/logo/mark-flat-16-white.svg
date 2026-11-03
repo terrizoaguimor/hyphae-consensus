@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <title>Hyphae Consensus, Quorum mark, 16 px</title>
+  <!-- Flat mono white #FFFFFF. Hand-set 16 px pixel cut, whole pixels only (sides step 1 px every 2 rows). Facets 2 px, facet gaps 2 px, node ring 2 px on every row, no diagonal contact (min centre distance 2.24 px). Apex blunted to a 4 px flat; node 2-2-4-4 (12 px). Ink rows 1-14 (1 px margin top and bottom). For 16-23 px. -->
+  <path fill="#FFFFFF" shape-rendering="crispEdges" d="M6 1h4v1h-4z M6 2h4v1h-4z M5 3h2v1h-2z M5 4h2v1h-2z M4 5h2v1h-2z M10 5h2v1h-2z M4 6h2v1h-2z M10 6h2v1h-2z M3 7h2v1h-2z M7 7h2v1h-2z M11 7h2v1h-2z M3 8h2v1h-2z M7 8h2v1h-2z M11 8h2v1h-2z M2 9h2v1h-2z M6 9h4v1h-4z M12 9h2v1h-2z M2 10h2v1h-2z M6 10h4v1h-4z M12 10h2v1h-2z M13 11h2v1h-2z M13 12h2v1h-2z M0 13h12v1h-12z M14 13h2v1h-2z M0 14h12v1h-12z M14 14h2v1h-2z"/>
+</svg>

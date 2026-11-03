@@ -1290,12 +1290,12 @@ the check. **Residual risk:** dependency code that runs during `pnpm install`, t
 lint and Vitest has the network and writes `apps/web/out/`, including
 `out/csp-manifest.json`, which `serve-public` serves and trusts for its CSP hashes;
 `cargo deny check` and `pnpm audit --prod` were last reported clean on 2026-10-27 and were
-not re-run for this document; the workflow has not run on GitHub yet (the repository is
-private and only the owner pushes); there is no secret scanner (gitleaks) or push
+not re-run for this document; as of 2026-10-28/29 the workflow had not run on GitHub (the repository was
+private and only the owner pushed; CI has run since, see README, "Technical depth" and "Deployment status": G8 PASS recorded for `ab0847a` and `e540fd7`); there is no secret scanner (gitleaks) or push
 protection; the internal review documents, which name operational details (where
 credentials are stored, container paths, digests; no secret value), left the tree on
 2026-11-01 but remain in the git history, which becomes public with the repository; the
-Linux fresh-clone run is still owed (G8).
+Linux fresh-clone run was still owed as of 2026-10-28/29 (G8; since then G8 PASS is recorded for `ab0847a` and `e540fd7`, see README "Deployment status").
 
 ### 3.8 Deployment (templates in the repository; nothing deployed)
 
@@ -1600,7 +1600,7 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
     `judge-codes.sh` and the other deploy scripts have no automated test; `cargo deny
     check` and `pnpm audit` not re-run at `e915b6d`; the web suites and the snapshot
     tooling self-tests not run for this document; Linux parity passed on the tree of `25c7867` (G8);
-    the fresh-clone run is still owed; the CI workflow has not run on GitHub;
+    the fresh-clone run was still owed as of 2026-10-28/29; the CI workflow had not run on GitHub then (it has since: see README, "Technical depth" and "Deployment status");
     no gitleaks or push protection.
 19. **Code-lane leftovers from the audit:** the demo identity "mario" stays (DOC-12,
     accepted); the stale `ports.rs` promise of an async M2 adapter and the dead

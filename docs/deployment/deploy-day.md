@@ -443,7 +443,7 @@ curl -fsSLO "$base/hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz" && curl -fsSLO 
 echo "cf92ed6da52d7db634c2d0c8c82bae8f0a36f912ee0fc7c1aea047d65957a075  hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz" | sha256sum -c -
 echo "61514af06cf1331b36ad7dd0e1e75b11a9a51e1328dd6f28de985b3016ada416  SHA256SUMS" | sha256sum -c -
 sha256sum -c --ignore-missing SHA256SUMS
-tar -xzOf hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae | sha256sum   # MUST print 79025e8758ee...a15f (#22): the check still owed
+tar -xzOf hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae | sha256sum   # MUST print 79025e8758ee...a15f (#22): the check was made on 2026-11-01 at B2 and matched
 # the FULL snapshot (proofs and witnesses), checked before it leaves
 ( cd snapshots/snap-2026-10-29-demo-repo && sha256sum -c --quiet SHA256SUMS ) && echo "snapshot complete"
 sha256sum snapshots/snap-2026-10-29-demo-repo/manifest.json                   # b731346c...014a (#21)

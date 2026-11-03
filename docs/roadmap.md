@@ -29,7 +29,10 @@ the git history (the operator's local time, UTC−05:00); the architecture is de
   a live read of `/api/v1/health`, `/ready` and `/capabilities`.
 - **Release gates.** The policy above was not followed to the letter. The deploy log
   records PASS for G4 (canary scan) and G6 (edge HTML equal to the origin's) and, with the
-  Linux gates and a green CI, for G8; G1, G3 and G9 were probed without a gate verdict
+  Linux gates and a green CI, for G8; G9 has a recorded pass in part (B6: "sandbox-probe
+  PASS; G9 checks pass"; no Hyphae daemon or docker on the server, snapshot read-only in the
+  sandbox, proofs re-verified at boot), but the log does not cover the checklist's "verifier
+  deadline and temp-directory sweep" part; G1 and G3 were probed without a gate verdict
   written; no PASS is recorded for G2, G5, G7, G10, G11 or G12. The public exposure went
   ahead with those gates open or not independently recorded, and the repository holds no
   recorded owner decision naming the gates that still applied. The checklist's status column
@@ -289,7 +292,7 @@ Historical: the deployment, the UI and the test counts have changed since; see "
   340 scans, 0 violations. The last Linux parity run (7/7 gates) was on the tree
   of `25c7867`.
 - **Release gates** (`docs/security/release-checklist.md`, statuses of 2026-10-28/29): G8
-  passes (the fresh-clone run is still owed before the tag), G12 is partly met, the other
+  passes (as of 2026-10-29 the fresh-clone run was still owed before the tag; CI has run since, see README "Deployment status": G8 PASS recorded for `ab0847a` and `e540fd7`), G12 is partly met, the other
   ten are pending.
 - **Still to do:** the deployment (owner's server and variables; staging behind
   Cloudflare Access first, and exposed to judges before every gate passes only if the

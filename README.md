@@ -271,10 +271,14 @@ it still reads "pending". What the owner's deploy log (kept outside this reposit
 PASS for G4 (canary scan, at every deploy, with the real key in place since the live step) and
 for G6 (edge HTML byte-equal to the origin's, `deploy/scripts/verify-edge.sh`, also at
 `ab0847a`); G8 PASS on Linux (every gate of `scripts/linux-gates.sh --release` before each
-deploy; CI green for `ab0847a` and `e540fd7`). Probed, without a gate verdict written: G1 (the
-old router's paths answer 404 through the edge), G3 (an edge rate limit answered 429, the
-ledger and the kill switch were exercised) and G9 (the boot check over the real snapshot with
-the pinned verifier). No PASS is recorded for G2 (the two-browser isolation probe), G5, G7, G10
+deploy; CI green for `ab0847a` and `e540fd7`). G9 has a recorded pass in part: the log's live
+boot step (B6, headed "gate G9") summarises "sandbox-probe PASS; G9 checks pass", and
+`sandbox-probe.sh` printed "sandbox probe: PASS"; the log shows no Hyphae daemon and no docker
+on the server, the snapshot read-only in the sandbox, and the proofs re-verified at boot. It
+does not cover the checklist row's "verifier deadline and temp-directory sweep" part (the
+deadline is unit-tested only, and no sweep exists). Probed, without a gate verdict written:
+G1 (the old router's paths answer 404 through the edge) and G3 (an edge rate limit answered
+429, the ledger and the kill switch were exercised). No PASS is recorded for G2 (the two-browser isolation probe), G5, G7, G10
 (the owner's sign-off of the legal texts), G11 (the staging rehearsal) or G12 (CI is green and
 runs `cargo deny`, but has no `pnpm audit` step). The exposure therefore went ahead with those
 gates open or not independently recorded, and this repository holds no record of an owner

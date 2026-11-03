@@ -604,7 +604,7 @@ From `docs/deployment/runbook.md` and `deploy/`:
   Windows at `25c7867`, 600 passed / 0 failed / 2 ignored; Linux parity
   (`scripts/linux-gates.sh`, Ubuntu 24.04) on the tree of `25c7867`, 7 of 7 gates,
   603 passed / 0 failed / 2 ignored. The two ignored tests are the gated live probes
-  `live_hyphae_probe` and `live_meta_propose`. The fresh-clone run of G8 is still owed.
+  `live_hyphae_probe` and `live_meta_propose`. The fresh-clone run of G8 was still owed as of 2026-10-29 (CI has run on GitHub since; see README, "Technical depth" and "Deployment status": G8 PASS recorded for `ab0847a` and `e540fd7`).
 - Release gates (as of 2026-10-29; README "Deployment status" has what the deployment recorded): G8 PASS; G12 partly; G1–G7 and G9–G11 pending
   (`docs/security/release-checklist.md`).
 - Since `25c7867` the crates changed only in a doc comment (`ports.rs`, `88e85d5`), and

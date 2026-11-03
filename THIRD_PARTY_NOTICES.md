@@ -461,7 +461,10 @@ above, and the 7 Inter files read "Copyright 2016 The Inter Project Authors
   hash, info, monitor, moon, plus, server) are also under the MIT License,
   Copyright (c) 2013-present Cole Bemis.
 
-No icon package is a dependency of the web app. The status icons of the
+No icon package is imported directly by our code; `lucide-react` arrives as a transitive
+dependency of the Astryx design system (`@astryxdesign/theme-neutral` 0.7.4, per
+`apps/web/pnpm-lock.yaml`; ISC; licence text shipped at
+`apps/web/public/licenses/Lucide-LICENSE.txt`). The status icons of the
 tags and callouts are Lucide 1.61.0 shapes (24-unit grid), redrawn as
 inline SVG geometry in `apps/web/src/components/icons.tsx`, whose header
 carries the ISC notice. The theme control

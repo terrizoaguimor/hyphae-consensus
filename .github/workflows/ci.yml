@@ -7,8 +7,7 @@
 # re-checked 2026-10-31 with git ls-remote: actions/checkout v4 = v4.4.0
 # 11d5960a, actions/upload-artifact v4 = v4.6.2 ea165f8d,
 # EmbarkStudios/cargo-deny-action v2 = v2.1.1 3c634983, which installs
-# cargo-deny 0.20.2). The repo is private until the owner publishes it;
-# only the owner pushes.
+# cargo-deny 0.20.2). The repo has been public since 2026-11-03.
 #
 # Both jobs were reproduced locally in Docker on 2026-10-31 (fresh depth-1
 # clone, no in-docker.sh mounts: the tests find contracts/ and research/
@@ -18,9 +17,9 @@
 # container job. cargo-deny ran as the same release (0.20.2) with the
 # action's arguments inside that Ubuntu container; the action's own Alpine
 # container was not reproduced. The web job was reproduced at 4 vCPU / 16 GB
-# (public runner) and 2 vCPU / 7 GB (private runner): at 2 vCPU with 4
-# workers a WebKit focus test fails, so Playwright runs with 2 workers
-# (2 vCPU / 7 GB, 2 workers: 501 passed, about 1 h).
+# and at 2 vCPU / 7 GB: at 2 vCPU with 4 workers a WebKit focus test
+# fails, so Playwright runs with 2 workers (2 vCPU / 7 GB, 2 workers:
+# 501 passed, about 1 h, on the tree of that date).
 name: ci
 
 on:
@@ -95,10 +94,11 @@ jobs:
         # the runner user; Firefox then refuses to start ("Running Nightly as
         # root in a regular user's session is not supported") and every
         # firefox @smoke test fails at launch. Playwright's documented
-        # workaround: HOME=/root for this step. The repo is private, so a push
-        # runs on the 2-vCPU / 7 GB runner; there the config's default of 4
-        # workers makes a WebKit focus test (e2e/navigation.spec.ts) time out.
-        # 2 workers pass at 2 vCPU and at 4 vCPU.
+        # workaround: HOME=/root for this step. In the local reproduction at
+        # 2 vCPU / 7 GB the config's default of 4 workers made a WebKit focus
+        # test (e2e/navigation.spec.ts) time out; 2 workers passed at 2 vCPU
+        # and at 4 vCPU. This file does not assert the size of the hosted
+        # runner; the step runs 2 workers whatever it is.
         env:
           HOME: /root
           PW_WORKERS: "2"

@@ -54,7 +54,7 @@ start. "Mode" says which mode needs it; "A+B" is both.
 | 20 | Snapshot anchor pin `43a2dea9c48d015bf6cbd6692b7ecf2bf80c66cd47d398b38e6b8471b18e8f02` | B | `public.env`: `CONSENSUS_HYPHAE_EXPECTED_ANCHOR=` | README "Published snapshot digests"; `manifest.json` `anchor_hex` |
 | 21 | Manifest pin `b731346c8464796ec17641d5099819cd1ff99525f1ee51409ac8ad790bc1014a` | B | `public.env`: `CONSENSUS_SNAPSHOT_MANIFEST_SHA256=`; `sudo sha256sum <dir>/manifest.json` must print it | README; take it from the publication, never from the copy in doubt |
 | 22 | Hyphae binary pin `79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f` | B | `public.env`: `CONSENSUS_HYPHAE_BIN_SHA256=`; `CONSENSUS_HYPHAE_BIN=/opt/hyphae/bin/hyphae` (already in the template) | README; `manifest.json` `hyphae.binary_sha256` |
-| 23 | Hyphae release tarball check (runbook 3.2): `hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz` sha256 `cf92ed6da52d7db634c2d0c8c82bae8f0a36f912ee0fc7c1aea047d65957a075` (11,661,966 bytes), `SHA256SUMS` sha256 `61514af06cf1331b36ad7dd0e1e75b11a9a51e1328dd6f28de985b3016ada416`; the extracted `hyphae` must hash to #22 | B | `/opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae`, `hyphae:hyphae 0755`, link `/opt/hyphae/bin/hyphae` | GitHub release `release-v4.0.0-crates`; **still owed**: nobody has yet compared the tarball's binary with #22 (the development copy matches #22; step B2 does the comparison) |
+| 23 | Hyphae release tarball check (runbook 3.2): `hyphae-4.0.0-x86_64-unknown-linux-gnu.tar.gz` sha256 `cf92ed6da52d7db634c2d0c8c82bae8f0a36f912ee0fc7c1aea047d65957a075` (11,661,966 bytes), `SHA256SUMS` sha256 `61514af06cf1331b36ad7dd0e1e75b11a9a51e1328dd6f28de985b3016ada416`; the extracted `hyphae` must hash to #22 | B | `/opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae`, `hyphae:hyphae 0755`, link `/opt/hyphae/bin/hyphae` | GitHub release `release-v4.0.0-crates`; **owed when written, done at B2 on 2026-11-01 (matched)**: nobody had yet compared the tarball's binary with #22 (the development copy matches #22; step B2 does the comparison) |
 | 24 | `consensus-api` binary digest and commit | A+B | `dist/consensus-api.sha256`, `dist/consensus-api.commit` on the owner machine; checked on the server by `sha256sum -c` and by `install.sh --sha256` | step A0 (`linux-gates.sh --release` at the commit to deploy) |
 | 25 | Web build inputs: `NEXT_PUBLIC_SITE_ORIGIN=https://<hostname>` (optional, absolute `og:image`); `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (mode B, #11) | A+B | `apps/web/.env.production.local` (git-ignored) before `pnpm build` | apps/web/README.md |
 | 26 | Public contact email and hosting country in the legal texts | A+B (gate G10) | `apps/web/src/lib/site.ts` (`CONTACT_EMAIL`, `HOSTING_COUNTRY`, today `<pending: ...>` placeholders shown on the page); a commit, then the web build | the owner; not part of this checklist's commands |
@@ -403,7 +403,12 @@ commit (`dist/consensus-api.commit`) and the results, and the go-live time
 ## 3. Mode B: live ON (optional, after mode A is green)
 
 Read ADR-0007 consequences once more: every live run spends real money on the dedicated key
-(about $0.81 on average, $2.36 worst case reserved). The ledger caps hold whatever happens
+(ADR-0007 reports $0.81 on average and $0.98 at most, a figure `docs/results.md` does not reproduce; the
+2026-11-01 validation runs cost $0.35 to $1.13 each at the operator's prices, `docs/evaluation.md` §6.6 and §6.7, not
+checked against Meta's billing). The worst case reserved per run is $2.36 only with the code's default
+70,000-token cap (the figure this checklist had when first written, 2026-10-31); production sets
+`CONSENSUS_LIVE_RUN_TOKEN_CAP=90000` (`deploy/etc/consensus/public.env.example`), so each run reserves $2.76
+(the ledger's `run_worst_case` on the server). The ledger caps hold whatever happens
 (`$10/day`, `$60` lifetime, `$15` judge slice), the kill switch stops spending at the next
 admission, and a trip lasts until `ledger.sh reset`.
 

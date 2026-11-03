@@ -1,7 +1,8 @@
 # Deployment runbook — Hyphae Consensus public portal
 
 Date: 2026-10-28 · Status: written against `feat/public-portal` at `b62adc0`; nothing
-is deployed yet · Audience: the owner-operator (Mario), who administers the server
+was deployed when this was written (the deployment ran on 2026-11-01: README, "Deployment
+status") · Audience: the owner-operator (Mario), who administers the server
 and owns the Cloudflare zone · Companion files: `deploy/` (templates and scripts,
 listed in `deploy/README.md`). The ordered checklist for the deployment of 2026-11-01, with
 the two modes (A: guided and replay, live off; B: live on), the table of every value the
@@ -506,8 +507,9 @@ in the README, "Published snapshot digests"; not yet on the server):
 | `CONSENSUS_SNAPSHOT_MANIFEST_SHA256` | `b731346c8464796ec17641d5099819cd1ff99525f1ee51409ac8ad790bc1014a` | `sha256sum snapshots/snap-2026-10-29-demo-repo/manifest.json`, the `manifest.json` line of its `SHA256SUMS` |
 | `CONSENSUS_HYPHAE_BIN_SHA256` | `79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f` | `hyphae-binary.sha256` and `manifest.json` `hyphae.binary_sha256` (the container's `/opt/hyphae/hyphae-4.0.0-x86_64-unknown-linux-gnu/hyphae`) |
 
-The binary digest has not yet been compared with the binary extracted from the release
-tarball checked against `cf92ed6d…` (section 3.2); the `sha256sum` line of section 3.2 on
+The binary digest had not been compared with the binary extracted from the release
+tarball checked against `cf92ed6d…` (section 3.2) when this was written; the comparison was made
+on 2026-11-01 during the deploy and matched (the owner's deploy log); the `sha256sum` line of section 3.2 on
 the server must print the same value, or the snapshot was captured with another build
 (`capture_binary_mismatch`) and nothing is pinned until that is resolved.
 

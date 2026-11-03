@@ -1,16 +1,56 @@
 # Roadmap
 
-Date: 2026-10-31 · State of branch `feat/public-portal` at `a657531` (first written
+Date: 2026-10-31, with a "Current state" section added 2026-11-03 · State of branch `feat/public-portal` at `a657531` (first written
 2026-10-29 at `bc3b262`; updated 2026-10-30 for the counted protocol 1.3 battery and
 2026-10-31 for the redesign, the merges and the plan to the deadline) · Submission
 deadline: Wednesday 2026-11-04, 21:00 ET = 2026-11-05T02:00Z (development window
 October 26 – November 4, 2026).
 
-Nothing is deployed. The public portal stays unexposed until every release gate G1–G12
-(`docs/security/release-checklist.md`) reads PASS; the one exception under discussion, a
-replay-only portal for the judges, needs a recorded owner decision first (see "Remaining
-for tomorrow"). Dates below are the commit dates of
+As written on 2026-10-31, nothing was deployed and the policy was that the public portal
+stays unexposed until every release gate G1–G12 (`docs/security/release-checklist.md`) reads
+PASS, with one exception under discussion, a replay-only portal for the judges, that needed a
+recorded owner decision first (see "Remaining for tomorrow"). That is the state of the
+sections below unless they say otherwise; "Current state (2026-11-03)" supersedes it. Dates
+below are the commit dates of
 the git history (the operator's local time, UTC−05:00); the architecture is described in `docs/architecture/overview.md`.
+
+## Current state (2026-11-03)
+
+- **Deployed.** The portal runs at https://consensus.terrizoaguimor.dev on a Vultr VPS behind
+  a Cloudflare named tunnel (`consensus-public`). First exposed on 2026-11-01 (guided runs
+  and the research showcase from 14:57 UTC, live mode off); live mode was switched on at
+  15:45 UTC the same day, on the owner's dedicated Meta key under a fixed budget of $10 a day
+  and $60 in total, behind Cloudflare Turnstile, with judge codes (5 live runs per code a
+  day, 3 public live runs per visitor a day) and the sealed snapshot
+  `snap-2026-10-29-demo-repo` on the server. Redeployed on 2026-11-01 and 2026-11-02; the
+  build running now is `ab0847a` (restart 2026-11-02 17:45 UTC); the commits since changed
+  documentation only. Cloudflare WAF, bot, rate-limit and geo-challenge rules were added on
+  2026-11-02 (about 18:08 UTC). Source: the owner's deploy log (outside the repository) and
+  a live read of `/api/v1/health`, `/ready` and `/capabilities`.
+- **Release gates.** The policy above was not followed to the letter. The deploy log
+  records PASS for G4 (canary scan) and G6 (edge HTML equal to the origin's) and, with the
+  Linux gates and a green CI, for G8; G1, G3 and G9 were probed without a gate verdict
+  written; no PASS is recorded for G2, G5, G7, G10, G11 or G12. The public exposure went
+  ahead with those gates open or not independently recorded, and the repository holds no
+  recorded owner decision naming the gates that still applied. The checklist's status column
+  (2026-10-28/29) was not updated. Detail: README, "Deployment status".
+- **Sealed snapshot.** On 2026-11-01 the Hyphae 4.0.0 release tarball was downloaded and
+  its binary matched the pinned digest (the comparison listed below as owed), and the
+  snapshot directory was placed on the server and checked there.
+- **UI.** The freeze at `a657531` did not hold: `apps/web` changed afterwards (legal pages
+  naming the contact alias and hosting country, the Turnstile widget, failed-run
+  explanations, the run stage's reflow, responsive fixes down to 320 px). The deployed UI is
+  `ab0847a`. The README screenshots predate the 2026-11-02 responsive round; current
+  mock-based captures are in `docs/design/screens`.
+- **Tests at `e540fd7`** (CI run 41555808768, rust gates and web checks both green):
+  workspace 751 passed / 0 failed / 2 ignored, demo crate 2 passed; Vitest 42 files,
+  971 passed / 16 skipped (a local run of the final audit read 972 / 15); Playwright 620
+  tests in 4 projects, all passing, axe 340 scans with 0 violations. The CI run on `255f21c`
+  failed once on a WebKit end-to-end test that passes on rerun (`docs/running-locally.md`,
+  "Known flake").
+- **Models.** The code defaults every role to `muse-wonder-1.0`; the deployed portal sets
+  `CONSENSUS_MODEL_PROPOSER=muse-spark-1.3`, so the Proposer runs on `muse-spark-1.3` and the
+  Critic and the Evaluator on `muse-wonder-1.0`.
 
 ## Done
 
@@ -89,11 +129,14 @@ the git history (the operator's local time, UTC−05:00); the architecture is de
 |---|---|---|
 | Round 4, heuristic-evaluation fixes: simulated never green (HE #1, #2, #16), no truncated outcome or evidence tag (HE #3, #24), decision prominence (HE #4, #12), integrity failures travel (HE #5, #7), guided cards SCRIPTED (HE #6), state copy and error headlines (HE #8, #18), phone width and contrast (HE #9, #10) | merges `e6cbbce` to `3b44b49` | `apps/web/README.md` (round 4) |
 | Round 5, the redesign (owner direction 2026-10-31): monochrome foundation (true greys only; status by fill, frame, hatch and icon), brushed glass, hue-free status tags, square-first shapes and the segmented theme control, the Quorum logo, favicons and Open Graph image | merges `888c618`, `48851f9`, `3c2d516`, `4436188`, `79a9214`; follow-ups to `a657531` | `apps/web/README.md` ("Monochrome", "Brushed glass", "Logo (Quorum)") |
-| UI frozen at `a657531` for the submission: no visual or layout change unless a gate fails | — | owner direction 2026-10-31 |
-| Tests at `a657531` on Windows: `cargo test --workspace --locked` 603 passed / 0 failed / 2 ignored; scripted conformance check 10/10; demo crate 2 passed; `pnpm check` passes (Vitest 42 files, 904 passed / 16 skipped); Playwright 501 tests, 500 passed in the full run, the 1 failure (a browser-context teardown past the 120 s timeout under load) passed on re-running `a11y.spec.ts` (19/19); axe 340 scans, 0 violations | — | "Status on 2026-10-31" below |
+| UI frozen at `a657531` for the submission: no visual or layout change unless a gate fails (the freeze did not hold: see Current state) | — | owner direction 2026-10-31 |
+| Tests at `a657531` on Windows (historical; the current numbers are under Current state): `cargo test --workspace --locked` 603 passed / 0 failed / 2 ignored; scripted conformance check 10/10; demo crate 2 passed; `pnpm check` passes (Vitest 42 files, 904 passed / 16 skipped); Playwright 501 tests, 500 passed in the full run, the 1 failure (a browser-context teardown past the 120 s timeout under load) passed on re-running `a11y.spec.ts` (19/19); axe 340 scans, 0 violations | — | "Status on 2026-10-31" below |
 | Judge-facing documents: the README's "For judges" block, this roadmap and its status section | branch `docs/r6-judges-readme` | — |
 
 ## Remaining for tomorrow (2026-11-01)
+
+*From here to "Owner actions" the text is the plan as written on 2026-10-31; "Current state
+(2026-11-03)" above says what happened.*
 
 - **Deploy** (owner; he provides the server and its variables). Per
   `docs/deployment/runbook.md` and `deploy/`: first as staging behind Cloudflare Access.
@@ -135,12 +178,13 @@ the git history (the operator's local time, UTC−05:00); the architecture is de
   owner authorization). A fresh git checkout of the snapshot directory cannot boot
   (`checksums_incomplete`): the `.proof` and `.witness` files are git-ignored, so the
   server copy must come from the container or the main checkout, under a directory named
-  `snap-2026-10-29-demo-repo`.
+  `snap-2026-10-29-demo-repo`. (Since 2026-11-01 the binary comparison is made and the
+  snapshot is on the server: see Current state.)
 - **Counted protocol 1.3 battery: done on 2026-10-30 and merged** (`e4e4c73`; see "Done";
   `docs/evaluation.md` §6.3). The 8 authorized runs are spent. With 2 of the 4 runs lost
   to provider errors, no rate of any outcome under protocol 1.3 is claimed; any further
   live run needs the owner's authorization.
-- **Release gates.** G1–G7 and G9–G11 pending, G12 partly
+- **Release gates** (as written 2026-10-31; Current state says what the deployment recorded). G1–G7 and G9–G11 pending, G12 partly
   (`docs/security/release-checklist.md`): among them the fresh-clone G8 run before the
   tag, the deployed-ingress review and probe (G1), the two-browser isolation probe (G2),
   the edge rules observed (G3), the deployment canary scan (G4), Playwright and the edge
@@ -151,10 +195,10 @@ the git history (the operator's local time, UTC−05:00); the architecture is de
   (G4); no fuzzing harness exists (G5); no temp-directory sweep for the verifier exists,
   and the verbatim `/research` files carry 652 container paths (G9).
 - **The public live mode** (owner's key, presets, $10/day and $60 lifetime caps,
-  Turnstile, judge codes) goes live only once every gate G1–G12 reads PASS, like any
-  exposure of the portal (see "Deploy" for the replay-only exception that needs an owner
-  decision); it is not needed for the submission, which can show the guided and recorded
-  runs with live mode off.
+  Turnstile, judge codes) was planned to go live only once every gate G1–G12 read PASS,
+  like any exposure of the portal; it went live on 2026-11-01 with gates open or
+  unrecorded (Current state). It was not needed for the submission, which could have shown
+  the guided and recorded runs with live mode off.
 - **Deliverables, as of 2026-10-31.** Done: the account of how the project uses
   Meta's API (`docs/meta-api.md`, moved from the README on 2026-11-01); the third-party notices with the web packages, fonts and icons
   (`THIRD_PARTY_NOTICES.md`); the video-production package (kept outside the repository
@@ -214,17 +258,19 @@ Only the owner can do these (runbook section 1, release checklist "Owner-only st
 ## Status on 2026-10-31
 
 Moved here from the repository README on 2026-11-01 (text as of `3686bbe`; link paths adjusted).
+Historical: the deployment, the UI and the test counts have changed since; see "Current state
+(2026-11-03)" at the top.
 
-**2026-10-31 (branch `feat/public-portal` at `a657531`; nothing is deployed).**
+**2026-10-31 (branch `feat/public-portal` at `a657531`; nothing was deployed on that date).**
 
 - **Implemented:** protocol 1.3 with policy rules 1.2, the public API v1, the loopback
   operator console, the live-mode admission (two-phase gate, Turnstile, per-client quota,
-  USD ledger) and the sealed-snapshot evidence client. Live mode stays off until its
-  release gates pass.
+  USD ledger) and the sealed-snapshot evidence client. Live mode was off on that date;
+  it was switched on in production on 2026-11-01 (Current state).
 - **Mission Control:** every view is merged (lanes W1 and W2 and their review rounds; the
   heuristic-evaluation fixes of round 4; the round 5 redesign of 2026-10-31: monochrome,
-  brushed glass, square-first shapes, the Quorum logo). The UI is frozen at `a657531` for
-  the submission.
+  brushed glass, square-first shapes, the Quorum logo). The UI was frozen at `a657531` for
+  the submission on that date; `apps/web` changed afterwards (Current state).
 - **Live evidence:** the counted protocol 1.3 battery M01–M04 ran on 2026-10-30 and is
   merged (`e4e4c73`; `research/2026-10-30/`, [`docs/evaluation.md` §6.3](evaluation.md#63-the-counted-battery-m01m04-2026-10-30)):
   2 runs lost to provider errors, M03 `supported` for a revision that departs from the
@@ -232,7 +278,8 @@ Moved here from the repository README on 2026-11-01 (text as of `3686bbe`; link 
   `valid`. The authorized cap of 8 live re-validation runs is reached.
 - **Sealed snapshot:** `snap-2026-10-29-demo-repo` was captured on 2026-10-29
   (`b0375df`; digests in the README, "Published snapshot digests"); the runtime boots it since the
-  fix `0515f29` (merged as `7e26866`). It is not on any server yet.
+  fix `0515f29` (merged as `7e26866`). It was not on any server on that date; it has been
+  on the server since 2026-11-01.
 - **Tests at `a657531`, run on 2026-10-31 on Windows:** `cargo test --workspace --locked`
   603 passed / 0 failed / 2 ignored (the 2 live tests); the scripted conformance check
   10/10; the demo crate 2 passed; `pnpm check` passes (Vitest: 42 files, 904 passed /

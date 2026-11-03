@@ -56,6 +56,14 @@ CONSENSUS_PUBLIC_BIND=127.0.0.1:8788 CONSENSUS_COOKIE_SECURE=false \
 # http://127.0.0.1:8788/ : guided runs and the research showcase; live mode stays off
 ```
 
+**Known flake (end-to-end).** In the WebKit project, `e2e/api.spec.ts` "new -> run -> frames ->
+decision -> receipt link @smoke" has failed once under load in a full run, on the CI run 41551913221
+for `255f21c` and once on a developer machine (the final audit of `e540fd7`: a time-out waiting for
+the skipped-pacing marker, with two Content-Security-Policy console errors in that run only). It
+passed 3 of 3 times when run alone and passes on a rerun (the CI run for `e540fd7` was green).
+Rerun it alone (`PW_WORKERS=1 sh apps/web/scripts/playwright-docker.sh --project=webkit e2e/api.spec.ts:109`, the line of that test when this was written)
+before treating a failure of it as a regression. The cause is not established.
+
 `CONSENSUS_PUBLIC_BIND` is for development only (loopback; in production the public server
 listens on a unix socket behind cloudflared). The public server's variables are documented
 in `crates/consensus-api/src/public_config.rs` and `crates/consensus-api/src/live/config.rs`.

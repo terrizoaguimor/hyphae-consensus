@@ -27,9 +27,12 @@ attestation, the evidence status and Turnstile first; then a per-client daily qu
 USD ledger reservation), over a sealed Hyphae snapshot whose files are pinned, re-hashed
 and bound to every run's proof checks. The operator console meters its own `model=meta`
 runs on the same ledger when it is given the ledger directory, and `consensus-api ledger`
-lets an operator read, reset and reconcile the ledger from a shell. The deployment exists
-as templates only. **The public portal is not exposed.** Nothing is tunneled until every
-gate G1–G12 reads PASS. At `e915b6d` live mode can be enabled only over a sealed snapshot.
+lets an operator read, reset and reconcile the ledger from a shell. When this was written
+(2026-10-28/29) the deployment existed as templates only, the portal was not exposed, and
+nothing was to be tunneled until every gate G1–G12 read PASS. **Update 2026-11-03: the portal
+has been deployed and public since 2026-11-01, with live mode on; not every gate G1–G12 was
+recorded PASS (README, "Deployment status"). The "deployment pending" statuses below are as
+of 2026-10-28/29.** At `e915b6d` live mode can be enabled only over a sealed snapshot.
 The one sealed snapshot, `snap-2026-10-29-demo-repo`, was captured on 2026-10-29
 (`b0375df`); the code at `e915b6d` (and at `6e202eb`) refuses it at boot until the fix
 `0515f29` (merged as `7e26866`) is in (section 5).
@@ -1373,7 +1376,7 @@ anywhere in the tree.
 | Id | Finding (short) | Status at `e915b6d` | Where |
 |---|---|---|---|
 | SEC-1 | No auth or ownership on reads; loopback is no boundary behind a tunnel | closed in code; pending deployment probe (G1, G2) | sessions + owner-scoped 404 (`session.rs`, `runs.rs`, `run_store.rs`), listener split (`server.rs`); `another_session_sees_nothing_of_a_run`; lane S-b1 |
-| SEC-2 | Anonymous callers start unlimited live runs on the server key | closed in code (two-phase gate, ledger, per-client daily quota; startable over a verified snapshot since `2f0efe0`); deployment pending (snapshot captured 2026-10-29, `b0375df`; it boots only with `0515f29`, merged as `7e26866`) | `live/gate.rs`, `live/budget.rs`, `limits.rs::DailyCounts`, `runs.rs::reserve`; `admission_refuses_in_order_and_charges_nothing`, `a_client_starts_its_daily_share_of_public_runs_and_no_more`; `d1e58f1`, `2f0efe0`, `561c25e` |
+| SEC-2 | Anonymous callers start unlimited live runs on the server key | closed in code (two-phase gate, ledger, per-client daily quota; startable over a verified snapshot since `2f0efe0`); deployment pending when written, deployed 2026-11-01 (snapshot captured 2026-10-29, `b0375df`; it boots only with `0515f29`, merged as `7e26866`) | `live/gate.rs`, `live/budget.rs`, `limits.rs::DailyCounts`, `runs.rs::reserve`; `admission_refuses_in_order_and_charges_nothing`, `a_client_starts_its_daily_share_of_public_runs_and_no_more`; `d1e58f1`, `2f0efe0`, `561c25e` |
 | SEC-3 | Caller-chosen `project_id` reads any project | closed for the public surface; accepted on the operator surface | no project field in public requests (`api/types.rs`), presets fixed to `demo-repo`, the snapshot serves one project and must be `demo-repo` to boot; `requests_refuse_unknown_fields_and_free_strings`, `a_snapshot_of_another_project_does_not_boot_for_live_mode` |
 | SEC-4 | One std mutex held for whole runs inside async handlers | closed | per-run `SharedRunLog`, blocking pool, `RunManager` (`runs.rs`); `a_decision_during_deliberation_is_refused_and_live_frames_say_live`; `200b0df`, `92bb836` |
 | SEC-5 | Synchronous POST outlasts the edge timeout | closed in code; heartbeat through a tunnel pending (G11; `deploy/scripts/sse-heartbeat-test.sh` not yet run) | `202` + SSE with 15 s heartbeats (`v1.rs`, `stream.rs`); `a_guided_run_is_accepted_streamed_decided_and_receipted` |
@@ -1602,11 +1605,13 @@ Nothing in this list is claimed fixed. Each item names where it stands in the co
 19. **Code-lane leftovers from the audit:** the demo identity "mario" stays (DOC-12,
     accepted); the stale `ports.rs` promise of an async M2 adapter and the dead
     `.env.example` entries were corrected after `e915b6d` (DOC-10).
-20. **The deployment exists as templates only** (`docs/deployment/runbook.md`,
+20. **The deployment existed as templates only** (`docs/deployment/runbook.md`,
     `deploy/systemd`, `deploy/tmpfiles.d`, `deploy/cloudflared/config.yml.example`,
-    `deploy/etc/consensus`, `deploy/scripts`): nothing is deployed, the edge is not
-    configured, and the probes (`verify-edge.sh`, `sse-heartbeat-test.sh`,
-    `canary-scan.sh`, `sandbox-probe.sh`) have not been run. G1–G7 and G9–G11 are pending.
+    `deploy/etc/consensus`, `deploy/scripts`) when this was written: nothing was deployed, the
+    edge was not configured, and the probes (`verify-edge.sh`, `sse-heartbeat-test.sh`,
+    `canary-scan.sh`, `sandbox-probe.sh`) had not been run. G1–G7 and G9–G11 were pending.
+    Since 2026-11-01 the portal is deployed, and the owner's deploy log records
+    `verify-edge.sh`, `canary-scan.sh` and `sandbox-probe.sh` run against it.
 21. **Cached responses bypass the origin's geographic check** (`/research` and static
     assets carry public cache lifetimes; T21); only the edge rule covers them.
 22. **The live-hardening code was not independently reviewed** at the time of writing

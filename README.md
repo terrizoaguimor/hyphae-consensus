@@ -21,8 +21,8 @@ Verifiable multi-agent reasoning and decision accountability.</p>
   <a href="docs/meta-api.md"><img alt="Critic and Evaluator model: Meta Muse Wonder (muse-wonder-1.0)" src="https://img.shields.io/badge/Critic%20%26%20Evaluator-Meta%20Muse%20Wonder%20(muse--wonder--1.0)-2b2b2b?logo=meta&amp;logoColor=white"></a>
   <br>
   <img alt="Meta Global AI Developer Hackathon 2026: Indie Developer track, Push the Frontier" src="https://img.shields.io/badge/Meta%20Global%20AI%20Developer%20Hackathon%202026-Indie%20Developer%20%C2%B7%20Push%20the%20Frontier-2b2b2b">
-  <img alt="Rust tests at 3686bbe: 603 passed, 0 failed, 2 ignored" src="https://img.shields.io/badge/Rust%20tests%20%40%203686bbe-603%20passed%20%C2%B7%202%20ignored-2b2b2b">
-  <img alt="Vitest at 3686bbe: 904 passed, 16 skipped" src="https://img.shields.io/badge/Vitest%20%40%203686bbe-904%20passed%20%C2%B7%2016%20skipped-2b2b2b">
+  <img alt="Rust tests at e540fd7 (CI run 41555808768): 751 passed, 0 failed, 2 ignored in the workspace, plus 2 in the demo crate" src="https://img.shields.io/badge/Rust%20tests%20%40%20e540fd7-751%20passed%20%C2%B7%202%20ignored-2b2b2b">
+  <img alt="Vitest at e540fd7 (CI run 41555808768): 971 passed, 16 skipped, 42 files" src="https://img.shields.io/badge/Vitest%20%40%20e540fd7-971%20passed%20%C2%B7%2016%20skipped-2b2b2b">
 </p>
 
 <p align="center">
@@ -63,6 +63,12 @@ every role on `muse-wonder-1.0`, except the V01–V03 set, whose Critic ran on `
 the single-agent baselines B01–B04 ran on `muse-wonder-1.0`) deliberate over a coding agent's proposed change against project
 records from Hyphae Agent Memory whose integrity proofs the runtime checks. A fixed policy,
 not a vote, turns their judgments into a recommendation, and only a human can authorize.
+Model configuration: the code defaults every role to `muse-wonder-1.0`
+(`crates/consensus-api/src/config.rs`); the Proposer split needs
+`CONSENSUS_MODEL_PROPOSER=muse-spark-1.3`. The deployed portal runs the split (boot line of
+the `c8b642d` and `ab0847a` deploys: `[startup] models: proposer muse-spark-1.3 (proposal and
+revision), critic muse-wonder-1.0, evaluator muse-wonder-1.0`); archived runs before V04 ran
+every role on `muse-wonder-1.0`, except V01–V03, whose Critic ran on `muse-spark-1.3`.
 In the 6-run final battery of 2026-10-27 (F01–F06, schema 1.2) every first proposal had 1 to 3
 claims that the stored (synthetic, operator-seeded) records contradict, and none of those runs
 ended `supported` ([evaluation §5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output)).
@@ -73,10 +79,10 @@ revision that departs from the task, which is why a human still decides
 | Criterion | Evidence (one line each) |
 |---|---|
 | **Impact (30 %)** | F03 ("Raise payment retry attempts to 10") claimed 10 attempts comply with any documented maximum; the stored cap is 3, 2 of 4 claims were recorded as contradicted, the revision proposed the recorded fix, and 6 open objections kept it `contested` for a human ([§5.3](docs/evaluation.md#53-final-battery-f01f06-commit-3d50baf-strict-output), [run record](research/2026-10-27/live-battery-2026-10-27-final/F03-raise-to-10.json)); a planted "SYSTEM OVERRIDE" record with a valid proof was never obeyed ([§5.4](docs/evaluation.md#54-hostile-note-with-a-valid-proof-h01h02-commit-3d50baf)). The single-agent baseline (one Meta call per task, same model and records) first failed at its call (HTTP 400, [§7.7](docs/evaluation.md#77-the-battery-of-2026-11-01-b01b04-every-run-failed-at-its-one-call)); re-run on the fixed schema, it recorded `abstained`, `supported`, `supported` and `contested` on the tasks of M01–M04, under §7.4's applicable conditions approved nothing the consensus caught, and both its `supported` proposals depart from their task text, as M03's does; one run per task, and the planned independent readers' check was not made ([§7.8](docs/evaluation.md#78-the-battery-of-round-9-b05b08-2026-11-01-every-run-recorded-an-assessment)). |
-| **Use of Meta AI tooling (25 %)** | Four kinds of strict `json_schema` call (Proposer and revision on `muse-spark-1.3`, Critic and Evaluator on `muse-wonder-1.0`; up to 9 per run; every call records the model it ran on) to `POST https://api.meta.ai/v1/chat/completions`, the Evaluator's schema generated per call with one required key per claim and per open objection ([docs/meta-api.md](docs/meta-api.md), [`meta.rs`](crates/consensus-api/src/meta.rs)); the request id of every recorded call ([10-26](docs/evaluation.md#request-ids-2026-10-26-from-receipts), [10-27](docs/evaluation.md#request-ids-2026-10-27-from-receipts), [10-30](docs/evaluation.md#request-ids-2026-10-30-from-receipts), [11-01](docs/evaluation.md#request-ids-2026-11-01-from-receipts)), archived verbatim in [`research/`](research/README.md) and pinned by [`MANIFEST.json`](research/MANIFEST.json). |
-| **Technical depth (20 %)** | Protocol 1.3's fail-closed evaluation contract ([ADR-0010](docs/adr/0010-protocol-1-3-carry-forward.md)), hash-chained replayable logs, a sealed evidence snapshot ([ADR-0008](docs/adr/0008-public-evidence-sealed-snapshot.md)), [threat model v2](docs/threat-model.md#3-threats-and-mitigations); at `3686bbe` Rust 603 passed / 0 failed / 2 ignored ([tests](crates/consensus-tests/tests/)) and Vitest 904 passed / 16 skipped; at `a657531` Playwright 501 tests, axe 0 violations ([e2e](apps/web/e2e/)). |
+| **Use of Meta AI tooling (25 %)** | Four kinds of strict `json_schema` call (Proposer and revision on `muse-spark-1.3`, Critic and Evaluator on `muse-wonder-1.0`; 9 role calls per run at most, plus at most 2 re-asks; every call records the model it ran on) to `POST https://api.meta.ai/v1/chat/completions`, the Evaluator's schema generated per call with one required key per claim and per open objection ([docs/meta-api.md](docs/meta-api.md), [`meta.rs`](crates/consensus-api/src/meta.rs)); the request id of every recorded call ([10-26](docs/evaluation.md#request-ids-2026-10-26-from-receipts), [10-27](docs/evaluation.md#request-ids-2026-10-27-from-receipts), [10-30](docs/evaluation.md#request-ids-2026-10-30-from-receipts), [11-01](docs/evaluation.md#request-ids-2026-11-01-from-receipts)), archived verbatim in [`research/`](research/README.md) and pinned by [`MANIFEST.json`](research/MANIFEST.json). |
+| **Technical depth (20 %)** | Protocol 1.3's fail-closed evaluation contract ([ADR-0010](docs/adr/0010-protocol-1-3-carry-forward.md)), hash-chained replayable logs, a sealed evidence snapshot ([ADR-0008](docs/adr/0008-public-evidence-sealed-snapshot.md)), [threat model v2](docs/threat-model.md#3-threats-and-mitigations); at `e540fd7` (CI run 41555808768, green) Rust 751 passed / 0 failed / 2 ignored in the workspace plus 2 passed in the demo crate ([tests](crates/consensus-tests/tests/)), Vitest 971 passed / 16 skipped in 42 files (a local run of the final audit read 972 / 15), Playwright 620 tests in 4 browser projects all passing, axe 340 scans with 0 violations ([e2e](apps/web/e2e/)); one WebKit end-to-end test is a [known flake](docs/running-locally.md). |
 | **Demo (25 %)** | The video and Mission Control ([screenshots](#mission-control)); every run is labelled SIMULATED, RECORDED or LIVE, and a replay never reads LIVE ([labels](#simulated-recorded-and-live)). |
-| **Limits, said once** | Proofs attest integrity, not truth; the log is tamper-evident, not signed; the public live mode is not deployed; the protocol 1.3 battery lost 2 of its 4 runs to provider errors ([§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)); the rest is in [What is verified and what is not](#what-is-verified-and-what-is-not). |
+| **Limits, said once** | Proofs attest integrity, not truth; the log is tamper-evident, not signed; the public live mode is deployed on the owner's key under a fixed budget ($10 a day, $60 in total), so it can stop answering when the budget is spent, and not every release gate was recorded PASS before the portal went public ([Deployment status](#deployment-status)); the protocol 1.3 battery lost 2 of its 4 runs to provider errors ([§6.3](docs/evaluation.md#63-the-counted-battery-m01m04-2026-10-30)); the rest is in [What is verified and what is not](#what-is-verified-and-what-is-not). |
 
 ## What it is
 
@@ -170,8 +176,12 @@ adversarial scenarios and the replay of the `research/` archive.
 
 The public portal's frontend (`apps/web`), served by `consensus-api serve-public`: monochrome
 (true greys only; status tags differ by fill, frame, hatch and icon, never by hue), brushed
-glass, the Quorum logo; the UI is frozen at `a657531` for the submission. **Nothing is
-deployed.** The images follow your GitHub theme; both sets are in
+glass, the Quorum logo. The UI of the deployed portal is the build `ab0847a` (2026-11-02);
+`apps/web` changed after the freeze at `a657531` (the run stage's reflow, responsive fixes
+down to 320 px, the Turnstile widget). **The screenshots below predate the 2026-11-02
+responsive round** (see the footnote: captured at `3686bbe`), so the live pages differ in
+layout, notably the run page; current mock-based captures are in
+[docs/design/screens](docs/design/screens/). The images follow your GitHub theme; both sets are in
 [docs/assets/screenshots/](docs/assets/screenshots/).
 
 <table>
@@ -218,7 +228,7 @@ deployed.** The images follow your GitHub theme; both sets are in
   </tr>
 </table>
 
-<sub>How these were made: the static export at <code>3686bbe</code> in the pinned Playwright
+<sub>How these were made (before the 2026-11-02 responsive round): the static export at <code>3686bbe</code> in the pinned Playwright
 image at 1440 px, over the end-to-end suite's mocked API (<code>apps/web/e2e/api-mock.ts</code>;
 no server, no network, no model call), reduced motion. The showcase lists 4 of the archive's
 runs, as the mock serves them; the archived log and <code>MANIFEST.json</code> are the real
@@ -235,9 +245,40 @@ archive's. Lossless greyscale PNGs.</sub>
 | Research showcase | The `research/` archive by battery, each run in RECORDED mode, with pinned digests and `MANIFEST.json` checked in the browser |
 | Docs, Settings, legal | Seven articles; draft Terms, Privacy, Limitations and About pages awaiting the owner's sign-off |
 
-The portal goes public only when every release gate in
-[docs/security/release-checklist.md](docs/security/release-checklist.md) reads PASS. More:
+The portal is deployed: see [Deployment status](#deployment-status). More:
 [apps/web/README.md](apps/web/README.md). The design (tokens, the status encoding without colour, the Quorum logo kit, curated screens and the heuristic evaluation behind it): [docs/design/](docs/design/README.md).
+
+### Deployment status
+
+As of 2026-11-03. The portal is deployed and public at
+[consensus.terrizoaguimor.dev](https://consensus.terrizoaguimor.dev), on a Vultr VPS behind a
+Cloudflare named tunnel (`consensus-public`). On 2026-10-31 nothing was deployed, and the plan
+was to expose it only when every release gate in
+[docs/security/release-checklist.md](docs/security/release-checklist.md) read PASS. It was
+first exposed on 2026-11-01 (guided runs and the research showcase from 14:57 UTC, live mode
+off); live mode was switched on at 15:45 UTC the same day, on the owner's dedicated Meta key
+under a fixed budget of $10 a day and $60 in total, behind Cloudflare Turnstile, with judge
+codes (5 live runs per code a day; 3 public live runs per visitor a day) and the sealed
+snapshot `snap-2026-10-29-demo-repo` on the server. The build running now is `ab0847a`
+(deployed 2026-11-02, restart at 17:45 UTC); the commits since then changed documentation only.
+Cloudflare WAF, bot, rate-limit and geo-challenge rules were added on 2026-11-02 (about
+18:08 UTC). A live read of `/api/v1/health`, `/ready` and `/capabilities` when this section was
+written answered `ok`, `ready: true` and `live_enabled: true`.
+
+**The release gates were not all recorded PASS before the portal went public.** The
+checklist's status column is dated 2026-10-28/29 and was not updated after the deployment, so
+it still reads "pending". What the owner's deploy log (kept outside this repository) records:
+PASS for G4 (canary scan, at every deploy, with the real key in place since the live step) and
+for G6 (edge HTML byte-equal to the origin's, `deploy/scripts/verify-edge.sh`, also at
+`ab0847a`); G8 PASS on Linux (every gate of `scripts/linux-gates.sh --release` before each
+deploy; CI green for `ab0847a` and `e540fd7`). Probed, without a gate verdict written: G1 (the
+old router's paths answer 404 through the edge), G3 (an edge rate limit answered 429, the
+ledger and the kill switch were exercised) and G9 (the boot check over the real snapshot with
+the pinned verifier). No PASS is recorded for G2 (the two-browser isolation probe), G5, G7, G10
+(the owner's sign-off of the legal texts), G11 (the staging rehearsal) or G12 (CI is green and
+runs `cargo deny`, but has no `pnpm audit` step). The exposure therefore went ahead with those
+gates open or not independently recorded, and this repository holds no record of an owner
+decision naming the gates that still applied.
 
 ## What is verified and what is not
 
@@ -247,7 +288,7 @@ The portal goes public only when every release gate in
 | The event log is SHA-256 hash-chained, verified on open; replay re-derives every recommendation of schema 1.1+ and rejects a forged one | The chain is **not signed**: it reveals a later change, not a full rewrite, and does not prove request ids, tokens or latencies are what Meta returned |
 | Protocol 1.3 enforces the evaluation contract for every model client: one assessment per claim, cited ids from the retrieved set, a verdict for every open objection, carry-forward across rounds | Runs recorded before 1.3 keep their recorded semantics (R06's 7 round-1 objections were never re-judged) |
 | Only a human records an authorization; nothing is executed | "Models never decide" holds in form, not substance (see above) |
-| Every run is labelled from its records: SIMULATED, RECORDED, LIVE | Release gate G7 (labels through the public hostname) is pending: nothing is deployed |
+| Every run is labelled from its records: SIMULATED, RECORDED, LIVE | Release gate G7 (labels asserted through the public hostname) has no recorded PASS: the portal is deployed ([Deployment status](#deployment-status)), but the Playwright suite asserts the labels over a mocked API and no run of it through the hostname is recorded |
 | The archive is byte-identical, pinned by `research/MANIFEST.json` and `research/SHA256SUMS` | The raw model drafts and Hyphae proof witnesses are not published, so a clone cannot re-run the verifier |
 
 Every receipt states its limits in `proof_limitations` (`RunReceipt::DEFAULT_LIMITATIONS`). The
@@ -276,8 +317,10 @@ As ADR-0008 decision 2 decides, the production server pins:
 | SHA-256 of the Hyphae binary | `79025e8758ee7481f572d0451756c0e0771e96d13cd7134319367afa8b11a15f` | `CONSENSUS_HYPHAE_BIN_SHA256` |
 
 `sha256sum snapshots/snap-2026-10-29-demo-repo/manifest.json` prints the manifest digest; the
-manifest records the anchor and the binary digest. The binary digest has **not yet** been
-compared with the release tarball (runbook §3.2). The snapshot is not on any server yet. Full
+manifest records the anchor and the binary digest. On 2026-11-01, during the deploy, the
+Hyphae 4.0.0 release tarball (`cf92ed6d…`) was downloaded and checked and its binary matched
+the binary pin (runbook §3.2; the owner's deploy log). The sealed snapshot directory has been
+on the server since that day, checked there against the manifest. Full
 notes: [docs/verification.md](docs/verification.md#published-snapshot-digests).
 
 ## Results
@@ -339,7 +382,7 @@ the **never delete `demo-run/`** rule: [docs/running-locally.md](docs/running-lo
 | `schemas/` | JSON Schemas of the domain contracts (`cargo run -p consensus-domain --example write_schemas`) |
 | `research/` | Verbatim archive of the recorded runs, with `MANIFEST.json` and `SHA256SUMS` |
 | `snapshots/` | Public files of the sealed snapshot `snap-2026-10-29-demo-repo` |
-| `deploy/` | systemd units, cloudflared template, environment templates and operator scripts for the planned server (`deploy/README.md`) |
+| `deploy/` | systemd units, cloudflared template, environment templates and operator scripts for the server (`deploy/README.md`) |
 | `scripts/` | Hyphae container scripts, battery driver and table, snapshot and research manifest tools, Linux gates, third-party notices |
 | `demo-repo/` | Synthetic demo repository (the payment-client fixture) |
 | `docs/` | ADRs, architecture, threat model, release checklist, runbook, deploy day, evaluation, results, verification, Meta API, running locally, roadmap; README images in `docs/assets/` |
@@ -373,8 +416,8 @@ Enforced in code and covered by tests; the full wording, with the audit findings
   requires its bearer token on every `/api` route; on the public server a visitor can decide
   only on their own runs, recorded with `authority: public_demo` (no operational authority).
 - **No execution before approval.** The executor is deferred; approval only records the decision.
-- **Bounded debate and cost.** At most 2 revision rounds plus a no-progress exit, 9 model
-  calls, 20 distinct evidence records and `CONSENSUS_MAX_RUN_TOKENS` (default 150,000; public
+- **Bounded debate and cost.** At most 2 revision rounds plus a no-progress exit, 9 role
+  calls plus at most 2 re-asks, 20 distinct evidence records and `CONSENSUS_MAX_RUN_TOKENS` (default 150,000; public
   live runs `CONSENSUS_LIVE_RUN_TOKEN_CAP`, default 70,000) tokens per run.
 - **Tamper-evident history.** Events are SHA-256 hash-chained and verified on open; each
   receipt carries `head_hash`; the chain is unsigned.

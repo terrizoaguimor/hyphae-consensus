@@ -2,8 +2,12 @@
 
 Date: 2026-10-29 · Describes the code at `bc3b262` (branch `feat/public-portal`, merge of
 web lane W2, committed 2026-10-28); the snapshot capture of 2026-10-29 (`b0375df`) and its
-boot check (`0515f29`) are noted where they change the picture · Nothing is deployed: the public portal is not exposed
-until every release gate G1–G12 (`docs/security/release-checklist.md`) reads PASS.
+boot check (`0515f29`) are noted where they change the picture · Nothing was deployed when this
+was written (2026-10-29), and the policy then was that the public portal stays unexposed until
+every release gate G1–G12 (`docs/security/release-checklist.md`) reads PASS. Update 2026-11-03:
+the portal has been deployed and public since 2026-11-01, with live mode on, and the build
+running now is `ab0847a`; not every gate was recorded PASS (README, "Deployment status"). The
+text below describes the code at `bc3b262` and is not rewritten for the deployment.
 
 This document consolidates ADR-0001 to ADR-0010 with the code as it stands. Where an ADR
 and the code differ, this document follows the code and says so (section 11). It is a
@@ -34,7 +38,7 @@ Runs come in three honest modes, fixed server-side per route (ADR-0006, ADR-0008
 | Mode | Model | Evidence | Where |
 |---|---|---|---|
 | Guided | scripted doubles (`provider: "fake"`) | seeded records, proofs labelled SIMULATED | public `POST /api/v1/runs` (scenario id only) |
-| Live | Meta Model API on the owner's key | the sealed Hyphae snapshot | public `POST /api/v1/live-runs` (preset id only), off by default; not deployed. The snapshot `snap-2026-10-29-demo-repo` was captured on 2026-10-29 (`b0375df`), but the code at `bc3b262` (and at `6e202eb`) refuses it at boot (`response_invalid`, section 2.4); with the fix `0515f29` (merged as `7e26866`) one live run went through the public router in-process over the real snapshot, against a local fake Meta server. No live run has used the real Meta API in this mode |
+| Live | Meta Model API on the owner's key | the sealed Hyphae snapshot | public `POST /api/v1/live-runs` (preset id only), off by default; not deployed when this was written (on in production since 2026-11-01). The snapshot `snap-2026-10-29-demo-repo` was captured on 2026-10-29 (`b0375df`), but the code at `bc3b262` (and at `6e202eb`) refuses it at boot (`response_invalid`, section 2.4); with the fix `0515f29` (merged as `7e26866`) one live run went through the public router in-process over the real snapshot, against a local fake Meta server. As of 2026-10-29 no live run had used the real Meta API in this mode; the deployed portal has run public live runs since 2026-11-01 |
 | Recorded showcase | as recorded | as recorded | `GET /api/v1/showcase*`, `/research/*`: the archived 2026-10-26/27 and 2026-10-30 runs, read-only |
 
 The operator console (`serve-operator`) can also run `model=meta` with `memory=hyphae`
@@ -273,9 +277,10 @@ route looks it up and records it after the start (ADR-0006, implementation note)
 
 ## 4. Data flow of a run, from creation to receipt
 
-The diagram shows a public live run as the code implements it. No public live run has
-happened yet: nothing is deployed, and the only run over the real sealed snapshot was the
-in-process boot check of 2026-10-29 (`0515f29`), whose Meta API was a local fake server. A guided run follows the same path without the
+The diagram shows a public live run as the code implements it. When this was written
+(2026-10-29) no public live run had happened: nothing was deployed, and the only run over the
+real sealed snapshot was the in-process boot check of 2026-10-29 (`0515f29`), whose Meta API
+was a local fake server. Public live runs have run on the deployed portal since 2026-11-01. A guided run follows the same path without the
 gate, Siteverify, the ledger and the Meta API: the scripted doubles and the simulated
 verifier answer in milliseconds, and the stream then delivers the stored records as
 `replay` frames, which the web client paces and labels "simulated · paced for
@@ -600,7 +605,7 @@ From `docs/deployment/runbook.md` and `deploy/`:
   (`scripts/linux-gates.sh`, Ubuntu 24.04) on the tree of `25c7867`, 7 of 7 gates,
   603 passed / 0 failed / 2 ignored. The two ignored tests are the gated live probes
   `live_hyphae_probe` and `live_meta_propose`. The fresh-clone run of G8 is still owed.
-- Release gates: G8 PASS; G12 partly; G1–G7 and G9–G11 pending
+- Release gates (as of 2026-10-29; README "Deployment status" has what the deployment recorded): G8 PASS; G12 partly; G1–G7 and G9–G11 pending
   (`docs/security/release-checklist.md`).
 - Since `25c7867` the crates changed only in a doc comment (`ports.rs`, `88e85d5`), and
   lane W2's merge (`bc3b262`) changed `apps/web`; the gates were not re-run at `bc3b262`.

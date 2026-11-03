@@ -56,6 +56,21 @@ describe("analyzeHtml", () => {
     expect(result.inlineScripts.dataBlocks).toBe(1);
   });
 
+  it("leaves a JSON-LD block out of the hashes: it is data, and a hash would only widen the policy", () => {
+    const jsonLd = '{"@context":"https://schema.org","@type":"WebApplication","name":"x"}';
+    const result = analyzeHtml(
+      page(
+        `<script>${THEME_SCRIPT}</script>`,
+        `<script type="application/ld+json">${jsonLd}</script>`,
+      ),
+    );
+    expect(result.violations).toEqual([]);
+    expect(result.scriptHashes).toEqual([cspHash(THEME_SCRIPT)]);
+    expect(result.scriptHashes).not.toContain(cspHash(jsonLd));
+    expect(result.inlineScripts.total).toBe(1);
+    expect(result.inlineScripts.dataBlocks).toBe(1);
+  });
+
   it("rejects inline event handlers, including inside <template>", () => {
     const result = analyzeHtml(
       page(

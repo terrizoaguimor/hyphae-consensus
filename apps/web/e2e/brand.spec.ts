@@ -260,8 +260,10 @@ test("the static export serves the favicon, the icons and the Open Graph image, 
       links.filter(({ rel }) => rel === "apple-touch-icon").map(({ href, sizes }) => ({ href, sizes })),
       path,
     ).toEqual([{ href: "/apple-touch-icon.png", sizes: "180x180" }]);
-    // No manifest (the app has none; the server's CSP sets no manifest-src).
-    expect(links.filter(({ rel }) => rel === "manifest"), path).toEqual([]);
+    // The web app manifest (app/manifest.ts), linked from every document.
+    expect(links.filter(({ rel }) => rel === "manifest").map(({ href }) => href), path).toEqual([
+      "/manifest.webmanifest",
+    ]);
     const metas = tags(head, "meta");
     expect(
       metas.filter(({ name }) => name === "theme-color").map(({ media, content }) => ({ media, content })),
@@ -275,12 +277,14 @@ test("the static export serves the favicon, the icons and the Open Graph image, 
         metas.filter(({ property }) => property?.startsWith("og:")).map(({ property, content }) => [property, content]),
       );
       const locale = locales.find((candidate) => path.startsWith(`/${candidate}/`)) ?? "en";
-      expect(og, path).toEqual({
+      // The root page keeps the layout-wide tags (same-origin og:image when
+      // the build has no origin); the localized pages carry per-page tags,
+      // checked in full by e2e/seo.spec.ts, with an absolute og:image.
+      const localized = path !== "/";
+      expect(og, path).toMatchObject({
         "og:type": "website",
         "og:site_name": t(locale, "App.name"),
-        "og:title": t(locale, "Metadata.title"),
-        "og:description": t(locale, "Metadata.description"),
-        "og:image": "/og-image.png",
+        "og:image": localized ? "https://consensus.terrizoaguimor.dev/og-image.png" : "/og-image.png",
         "og:image:type": "image/png",
         "og:image:width": "1200",
         "og:image:height": "630",
@@ -289,7 +293,7 @@ test("the static export serves the favicon, the icons and the Open Graph image, 
       expect(metas.filter(({ name }) => name === "twitter:card").map(({ content }) => content), path).toEqual([
         "summary_large_image",
       ]);
-      // Never an absolute address the export cannot know (Next's localhost fallback).
+      // Never Next's localhost fallback for a missing metadataBase.
       expect(head, path).not.toContain("localhost");
     }
   }

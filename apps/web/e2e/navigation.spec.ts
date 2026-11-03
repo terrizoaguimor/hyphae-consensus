@@ -49,8 +49,11 @@ for (const locale of locales) {
       await expect(h1).toBeFocused();
       await expect(link).toHaveAttribute("aria-current", "page");
       await expect(page.locator("html")).toHaveAttribute("lang", locale);
+      // The overview is the home page: its title is the full headline.
       await expect(page).toHaveTitle(
-        `${t(locale, `Nav.${key}`)} · Hyphae Consensus`,
+        key === "overview"
+          ? t(locale, "Metadata.homeTitle")
+          : `${t(locale, `Nav.${key}`)} · Hyphae Consensus`,
       );
     }
   });

@@ -9,9 +9,11 @@ import { notFound } from "next/navigation";
 import { hasLocale } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 
+import { dynamicTranslator } from "@/i18n/dynamic";
 import { type Locale, routing } from "@/i18n/routing";
 
-import type { NavKey } from "./site";
+import { noindexPaths, pageMetadata } from "./seo";
+import { footerNav, type NavKey, primaryNav } from "./site";
 
 export type LocaleParams = { params: Promise<{ locale: string }> };
 
@@ -27,9 +29,43 @@ export async function pageLocale(
 }
 
 /**
- * Page title from the navigation label. The layout's title template adds the
- * app name to pages in child segments; Overview shares the layout's segment,
- * where a template does not apply, so it gets the full title directly.
+ * The head of a localized page: title, its own description, canonical and
+ * hreflang alternates, Open Graph and Twitter tags (src/lib/seo.ts).
+ * `descriptionKey` is a key of the Metadata catalog (pageDescriptions.<page>
+ * or docDescriptions.<slug>). The title is `title` with the layout's
+ * template applied ("<title> · Hyphae Consensus"), or `absoluteTitle` as is.
+ */
+export async function localizedPageMetadata(
+  params: Promise<{ locale: string }>,
+  page: {
+    path: string;
+    descriptionKey: string;
+    title?: string;
+    absoluteTitle?: string;
+    noindex?: boolean;
+  },
+): Promise<Metadata> {
+  const locale = await pageLocale(params);
+  const t = await getTranslations({ locale });
+  const title =
+    page.absoluteTitle ??
+    t("Metadata.titleTemplate").replace("%s", page.title ?? "");
+  return pageMetadata({
+    locale,
+    path: page.path,
+    title,
+    description: dynamicTranslator(t)(`Metadata.${page.descriptionKey}`),
+    siteName: t("App.name"),
+    imageAlt: t("Metadata.ogImageAlt"),
+    ...(page.noindex === undefined ? {} : { noindex: page.noindex }),
+  });
+}
+
+/**
+ * Metadata of a page in the navigation (primary or footer). The overview is
+ * the site's home: its title is the full "Hyphae Consensus - ..." line
+ * (Metadata.homeTitle), not "Overview · Hyphae Consensus"; Settings is kept
+ * out of search results.
  */
 export async function navPageMetadata(
   params: Promise<{ locale: string }>,
@@ -37,8 +73,18 @@ export async function navPageMetadata(
 ): Promise<Metadata> {
   const locale = await pageLocale(params);
   const t = await getTranslations({ locale });
-  const label = t(`Nav.${key}`);
-  return key === "overview"
-    ? { title: { absolute: t("Metadata.titleTemplate").replace("%s", label) } }
-    : { title: label };
+  const path = [...primaryNav, ...footerNav].find((entry) => entry.key === key)?.path ?? "";
+  if (key === "overview") {
+    return localizedPageMetadata(params, {
+      path,
+      descriptionKey: "description",
+      absoluteTitle: t("Metadata.homeTitle"),
+    });
+  }
+  return localizedPageMetadata(params, {
+    path,
+    descriptionKey: `pageDescriptions.${key}`,
+    title: t(`Nav.${key}`),
+    noindex: (noindexPaths as readonly string[]).includes(path),
+  });
 }

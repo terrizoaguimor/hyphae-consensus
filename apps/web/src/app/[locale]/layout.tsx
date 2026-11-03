@@ -19,13 +19,12 @@ import { PrimaryNav } from "@/components/PrimaryNav";
 import { Providers } from "@/components/Providers";
 import { QuorumMark } from "@/components/Quorum";
 import { RouteFocus } from "@/components/RouteFocus";
-import { SocialMeta } from "@/components/SocialMeta";
 import { ThemeScript } from "@/components/ThemeScript";
 import { ThemeControl } from "@/components/ThemeControl";
 import { endonyms } from "@/i18n/endonyms";
 import { pickClientMessages } from "@/i18n/messages";
 import { routing } from "@/i18n/routing";
-import { brandIcons, brandViewport } from "@/lib/brand";
+import { brandIcons, brandViewport, PUBLIC_ORIGIN } from "@/lib/brand";
 import { type LocaleParams, pageLocale } from "@/lib/pageLocale";
 import { localePath } from "@/lib/site";
 
@@ -44,8 +43,12 @@ export async function generateMetadata({
 }: LocaleParams): Promise<Metadata> {
   const locale = await pageLocale(params);
   const t = await getTranslations({ locale, namespace: "Metadata" });
+  // Every page returns its own title, description, canonical, alternates and
+  // social tags (localizedPageMetadata in src/lib/pageLocale.ts); these are
+  // the defaults and the base of every relative address.
   return {
-    title: { template: t("titleTemplate"), default: t("title") },
+    metadataBase: new URL(PUBLIC_ORIGIN),
+    title: { template: t("titleTemplate"), default: t("homeTitle") },
     description: t("description"),
     icons: brandIcons,
   };
@@ -70,12 +73,6 @@ export default async function LocaleLayout({
     >
       <head>
         <ThemeScript />
-        <SocialMeta
-          siteName={t("App.name")}
-          title={t("Metadata.title")}
-          description={t("Metadata.description")}
-          imageAlt={t("Metadata.ogImageAlt")}
-        />
       </head>
       <body>
         <Providers locale={locale} messages={pickClientMessages(messages)}>

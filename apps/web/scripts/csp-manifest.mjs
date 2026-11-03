@@ -34,7 +34,10 @@ export function cspHash(text) {
 }
 
 // <script type> values that make the browser run the body (and so fall under
-// script-src). Anything else is a data block, which CSP does not govern.
+// script-src). Anything else is a data block, which CSP does not govern: the
+// home page's JSON-LD (<script type="application/ld+json">, SEO) is one, and
+// is counted under `dataBlocks` but deliberately given no hash, so the header
+// of that page does not widen (tests/csp-manifest.test.ts, e2e/seo.spec.ts).
 const EXECUTABLE_SCRIPT_TYPES = new Set([
   "",
   "module",

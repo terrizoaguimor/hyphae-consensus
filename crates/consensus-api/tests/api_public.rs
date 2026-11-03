@@ -358,6 +358,7 @@ async fn security_headers_and_per_page_csp_are_present() {
     );
     assert!(csp.contains("default-src 'none'") && csp.contains("frame-ancestors 'none'"));
     assert!(csp.contains("https://challenges.cloudflare.com"));
+    assert!(csp.contains("manifest-src 'self'"));
     assert!(!csp.contains("unsafe-eval") && !csp.contains("script-src 'self' 'unsafe-inline'"));
     assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
     // HTTP/2 style: the authority travels in the request target, with no

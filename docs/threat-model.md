@@ -1649,3 +1649,63 @@ today); the security of the owner's development machine beyond keeping the Node 
 in containers; and the Cloudflare dashboard settings (WAF rules, edge features, Access,
 Turnstile widget), which no file in this repository configures and the release checklist
 gates. The server side is in scope as far as the `deploy/` templates describe it (T41).
+
+## 7. Final audit 2026-11-03
+
+An audit of the tree at `e540fd7` (after the deployed `ab0847a`), read-only, with no live
+Meta call and no request to production.
+
+**What was run.**
+
+- `sh scripts/linux-gates.sh` in full: all ten gates passed (fmt, clippy `-D warnings`, the
+  workspace tests, the demo crate, the conformance example with 10 of 10 cases and 0
+  unauthorized executions, and the self-tests of the manifest, baseline-driver, capture,
+  edge and restart scripts). Tests: 753 passed, 0 failed, 2 ignored (the live probes).
+  `--release` passed again and built `dist/consensus-api` from the same commit.
+- `pnpm check` in `apps/web` (Docker): theme, API types, typecheck, lint, vitest (42 files,
+  972 passed, 15 skipped) and the build (75 static pages). The first run stopped with
+  "Another next build process is already running" and its cause was not established; the
+  sequential rerun passed.
+- The whole Playwright suite on that build (four projects): 620 tests, 619 passed, 1
+  failed. The failure was the webkit `api.spec.ts:109`, `@smoke`, which passed 3 of 3 runs
+  in isolation, so it is classed as a flake under load (it also logged style-src CSP
+  console errors in the failing run only; they were not analysed further).
+- `scripts/deploy-rehearsal.sh` (mode A only): 190 passed, 0 failed.
+- A line-by-line security read of the Rust server (routers and middleware, handlers,
+  sessions, limits, the run manager, static files, the live gate and ledger, the Meta and
+  Turnstile clients) and of the web app, plus checks of deploy parity, of the accuracy of
+  the documents' claims against the code, and of repository hygiene.
+- Not run: `cargo deny` and `cargo audit` (CI runs deny), `deploy/scripts/sse-heartbeat-test.sh`
+  (needs a live host), the rehearsal's snapshot mode B.
+
+**Fixed.**
+
+1. `RunManager::reserve` counted a start that waits for a slot with `fetch_add` and
+   uncounted it after the wait, with no guard. A handler future dropped during the wait
+   (a client disconnect) skipped the decrement; 32 such aborts made `queued >= max_queue`
+   permanent until restart, so every start that found no free slot was refused at once
+   (`too_many_runs`) and `/ready` `queued_runs` stayed wrong. A drop guard now uncounts
+   the start exactly once on every path (`QueuedGuard`, `crates/consensus-api/src/runs.rs`).
+   Tests, same file: `a_start_dropped_while_it_waits_gives_its_queue_place_back`,
+   `a_start_that_waits_past_the_admission_wait_is_refused_and_uncounted` and
+   `a_start_that_gets_the_slot_while_it_waits_is_uncounted`.
+2. `HttpSiteverify` followed redirects and read an unbounded body, unlike the Meta client.
+   It now uses `redirect::Policy::none()` and reads at most 64 KiB
+   (`SITEVERIFY_MAX_RESPONSE_BYTES`); a redirect or a longer answer is a
+   `TurnstileError::Outage`, which refuses the visitor and never verifies
+   (`crates/consensus-api/src/live/turnstile.rs`). Tests, `crates/consensus-api/tests/live_turnstile.rs`:
+   `http_transport_does_not_follow_a_redirect_and_fails_closed` and
+   `http_transport_refuses_an_oversize_answer_even_when_it_would_pass`.
+
+**Accepted, low severity.**
+
+- `reserve()` of the live ledger leaves its reservation open when the summary write fails
+  after the append. It fails closed on money (the amount stays held); the operator
+  releases it with `deploy/scripts/ledger.sh`.
+- The kill switch uses `Path::exists()`, so a stat error reads as "not tripped". It needs a
+  misconfigured path; the default path is inside the ledger directory that the server
+  owns.
+- `public_view` builds one round per distinct `round` value of a record. No request can
+  produce such values; only a crafted log whose hashes are valid can.
+- One moderate advisory, GHSA-g3hv-75wg-m249 (`minimatch`), in the lint tooling only; the
+  production dependency audit (`--prod`) reports none.

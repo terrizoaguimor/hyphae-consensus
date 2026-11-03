@@ -129,7 +129,7 @@ The [README](../README.md) has a summary of this page.
   set explicitly or the defaults.
 - **Prompts.** Everything a role did not write itself sits in separate `<UNTRUSTED_*>`
   blocks; a mitigation, not a boundary (details in [verification.md](verification.md#safety-invariants-enforced-in-code-covered-by-tests)).
-- **The public live mode (on the owner's key; not deployed).** Decided in ADR-0007,
+- **The public live mode (on the owner's key; deployed and enabled since 2026-11-01).** Decided in ADR-0007,
   operated per `docs/deployment/runbook.md`:
   - **No hosted BYOK.** The portal never accepts a visitor's Meta key (Meta's Model API
     terms make keys confidential and forbid gateway access; ADR-0007). Visitors who want
@@ -163,5 +163,8 @@ The [README](../README.md) has a summary of this page.
     reservation with `consensus-api ledger status | reset | release` (reconciliation with
     the provider dashboard: runbook §9.3).
   - Each public live request carries the session's pseudonym (`visitor:<16 hex>`) as
-    `safety_identifier`. Measured cost on the final code (ADR-0007): $0.81 mean, $0.98
-    maximum per run.
+    `safety_identifier`. ADR-0007 reports a measured cost on its final code of $0.81 mean, $0.98
+    maximum per run; [results.md](results.md) does not reproduce that figure. The
+    2026-11-01 validation runs cost $0.35 to $1.13 each at the operator's prices
+    ([evaluation §6.6 and §6.7](evaluation.md#66-validation-with-the-critic-on-muse-spark-13-v01v03-2026-11-01); not
+    checked against Meta's billing).

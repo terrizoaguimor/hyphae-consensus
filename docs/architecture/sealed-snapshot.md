@@ -638,5 +638,6 @@ Two scratch sessions, then the real one, all in `hyphae-consensus` (hyphae 4.0.0
      which differs from the demo store's.
 - The manifest SHA-256 after the last `build` and `check` is
   `b731346c8464796ec17641d5099819cd1ff99525f1ee51409ac8ad790bc1014a`.
-- Still owed before publishing: compare `hyphae-binary.sha256` with the binary extracted from the
-  release tarball checked against `cf92ed6d…` (runbook 3.2).
+- Owed when this was written: compare `hyphae-binary.sha256` with the binary extracted from the
+  release tarball checked against `cf92ed6d…` (runbook 3.2). Made on 2026-11-01 during the deploy:
+  it matched (the owner's deploy log, outside the repository).

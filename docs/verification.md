@@ -62,19 +62,20 @@ decision 2 decides, these are the three values the production server pins:
 Check them in a clone: `sha256sum snapshots/snap-2026-10-29-demo-repo/manifest.json` prints
 the manifest digest, and the manifest records the anchor (`anchor_hex`) and the binary digest
 (`hyphae.binary_sha256`, also in `hyphae-binary.sha256`). The binary digest is the one the
-capture recorded for the container's binary; it has **not yet** been compared with the binary
-extracted from the release tarball checked against `cf92ed6d…`
-(`docs/deployment/runbook.md` section 3.2). The proofs and witnesses are not published
+capture recorded for the container's binary; on 2026-11-01, during the deploy, it was compared
+with the binary extracted from the release tarball (checked against `cf92ed6d…`) and matched
+(`docs/deployment/runbook.md` section 3.2; the owner's deploy log, outside the repository). The proofs and witnesses are not published
 (ADR-0008 decision 3), so a clone cannot re-run the verifier, and the committed directory
 alone does not boot (`checksums_incomplete`). The release tag is to carry the same three
-values. The snapshot is not on any server yet.
+values. The sealed snapshot has been on the production server since 2026-11-01.
 
 ## SIMULATED, RECORDED and LIVE
 
 Every run carries provenance axes derived from its records (model, evidence, delivery),
 and the portal labels them so that a scripted or replayed run is never shown as live
-(release gate G7, pending: enforced in the API and the web workspace, not yet asserted
-through the public hostname; `apps/web/README.md`):
+(release gate G7, no recorded PASS: enforced in the API and the web workspace, and the
+Playwright suite asserts it over a mocked API, but no run through the public hostname is
+recorded; `apps/web/README.md`):
 
 - **SIMULATED**: scripted model doubles (`provider: fake`) and scripted proofs
   (`fake-verifier`, "SIMULATED proof"). The guided runs are simulated end to end; their

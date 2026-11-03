@@ -227,7 +227,7 @@ archive's. Lossless greyscale PNGs.</sub>
 
 The portal goes public only when every release gate in
 [docs/security/release-checklist.md](docs/security/release-checklist.md) reads PASS. More:
-[apps/web/README.md](apps/web/README.md).
+[apps/web/README.md](apps/web/README.md). The design (tokens, the status encoding without colour, the Quorum logo kit, curated screens and the heuristic evaluation behind it): [docs/design/](docs/design/README.md).
 
 ## What is verified and what is not
 

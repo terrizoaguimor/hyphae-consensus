@@ -41,7 +41,7 @@ development window October 26 – November 4, 2026 · Owner: Mario (independent 
 
 ## For judges
 
-**Video:** [VIDEO_URL] · **Demo:** [DEMO_URL] · **Repository:** [github.com/terrizoaguimor/hyphae-consensus](https://github.com/terrizoaguimor/hyphae-consensus) · run it yourself in
+**Video:** [youtu.be/_1IIL8tueMw](https://youtu.be/_1IIL8tueMw) · **Demo:** [consensus.terrizoaguimor.dev](https://consensus.terrizoaguimor.dev) · **Repository:** [github.com/terrizoaguimor/hyphae-consensus](https://github.com/terrizoaguimor/hyphae-consensus) · run it yourself in
 three commands: [Quick start](#quick-start) (no credential, no Meta call).
 
 **What it is.** Three Meta-model roles on the Meta Model API (the Proposer, for proposals and

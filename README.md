@@ -39,10 +39,10 @@ Verifiable multi-agent reasoning and decision accountability.</p>
 <h2 align="center" id="demo-video">Demo video</h2>
 
 <p align="center">
-  <a href="https://youtu.be/_1IIL8tueMw">
+  <a href="https://youtu.be/dHz74fjKHCg">
     <img src="docs/assets/video-thumbnail.png" alt="Play the demo video (2:53): Hyphae Consensus, three AIs argue, a person decides" width="720">
   </a><br>
-  <sub>▶ <a href="https://youtu.be/_1IIL8tueMw">Watch the demo (2:53)</a>: a recorded run of Meta's models, the Meta API calls, the proofs and the hash-chain check in the browser. English narration, subtitles in English and Spanish.</sub>
+  <sub>▶ <a href="https://youtu.be/dHz74fjKHCg">Watch the demo (2:53)</a>: a recorded run of Meta's models, the Meta API calls, the proofs and the hash-chain check in the browser. English narration, subtitles in English and Spanish.</sub>
 </p>
 
 Independent project; not affiliated with, sponsored by, or endorsed by Meta.
@@ -74,7 +74,7 @@ and tokens. Not used: SAM, open weights or fine-tuning, Muse Image or Voice. Bui
 
 The shortest path is [In 60 seconds](#in-60-seconds) above.
 
-**Video:** [youtu.be/_1IIL8tueMw](https://youtu.be/_1IIL8tueMw) · **Demo:** [consensus.terrizoaguimor.dev](https://consensus.terrizoaguimor.dev) · **Repository:** [github.com/terrizoaguimor/hyphae-consensus](https://github.com/terrizoaguimor/hyphae-consensus) · run it yourself in
+**Video:** [youtu.be/dHz74fjKHCg](https://youtu.be/dHz74fjKHCg) · **Demo:** [consensus.terrizoaguimor.dev](https://consensus.terrizoaguimor.dev) · **Repository:** [github.com/terrizoaguimor/hyphae-consensus](https://github.com/terrizoaguimor/hyphae-consensus) · run it yourself in
 three commands: [Quick start](#quick-start) (no credential, no Meta call).
 
 **What it is.** Three Meta-model roles on the Meta Model API (the Proposer, for proposals and
